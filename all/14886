@@ -1,0 +1,1436 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Dec 17 03:34:31 2014
+Received: from mail-ig0-f178.google.com (mail-ig0-f178.google.com [209.85.213.178])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id sBH8YLhh021292
+	for <bugs@bugs.plt-scheme.org>; Wed, 17 Dec 2014 03:34:21 -0500
+Message-Id: <201412170834.sBH8YHv1021251@winooski.ccs.neu.edu>
+Date: Wed, 17 Dec 2014 03:34:17 -0500
+From: thomas.lynch@reasoningtechnology.com
+To: bugs@racket-lang.org
+Subject: match does not appear to be time bounded against input 
+
+>Number:         14886
+>Category:       all
+>Synopsis:       match does not appear to be time bounded against input
+>Class:          change-request
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Dec 17 03:36:01 -0500 2014
+>Last-Modified:  Wed Dec 17 12:20:01 -0500 2014
+>Originator:     Thomas Lynch
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+linux-ubuntu
+>Description:
+This is about (match) and its current behavior in no-deterministic cases.  I hope this is at least interesting as an issue.  It does seem there is a class of bugs related to programmers not understanding the current behavior.
+
+Consider a formal acceptor for the language .*3.*  That is Kleene star applied to any character repeated any number of times followed by a '3' followed by any character repeated any number of times.
+
+Notice the expression is not well formed in a deterministic system.  The initial state for the corresponding state machine, say S0, would have two active arcs leaving when a 3 is discovered.  I.e. the right recursive grammar is ambiguous.  But even worse, the acceptor never finishes. 
+
+Actually, for an acceptor the final .* is redundant, so we can drop it.  We still have the problem of determinism.  So let's punt and say the machine is non-deterministic.
+
+Now, for (match).  In this case we are pulling strings out of the expression,  so x ... 3  r ...  , i.e. (.*)3(.*)   Dropping the final (.*) is the same as passing (rest) to the output. 
+
+However, there is the problem that there isn't a unique solution.  The non-determinstic statemachine representation will branch to {S0,S1} (i.e. find a match) upon finding the first 3 on the tape (in the list).  It will then branch again each time it finds another 3.  Thus we would get back a list of matches.  The first member of this list is the solution we would get with (^3)*3  and the last one the most greedy possible solution.  The time to reach the first solution is the time to reach the first '3', which will be in the worse case forever if there is no 3.  The time to reach the most greedy solution is at worse case forever independent of the location of the 3, but dependent on the length of the list.  (For the pragmatists among us, consider that we are reading the list from a pipe one element at a time and passing that to match.)  In both cases it is order linear time to traverse the list of course.
+
+(match) chooses to make this situation deterministic by taking the most greedy solution, the one that guarantees we wait the longest amount of time to compute (provided one computes each in minimum time).
+
+The purest in me would like to have the nondeterministic solution, i.e. the list of matches, and then to evaluate match in a lazy manner so I can look to see which I like and then through the rest of the computation away ..
+
+However, it seems that for two reasons, it might make sense to augment the current deterministic (match).  
+1=> would rather time bound by the pattern I am looking for (the 3 in this case) rather than by the time bound of the producer, which, say for a pipe, is forever.  
+2=>  This situation might not be well understood by (match) users, greedy behavior is hard to apply to looking for things on the top of a stack and in linear parsing of simple streams, so we might end up with more solid programs by adding a feature to match. This would be the case even if the programmers just see the issue in the docs, and say "oh I get it" rather than ignoring it.
+
+Say, to tell match to choose the least greedy, quickest interpretation:
+
+ x ... (until 3) rest ...
+
+To tell match to pick an intermediate interpretation based on balanced delimiters, (we need a little longer example, consider):
+
+  1 x ... 3 rest ...
+
+Then
+   
+   (open 1) x ... (close 3) rest ...
+
+And then the current syntax could remain greedy.
+
+
+>How-To-Repeat:
+see 
+
+http://stackoverflow.com/questions/27392379/how-to-use-racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy.
+
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: thomas.lynch@reasoningtechnology.com, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14886: match does not appear to be time bounded
+ against input
+Date: Wed, 17 Dec 2014 12:46:15 +0000
+
+ --001a113343a88b637c050a68dcb6
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Thanks for the suggestion.
+ 
+ Currently, match isn't really designed to be a stream processing language.
+ I'd be willing to add a non-greedy version of ... based on a patch that you
+ (or someone else) wrote, but it isn't something I'm planning to work on.
+ 
+ Sam
+ 
+ On Wed, Dec 17, 2014, 3:36 AM null <thomas.lynch@reasoningtechnology.com>
+ wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14886
+ >
+ > Reported by Thomas Lynch for release: 5.2.1
+ >
+ > *** Description:
+ > This is about (match) and its current behavior in no-deterministic cases.
+ > I hope this is at least interesting as an issue.  It does seem there is a
+ > class of bugs related to programmers not understanding the current behavior.
+ >
+ > Consider a formal acceptor for the language .*3.*  That is Kleene star
+ > applied to any character repeated any number of times followed by a '3'
+ > followed by any character repeated any number of times.
+ >
+ > Notice the expression is not well formed in a deterministic system.  The
+ > initial state for the corresponding state machine, say S0, would have two
+ > active arcs leaving when a 3 is discovered.  I.e. the right recursive
+ > grammar is ambiguous.  But even worse, the acceptor never finishes.
+ >
+ > Actually, for an acceptor the final .* is redundant, so we can drop it.
+ > We still have the problem of determinism.  So let's punt and say the
+ > machine is non-deterministic.
+ >
+ > Now, for (match).  In this case we are pulling strings out of the
+ > expression,  so x ... 3  r ...  , i.e. (.*)3(.*)   Dropping the final (.*)
+ > is the same as passing (rest) to the output.
+ >
+ > However, there is the problem that there isn't a unique solution.  The
+ > non-determinstic statemachine representation will branch to {S0,S1} (i.e.
+ > find a match) upon finding the first 3 on the tape (in the list).  It will
+ > then branch again each time it finds another 3.  Thus we would get back a
+ > list of matches.  The first member of this list is the solution we would
+ > get with (^3)*3  and the last one the most greedy possible solution.  The
+ > time to reach the first solution is the time to reach the first '3', which
+ > will be in the worse case forever if there is no 3.  The time to reach the
+ > most greedy solution is at worse case forever independent of the location
+ > of the 3, but dependent on the length of the list.  (For the pragmatists
+ > among us, consider that we are reading the list from a pipe one element at
+ > a time and passing that to match.)  In both cases it is order linear time
+ > to traverse the list of course.
+ >
+ > (match) chooses to make this situation deterministic by taking the most
+ > greedy solution, the one that guarantees we wait the longest amount of time
+ > to compute (provided one computes each in minimum time).
+ >
+ > The purest in me would like to have the nondeterministic solution, i.e.
+ > the list of matches, and then to evaluate match in a lazy manner so I can
+ > look to see which I like and then through the rest of the computation away
+ > ..
+ >
+ > However, it seems that for two reasons, it might make sense to augment the
+ > current deterministic (match).
+ > 1=> would rather time bound by the pattern I am looking for (the 3 in this
+ > case) rather than by the time bound of the producer, which, say for a pipe,
+ > is forever.
+ > 2=>  This situation might not be well understood by (match) users, greedy
+ > behavior is hard to apply to looking for things on the top of a stack and
+ > in linear parsing of simple streams, so we might end up with more solid
+ > programs by adding a feature to match. This would be the case even if the
+ > programmers just see the issue in the docs, and say "oh I get it" rather
+ > than ignoring it.
+ >
+ > Say, to tell match to choose the least greedy, quickest interpretation:
+ >
+ >  x ... (until 3) rest ...
+ >
+ > To tell match to pick an intermediate interpretation based on balanced
+ > delimiters, (we need a little longer example, consider):
+ >
+ >   1 x ... 3 rest ...
+ >
+ > Then
+ >
+ >    (open 1) x ... (close 3) rest ...
+ >
+ > And then the current syntax could remain greedy.
+ >
+ >
+ >
+ > *** How to repeat:
+ > see
+ >
+ > http://stackoverflow.com/questions/27392379/how-to-use-
+ > racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy.
+ >
+ >
+ > *** Environment:
+ > linux-ubuntu
+ >
+ >
+ 
+ --001a113343a88b637c050a68dcb6
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Thanks for the suggestion. <br><br>Currently, match isn&#39;t really design=
+ ed to be a stream processing language. I&#39;d be willing to add a non-gree=
+ dy version of ... based on a patch that you (or someone else) wrote, but it=
+  isn&#39;t something I&#39;m planning to work on.<br><br>Sam<br><br><div cl=
+ ass=3D"gmail_quote">On Wed, Dec 17, 2014, 3:36 AM=C2=A0null &lt;<a href=3D"=
+ mailto:thomas.lynch@reasoningtechnology.com">thomas.lynch@reasoningtechnolo=
+ gy.com</a>&gt; wrote:<br><blockquote class=3D"gmail_quote" style=3D"margin:=
+ 0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">A new problem repor=
+ t is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14=
+ 886" target=3D"_blank">http://bugs.racket-lang.org/<u></u>query/?cmd=3Dview=
+ &amp;pr=3D14886</a><br>
+ <br>
+ Reported by Thomas Lynch for release: 5.2.1<br>
+ <br>
+ *** Description:<br>
+ This is about (match) and its current behavior in no-deterministic cases.=
+ =C2=A0 I hope this is at least interesting as an issue.=C2=A0 It does seem =
+ there is a class of bugs related to programmers not understanding the curre=
+ nt behavior.<br>
+ <br>
+ Consider a formal acceptor for the language .*3.*=C2=A0 That is Kleene star=
+  applied to any character repeated any number of times followed by a &#39;3=
+ &#39; followed by any character repeated any number of times.<br>
+ <br>
+ Notice the expression is not well formed in a deterministic system.=C2=A0 T=
+ he initial state for the corresponding state machine, say S0, would have tw=
+ o active arcs leaving when a 3 is discovered.=C2=A0 I.e. the right recursiv=
+ e grammar is ambiguous.=C2=A0 But even worse, the acceptor never finishes.<=
+ br>
+ <br>
+ Actually, for an acceptor the final .* is redundant, so we can drop it.=C2=
+ =A0 We still have the problem of determinism.=C2=A0 So let&#39;s punt and s=
+ ay the machine is non-deterministic.<br>
+ <br>
+ Now, for (match).=C2=A0 In this case we are pulling strings out of the expr=
+ ession,=C2=A0 so x ... 3=C2=A0 r ...=C2=A0 , i.e. (.*)3(.*)=C2=A0 =C2=A0Dro=
+ pping the final (.*) is the same as passing (rest) to the output.<br>
+ <br>
+ However, there is the problem that there isn&#39;t a unique solution.=C2=A0=
+  The non-determinstic statemachine representation will branch to {S0,S1} (i=
+ .e. find a match) upon finding the first 3 on the tape (in the list).=C2=A0=
+  It will then branch again each time it finds another 3.=C2=A0 Thus we woul=
+ d get back a list of matches.=C2=A0 The first member of this list is the so=
+ lution we would get with (^3)*3=C2=A0 and the last one the most greedy poss=
+ ible solution.=C2=A0 The time to reach the first solution is the time to re=
+ ach the first &#39;3&#39;, which will be in the worse case forever if there=
+  is no 3.=C2=A0 The time to reach the most greedy solution is at worse case=
+  forever independent of the location of the 3, but dependent on the length =
+ of the list.=C2=A0 (For the pragmatists among us, consider that we are read=
+ ing the list from a pipe one element at a time and passing that to match.)=
+ =C2=A0 In both cases it is order linear time to traverse the list of course=
+ .<br>
+ <br>
+ (match) chooses to make this situation deterministic by taking the most gre=
+ edy solution, the one that guarantees we wait the longest amount of time to=
+  compute (provided one computes each in minimum time).<br>
+ <br>
+ The purest in me would like to have the nondeterministic solution, i.e. the=
+  list of matches, and then to evaluate match in a lazy manner so I can look=
+  to see which I like and then through the rest of the computation away ..<b=
+ r>
+ <br>
+ However, it seems that for two reasons, it might make sense to augment the =
+ current deterministic (match).<br>
+ 1=3D&gt; would rather time bound by the pattern I am looking for (the 3 in =
+ this case) rather than by the time bound of the producer, which, say for a =
+ pipe, is forever.<br>
+ 2=3D&gt;=C2=A0 This situation might not be well understood by (match) users=
+ , greedy behavior is hard to apply to looking for things on the top of a st=
+ ack and in linear parsing of simple streams, so we might end up with more s=
+ olid programs by adding a feature to match. This would be the case even if =
+ the programmers just see the issue in the docs, and say &quot;oh I get it&q=
+ uot; rather than ignoring it.<br>
+ <br>
+ Say, to tell match to choose the least greedy, quickest interpretation:<br>
+ <br>
+ =C2=A0x ... (until 3) rest ...<br>
+ <br>
+ To tell match to pick an intermediate interpretation based on balanced deli=
+ miters, (we need a little longer example, consider):<br>
+ <br>
+ =C2=A0 1 x ... 3 rest ...<br>
+ <br>
+ Then<br>
+ <br>
+ =C2=A0 =C2=A0(open 1) x ... (close 3) rest ...<br>
+ <br>
+ And then the current syntax could remain greedy.<br>
+ <br>
+ <br>
+ <br>
+ *** How to repeat:<br>
+ see<br>
+ <br>
+ <a href=3D"http://stackoverflow.com/questions/27392379/how-to-use-racket-ma=
+ tch-to-parse-from-the-top-of-a-stack-turn-off-greedy" target=3D"_blank">htt=
+ p://stackoverflow.com/<u></u>questions/27392379/how-to-use-<u></u>racket-ma=
+ tch-to-parse-from-<u></u>the-top-of-a-stack-turn-off-<u></u>greedy</a>.<br>
+ <br>
+ <br>
+ *** Environment:<br>
+ linux-ubuntu<br>
+ <br>
+ </blockquote></div>
+ 
+ --001a113343a88b637c050a68dcb6--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: thomas.lynch@reasoningtechnology.com
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14886: match does not appear to be time bounded against input
+Date: Wed, 17 Dec 2014 09:48:12 -0500
+
+ Thomas, let me make Sam's suggestion a bit more precise. 
+ 
+ The entry point to the match implementation is found here: 
+  
+    https://github.com/plt/racket/blob/master/racket/collects/racket/match.rkt
+ 
+ The actual implementation is in this folder: 
+ 
+    https://github.com/plt/racket/tree/master/racket/collects/racket/match
+ 
+ You may wish to study the code and see whether you can design 
+ 
+   (match/nd exp match-clauses ...)
+ 
+ I highly recommend that you start with the creation of tests and run them by us. The dev@ list is probably better than the bug mailing list. 
+ 
+ I apologize for not being able to find the test suite for match. I am sure Sam can point you there 
+ 
+ Thanks for the suggestion and do holler if you need help. -- Matthias
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ On Dec 17, 2014, at 7:46 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ 
+ > Thanks for the suggestion. 
+ > 
+ > Currently, match isn't really designed to be a stream processing language. I'd be willing to add a non-greedy version of ... based on a patch that you (or someone else) wrote, but it isn't something I'm planning to work on.
+ > 
+ > Sam
+ > 
+ > On Wed, Dec 17, 2014, 3:36 AM null <thomas.lynch@reasoningtechnology.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14886
+ > 
+ > Reported by Thomas Lynch for release: 5.2.1
+ > 
+ > *** Description:
+ > This is about (match) and its current behavior in no-deterministic cases.  I hope this is at least interesting as an issue.  It does seem there is a class of bugs related to programmers not understanding the current behavior.
+ > 
+ > Consider a formal acceptor for the language .*3.*  That is Kleene star applied to any character repeated any number of times followed by a '3' followed by any character repeated any number of times.
+ > 
+ > Notice the expression is not well formed in a deterministic system.  The initial state for the corresponding state machine, say S0, would have two active arcs leaving when a 3 is discovered.  I.e. the right recursive grammar is ambiguous.  But even worse, the acceptor never finishes.
+ > 
+ > Actually, for an acceptor the final .* is redundant, so we can drop it.  We still have the problem of determinism.  So let's punt and say the machine is non-deterministic.
+ > 
+ > Now, for (match).  In this case we are pulling strings out of the expression,  so x ... 3  r ...  , i.e. (.*)3(.*)   Dropping the final (.*) is the same as passing (rest) to the output.
+ > 
+ > However, there is the problem that there isn't a unique solution.  The non-determinstic statemachine representation will branch to {S0,S1} (i.e. find a match) upon finding the first 3 on the tape (in the list).  It will then branch again each time it finds another 3.  Thus we would get back a list of matches.  The first member of this list is the solution we would get with (^3)*3  and the last one the most greedy possible solution.  The time to reach the first solution is the time to reach the first '3', which will be in the worse case forever if there is no 3.  The time to reach the most greedy solution is at worse case forever independent of the location of the 3, but dependent on the length of the list.  (For the pragmatists among us, consider that we are reading the list from a pipe one element at a time and passing that to match.)  In both cases it is order linear time to traverse the list of course.
+ > 
+ > (match) chooses to make this situation deterministic by taking the most greedy solution, the one that guarantees we wait the longest amount of time to compute (provided one computes each in minimum time).
+ > 
+ > The purest in me would like to have the nondeterministic solution, i.e. the list of matches, and then to evaluate match in a lazy manner so I can look to see which I like and then through the rest of the computation away ..
+ > 
+ > However, it seems that for two reasons, it might make sense to augment the current deterministic (match).
+ > 1=> would rather time bound by the pattern I am looking for (the 3 in this case) rather than by the time bound of the producer, which, say for a pipe, is forever.
+ > 2=>  This situation might not be well understood by (match) users, greedy behavior is hard to apply to looking for things on the top of a stack and in linear parsing of simple streams, so we might end up with more solid programs by adding a feature to match. This would be the case even if the programmers just see the issue in the docs, and say "oh I get it" rather than ignoring it.
+ > 
+ > Say, to tell match to choose the least greedy, quickest interpretation:
+ > 
+ >  x ... (until 3) rest ...
+ > 
+ > To tell match to pick an intermediate interpretation based on balanced delimiters, (we need a little longer example, consider):
+ > 
+ >   1 x ... 3 rest ...
+ > 
+ > Then
+ > 
+ >    (open 1) x ... (close 3) rest ...
+ > 
+ > And then the current syntax could remain greedy.
+ > 
+ > 
+ > 
+ > *** How to repeat:
+ > see
+ > 
+ > http://stackoverflow.com/questions/27392379/how-to-use-racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy.
+ > 
+ > 
+ > *** Environment:
+ > linux-ubuntu
+ > 
+ 
+ 
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: thomas.lynch@reasoningtechnology.com, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14886: match does not appear to be time bounded
+ against input
+Date: Wed, 17 Dec 2014 09:52:40 -0500
+
+ The tests for match are here:
+ https://github.com/plt/racket/tree/master/pkgs/racket-test/tests/match
+ 
+ Sam
+ 
+ On Wed, Dec 17, 2014 at 9:48 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > Thomas, let me make Sam's suggestion a bit more precise.
+ >
+ > The entry point to the match implementation is found here:
+ >
+ >    https://github.com/plt/racket/blob/master/racket/collects/racket/match.rkt
+ >
+ > The actual implementation is in this folder:
+ >
+ >    https://github.com/plt/racket/tree/master/racket/collects/racket/match
+ >
+ > You may wish to study the code and see whether you can design
+ >
+ >   (match/nd exp match-clauses ...)
+ >
+ > I highly recommend that you start with the creation of tests and run them by us. The dev@ list is probably better than the bug mailing list.
+ >
+ > I apologize for not being able to find the test suite for match. I am sure Sam can point you there
+ >
+ > Thanks for the suggestion and do holler if you need help. -- Matthias
+ >
+ >
+ >
+ >
+ >
+ >
+ >
+ >
+ >
+ >
+ > On Dec 17, 2014, at 7:46 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >
+ >> Thanks for the suggestion.
+ >>
+ >> Currently, match isn't really designed to be a stream processing language. I'd be willing to add a non-greedy version of ... based on a patch that you (or someone else) wrote, but it isn't something I'm planning to work on.
+ >>
+ >> Sam
+ >>
+ >> On Wed, Dec 17, 2014, 3:36 AM null <thomas.lynch@reasoningtechnology.com> wrote:
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=14886
+ >>
+ >> Reported by Thomas Lynch for release: 5.2.1
+ >>
+ >> *** Description:
+ >> This is about (match) and its current behavior in no-deterministic cases.  I hope this is at least interesting as an issue.  It does seem there is a class of bugs related to programmers not understanding the current behavior.
+ >>
+ >> Consider a formal acceptor for the language .*3.*  That is Kleene star applied to any character repeated any number of times followed by a '3' followed by any character repeated any number of times.
+ >>
+ >> Notice the expression is not well formed in a deterministic system.  The initial state for the corresponding state machine, say S0, would have two active arcs leaving when a 3 is discovered.  I.e. the right recursive grammar is ambiguous.  But even worse, the acceptor never finishes.
+ >>
+ >> Actually, for an acceptor the final .* is redundant, so we can drop it.  We still have the problem of determinism.  So let's punt and say the machine is non-deterministic.
+ >>
+ >> Now, for (match).  In this case we are pulling strings out of the expression,  so x ... 3  r ...  , i.e. (.*)3(.*)   Dropping the final (.*) is the same as passing (rest) to the output.
+ >>
+ >> However, there is the problem that there isn't a unique solution.  The non-determinstic statemachine representation will branch to {S0,S1} (i.e. find a match) upon finding the first 3 on the tape (in the list).  It will then branch again each time it finds another 3.  Thus we would get back a list of matches.  The first member of this list is the solution we would get with (^3)*3  and the last one the most greedy possible solution.  The time to reach the first solution is the time to reach the first '3', which will be in the worse case forever if there is no 3.  The time to reach the most greedy solution is at worse case forever independent of the location of the 3, but dependent on the length of the list.  (For the pragmatists among us, consider that we are reading the list from a pipe one element at a time and passing that to match.)  In both cases it is order linear time to traverse the list of course.
+ >>
+ >> (match) chooses to make this situation deterministic by taking the most greedy solution, the one that guarantees we wait the longest amount of time to compute (provided one computes each in minimum time).
+ >>
+ >> The purest in me would like to have the nondeterministic solution, i.e. the list of matches, and then to evaluate match in a lazy manner so I can look to see which I like and then through the rest of the computation away ..
+ >>
+ >> However, it seems that for two reasons, it might make sense to augment the current deterministic (match).
+ >> 1=> would rather time bound by the pattern I am looking for (the 3 in this case) rather than by the time bound of the producer, which, say for a pipe, is forever.
+ >> 2=>  This situation might not be well understood by (match) users, greedy behavior is hard to apply to looking for things on the top of a stack and in linear parsing of simple streams, so we might end up with more solid programs by adding a feature to match. This would be the case even if the programmers just see the issue in the docs, and say "oh I get it" rather than ignoring it.
+ >>
+ >> Say, to tell match to choose the least greedy, quickest interpretation:
+ >>
+ >>  x ... (until 3) rest ...
+ >>
+ >> To tell match to pick an intermediate interpretation based on balanced delimiters, (we need a little longer example, consider):
+ >>
+ >>   1 x ... 3 rest ...
+ >>
+ >> Then
+ >>
+ >>    (open 1) x ... (close 3) rest ...
+ >>
+ >> And then the current syntax could remain greedy.
+ >>
+ >>
+ >>
+ >> *** How to repeat:
+ >> see
+ >>
+ >> http://stackoverflow.com/questions/27392379/how-to-use-racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy.
+ >>
+ >>
+ >> *** Environment:
+ >> linux-ubuntu
+ >>
+ >
+ 
+From: Thomas Lynch <thomas.lynch@reasoningtechnology.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14886: match does not appear to be time bounded
+ against input
+Date: Wed, 17 Dec 2014 23:56:54 +0800
+
+ --089e013d1b6e5026ae050a6b8631
+ Content-Type: text/plain; charset=UTF-8
+ 
+ You are a generous bunch!  Hah  ah .. Thank you very much for noticing that
+ I volunteered. I did poke around for a discussion group .. I apologize for
+ not finding it, .. the bug report did allow for suggested features, and I
+ think there may be an arbitrary length data issue with the current
+ implementation when that wonderful design patterns book made a point of
+ that.  Ok .. you know I'm picking up scheme after a couple of decades.
+ Racket has a nice environment, though I sighed great relief upon finding
+ the so aptly named Geiser .. I am having a blast with this scheme
+ development project, and it is great to see all these web related
+ libraries.  I will work this in and give it a shot .. but I don't know if
+ I'm the right guy for it...
+ 
+ 
+ 
+ 
+ 
+ On Wed, Dec 17, 2014 at 10:52 PM, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ wrote:
+ >
+ > The tests for match are here:
+ > https://github.com/plt/racket/tree/master/pkgs/racket-test/tests/match
+ >
+ > Sam
+ >
+ > On Wed, Dec 17, 2014 at 9:48 AM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ > >
+ > > Thomas, let me make Sam's suggestion a bit more precise.
+ > >
+ > > The entry point to the match implementation is found here:
+ > >
+ > >
+ > https://github.com/plt/racket/blob/master/racket/collects/racket/match.rkt
+ > >
+ > > The actual implementation is in this folder:
+ > >
+ > >
+ > https://github.com/plt/racket/tree/master/racket/collects/racket/match
+ > >
+ > > You may wish to study the code and see whether you can design
+ > >
+ > >   (match/nd exp match-clauses ...)
+ > >
+ > > I highly recommend that you start with the creation of tests and run
+ > them by us. The dev@ list is probably better than the bug mailing list.
+ > >
+ > > I apologize for not being able to find the test suite for match. I am
+ > sure Sam can point you there
+ > >
+ > > Thanks for the suggestion and do holler if you need help. -- Matthias
+ > >
+ > >
+ > >
+ > >
+ > >
+ > >
+ > >
+ > >
+ > >
+ > >
+ > > On Dec 17, 2014, at 7:46 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ > wrote:
+ > >
+ > >> Thanks for the suggestion.
+ > >>
+ > >> Currently, match isn't really designed to be a stream processing
+ > language. I'd be willing to add a non-greedy version of ... based on a
+ > patch that you (or someone else) wrote, but it isn't something I'm planning
+ > to work on.
+ > >>
+ > >> Sam
+ > >>
+ > >> On Wed, Dec 17, 2014, 3:36 AM null <
+ > thomas.lynch@reasoningtechnology.com> wrote:
+ > >> A new problem report is waiting at
+ > >>   http://bugs.racket-lang.org/query/?cmd=view&pr=14886
+ > >>
+ > >> Reported by Thomas Lynch for release: 5.2.1
+ > >>
+ > >> *** Description:
+ > >> This is about (match) and its current behavior in no-deterministic
+ > cases.  I hope this is at least interesting as an issue.  It does seem
+ > there is a class of bugs related to programmers not understanding the
+ > current behavior.
+ > >>
+ > >> Consider a formal acceptor for the language .*3.*  That is Kleene star
+ > applied to any character repeated any number of times followed by a '3'
+ > followed by any character repeated any number of times.
+ > >>
+ > >> Notice the expression is not well formed in a deterministic system.
+ > The initial state for the corresponding state machine, say S0, would have
+ > two active arcs leaving when a 3 is discovered.  I.e. the right recursive
+ > grammar is ambiguous.  But even worse, the acceptor never finishes.
+ > >>
+ > >> Actually, for an acceptor the final .* is redundant, so we can drop
+ > it.  We still have the problem of determinism.  So let's punt and say the
+ > machine is non-deterministic.
+ > >>
+ > >> Now, for (match).  In this case we are pulling strings out of the
+ > expression,  so x ... 3  r ...  , i.e. (.*)3(.*)   Dropping the final (.*)
+ > is the same as passing (rest) to the output.
+ > >>
+ > >> However, there is the problem that there isn't a unique solution.  The
+ > non-determinstic statemachine representation will branch to {S0,S1} (i.e.
+ > find a match) upon finding the first 3 on the tape (in the list).  It will
+ > then branch again each time it finds another 3.  Thus we would get back a
+ > list of matches.  The first member of this list is the solution we would
+ > get with (^3)*3  and the last one the most greedy possible solution.  The
+ > time to reach the first solution is the time to reach the first '3', which
+ > will be in the worse case forever if there is no 3.  The time to reach the
+ > most greedy solution is at worse case forever independent of the location
+ > of the 3, but dependent on the length of the list.  (For the pragmatists
+ > among us, consider that we are reading the list from a pipe one element at
+ > a time and passing that to match.)  In both cases it is order linear time
+ > to traverse the list of course.
+ > >>
+ > >> (match) chooses to make this situation deterministic by taking the most
+ > greedy solution, the one that guarantees we wait the longest amount of time
+ > to compute (provided one computes each in minimum time).
+ > >>
+ > >> The purest in me would like to have the nondeterministic solution, i.e.
+ > the list of matches, and then to evaluate match in a lazy manner so I can
+ > look to see which I like and then through the rest of the computation away
+ > ..
+ > >>
+ > >> However, it seems that for two reasons, it might make sense to augment
+ > the current deterministic (match).
+ > >> 1=> would rather time bound by the pattern I am looking for (the 3 in
+ > this case) rather than by the time bound of the producer, which, say for a
+ > pipe, is forever.
+ > >> 2=>  This situation might not be well understood by (match) users,
+ > greedy behavior is hard to apply to looking for things on the top of a
+ > stack and in linear parsing of simple streams, so we might end up with more
+ > solid programs by adding a feature to match. This would be the case even if
+ > the programmers just see the issue in the docs, and say "oh I get it"
+ > rather than ignoring it.
+ > >>
+ > >> Say, to tell match to choose the least greedy, quickest interpretation:
+ > >>
+ > >>  x ... (until 3) rest ...
+ > >>
+ > >> To tell match to pick an intermediate interpretation based on balanced
+ > delimiters, (we need a little longer example, consider):
+ > >>
+ > >>   1 x ... 3 rest ...
+ > >>
+ > >> Then
+ > >>
+ > >>    (open 1) x ... (close 3) rest ...
+ > >>
+ > >> And then the current syntax could remain greedy.
+ > >>
+ > >>
+ > >>
+ > >> *** How to repeat:
+ > >> see
+ > >>
+ > >>
+ > http://stackoverflow.com/questions/27392379/how-to-use-racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy
+ > .
+ > >>
+ > >>
+ > >> *** Environment:
+ > >> linux-ubuntu
+ > >>
+ > >
+ >
+ 
+ --089e013d1b6e5026ae050a6b8631
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">You are a generous bunch!=C2=A0 Hah =C2=A0ah .. Thank you =
+ very much for noticing that I volunteered. I did poke around for a discussi=
+ on group .. I apologize for not finding it, .. the bug report did allow for=
+  suggested features, and I think there may be an arbitrary length data issu=
+ e with the current implementation when that wonderful design patterns book =
+ made a point of that.=C2=A0 Ok .. you know I&#39;m picking up scheme after =
+ a couple of decades. Racket has a nice environment, though I sighed great r=
+ elief upon finding the so aptly named Geiser .. I am having a blast with th=
+ is scheme development project, and it is great to see all these web related=
+  libraries.=C2=A0 I will work this in and give it a shot .. but I don&#39;t=
+  know if I&#39;m the right guy for it...<div><br></div><div><br></div><div>=
+ <br></div><div><br></div></div><div class=3D"gmail_extra"><br><div class=3D=
+ "gmail_quote">On Wed, Dec 17, 2014 at 10:52 PM, Sam Tobin-Hochstadt <span d=
+ ir=3D"ltr">&lt;<a href=3D"mailto:samth@cs.indiana.edu" target=3D"_blank">sa=
+ mth@cs.indiana.edu</a>&gt;</span> wrote:<blockquote class=3D"gmail_quote" s=
+ tyle=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">The =
+ tests for match are here:<br>
+ <a href=3D"https://github.com/plt/racket/tree/master/pkgs/racket-test/tests=
+ /match" target=3D"_blank">https://github.com/plt/racket/tree/master/pkgs/ra=
+ cket-test/tests/match</a><br>
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br>
+ Sam<br>
+ </font></span><div class=3D"HOEnZb"><div class=3D"h5"><br>
+ On Wed, Dec 17, 2014 at 9:48 AM, Matthias Felleisen<br>
+ &lt;<a href=3D"mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a>&gt; wr=
+ ote:<br>
+ &gt;<br>
+ &gt; Thomas, let me make Sam&#39;s suggestion a bit more precise.<br>
+ &gt;<br>
+ &gt; The entry point to the match implementation is found here:<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0 <a href=3D"https://github.com/plt/racket/blob/master/rack=
+ et/collects/racket/match.rkt" target=3D"_blank">https://github.com/plt/rack=
+ et/blob/master/racket/collects/racket/match.rkt</a><br>
+ &gt;<br>
+ &gt; The actual implementation is in this folder:<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0 <a href=3D"https://github.com/plt/racket/tree/master/rack=
+ et/collects/racket/match" target=3D"_blank">https://github.com/plt/racket/t=
+ ree/master/racket/collects/racket/match</a><br>
+ &gt;<br>
+ &gt; You may wish to study the code and see whether you can design<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0(match/nd exp match-clauses ...)<br>
+ &gt;<br>
+ &gt; I highly recommend that you start with the creation of tests and run t=
+ hem by us. The dev@ list is probably better than the bug mailing list.<br>
+ &gt;<br>
+ &gt; I apologize for not being able to find the test suite for match. I am =
+ sure Sam can point you there<br>
+ &gt;<br>
+ &gt; Thanks for the suggestion and do holler if you need help. -- Matthias<=
+ br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On Dec 17, 2014, at 7:46 AM, Sam Tobin-Hochstadt &lt;<a href=3D"mailto=
+ :samth@cs.indiana.edu">samth@cs.indiana.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt;&gt; Thanks for the suggestion.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Currently, match isn&#39;t really designed to be a stream processi=
+ ng language. I&#39;d be willing to add a non-greedy version of ... based on=
+  a patch that you (or someone else) wrote, but it isn&#39;t something I&#39=
+ ;m planning to work on.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Sam<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Wed, Dec 17, 2014, 3:36 AM null &lt;<a href=3D"mailto:thomas.ly=
+ nch@reasoningtechnology.com">thomas.lynch@reasoningtechnology.com</a>&gt; w=
+ rote:<br>
+ &gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt;=C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dvi=
+ ew&amp;pr=3D14886" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=
+ =3Dview&amp;pr=3D14886</a><br>
+ &gt;&gt;<br>
+ &gt;&gt; Reported by Thomas Lynch for release: 5.2.1<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>
+ &gt;&gt; This is about (match) and its current behavior in no-deterministic=
+  cases.=C2=A0 I hope this is at least interesting as an issue.=C2=A0 It doe=
+ s seem there is a class of bugs related to programmers not understanding th=
+ e current behavior.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Consider a formal acceptor for the language .*3.*=C2=A0 That is Kl=
+ eene star applied to any character repeated any number of times followed by=
+  a &#39;3&#39; followed by any character repeated any number of times.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Notice the expression is not well formed in a deterministic system=
+ .=C2=A0 The initial state for the corresponding state machine, say S0, woul=
+ d have two active arcs leaving when a 3 is discovered.=C2=A0 I.e. the right=
+  recursive grammar is ambiguous.=C2=A0 But even worse, the acceptor never f=
+ inishes.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Actually, for an acceptor the final .* is redundant, so we can dro=
+ p it.=C2=A0 We still have the problem of determinism.=C2=A0 So let&#39;s pu=
+ nt and say the machine is non-deterministic.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Now, for (match).=C2=A0 In this case we are pulling strings out of=
+  the expression,=C2=A0 so x ... 3=C2=A0 r ...=C2=A0 , i.e. (.*)3(.*)=C2=A0 =
+ =C2=A0Dropping the final (.*) is the same as passing (rest) to the output.<=
+ br>
+ &gt;&gt;<br>
+ &gt;&gt; However, there is the problem that there isn&#39;t a unique soluti=
+ on.=C2=A0 The non-determinstic statemachine representation will branch to {=
+ S0,S1} (i.e. find a match) upon finding the first 3 on the tape (in the lis=
+ t).=C2=A0 It will then branch again each time it finds another 3.=C2=A0 Thu=
+ s we would get back a list of matches.=C2=A0 The first member of this list =
+ is the solution we would get with (^3)*3=C2=A0 and the last one the most gr=
+ eedy possible solution.=C2=A0 The time to reach the first solution is the t=
+ ime to reach the first &#39;3&#39;, which will be in the worse case forever=
+  if there is no 3.=C2=A0 The time to reach the most greedy solution is at w=
+ orse case forever independent of the location of the 3, but dependent on th=
+ e length of the list.=C2=A0 (For the pragmatists among us, consider that we=
+  are reading the list from a pipe one element at a time and passing that to=
+  match.)=C2=A0 In both cases it is order linear time to traverse the list o=
+ f course.<br>
+ &gt;&gt;<br>
+ &gt;&gt; (match) chooses to make this situation deterministic by taking the=
+  most greedy solution, the one that guarantees we wait the longest amount o=
+ f time to compute (provided one computes each in minimum time).<br>
+ &gt;&gt;<br>
+ &gt;&gt; The purest in me would like to have the nondeterministic solution,=
+  i.e. the list of matches, and then to evaluate match in a lazy manner so I=
+  can look to see which I like and then through the rest of the computation =
+ away ..<br>
+ &gt;&gt;<br>
+ &gt;&gt; However, it seems that for two reasons, it might make sense to aug=
+ ment the current deterministic (match).<br>
+ &gt;&gt; 1=3D&gt; would rather time bound by the pattern I am looking for (=
+ the 3 in this case) rather than by the time bound of the producer, which, s=
+ ay for a pipe, is forever.<br>
+ &gt;&gt; 2=3D&gt;=C2=A0 This situation might not be well understood by (mat=
+ ch) users, greedy behavior is hard to apply to looking for things on the to=
+ p of a stack and in linear parsing of simple streams, so we might end up wi=
+ th more solid programs by adding a feature to match. This would be the case=
+  even if the programmers just see the issue in the docs, and say &quot;oh I=
+  get it&quot; rather than ignoring it.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Say, to tell match to choose the least greedy, quickest interpreta=
+ tion:<br>
+ &gt;&gt;<br>
+ &gt;&gt;=C2=A0 x ... (until 3) rest ...<br>
+ &gt;&gt;<br>
+ &gt;&gt; To tell match to pick an intermediate interpretation based on bala=
+ nced delimiters, (we need a little longer example, consider):<br>
+ &gt;&gt;<br>
+ &gt;&gt;=C2=A0 =C2=A01 x ... 3 rest ...<br>
+ &gt;&gt;<br>
+ &gt;&gt; Then<br>
+ &gt;&gt;<br>
+ &gt;&gt;=C2=A0 =C2=A0 (open 1) x ... (close 3) rest ...<br>
+ &gt;&gt;<br>
+ &gt;&gt; And then the current syntax could remain greedy.<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** How to repeat:<br>
+ &gt;&gt; see<br>
+ &gt;&gt;<br>
+ &gt;&gt; <a href=3D"http://stackoverflow.com/questions/27392379/how-to-use-=
+ racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy" target=3D"_b=
+ lank">http://stackoverflow.com/questions/27392379/how-to-use-racket-match-t=
+ o-parse-from-the-top-of-a-stack-turn-off-greedy</a>.<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>
+ &gt;&gt; linux-ubuntu<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ </div></div></blockquote></div></div>
+ 
+ --089e013d1b6e5026ae050a6b8631--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Thomas Lynch <thomas.lynch@reasoningtechnology.com>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14886: match does not appear to be time bounded
+ against input
+Date: Wed, 17 Dec 2014 10:26:32 -0600
+
+ --e89a8fb2021449d035050a6bf04d
+ Content-Type: text/plain; charset=UTF-8
+ 
+ There is no one better! Keep us in the loop on the dev@ mailing list. :)
+ 
+ On Wednesday, December 17, 2014, Thomas Lynch <
+ thomas.lynch@reasoningtechnology.com> wrote:
+ 
+ > You are a generous bunch!  Hah  ah .. Thank you very much for noticing
+ > that I volunteered. I did poke around for a discussion group .. I apologize
+ > for not finding it, .. the bug report did allow for suggested features, and
+ > I think there may be an arbitrary length data issue with the current
+ > implementation when that wonderful design patterns book made a point of
+ > that.  Ok .. you know I'm picking up scheme after a couple of decades.
+ > Racket has a nice environment, though I sighed great relief upon finding
+ > the so aptly named Geiser .. I am having a blast with this scheme
+ > development project, and it is great to see all these web related
+ > libraries.  I will work this in and give it a shot .. but I don't know if
+ > I'm the right guy for it...
+ >
+ >
+ >
+ >
+ >
+ > On Wed, Dec 17, 2014 at 10:52 PM, Sam Tobin-Hochstadt <
+ > samth@cs.indiana.edu
+ > <javascript:_e(%7B%7D,'cvml','samth@cs.indiana.edu');>> wrote:
+ >>
+ >> The tests for match are here:
+ >> https://github.com/plt/racket/tree/master/pkgs/racket-test/tests/match
+ >>
+ >> Sam
+ >>
+ >> On Wed, Dec 17, 2014 at 9:48 AM, Matthias Felleisen
+ >> <matthias@ccs.neu.edu
+ >> <javascript:_e(%7B%7D,'cvml','matthias@ccs.neu.edu');>> wrote:
+ >> >
+ >> > Thomas, let me make Sam's suggestion a bit more precise.
+ >> >
+ >> > The entry point to the match implementation is found here:
+ >> >
+ >> >
+ >> https://github.com/plt/racket/blob/master/racket/collects/racket/match.rkt
+ >> >
+ >> > The actual implementation is in this folder:
+ >> >
+ >> >
+ >> https://github.com/plt/racket/tree/master/racket/collects/racket/match
+ >> >
+ >> > You may wish to study the code and see whether you can design
+ >> >
+ >> >   (match/nd exp match-clauses ...)
+ >> >
+ >> > I highly recommend that you start with the creation of tests and run
+ >> them by us. The dev@ list is probably better than the bug mailing list.
+ >> >
+ >> > I apologize for not being able to find the test suite for match. I am
+ >> sure Sam can point you there
+ >> >
+ >> > Thanks for the suggestion and do holler if you need help. -- Matthias
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> > On Dec 17, 2014, at 7:46 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu
+ >> <javascript:_e(%7B%7D,'cvml','samth@cs.indiana.edu');>> wrote:
+ >> >
+ >> >> Thanks for the suggestion.
+ >> >>
+ >> >> Currently, match isn't really designed to be a stream processing
+ >> language. I'd be willing to add a non-greedy version of ... based on a
+ >> patch that you (or someone else) wrote, but it isn't something I'm planning
+ >> to work on.
+ >> >>
+ >> >> Sam
+ >> >>
+ >> >> On Wed, Dec 17, 2014, 3:36 AM null <
+ >> thomas.lynch@reasoningtechnology.com
+ >> <javascript:_e(%7B%7D,'cvml','thomas.lynch@reasoningtechnology.com');>>
+ >> wrote:
+ >> >> A new problem report is waiting at
+ >> >>   http://bugs.racket-lang.org/query/?cmd=view&pr=14886
+ >> >>
+ >> >> Reported by Thomas Lynch for release: 5.2.1
+ >> >>
+ >> >> *** Description:
+ >> >> This is about (match) and its current behavior in no-deterministic
+ >> cases.  I hope this is at least interesting as an issue.  It does seem
+ >> there is a class of bugs related to programmers not understanding the
+ >> current behavior.
+ >> >>
+ >> >> Consider a formal acceptor for the language .*3.*  That is Kleene star
+ >> applied to any character repeated any number of times followed by a '3'
+ >> followed by any character repeated any number of times.
+ >> >>
+ >> >> Notice the expression is not well formed in a deterministic system.
+ >> The initial state for the corresponding state machine, say S0, would have
+ >> two active arcs leaving when a 3 is discovered.  I.e. the right recursive
+ >> grammar is ambiguous.  But even worse, the acceptor never finishes.
+ >> >>
+ >> >> Actually, for an acceptor the final .* is redundant, so we can drop
+ >> it.  We still have the problem of determinism.  So let's punt and say the
+ >> machine is non-deterministic.
+ >> >>
+ >> >> Now, for (match).  In this case we are pulling strings out of the
+ >> expression,  so x ... 3  r ...  , i.e. (.*)3(.*)   Dropping the final (.*)
+ >> is the same as passing (rest) to the output.
+ >> >>
+ >> >> However, there is the problem that there isn't a unique solution.  The
+ >> non-determinstic statemachine representation will branch to {S0,S1} (i.e.
+ >> find a match) upon finding the first 3 on the tape (in the list).  It will
+ >> then branch again each time it finds another 3.  Thus we would get back a
+ >> list of matches.  The first member of this list is the solution we would
+ >> get with (^3)*3  and the last one the most greedy possible solution.  The
+ >> time to reach the first solution is the time to reach the first '3', which
+ >> will be in the worse case forever if there is no 3.  The time to reach the
+ >> most greedy solution is at worse case forever independent of the location
+ >> of the 3, but dependent on the length of the list.  (For the pragmatists
+ >> among us, consider that we are reading the list from a pipe one element at
+ >> a time and passing that to match.)  In both cases it is order linear time
+ >> to traverse the list of course.
+ >> >>
+ >> >> (match) chooses to make this situation deterministic by taking the
+ >> most greedy solution, the one that guarantees we wait the longest amount of
+ >> time to compute (provided one computes each in minimum time).
+ >> >>
+ >> >> The purest in me would like to have the nondeterministic solution,
+ >> i.e. the list of matches, and then to evaluate match in a lazy manner so I
+ >> can look to see which I like and then through the rest of the computation
+ >> away ..
+ >> >>
+ >> >> However, it seems that for two reasons, it might make sense to augment
+ >> the current deterministic (match).
+ >> >> 1=> would rather time bound by the pattern I am looking for (the 3 in
+ >> this case) rather than by the time bound of the producer, which, say for a
+ >> pipe, is forever.
+ >> >> 2=>  This situation might not be well understood by (match) users,
+ >> greedy behavior is hard to apply to looking for things on the top of a
+ >> stack and in linear parsing of simple streams, so we might end up with more
+ >> solid programs by adding a feature to match. This would be the case even if
+ >> the programmers just see the issue in the docs, and say "oh I get it"
+ >> rather than ignoring it.
+ >> >>
+ >> >> Say, to tell match to choose the least greedy, quickest interpretation:
+ >> >>
+ >> >>  x ... (until 3) rest ...
+ >> >>
+ >> >> To tell match to pick an intermediate interpretation based on balanced
+ >> delimiters, (we need a little longer example, consider):
+ >> >>
+ >> >>   1 x ... 3 rest ...
+ >> >>
+ >> >> Then
+ >> >>
+ >> >>    (open 1) x ... (close 3) rest ...
+ >> >>
+ >> >> And then the current syntax could remain greedy.
+ >> >>
+ >> >>
+ >> >>
+ >> >> *** How to repeat:
+ >> >> see
+ >> >>
+ >> >>
+ >> http://stackoverflow.com/questions/27392379/how-to-use-racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy
+ >> .
+ >> >>
+ >> >>
+ >> >> *** Environment:
+ >> >> linux-ubuntu
+ >> >>
+ >> >
+ >>
+ >
+ 
+ --e89a8fb2021449d035050a6bf04d
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ There is no one better! Keep us in the loop on the dev@ mailing list. :)<sp=
+ an></span><br><br>On Wednesday, December 17, 2014, Thomas Lynch &lt;<a href=
+ =3D"mailto:thomas.lynch@reasoningtechnology.com">thomas.lynch@reasoningtech=
+ nology.com</a>&gt; wrote:<br><blockquote class=3D"gmail_quote" style=3D"mar=
+ gin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><div dir=3D"ltr=
+ ">You are a generous bunch!=C2=A0 Hah =C2=A0ah .. Thank you very much for n=
+ oticing that I volunteered. I did poke around for a discussion group .. I a=
+ pologize for not finding it, .. the bug report did allow for suggested feat=
+ ures, and I think there may be an arbitrary length data issue with the curr=
+ ent implementation when that wonderful design patterns book made a point of=
+  that.=C2=A0 Ok .. you know I&#39;m picking up scheme after a couple of dec=
+ ades. Racket has a nice environment, though I sighed great relief upon find=
+ ing the so aptly named Geiser .. I am having a blast with this scheme devel=
+ opment project, and it is great to see all these web related libraries.=C2=
+ =A0 I will work this in and give it a shot .. but I don&#39;t know if I&#39=
+ ;m the right guy for it...<div><br></div><div><br></div><div><br></div><div=
+ ><br></div></div><div class=3D"gmail_extra"><br><div class=3D"gmail_quote">=
+ On Wed, Dec 17, 2014 at 10:52 PM, Sam Tobin-Hochstadt <span dir=3D"ltr">&lt=
+ ;<a href=3D"javascript:_e(%7B%7D,&#39;cvml&#39;,&#39;samth@cs.indiana.edu&#=
+ 39;);" target=3D"_blank">samth@cs.indiana.edu</a>&gt;</span> wrote:<blockqu=
+ ote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc s=
+ olid;padding-left:1ex">The tests for match are here:<br>
+ <a href=3D"https://github.com/plt/racket/tree/master/pkgs/racket-test/tests=
+ /match" target=3D"_blank">https://github.com/plt/racket/tree/master/pkgs/ra=
+ cket-test/tests/match</a><br>
+ <span><font color=3D"#888888"><br>
+ Sam<br>
+ </font></span><div><div><br>
+ On Wed, Dec 17, 2014 at 9:48 AM, Matthias Felleisen<br>
+ &lt;<a href=3D"javascript:_e(%7B%7D,&#39;cvml&#39;,&#39;matthias@ccs.neu.ed=
+ u&#39;);" target=3D"_blank">matthias@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt; Thomas, let me make Sam&#39;s suggestion a bit more precise.<br>
+ &gt;<br>
+ &gt; The entry point to the match implementation is found here:<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0 <a href=3D"https://github.com/plt/racket/blob/master/rack=
+ et/collects/racket/match.rkt" target=3D"_blank">https://github.com/plt/rack=
+ et/blob/master/racket/collects/racket/match.rkt</a><br>
+ &gt;<br>
+ &gt; The actual implementation is in this folder:<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0 <a href=3D"https://github.com/plt/racket/tree/master/rack=
+ et/collects/racket/match" target=3D"_blank">https://github.com/plt/racket/t=
+ ree/master/racket/collects/racket/match</a><br>
+ &gt;<br>
+ &gt; You may wish to study the code and see whether you can design<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0(match/nd exp match-clauses ...)<br>
+ &gt;<br>
+ &gt; I highly recommend that you start with the creation of tests and run t=
+ hem by us. The dev@ list is probably better than the bug mailing list.<br>
+ &gt;<br>
+ &gt; I apologize for not being able to find the test suite for match. I am =
+ sure Sam can point you there<br>
+ &gt;<br>
+ &gt; Thanks for the suggestion and do holler if you need help. -- Matthias<=
+ br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On Dec 17, 2014, at 7:46 AM, Sam Tobin-Hochstadt &lt;<a href=3D"javasc=
+ ript:_e(%7B%7D,&#39;cvml&#39;,&#39;samth@cs.indiana.edu&#39;);" target=3D"_=
+ blank">samth@cs.indiana.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt;&gt; Thanks for the suggestion.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Currently, match isn&#39;t really designed to be a stream processi=
+ ng language. I&#39;d be willing to add a non-greedy version of ... based on=
+  a patch that you (or someone else) wrote, but it isn&#39;t something I&#39=
+ ;m planning to work on.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Sam<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Wed, Dec 17, 2014, 3:36 AM null &lt;<a href=3D"javascript:_e(%7=
+ B%7D,&#39;cvml&#39;,&#39;thomas.lynch@reasoningtechnology.com&#39;);" targe=
+ t=3D"_blank">thomas.lynch@reasoningtechnology.com</a>&gt; wrote:<br>
+ &gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt;=C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dvi=
+ ew&amp;pr=3D14886" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=
+ =3Dview&amp;pr=3D14886</a><br>
+ &gt;&gt;<br>
+ &gt;&gt; Reported by Thomas Lynch for release: 5.2.1<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>
+ &gt;&gt; This is about (match) and its current behavior in no-deterministic=
+  cases.=C2=A0 I hope this is at least interesting as an issue.=C2=A0 It doe=
+ s seem there is a class of bugs related to programmers not understanding th=
+ e current behavior.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Consider a formal acceptor for the language .*3.*=C2=A0 That is Kl=
+ eene star applied to any character repeated any number of times followed by=
+  a &#39;3&#39; followed by any character repeated any number of times.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Notice the expression is not well formed in a deterministic system=
+ .=C2=A0 The initial state for the corresponding state machine, say S0, woul=
+ d have two active arcs leaving when a 3 is discovered.=C2=A0 I.e. the right=
+  recursive grammar is ambiguous.=C2=A0 But even worse, the acceptor never f=
+ inishes.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Actually, for an acceptor the final .* is redundant, so we can dro=
+ p it.=C2=A0 We still have the problem of determinism.=C2=A0 So let&#39;s pu=
+ nt and say the machine is non-deterministic.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Now, for (match).=C2=A0 In this case we are pulling strings out of=
+  the expression,=C2=A0 so x ... 3=C2=A0 r ...=C2=A0 , i.e. (.*)3(.*)=C2=A0 =
+ =C2=A0Dropping the final (.*) is the same as passing (rest) to the output.<=
+ br>
+ &gt;&gt;<br>
+ &gt;&gt; However, there is the problem that there isn&#39;t a unique soluti=
+ on.=C2=A0 The non-determinstic statemachine representation will branch to {=
+ S0,S1} (i.e. find a match) upon finding the first 3 on the tape (in the lis=
+ t).=C2=A0 It will then branch again each time it finds another 3.=C2=A0 Thu=
+ s we would get back a list of matches.=C2=A0 The first member of this list =
+ is the solution we would get with (^3)*3=C2=A0 and the last one the most gr=
+ eedy possible solution.=C2=A0 The time to reach the first solution is the t=
+ ime to reach the first &#39;3&#39;, which will be in the worse case forever=
+  if there is no 3.=C2=A0 The time to reach the most greedy solution is at w=
+ orse case forever independent of the location of the 3, but dependent on th=
+ e length of the list.=C2=A0 (For the pragmatists among us, consider that we=
+  are reading the list from a pipe one element at a time and passing that to=
+  match.)=C2=A0 In both cases it is order linear time to traverse the list o=
+ f course.<br>
+ &gt;&gt;<br>
+ &gt;&gt; (match) chooses to make this situation deterministic by taking the=
+  most greedy solution, the one that guarantees we wait the longest amount o=
+ f time to compute (provided one computes each in minimum time).<br>
+ &gt;&gt;<br>
+ &gt;&gt; The purest in me would like to have the nondeterministic solution,=
+  i.e. the list of matches, and then to evaluate match in a lazy manner so I=
+  can look to see which I like and then through the rest of the computation =
+ away ..<br>
+ &gt;&gt;<br>
+ &gt;&gt; However, it seems that for two reasons, it might make sense to aug=
+ ment the current deterministic (match).<br>
+ &gt;&gt; 1=3D&gt; would rather time bound by the pattern I am looking for (=
+ the 3 in this case) rather than by the time bound of the producer, which, s=
+ ay for a pipe, is forever.<br>
+ &gt;&gt; 2=3D&gt;=C2=A0 This situation might not be well understood by (mat=
+ ch) users, greedy behavior is hard to apply to looking for things on the to=
+ p of a stack and in linear parsing of simple streams, so we might end up wi=
+ th more solid programs by adding a feature to match. This would be the case=
+  even if the programmers just see the issue in the docs, and say &quot;oh I=
+  get it&quot; rather than ignoring it.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Say, to tell match to choose the least greedy, quickest interpreta=
+ tion:<br>
+ &gt;&gt;<br>
+ &gt;&gt;=C2=A0 x ... (until 3) rest ...<br>
+ &gt;&gt;<br>
+ &gt;&gt; To tell match to pick an intermediate interpretation based on bala=
+ nced delimiters, (we need a little longer example, consider):<br>
+ &gt;&gt;<br>
+ &gt;&gt;=C2=A0 =C2=A01 x ... 3 rest ...<br>
+ &gt;&gt;<br>
+ &gt;&gt; Then<br>
+ &gt;&gt;<br>
+ &gt;&gt;=C2=A0 =C2=A0 (open 1) x ... (close 3) rest ...<br>
+ &gt;&gt;<br>
+ &gt;&gt; And then the current syntax could remain greedy.<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** How to repeat:<br>
+ &gt;&gt; see<br>
+ &gt;&gt;<br>
+ &gt;&gt; <a href=3D"http://stackoverflow.com/questions/27392379/how-to-use-=
+ racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy" target=3D"_b=
+ lank">http://stackoverflow.com/questions/27392379/how-to-use-racket-match-t=
+ o-parse-from-the-top-of-a-stack-turn-off-greedy</a>.<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>
+ &gt;&gt; linux-ubuntu<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ </div></div></blockquote></div></div>
+ </blockquote>
+ 
+ --e89a8fb2021449d035050a6bf04d--
+From: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>
+To: Thomas Lynch <thomas.lynch@reasoningtechnology.com>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14886: match does not appear to be time bounded
+ against input
+Date: Wed, 17 Dec 2014 18:16:21 +0100
+
+ FWIW here is a link to Sam's paper on the matcher.
+ 
+ http://arxiv.org/pdf/1106.2578.pdf
+ 
+ /Jens Axel Søgaard
+ 
+ 2014-12-17 16:56 GMT+01:00 Thomas Lynch <thomas.lynch@reasoningtechnology.com>:
+ > You are a generous bunch!  Hah  ah .. Thank you very much for noticing that
+ > I volunteered. I did poke around for a discussion group .. I apologize for
+ > not finding it, .. the bug report did allow for suggested features, and I
+ > think there may be an arbitrary length data issue with the current
+ > implementation when that wonderful design patterns book made a point of
+ > that.  Ok .. you know I'm picking up scheme after a couple of decades.
+ > Racket has a nice environment, though I sighed great relief upon finding the
+ > so aptly named Geiser .. I am having a blast with this scheme development
+ > project, and it is great to see all these web related libraries.  I will
+ > work this in and give it a shot .. but I don't know if I'm the right guy for
+ > it...
+ >
+ >
+ >
+ >
+ >
+ > On Wed, Dec 17, 2014 at 10:52 PM, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ > wrote:
+ >>
+ >> The tests for match are here:
+ >> https://github.com/plt/racket/tree/master/pkgs/racket-test/tests/match
+ >>
+ >> Sam
+ >>
+ >> On Wed, Dec 17, 2014 at 9:48 AM, Matthias Felleisen
+ >> <matthias@ccs.neu.edu> wrote:
+ >> >
+ >> > Thomas, let me make Sam's suggestion a bit more precise.
+ >> >
+ >> > The entry point to the match implementation is found here:
+ >> >
+ >> >
+ >> > https://github.com/plt/racket/blob/master/racket/collects/racket/match.rkt
+ >> >
+ >> > The actual implementation is in this folder:
+ >> >
+ >> >
+ >> > https://github.com/plt/racket/tree/master/racket/collects/racket/match
+ >> >
+ >> > You may wish to study the code and see whether you can design
+ >> >
+ >> >   (match/nd exp match-clauses ...)
+ >> >
+ >> > I highly recommend that you start with the creation of tests and run
+ >> > them by us. The dev@ list is probably better than the bug mailing list.
+ >> >
+ >> > I apologize for not being able to find the test suite for match. I am
+ >> > sure Sam can point you there
+ >> >
+ >> > Thanks for the suggestion and do holler if you need help. -- Matthias
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> > On Dec 17, 2014, at 7:46 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ >> > wrote:
+ >> >
+ >> >> Thanks for the suggestion.
+ >> >>
+ >> >> Currently, match isn't really designed to be a stream processing
+ >> >> language. I'd be willing to add a non-greedy version of ... based on a patch
+ >> >> that you (or someone else) wrote, but it isn't something I'm planning to
+ >> >> work on.
+ >> >>
+ >> >> Sam
+ >> >>
+ >> >> On Wed, Dec 17, 2014, 3:36 AM null
+ >> >> <thomas.lynch@reasoningtechnology.com> wrote:
+ >> >> A new problem report is waiting at
+ >> >>   http://bugs.racket-lang.org/query/?cmd=view&pr=14886
+ >> >>
+ >> >> Reported by Thomas Lynch for release: 5.2.1
+ >> >>
+ >> >> *** Description:
+ >> >> This is about (match) and its current behavior in no-deterministic
+ >> >> cases.  I hope this is at least interesting as an issue.  It does seem there
+ >> >> is a class of bugs related to programmers not understanding the current
+ >> >> behavior.
+ >> >>
+ >> >> Consider a formal acceptor for the language .*3.*  That is Kleene star
+ >> >> applied to any character repeated any number of times followed by a '3'
+ >> >> followed by any character repeated any number of times.
+ >> >>
+ >> >> Notice the expression is not well formed in a deterministic system.
+ >> >> The initial state for the corresponding state machine, say S0, would have
+ >> >> two active arcs leaving when a 3 is discovered.  I.e. the right recursive
+ >> >> grammar is ambiguous.  But even worse, the acceptor never finishes.
+ >> >>
+ >> >> Actually, for an acceptor the final .* is redundant, so we can drop it.
+ >> >> We still have the problem of determinism.  So let's punt and say the machine
+ >> >> is non-deterministic.
+ >> >>
+ >> >> Now, for (match).  In this case we are pulling strings out of the
+ >> >> expression,  so x ... 3  r ...  , i.e. (.*)3(.*)   Dropping the final (.*)
+ >> >> is the same as passing (rest) to the output.
+ >> >>
+ >> >> However, there is the problem that there isn't a unique solution.  The
+ >> >> non-determinstic statemachine representation will branch to {S0,S1} (i.e.
+ >> >> find a match) upon finding the first 3 on the tape (in the list).  It will
+ >> >> then branch again each time it finds another 3.  Thus we would get back a
+ >> >> list of matches.  The first member of this list is the solution we would get
+ >> >> with (^3)*3  and the last one the most greedy possible solution.  The time
+ >> >> to reach the first solution is the time to reach the first '3', which will
+ >> >> be in the worse case forever if there is no 3.  The time to reach the most
+ >> >> greedy solution is at worse case forever independent of the location of the
+ >> >> 3, but dependent on the length of the list.  (For the pragmatists among us,
+ >> >> consider that we are reading the list from a pipe one element at a time and
+ >> >> passing that to match.)  In both cases it is order linear time to traverse
+ >> >> the list of course.
+ >> >>
+ >> >> (match) chooses to make this situation deterministic by taking the most
+ >> >> greedy solution, the one that guarantees we wait the longest amount of time
+ >> >> to compute (provided one computes each in minimum time).
+ >> >>
+ >> >> The purest in me would like to have the nondeterministic solution, i.e.
+ >> >> the list of matches, and then to evaluate match in a lazy manner so I can
+ >> >> look to see which I like and then through the rest of the computation away
+ >> >> ..
+ >> >>
+ >> >> However, it seems that for two reasons, it might make sense to augment
+ >> >> the current deterministic (match).
+ >> >> 1=> would rather time bound by the pattern I am looking for (the 3 in
+ >> >> this case) rather than by the time bound of the producer, which, say for a
+ >> >> pipe, is forever.
+ >> >> 2=>  This situation might not be well understood by (match) users,
+ >> >> greedy behavior is hard to apply to looking for things on the top of a stack
+ >> >> and in linear parsing of simple streams, so we might end up with more solid
+ >> >> programs by adding a feature to match. This would be the case even if the
+ >> >> programmers just see the issue in the docs, and say "oh I get it" rather
+ >> >> than ignoring it.
+ >> >>
+ >> >> Say, to tell match to choose the least greedy, quickest interpretation:
+ >> >>
+ >> >>  x ... (until 3) rest ...
+ >> >>
+ >> >> To tell match to pick an intermediate interpretation based on balanced
+ >> >> delimiters, (we need a little longer example, consider):
+ >> >>
+ >> >>   1 x ... 3 rest ...
+ >> >>
+ >> >> Then
+ >> >>
+ >> >>    (open 1) x ... (close 3) rest ...
+ >> >>
+ >> >> And then the current syntax could remain greedy.
+ >> >>
+ >> >>
+ >> >>
+ >> >> *** How to repeat:
+ >> >> see
+ >> >>
+ >> >>
+ >> >> http://stackoverflow.com/questions/27392379/how-to-use-racket-match-to-parse-from-the-top-of-a-stack-turn-off-greedy.
+ >> >>
+ >> >>
+ >> >> *** Environment:
+ >> >> linux-ubuntu
+ >> >>
+ >> >
+ 
+ 
+ 
+ -- 
+ --
+ Jens Axel Søgaard
+ 

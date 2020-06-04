@@ -1,0 +1,118 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Dec 22 10:14:33 2011
+Received: from mail-vw0-f44.google.com (mail-vw0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id pBMFEUP2013097
+	for <bugs@bugs.plt-scheme.org>; Thu, 22 Dec 2011 10:14:30 -0500
+Message-Id: <201112221514.pBMFEOX5013087@champlain.ccs.neu.edu>
+Date: Thu, 22 Dec 2011 10:14:24 -0500
+From: m.douglas.williams@gmail.com
+To: bugs@racket-lang.org
+Subject: printer-dc% error
+
+>Number:         12455
+>Category:       all
+>Synopsis:       printer-dc% error
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Dec 22 10:16:01 -0500 2011
+>Closed-Date:    Fri Dec 23 08:27:14 -0500 2011
+>Last-Modified:  Fri Dec 23 08:27:14 -0500 2011
+>Originator:     Doug Williams
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 309600408
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("C:\\Users\\doug\\AppData\\Roaming\\Racket\\5.2\\collects"
+ (non-existent-path))
+("C:\\Program Files (x86)\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+I originally had the problem trying to get use plot/dc to a printer-dc% object:
+
+#lang racket/gui
+
+(require plot)
+
+(define (test)
+  (let ((dc (new printer-dc%)))
+    (send dc start-doc "Printing")
+    (send dc start-page)
+    (plot/dc
+     (function sin (- pi) pi #:label "y = sin(x)")
+     dc 0 0 400 400)
+    (send dc end-page)
+    (send dc end-doc)))
+
+(test)
+
+Gives an error  "class-field-accessor: expected argument of type <object>; given '(40 . 7)".
+
+Neil traced it back to printer-dc% itself. From his e-mail back to me.
+
+Looks like it's an error in `printer-dc%', not in `plot'. Here's a simpler, non-plotting test case:
+
+#lang racket/load
+
+(module printer-test racket/gui
+ (define dc (new printer-dc%))
+
+ (send dc start-doc "Printing")
+ (send dc start-page)
+ (send dc draw-polygon '((40 . 7))))
+
+;(require 'printer-test)  ; class-field-accessor error
+
+(module bitmap-test racket
+ (require racket/draw)
+ (define bm (make-bitmap 400 400))
+ (define dc (make-object bitmap-dc% bm))
+ (send dc draw-polygon '((40 . 7))))
+
+(require 'bitmap-test)  ; no error
+
+
+According to the docs, `draw-polygon' accepts a list of (cons/c real? real?). The `bitmap-dc%' class implements the interface properly, but the `printer-dc%' class doesn't.
+
+I've also verified that `printer-dc%' raises an error when you send pairs of reals to `draw-lines'. That'll also cause plotting directly to a printer to fail.
+>How-To-Repeat:
+#lang racket/gui
+
+(define (printer-test)
+  (define dc (new printer-dc%))
+  (send dc start-doc "Printing")
+  (send dc start-page)
+  (send dc draw-polygon '((40 . 7)))
+  (send dc end-page)
+  (send dc end-doc))
+
+(printer-test)
+
+(define (bitmap-test)
+  (define bm (make-bitmap 400 400))
+  (define dc (make-object bitmap-dc% bm))
+  (send dc draw-polygon '((40 . 7))))
+
+(bitmap-test)
+
+The printer-test fails on the draw-polygon to a printer-dc% object while the bitmap-test works with a bitmap-dc% object.
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 23 Dec 2011 08:27:14 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/5bfaea25fe
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 23 Dec 2011 08:27:14 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/5bfaea25fe

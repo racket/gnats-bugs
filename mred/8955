@@ -1,0 +1,114 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Sep 21 12:12:31 2007
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.184])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l8LGCVMI018244
+	for <bugs@bugs.plt-scheme.org>; Fri, 21 Sep 2007 12:12:31 -0400
+Message-Id: <200709211612.l8LGCMDJ018238@champlain.ccs.neu.edu>
+Date: Fri, 21 Sep 2007 12:12:22 -0400
+From: max@gustavus.edu
+To: bugs@plt-scheme.org
+Subject: X-windows-specific draw-bitmap-section-smooth bug
+
+>Number:         8955
+>Category:       mred
+>Synopsis:       X-windows-specific draw-bitmap-section-smooth bug
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Sep 21 12:15:01 -0400 2007
+>Closed-Date:    Mon Oct 08 16:55:37 -0400 2007
+>Last-Modified:  Mon Oct 08 17:35:02 -0400 2007
+>Originator:     Max Hailperin
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        371
+>Environment:
+unix "Linux oh326ll13.mcs.gac.edu 2.6.18-8.1.10.el5 #1 SMP Thu Sep 13 12:17:54 EDT 2007 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/usr/local/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-intermediate-access" "profj-advanced"))
+Human Language: english
+(current-memory-use) 59439512
+
+Collections:
+(("/Net/gac/home/m/a/max/.plt-scheme/371/collects" "info-domain" "concabs") ("/usr/local/plt/collects" "frtime" "teachpack" "setup" "net" "info-domain" "launcher" "tex2page" "config" "web-server" "compiler" "preprocessor" "readline" "drscheme" "mzscheme" "syntax" "afm" "swindle" "parser-tools" "planet" "r5rs" "mzlib" "wxme" "errortrace" "mztake" "texpict" "openssl" "mred" "framework" "concabs" "ffi" "browser" "profjWizard" "embedded-gui" "test-box-recovery" "trace" "string-constants" "lazy" "lang" "algol60" "slideshow" "defaults" "plot" "xml" "htdp" "slatex" "icons" "html" "version" "macro-debugger" "hierlist" "sgl" "make" "stepper" "games" "eopl" "graphics" "syntax-color" "htdch" "mrlib" "help" "srfi" "profj" "dynext" "combinator-parser"))
+Computer Language: (("Professional Languages" "PLT" "Graphical (MrEd, includes MzScheme)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+The code shown in "steps to reproduce" produces a list of two monochrome image snips, one 50x50 and one 200x200.  Both should be totally white.  On Linux (X Windows) using DrScheme v371, the small one is totally white, but the large one has a repeating texture to it.  This seems to be specific to X11, not affecting Mac OS X or (someone else tells me) Microsoft Windows.
+>How-To-Repeat:
+(let* ((small-bm (make-object bitmap% 50 50 #t))
+       (large-bm (make-object bitmap% 200 200 #t))
+       (small-dc (new bitmap-dc% (bitmap small-bm)))
+       (large-dc (new bitmap-dc% (bitmap large-bm))))
+  (send small-dc clear)
+  (send small-dc set-bitmap #f)
+  (send large-dc draw-bitmap-section-smooth small-bm 0 0 200 200 0 0 50 50)
+  (send large-dc set-bitmap #f)
+  (list (make-object image-snip% small-bm) (make-object image-snip% large-bm)))
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt at Mon, 08 Oct 2007 16:55:37 -0400
+Reason>>> The bug was due to a combination of effects:
+
+ 1. Under X for monochrome bitmaps, only white
+     is drawn as white, and anything else is drawn as black.
+     The conventions vary across platforms.
+
+ 2. The scaling calculation involves inexact numbers,
+     and they were converted to integers using floor().
+     Due to imprecision, combinations of white could
+     produce a color that is not quite white.
+
+Using round() in the scaling calculation makes the
+result more consistent, and it fixes the problem
+for this specific example.
+
+There's room to make the result more consistent in
+the special case of monochrome drawing contexts
+--- by putting the black vs. white decision in the
+scaling code instead of the platform-specific drawing
+part --- but I'm not sure of the value of smooth
+scaling on monochrome images. Probably scaling
+via the dc scale (set-scale with draw-bitmap) is
+better in that case.
+
+
+Thanks for the report!
+
+From: Max Hailperin <max@gustavus.edu>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] mred/8955 X-windows-specific draw-bitmap-section-smooth
+ bug
+Date: Mon, 08 Oct 2007 16:31:59 -0500
+
+ mflatt@plt-scheme.org wrote:
+ > ...
+ > There's room to make the result more consistent in
+ > the special case of monochrome drawing contexts
+ > --- by putting the black vs. white decision in the
+ > scaling code instead of the platform-specific drawing
+ > part --- but I'm not sure of the value of smooth
+ > scaling on monochrome images. Probably scaling
+ > via the dc scale (set-scale with draw-bitmap) is
+ > better in that case.
+ >   
+ 
+ Sure, but in the actual place where the trouble arose (not the 
+ simplified code I submitted to document the bug), the code to do the 
+ scaling was used generically, with the bitmap only sometimes being 
+ monochrome.  I could put in an explicit test and two branches of code, 
+ but I'm loath to do that if I can at all avoid it.
+ 
+ The situation doesn't even arise a lot, and inevitably looks somewhat 
+ ugly no matter what is done, so I'll be content with your fix as long as 
+ it avoids having the images totally wiped out. I'll confirm that in the 
+ next daily build.
+ 
+ >
+ > Thanks for the report!
+ >   
+ 
+ You're welcome.  Thanks for the fix. -max

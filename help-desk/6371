@@ -1,0 +1,224 @@
+From meunier@ccs.neu.edu  Fri Jul 18 14:22:48 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id OAA19890
+	for <bugs>; Fri, 18 Jul 2003 14:22:48 -0400
+Message-Id: <200307181822.OAA19890@champlain.ccs.neu.edu>
+Date: Fri, 18 Jul 2003 14:22:48 -0400
+From: Philippe Meunier <meunier@ccs.neu.edu>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: helpdesk search fails for #'
+
+>Number:         6371
+>Category:       help-desk
+>Synopsis:       helpdesk search fails for #'
+>Confidential:   no
+>Severity:       non-critical
+>Priority:       low
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Jul 18 14:25:00 EDT 2003
+>Closed-Date:    Fri Jul 25 11:36:27 EDT 2003
+>Last-Modified:  Fri Jul 25 11:36:27 EDT 2003
+>Originator:     Philippe Meunier
+>Release:        204.8-cvs18jul2003
+>Organization:
+titan
+>Environment:
+unix "SunOS syrma.ccs.neu.edu 5.8 Generic_108528-19 sun4u sparc SUNW,Sun-Blade-100" (sparc-solaris) (get-display-depth) = 24
+Docs Installed:
+("help" "beginning" "beginning-abbr" "advanced" "intermediate" "intermediate-lambda" "drscheme" "r5rs" "mzscheme" "mzlib" "mred" "framework" "misclib" "mzc" "insidemz" "tools" "tour" "t-y-scheme" "tex2page")
+Collections: 
+(("/home/meunier/.plt-scheme/204.8/collects" "non-existent path") ("/home/meunier/lang/scheme/200/plt/collects" ("CVS" "afm" "algol60" "doc" "browser" "cf" "cf-flowvar" "compiler" "cf-orange" "cvs-time-stamp" "test" "defaults" "mrflow" "dromedary" "drscheme" "dynext" "eopl" "errortrace" "finish-install" "framework" "games" "graphics" "guibuilder" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mrdemo" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "readline" "reduction-semantics" "setup" "sirmail" "slatex" "slibinit" "profj" "srfi" "srpersist" "stepper" "string-constants" "syntax" "test-suite" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xelda" "xml" "sgl" "syntax-color")))
+ 
+Human Language: philippe
+ 
+Teachpack filenames: ()
+Computer Language: (("Languages professionnels" "PLT" "Textuel (MzScheme)") #6(#t write mixed-fraction-e #t #t debug))
+>Description:
+searching for #' in the helpdesk just gives an "empty search string"
+message
+>How-To-Repeat:
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: plt-design@ccs.neu.edu
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6371: helpdesk search fails for #'
+Date: Fri, 18 Jul 2003 14:26:40 -0600
+
+ Now we know the answer to John's question:
+ 
+    http://www.ccs.neu.edu/home/matthias/plt-design/4385.html
+ 
+ It's definitely bad to decode the string before parsing it as a URL.
+ The point of encoding is to avoid colliding the with URL delimitters.
+ 
+ Even parts of the parsed string can't be decoded. For example, the
+ params and query parts are put into the URL record as still-to-be
+ parsed params and queries.
+ 
+ It looks like the safest thing to do for the release is to eliminate
+ the decoding for now. But presumably the decoding was there for a
+ reason. John?
+ 
+ Matthew
+ 
+
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-design@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: all/6371: helpdesk search fails for #'
+Date: Fri, 18 Jul 2003 22:31:33 -0500
+
+ These are the functions that construct the url that help desk visits in
+ the plt web browser (the first snippet is from the search-callback
+ function, if you want to change it).
+ 
+ Here's the url it constructs for the string in question (as a Scheme
+ string, of course).
+ 
+ "http://127.0.0.1:8000/servlets/results.ss?search-string=%23'&search-type=keyword-index&match-type=containing-match&lucky=false"
+ 
+ From what I can tell, this code seems to be doing the right thing.
+ 
+ So, if folks agree about that, I'll take a look into the other side...
+ 
+ Robby
+ 
+ (let ([url (make-results-url ... strings directly from the gui ...)])
+   ...
+   (send (send (send this get-hyper-panel) get-canvas) goto-url url #f))
+ 
+   (define (make-results-url port search-string search-type match-type lucky?)
+     (format 
+      (string-append results-url-prefix
+                     "search-string=~a&"
+                     "search-type=~a&"
+                     "match-type=~a&"
+                     "lucky=~a")
+      port 
+      (hexify-string search-string)
+      search-type
+      match-type
+      (if lucky? "true" "false")))
+ 
+   ; string -> string
+   (define (hexify-string s)
+     (apply string-append 
+            (map (lambda (c) 
+                   (if (can-keep? c)
+                       (string c)
+                       (format "%~X" (char->integer c))))
+                 (string->list s))))
+ 
+   ;; can-keep? : char -> boolean
+   ;; source rfc 2396
+   (define (can-keep? c)
+     (let ([i (char->integer c)])
+       (or (<= (char->integer #\a) i (char->integer #\z))
+           (<= (char->integer #\A) i (char->integer #\Z))
+           (<= (char->integer #\0) i (char->integer #\9))
+           (memq c '(#\- #\_ #\; #\. #\! #\~ #\* #\' #\( #\))))))
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: plt-design@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: all/6371: helpdesk search fails for #'
+Date: Sat, 19 Jul 2003 06:07:29 -0600
+
+ At Fri, 18 Jul 2003 22:31:33 -0500, Robby Findler wrote:
+ > These are the functions that construct the url that help desk visits in
+ > the plt web browser (the first snippet is from the search-callback
+ > function, if you want to change it).
+ > [...]
+ > From what I can tell, this code seems to be doing the right thing.
+ >
+ > So, if folks agree about that, I'll take a look into the other side...
+ 
+ I should have been more explicit in my original message: removing
+ `uri-decode' in "url.ss" fixes the reported bug.
+ 
+ Both sides of Help Desk are fine. The side you showed encodes the query
+ ok and the other side decodes it. It would have been much nicer if the
+ "url.ss" library provided the right functions to construct the URL
+ (including encoding), but it doesn't. The interface should change for
+ v300.
+ 
+ Matthew
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: plt-design@ccs.neu.edu, bugs@plt-scheme.org
+Cc:  
+Subject: Re: all/6371: helpdesk search fails for #'
+Date: Sat, 19 Jul 2003 07:37:08 -0600
+
+ At Fri, 18 Jul 2003 21:32:50 -0400, John Clements wrote:
+ > I wanted to have URL's with spaces in the filename, which our existing 
+ > web server didn't handle.
+ 
+ That's pretty sad, considering how long ago the bug was reported.
+ 
+ I've re-applied John's change to just the web server. It decodes the
+ filename part of the URL, and therefore handles spaces in filename
+ indicated the URL.
+ 
+ John and I can poke at this, but is anyone going to take real
+ reponsibility for the web server?
+ 
+ Matthew
+ 
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-design@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: all/6371: helpdesk search fails for #'
+Date: Sat, 19 Jul 2003 09:44:48 -0400
+
+ Greg Pettyjohn will take on the Web server as the primary 
+ caretaker and Ryan Culpepper will assist. 
+ 
+ When Eli gets in they will get on the bug report list and will
+ take over bug reports from there. 
+ 
+ -- Matthias
+ 
+ 
+ At Sat, 19 Jul 2003 07:37:08 -0600, Matthew Flatt wrote:
+ > At Fri, 18 Jul 2003 21:32:50 -0400, John Clements wrote:
+ > > I wanted to have URL's with spaces in the filename, which our existing 
+ > > web server didn't handle.
+ > 
+ > That's pretty sad, considering how long ago the bug was reported.
+ > 
+ > I've re-applied John's change to just the web server. It decodes the
+ > filename part of the URL, and therefore handles spaces in filename
+ > indicated the URL.
+ > 
+ > John and I can poke at this, but is anyone going to take real
+ > reponsibility for the web server?
+ > 
+ > Matthew
+ 
+Responsible-Changed-From-To: eli->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Jul 25 11:36:26 2003
+Responsible-Changed-Why:
+    .
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Jul 25 11:36:26 2003
+State-Changed-Why:
+    fixed
+>Unformatted:
+

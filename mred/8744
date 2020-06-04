@@ -1,0 +1,133 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jun 14 15:48:30 2007
+Received: from wr-out-0506.google.com (wr-out-0506.google.com [64.233.184.235])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l5EJmUQN003195
+	for <bugs@bugs.plt-scheme.org>; Thu, 14 Jun 2007 15:48:30 -0400
+Message-Id: <200706141948.l5EJmCSd003187@champlain.ccs.neu.edu>
+Date: Thu, 14 Jun 2007 15:48:12 -0400
+From: levertond@googlemail.com
+To: bugs@plt-scheme.org, matthias@ccs.neu.edu, mflatt@cs.utah.edu,
+        robby@cs.uchicago.edu, eli@barzilay.org
+Subject: Some problems on 64-bit platforms
+
+>Number:         8744
+>Category:       mred
+>Synopsis:       Some problems on 64-bit platforms
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jun 14 15:50:01 -0400 2007
+>Closed-Date:    Wed Jul 25 14:54:06 -0400 2007
+>Last-Modified:  Wed Jul 25 14:54:06 -0400 2007
+>Originator:     David Leverton
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        360
+>Environment:
+unix "Linux shiny-one 2.6.20-gentoo-r8 #2 SMP PREEMPT Wed May 30 22:06:59 BST 2007 x86_64 AMD Turion(tm) 64 X2 Mobile Technology TL-50 AuthenticAMD GNU/Linux" (x86_64-linux) (get-display-depth) Docs Installed:
+(("/usr/share/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 122826752
+
+Collections:
+(("/home/dleverton/.plt-scheme/360/collects" non-existent-path) ("/usr/lib64/plt/collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "readline" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax-color" "syntax" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "web-server" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+1. On 64-bit X11 platforms, the window manager hints are not set correctly.  This is because Xlib expects 32-bit properties to be represented as long[], even on platforms where long is 64 bits.  Patch:
+
+--- plt-360/src/wxxt/src/Windows/Frame.cc~	2007-03-20 21:03:46.000000000 +0000
++++ plt-360/src/wxxt/src/Windows/Frame.cc	2007-03-20 21:04:35.000000000 +0000
+@@ -148,11 +148,11 @@
+ 
+ /* Copied off a newsgroup somewhere: */
+ typedef struct {
+-  int flags;
+-  int functions;
+-  int decorations;
+-  int inputMode;
+-  int unknown;
++  long flags;
++  long functions;
++  long decorations;
++  long inputMode;
++  long unknown;
+ } wxMWM_Hints;
+ 
+ /* bit definitions for MwmHints.decorations */
+@@ -290,7 +290,7 @@
+ 
+ 	XChangeProperty(display, window, WM_HINTS, WM_HINTS, 32,
+ 			PropModeReplace, (unsigned char *)&MWMHints,
+-			sizeof(MWMHints)/4);
++			sizeof(MWMHints)/sizeof(long));
+       }
+       /* Now try to set KWM hints */
+       if (_style & wxNO_CAPTION) {
+@@ -303,7 +303,7 @@
+ 	  
+ 	  XChangeProperty(display, window, WM_HINTS, WM_HINTS, 32,
+ 			  PropModeReplace, (unsigned char *)&KWMHints,
+-			  sizeof(KWMHints)/4);
++			  sizeof(KWMHints)/sizeof(long));
+ 	}
+       }
+       /* Now try to set GNOME hints */
+@@ -315,7 +315,7 @@
+ 	  
+ 	  XChangeProperty(display, window, WM_HINTS, XA_CARDINAL, 32,
+ 			  PropModeReplace, (unsigned char *)&GNOMEHints,
+-			  sizeof(GNOMEHints)/4);
++			  sizeof(GNOMEHints)/sizeof(long));
+ 	}
+       }
+     }
+
+2. The foreign function interface incorrectly checks for overflow when translating from a Scheme number to a signed or unsigned int.  It seems to be assuming that fixnum has the same range as int, but this is not true when long and int are not the same.  Patch:
+
+--- plt-360/src/foreign/foreign.ssc~    2006-08-05 13:57:59.000000000 +0100
++++ plt-360/src/foreign/foreign.ssc     2007-06-14 19:49:12.000000000 +0100
+@@ -350,14 +350,20 @@
+  * mzscheme's fixnums are longs. */
+ inline int scheme_get_realint_val(Scheme_Object *o, int *v)
+ {
+-  if (SCHEME_INTP(o)) { *v -  else return 0;
++  if (SCHEME_INTP(o)) {
++    int i +    if (i !+      return 0;
++    *v +    return 1;
++  } else return 0;
+ }
+ inline int scheme_get_unsigned_realint_val(Scheme_Object *o, unsigned int *v)
+ {
+   if (SCHEME_INTP(o)) {
+-    int i -    if (i < 0) return 0;
++    unsigned int i +    if (i !+      return 0;
+     *v      return 1;
+   } else return 0;
+>How-To-Repeat:
+1. Run the plt-games program.  The exact results may be system/window manager dependent, but for me the games window has no title bar or borders.
+
+2. Run plt-games from a terminal, select the game "Gobblet" and try to drag some pieces.  The pieces do not move, and it prints several messages of the form "Scheme->C: expects argument of type <uint32>; given 2823645440" (but with different numbers) to the terminal.
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: levertond@googlemail.com, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8744: Some problems on 64-bit platforms
+Date: Fri, 15 Jun 2007 06:04:20 +0800
+
+ Thank you very much for the patches!
+ 
+ The bugs you found are still in the v370 release, unfortunately, but
+ I've applied your patches for the next release.
+ 
+ Matthew
+ 
+
+
+State changed from "open" to "closed" by mflatt at Wed, 25 Jul 2007 14:54:06 -0400
+Reason>>> patches applied (a while back)
+

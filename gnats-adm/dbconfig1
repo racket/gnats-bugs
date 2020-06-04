@@ -1,0 +1,857 @@
+# This configuration file describes the standard "out-of-the-box" configuration
+# for GNATS.  It is responsible for describing the types of data stored
+# in fields, the order of fields in the index file, and the format of
+# results returned from query-pr.
+#
+# The format of the file is rather freeform; whitespace is unnecessary, and is
+# ignored.  Any text after a # is considered to be a comment, and is ignored
+# until the end of the line.
+#
+# The first section describes various aspects of the database.
+
+database-info {
+    # If true, mail is sent to the gnats-admin mail address instead
+    # of the submitter.  (Should be set to false or true.)
+    debug-mode false
+
+    # If true, all of the Received: headers are kept in the PR,
+    # otherwise only the first one is kept.
+    keep-all-received-headers false
+
+    # If true, we track required PR times and notify the responsible
+    # people when the times expire.
+    notify-about-expired-prs false
+
+    # Send the PR submitter an acknowledgement for a newly-submitted PR;
+    # the format of the message is the "mail-format" query format.
+    send-submitter-ack true
+
+    # The directory where at-pr and mail-pr can be found.
+    libexecdir "/usr/local/libexec/gnats"
+
+    # The hours that define a business day, in 24-hour format.
+    business-day-hours 8-17
+    # The starting and ending days of the week that define the business day.
+    business-week-days 1-5
+
+    # If true, directories for categories are automatically created if they
+    # don't already exist.
+    create-category-dirs true
+
+    # The default permission mask for new category directories.
+    # NOTE: If local users on the GNATS server itself will be running
+    # tools such as query-pr, you may to need set permissions to 0755.
+    category-dir-perms "0775"
+}
+
+#
+# The second section describes each field within the PR.
+#
+# The name specified here is also used as the field header in the PR, with
+# a `>' prepended and a `:' appended.
+#
+
+field "Number" {
+    # This entry describes a builtin field; "number" is the internal
+    # name of the field.  (The builtin names correspond to the old gnats
+    # field names, and are case-insensitive as are field names.)
+    builtin-name "number"
+
+    # A one-line description of the field, in human-readable form.
+    description "PR Number"
+
+    # Integer values are stored in this field.
+    integer {
+        # This must be -1 -- code in various programs relies on the first
+        # character of the field being a '-' if the value wasn't specified.
+        # Really, it shouldn't have a default.
+        default "-1"
+    }
+    # The field value may not be edited.
+    read-only
+}
+
+field "Category" {
+    builtin-name "category"
+    description "What area does this PR fall into?"
+    #
+    # The possible values for this field are enumerated in a separate file.
+    #
+    enumerated-in-file {
+        #
+        # The name of the file is "categories"; it is located in the
+        # gnats-adm subdirectory of the database.
+        #
+        path "categories"
+        #
+        # The names of the fields in the file; the file has 4 fields.
+        # Fields within the file are separated by colons (:).
+        #
+        fields {
+            "category" "fullname" "person" "notify"
+        }
+        # The file is keyed on this field.  (This is currently ignored, but
+        # it will eventually be used and should be present.  For now, this
+        # must always be the first field listed above.)
+        key "category"
+    }
+    # This field is searched when doing a --text search in query-pr.
+    textsearch
+    # Changing categories when "nobody" is responsible assigns the right person
+    on-change "Responsible=\"nobody\"" {
+        set-field "Responsible" { "%s" "Category[person]" }
+    }
+}
+
+field "Synopsis" {
+    builtin-name "synopsis"
+    description "One-line summary of the PR"
+    text
+    # When doing queries on this field, by default regexps do not need to
+    # match the contents of the field exactly.  The other possible
+    # value is "exact-regexp".
+    query-default inexact-regexp
+    textsearch
+}
+
+field "Class" {
+    description "The type of bug"
+    enumerated-in-file {
+        path "classes"
+        fields { "class" "type" "description" }
+        key "class"
+    }
+    textsearch
+    on-change {
+        add-audit-trail
+        require-change-reason
+    }
+}
+
+field "Responsible" {
+    builtin-name "responsible"
+    description "The user responsible for the PR"
+    enumerated-in-file {
+        path "responsible"
+        fields {
+            "responsible" "fullname" "alias"
+        }
+        key "responsible"
+        # We have to allow any value here, because old GNATS didn't require
+        # all possible responsible users to be listed in the responsible
+        # file--it looks in the password database as well.
+        #
+        # The flag indicates that the value in the field doesn't have to
+        # match one of the entries in the administrative file.
+        allow-any-value
+        # ELI: removing this makes it ignore the category owner
+    }
+    textsearch
+    # When the field is edited, we want an audit-trail entry to be added,
+    # and we want to require a reason for the change.
+    on-change {
+        add-audit-trail
+        require-change-reason
+    }
+    # Forbid changing owner back to "nobody"
+    # This works, but gives a bogus error message
+    # on-change "Responsible==\"nobody\" & oldpr:Responsible!=\"nobody\"" {
+    #     require { "You should not change responsible back to nobody" }
+    # }
+
+# Terminate the entry in the index after the first space.  (bleah!  Probably
+# no longer needed. And we should handle this by allowing a format
+# character in the index spec instead of this option.)
+    nospaces-in-index
+}
+
+field "Notify-List" {
+    description "Email addresses to notify of significant PR changes"
+    text
+    query-default inexact-regexp
+    textsearch
+}
+
+field "Severity" {
+    builtin-name "severity"
+    description "How severe is the PR?"
+    enum {
+        values { "critical" "serious" "non-critical" }
+        default "serious"
+        # We don't want to suggest a default when a PR is being input.
+        input-default ""
+    }
+    textsearch
+}
+
+field "Priority" {
+    builtin-name "priority"
+    description "How critical is it that the PR be fixed?"
+    enum {
+        values { "high" "medium" "low" }
+        default "medium"
+        # We don't want to suggest a default when a PR is being input.
+        input-default ""
+    }
+    query-default exact-regexp
+    textsearch
+}
+
+field "State" {
+    builtin-name "state"
+    description "The current state of the PR"
+    enumerated-in-file {
+        path "states"
+        fields { "state" "type" "description" }
+        key "state"
+    }
+    textsearch
+
+    on-change {
+        add-audit-trail
+        require-change-reason
+    }
+
+#
+# Here's an example of how we would set the Closed-Date: field when the
+# State: field is changed to "closed".
+#
+# Note that a \ followed by a newline is ignored, and \n within strings
+# is translated to the EOL character.
+#
+# Only do the edit if the new State's type is "closed" and if
+#    (a) the previous State wasn't of type closed
+# or (b) the Closed-Date is not yet defined
+# With this rule, we keep the Closed-Date if we change from a "closed"
+# state to another "closed" state.
+#
+    on-change "State[type]==\"closed\" \
+              & (oldpr:State[Type]!=\"closed\" | Closed-Date==\"\")" {
+#
+#        Set the Closed-Date field to the current date.  (We can also
+#       use $OldValue and $NewValue here as well, in addition to any
+#       of the PR's field values.)
+#
+        set-field "Closed-Date" {
+            "%s"
+            "$CurrentDate"
+        }
+    }
+
+#
+# If the new PR's State: field type is not closed...then we want to clear
+# the Closed-Date field.
+#
+    on-change "State[type]!=\"closed\"" {
+        # Null it out.
+        set-field "Closed-Date" { "" }
+    }
+}
+
+field "Confidential" {
+    builtin-name "confidential"
+    description "Yes/no flag indicating if the PR contents are confidential"
+    # An enumerated field with two possible values; the default value
+    # is "yes".
+    enum {
+        values { "yes" "no" }
+        default "no"
+    }
+    textsearch
+    # This field may not be queried unless the user has full permissions
+    # to search it.  (Does this actually do anything???  Probably not.)
+    restricted
+}
+
+field "Arrival-Date" {
+    builtin-name "arrival-date"
+    description "Arrival date of the PR"
+    # A date field.  Dates are validated as to format before they can be
+    # stored; the field contents may also be empty.
+    date
+    # The field value may not be edited.
+    read-only
+}
+
+field "Closed-Date" {
+    builtin-name "closed-date"
+    description "Date when the PR was closed"
+    date
+    # The field may not be edited by the user.
+    read-only
+}
+
+field "Last-Modified" {
+    builtin-name "last-modified"
+    description "Last modification date of the PR"
+    date
+    # The field may not be edited by the user.
+    read-only
+}
+
+field "Originator" {
+    builtin-name "originator"
+
+    description "Name of the PR author"
+
+    # The data type stored in this field is text.
+    text
+
+    query-default inexact-regexp
+
+    textsearch
+}
+
+field "Organization" {
+    description "Organization of PR author"
+    # Multiple lines of text may appear in the field.
+    multitext
+}
+
+field "Submitter-Id" {
+    builtin-name "submitter-id"
+    description "Site-specific identification of the PR author"
+    enumerated-in-file {
+        path "submitters"
+        fields {
+            "submitter" "fullname" "type" "rtime" "contact" "notify"
+        }
+        key "submitter"
+    }
+    textsearch
+}
+
+field "Release" {
+    description "Release number or tag"
+    text
+    query-default inexact-regexp
+    textsearch
+}
+
+field "Environment" {
+    description "Machine, OS, target, libraries"
+    multitext
+}
+
+field "Description" {
+    builtin-name "description"
+    description "Precise description of the problem"
+    multitext
+}
+
+field "How-To-Repeat" {
+    description "Code/input/activities to reproduce the problem"
+    multitext
+}
+
+field "Fix" {
+    description "How to correct or work around the problem, if known"
+    multitext
+# Do we really want this here?
+#     { default "\nUnknown" }
+}
+
+field "Release-Note" {
+    multitext
+}
+
+field "Audit-Trail" {
+    builtin-name "audit-trail"
+    description "Log of specific changes to the PR"
+    multitext
+}
+
+#
+# This is the "limbo death nuke" field where unparsed text ends up.
+#
+field "Unformatted" {
+    builtin-name "unformatted"
+    description "Miscellaneous text that was not parsed properly"
+    multitext
+}
+
+#
+# The following query sections describe the output of various types of
+# queries.
+#
+# For a full query, all fields are printed out.  The format used is
+# the same as a normal PR.
+#
+query "full" {
+    fields all
+}
+
+#
+# Used for edits.  The field contents are displayed "raw".
+#
+query "edit" {
+    fields all
+    raw
+}
+
+#
+# If a list of fields is given without any format specifier, the fields
+# are printed out in the same format as they would appear in a PR,
+# complete with headers.
+#
+# The standard query type is the one that is performed by default if no
+# format is specified to query-pr.
+#
+query "standard" {
+    fields {
+        "Number" "Category" "Synopsis" "Confidential" "Severity"
+        "Priority" "Responsible" "State" "Class" "Submitter-Id"
+        "Arrival-Date" "Closed-Date" "Last-Modified" "Originator"
+        "Release"
+    }
+}
+
+#
+# The format string uses printf-style formatting to format its
+# output. No headers are printed, and a trailing EOL character is
+# always output. \n within the string is replaced with the proper EOL
+# character.
+#
+# The format characters are:
+# %s - plain string.
+# %S - similar to %s, but the string is terminated at the first space
+#      that occurs in the field contents.  Used for the Responsible:
+#      field.
+# %d - integer value.  This is normally used to print out enumerated
+#      fields with their integer equivalent, or to print out dates
+#      as "seconds since Jan 1, 1970".
+# %D - formatted date field.
+# %Q - SQL-formatted date field.
+# %F - write the entire field with the header and a newline, just as if
+#      it were being written to a PR.  Any positional indicators and
+#      such are ignored.
+#
+# For most %-formats the usual `-' and `+' positional specifiers may be given.
+#
+# This is the --summary format in query-pr.
+#
+query "summary" {
+    format "%8s %-8.8S %-8.8s %-9.9s %-9.9s %-8.8s %-10.10s %s"
+    fields {
+        "Number" "Responsible" "Category" "State" "Severity" "Priority"
+        "Submitter-Id" "Synopsis"
+    }
+}
+
+
+#ELI: Similar to the above, for the whine script
+query "whine-open" {
+    format "%5s %-8.8s %-8.8s %-56.56s"
+    fields { "Number" "Category" "Severity" "Synopsis" }
+}
+query "whine-all" {
+    format "%5s %-6.6s %-8.8s %-8.8s %-49.49s"
+    fields { "Number" "State" "Category" "Severity" "Synopsis" }
+}
+
+
+#
+# The next two are historical silliness.
+#
+query "sql" {
+    format "%-8.8s|%-16.16s|%-128.128s|%-3.3s|%1.1d|%1.1d|%-16.16S|%1.1d|%1.1d|%-16.16s|%-21.21Q|%-64.64s|%-64.64s|%-21.21Q|%-21.21Q|"
+    fields {
+        "Number" "Category" "Synopsis" "Confidential" "Severity" "Priority"
+        "Responsible" "State" "Class" "Submitter-Id" "Arrival-Date"
+        "Originator" "Release" "Last-Modified" "Closed-Date"
+    }
+}
+
+query "sql2" {
+    format "%s|%s|%s|%s|%d|%d|%S|%d|%d|%s|%Q|%s|%s|%Q|%Q|"
+    fields {
+        "Number" "Category" "Synopsis" "Confidential" "Severity" "Priority"
+        "Responsible" "State" "Class" "Submitter-Id" "Arrival-Date"
+        "Originator" "Release" "Last-Modified" "Closed-Date"
+    }
+}
+
+#
+# The format used for Audit-Trail entries.  The following parameters
+# are passed in, and can be used in addition to any of the PR fields:
+# $FieldName -- the name of the field that has changed
+# $OldValue -- the old value of the field
+# $NewValue -- the new field value
+# $EditUserEmailAddr -- the email address of the user editing the field
+# $CurrentDate -- the current date
+# $ChangeReason -- the reason for the change (may be blank if no reason was
+#                                              supplied)
+#
+audit-trail-format {
+    format "%s changed from \"%s\" to \"%s\" by %s at %s\nReason>>> %s"
+    fields {
+      "$FieldName" "$OldValue" "$NewValue" "$EditUserEmailAddr" "$CurrentDate"
+      "$ChangeReason"
+    }
+}
+# Original format:
+# audit-trail-format {
+#     format "\n\
+# %s-Changed-From-To: %s->%s\n\
+# %s-Changed-By: %s\n\
+# %s-Changed-When: %s\n\
+# %s-Changed-Why:\n\
+# %s\n\
+# View:\n\
+#   http://bugs.racket-lang.org/query/?cmd=view&pr=%s\n"
+# Not needed:
+# Edit:\n\
+#   https://internal.racket-lang.org/bugs/?cmd=edit&pr=%s\n
+#
+#     fields {
+#         "$FieldName" "$OldValue" "$NewValue"
+#         "$FieldName" "$EditUserEmailAddr"
+#         "$FieldName" "$CurrentDate"
+#         "$FieldName" "$ChangeReason"
+#          "Number" "Number"
+#     }
+# }
+
+#
+# This message is used when mailing an initial response back to the
+# PR submitter.
+#
+
+mail-format "initial-response-to-submitter" {
+    from-address {
+        fixed-address "bugs"
+    }
+
+    # For addresses that are joined with |, we try each one in turn, from
+    # left to right,  until we find one that's non-empty.
+    # Multiple addresses may be listed here.
+    to-addresses {
+        "Reply-To:" | "From:" | "From" | "Submitter-Id"
+    }
+
+    #ELI: reply to notifications, so everyone sees replies (eg, when
+    # people send attachments)
+    reply-to {
+        fixed-address "bugs,bug-notification@racket-lang.org"
+    }
+
+    header {
+        format "Subject: Re: [racket-bug] %s/%s: %s\n"
+        fields { "Category" "Number" "Subject:" }
+    }
+
+    body {
+# ---------- Original format: ----------
+# format "Thank you very much for your problem report.\n\
+# It has the internal identification `%s/%s'.\n\
+# You can check on the status of your problem report at\n\
+#   http://bugs.racket-lang.org/query/?cmd=view&pr=%s\n\
+# \n\
+# %F%F%F%F\n\
+# "
+#         fields { "Category" "Number" "Number"
+#                  "Category" "Responsible" "Synopsis" "Arrival-Date" }
+# ---------- Later format: ----------
+#         format "\
+# Thank you very much for your problem report.\n\
+# It has the internal identification `%s/%s'.\n\
+# You can check on the status of your problem report at\n\
+#   http://bugs.racket-lang.org/query/?cmd=view&pr=%s\n\
+# Assigned to %s <%s>.\n"
+#         fields {
+#       "Category" "Number" "Number" "Responsible[fullname]" "Responsible[alias]"
+#     }
+# ---------- Current format: ----------
+        format "\
+Thank you very much for your problem report.\n\
+It has the internal identification `%s/%s'.\n\
+You can check on the status of your problem report at\n\
+  http://bugs.racket-lang.org/query/?cmd=view&pr=%s\n\
+\n\
+If you wish to provide further information regarding this problem\n\
+you can do so as a reply to this message.  (But please make sure\n\
+that your mailer replies to both \"bugs\" and \"bug-notification\".)\n\
+\n"
+        fields { "Category" "Number" "Number" }
+    }
+}
+
+#
+# The message sent to the responsible parties when a new non-pending
+# PR arrives.
+#
+
+mail-format "initial-pr-notification" {
+    # Who the mail is from.
+    from-address {
+        "From:" | "From"
+    }
+
+    # We send mail to the responsible person, the addresses listed in
+    # the contact and notify fields of the submitter adm file entry for
+    # the Submitter-Id, and the notify person listed in the category
+    # adm file.
+    to-addresses {
+        "Responsible"
+        # ELI: don't use Submitter here
+        # "Submitter-Id[contact]"
+        # "Submitter-Id[notify]"
+        "Category[person]"
+        "Category[notify]"
+    }
+
+    # The reply-to address; either use the Reply-To: or From: header values
+    # from the PR, or the Submitter-Id's mail address.
+    reply-to {
+        "Reply-To:" | "From:" | "From" | "Submitter-Id"
+        fixed-address "bugs"
+    }
+
+    # Any additional header text we want to add.  Must have a newline at the
+    # end of each line.
+    header {
+        format "Subject: [racket-bug] %s/%s: %s\nCc: %s\nBcc: new-bug-notification@racket-lang.org\n"
+        fields { "Category" "Number" "Subject:" "Notify-List" }
+    }
+
+    body {
+# Need to add this feature, or something like it.
+#        ($ExpireTime != "") {
+#                format "\tThe contract type is `%s' with a response time of %d business hours.\n"
+#                fields { "Submitter-Id[type]" "$ExpireTime" }
+#        }
+#       %P is "write the entire PR".  Ugh.  FIXME XXX ??? !!!
+        format "\
+A new problem report is waiting at\n\
+  http://bugs.racket-lang.org/query/?cmd=view&pr=%s\n\
+\n\
+Reported by %s for release: %s\n\n\
+*** Description:\n\
+%s\n\
+*** How to repeat:\n\
+%s\n\
+*** Environment:\n\
+%s\n"
+        fields {
+          "Number" "Originator" "Release"
+          "Description" "How-To-Repeat" "Environment"
+        }
+# Original format:
+#         format "You may edit this problem report at\n\
+#   https://internal.racket-lang.org/bugs/?cmd=edit&pr=%s\n\
+# \n\
+# %P"
+#         # And if there's a %-format...there has to be an associated field.
+#         # Double bleah.
+#         fields { "Number" "$" }
+    }
+}
+
+#
+# This format is used for initial PRs that end up as pending PRs.
+#
+mail-format "initial-pr-notification-pending" {
+    # Is this good?
+    from-address { "From:" | "From" }
+    # Boring--we only tell gnats-admin about it.
+    to-addresses { fixed-address "gnats-admin" }
+    # Questionable for a pending PR.
+    reply-to {
+      "Reply-To:" | "From:" | "From" | "Submitter-Id"
+      fixed-address "bugs"
+    }
+    header {
+        format "Subject: [racket-bug] %s/%s: %s -- pending\nCc: %s\n"
+        fields { "Category" "Number" "Subject:" "Notify-List" }
+    }
+    body {
+        format "\
+A pending problem report is waiting at\n\
+  https://bugs.racket-lang.org/query/?cmd=edit&pr=%s\n\
+\n\
+%P\n"
+        fields { "Number" "$" }
+    }
+
+    # Original format:
+    # body {
+    #     format "%P"
+    #     fields { "$" }
+    # }
+}
+
+#
+# Used when a response to a PR is received via email.
+#
+# The following parameters are passed in:
+# $MailFrom -- the From: line of the original message
+# $MailTo -- the To: line of the original message
+# $MailSubject: The Subject: line of the original message
+# $MailCC: The CC: line of the original message
+# $NewAuditTrail -- the text of the new audit trail entry (the body of
+#                    the message)
+#
+mail-format "appended-email-response" {
+    from-address {
+        "$MailFrom"
+    }
+
+    #
+    # Should we send a copy to the user that sent in the message?
+    #
+    to-addresses {
+        "Responsible"
+        # ELI: don't use Submitter here
+        # "Submitter-Id[contact]"
+    }
+
+    reply-to {
+      "$MailFrom"
+      fixed-address "bugs"
+    }
+
+    header {
+        # ELI: Original:
+        # format "Subject: %s/%s: %s\n"
+        # fields { "Category" "Number" "$MailSubject" }
+        # but there is no need for the cat/num since it's part of the subject
+        # or it wouldn't get noted.  Also no need for "[racket-bug]"
+        format "Subject: %s\n"
+        fields { "$MailSubject" }
+    }
+
+    body {
+        format "\
+The following reply was made to PR %s/%s (noted by Gnats).\n\n\
+View this PR at:\n\
+  http://bugs.racket-lang.org/query/?cmd=view&pr=%s\n\
+\n====================\n\
+%s"
+        fields { "Category" "Number" "Number" "$NewAuditTrail" }
+    }
+}
+
+#
+# Used to send mail for a change that generates an Audit-Trail entry.
+# The following parameters are available:
+# $EditUserEmailAddr -- the email address of the user editing the PR
+# $OldResponsible -- the previous Responsible field entry, if it was changed
+# $NewAuditTrail -- the Audit-Trail: entries that have been appended
+#                    by the edits
+#
+mail-format "audit-mail" {
+    from-address {
+        "$EditUserEmailAddr"
+    }
+
+    to-addresses {
+        "Responsible"
+        "$OldResponsible"
+        "Category[notify]"
+        # ELI: don't use Submitter here
+        # "Submitter-Id[contact]"
+        "$EditUserEmailAddr"
+        "Reply-To:" | "From:" | "From"
+    }
+
+    reply-to {
+        fixed-address "bugs"
+    }
+
+    header {
+        format "Subject: Re: [racket-bug] %s/%s: %s\nCc: %s\n"
+        fields { "Category" "Number" "Synopsis" "Notify-List" }
+    }
+
+    body {
+        format "\n%s\nView:\n  http://bugs.racket-lang.org/query/?cmd=view&pr=%s\n\n"
+# Not needed:
+# Edit:\n  https://internal.racket-lang.org/bugs/?cmd=edit&pr=%s\n
+        fields { "$NewAuditTrail" "Number" }
+    }
+}
+
+#
+# Used to send mail when a PR is deleted.
+# The following parameters are available:
+# $EditUserEmailAddr -- the email address of the user deleting the PR
+# $PRNum -- the number of the PR that was deleted
+# Can't refer to the deleted PR at this point--it's been deleted. *bam*
+#
+mail-format "deleted-pr-mail" {
+    from-address {
+        "$EditUserEmailAddr"
+    }
+
+    to-addresses {
+        fixed-address "gnats-admin"
+    }
+
+    header {
+        format "Subject: [racket-bug] Deleted PR %s\n"
+        fields { "$PRNum" }
+    }
+
+    body {
+        format "PR %s was deleted by user %s.\n"
+        fields { "$PRNum" "$EditUserEmailAddr" }
+    }
+}
+
+#
+# Global on-change sections are executed once for each PR edit.
+#
+# This one takes care of setting the Last-Modified field.  The following
+# format parameters are available:
+#
+# $CurrentDate -- the current date
+# $EditUserEmailAddr -- the email address of the user making the change(s)
+#
+on-change {
+    set-field "Last-Modified" { "%s" "$CurrentDate" }
+}
+
+#
+# The index entry lists the fields that appear in the index.  For now, the PR
+# ID (consisting of "category/number") is always first in the index records,
+# and is not explicitly given here.
+#
+# The binary-index keyword indicates that a binary file format will be used
+# to store the index.  This has several advantages over the old ASCII format,
+# not the least of which is avoiding problems with quoting field separators
+# (which didn't work properly in GNATS v3).
+#
+# If the old ASCII format is used (by setting binary-index to false) a '|' is
+# used as the separator between fields by default.  An alternate field
+# separator may be given with the "separator" keyword.
+#
+index {
+    # Name of the index file in the gnats-adm directory.  The name is
+    # respected, but you can only have one index entry per database (for
+    # now).  The index is keyed by PR number.
+    path "index"
+    # The fields in the index, in the order in which they will appear.
+    fields {
+        "Submitter-Id" "Responsible" "State" "Confidential" "Severity"
+        "Priority" "Arrival-Date" "Last-Modified" "Closed-Date" "Class"
+        "Originator" "Release" "Synopsis"
+    }
+    # A somewhat convoluted binary format is used when binary-index is set
+    # to true.
+    binary-index true
+}
+
+# initial-entry describes which fields should be present on initial entry;
+# this is used by send-pr (for example) to decide which fields to include
+# in the template.
+#
+# These are listed in the approximate order in which they should appear in
+# the template.
+initial-entry {
+    fields {
+        "Submitter-Id" "Notify-List" "Originator" "Organization"
+        "Synopsis" "Confidential" "Severity" "Priority" "Category"
+        "Class" "Release" "Environment" "Description" "How-To-Repeat"
+        "Fix"
+    }
+}

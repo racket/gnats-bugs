@@ -1,0 +1,153 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Feb 17 17:50:57 2010
+Received: from mail-gx0-f224.google.com (mail-gx0-f224.google.com [209.85.217.224])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o1HMos4s024503
+	for <bugs@bugs.plt-scheme.org>; Wed, 17 Feb 2010 17:50:55 -0500
+Message-Id: <201002172250.o1HMoqHv024495@champlain.ccs.neu.edu>
+Date: Wed, 17 Feb 2010 17:50:52 -0500
+From: robby@eecs.northwestern.edu
+To: bugs@plt-scheme.org
+Subject: drawing with loaded masks can produce strange behavior
+
+>Number:         10770
+>Category:       mred
+>Synopsis:       drawing with loaded masks can produce strange behavior
+>Class:          sw-bug
+>Responsible:    mflatt
+>Notify-List:    stefanbonnet@yahoo.fr
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Feb 17 17:52:01 -0500 2010
+>Last-Modified:  Tue May 03 18:48:32 -0400 2011
+>Originator:     Robby Findler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.4.2-svn17feb2010
+>Environment:
+macosx "Darwin chienshi.local 9.8.0 Darwin Kernel Version 9.8.0: Wed Jul 15 16:55:01 PDT 2009; root:xnu-1228.15.4~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 162799688
+
+Collections:
+(("/Users/robby/Library/PLT Scheme/4.2.4.2/collects" non-existent-path) ("/Users/robby/svn/exp/plt/collects" ".svn" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "profj" "profjWizard" "r5rs" "r6rs" "reader" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" !
+ "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Determine language from source") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+From stephane bonnet:
+> Attempting to draw  a masked bitmap (mask argument of 
+> draw-bitmap supplied with get-loaded-mask) in a dc object whose 
+> scale is <1, leads to weird results.
+> But using a second bitmap as the mask, 
+> loaded with the same get-loaded-mask, works fine... ?
+
+His code is below. It definitely seems like strange behavior to me.
+
+Also, I noticed that his code calls load-image with a bitmap whose loaded-mask is selected into the dc. The loaded-mask is still eq? after the call, so probably there is some other, potential bug waiting to happen there?
+>How-To-Repeat:
+#lang scheme/gui
+
+(define gray (send the-color-database find-color "gray"))
+(define misspelled-gray (make-object color% 158 158 150))
+(define black (send the-color-database find-color "black"))
+(define white (send the-color-database find-color "white"))
+(define red (send the-color-database find-color "red"))
+(define blue (send the-color-database find-color "blue"))
+
+;you can play around with those, for maximum effect :
+
+(define background-color black)
+(define different-background-color white)
+(define pen-color white)
+(define pen-size 0)
+
+(define image-name "essai.png")
+(define image-path (build-path (find-system-path 'desk-dir) image-name))
+
+(define image (make-object bitmap% 500 500))
+(define mask (make-object bitmap% (send image get-width) (send image get-height)))
+(define image-dc (instantiate bitmap-dc% (image)))
+(define mask-dc (instantiate bitmap-dc% (mask)))
+
+(define draw-pen (make-object pen% pen-color pen-size 'solid))
+(define mask-pen (make-object pen% black pen-size 'solid))
+(define draw-brush (make-object brush% red 'transparent))
+(define mask-brush (make-object brush% black 'transparent))
+
+(send image-dc set-pen draw-pen)
+(send image-dc set-brush draw-brush)
+
+(send mask-dc set-pen mask-pen)
+(send mask-dc set-brush mask-brush)
+
+(send image-dc set-background background-color)
+(send image-dc clear)
+
+(send mask-dc set-background white)
+(send mask-dc clear)
+
+(send mask-dc set-smoothing 'unsmoothed)
+(send image-dc set-smoothing 'unsmoothed)
+(send image-dc draw-rectangle 50 50 400 400)
+(send mask-dc draw-rectangle 50 50 400 400)
+
+(send image set-loaded-mask mask)
+(send image save-file image-path 'png)
+
+(send image-dc set-bitmap #f)
+(send image load-file image-path 'png/mask)
+
+(define scale 0.5)
+
+(define (draw dc)
+ (send dc set-scale scale scale)
+ (send dc draw-bitmap image 0 0 'solid black mask))
+
+(define (draw-with-get-loaded-mask dc)
+ (send dc set-scale scale scale)
+ (send dc draw-bitmap image 0 0 'solid black (send image get-loaded-mask)))
+
+(define f (new frame% (label "same-color/mask") (x 0) (y 0)))
+(define c (new canvas%
+             (parent f)
+             (min-width (inexact->exact (* scale (send mask get-width))))
+             (min-height  (inexact->exact (* scale (send mask get-height))))
+             (paint-callback
+               (λ (c dc) (begin (send dc set-background background-color)
+                                 (send dc clear)
+                                 (draw dc))))))
+(define f1 (new frame% (label "same-color/get-loaded") (x (inexact->exact (* scale (send mask get-width)))) (y 0)))
+(define c1 (new canvas%
+             (parent f1)
+             (min-width (inexact->exact (* scale (send mask get-width))))
+             (min-height  (inexact->exact (* scale (send mask get-height))))
+             (paint-callback
+               (λ (c dc) (begin (send dc set-background background-color)
+                                 (send dc clear)
+                                 (draw-with-get-loaded-mask dc))))))
+(define f2 (new frame% (label "different-color/get-loaded") (x (inexact->exact (* 2 scale (send mask get-width)))) (y 0)))
+(define c2 (new canvas%
+             (parent f2)
+             (min-width (inexact->exact (* scale (send mask get-width))))
+             (min-height  (inexact->exact (* scale (send mask get-height))))
+             (paint-callback
+               (λ (c dc) (begin (send dc set-background different-background-color)
+                                 (send dc clear)
+                                 (draw-with-get-loaded-mask dc))))))
+(define f3 (new frame% (label "different-color/mask") (x (inexact->exact (* 3 scale (send mask get-width)))) (y 0)))
+(define c3 (new canvas%
+             (parent f3)
+             (min-width (inexact->exact (* scale (send mask get-width))))
+             (min-height  (inexact->exact (* scale (send mask get-height))))
+             (paint-callback
+               (λ (c dc) (begin (send dc set-background different-background-color)
+                                 (send dc clear)
+                                 (draw dc))))))
+
+
+(send f show #t)
+(send f1 show #t)
+(send f2 show #t)
+(send f3 show #t)
+>Fix:

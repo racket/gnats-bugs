@@ -1,0 +1,105 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jan 14 17:14:36 2013
+Received: from mail-ob0-f173.google.com (mail-ob0-f173.google.com [209.85.214.173])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r0EMEWtN020991
+	for <bugs@bugs.plt-scheme.org>; Mon, 14 Jan 2013 17:14:33 -0500
+Message-Id: <201301142214.r0EMEU7e020982@champlain.ccs.neu.edu>
+Date: Mon, 14 Jan 2013 17:14:30 -0500
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: TR: inference fails when passing vector-ref or list-ref to a function
+
+>Number:         13431
+>Category:       typed-scheme
+>Synopsis:       TR: inference fails when passing vector-ref or list-ref to a function
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Jan 14 17:16:02 -0500 2013
+>Last-Modified:  Tue Mar 26 01:59:18 -0400 2013
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.1--2013-01-09(441ad6ef/d)
+>Environment:
+unix "Linux schroder 2.6.38-15-generic #66-Ubuntu SMP Tue Aug 14 17:24:44 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 618619592
+Links: (links) = ("bayes"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+Planet2 (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific:
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/5.3.2.1/collects"
+ ("info-domain"))
+("/home/neil/plt/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "planet2" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "realm" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "l!
+ ang" "raco" "gui-debugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+When `vector-ref' is passed to a function with an argument type with more than one type parameter, inference instantiates them as `Any'. When passing `list-ref' under similar circumstances, inference fails.
+
+This used to work correctly. Found when scanning documentation for `array-axis-expand': the first example wrongly returns a value of type (Array Any). It should be (and used to be) type (Array Symbol).
+>How-To-Repeat:
+#lang typed/racket
+
+(: map-vector (All (A B) ((Vectorof A) ((Vectorof A) Index -> B) -> (Vectorof B))))
+(define (map-vector vs ref)
+  (build-vector (vector-length vs) (λ: ([n : Index]) (ref vs n))))
+
+(: map-list (All (A B) ((Listof A) ((Listof A) Index -> B) -> (Listof B))))
+(define (map-list vs ref)
+  (build-list (length vs) (λ: ([n : Index]) (ref vs n))))
+
+
+> (map-vector #(1 2 3 4) vector-ref)
+- : (Vectorof Any)
+'#(1 2 3 4)
+
+> (map-vector #(1 2 3 4) (inst vector-ref Integer))
+- : (Vectorof Integer)
+'#(1 2 3 4)
+
+> ((inst map-vector Integer Integer) #(1 2 3 4) vector-ref)
+- : (Vectorof Integer)
+'#(1 2 3 4)
+
+> (map-list '(1 2 3 4) list-ref)
+Type Checker: Polymorphic function map-list could not be applied to arguments:
+Argument 1:
+  Expected: (Listof A)
+  Given:    (List One Positive-Byte Positive-Byte Positive-Byte)
+Argument 2:
+  Expected: ((Listof A) Index -> B)
+  Given:    (All (a) ((Listof a) Integer -> a))
+ in: (map-list (quote (1 2 3 4)) list-ref)
+
+> (map-list (ann '(1 2 3 4) (Listof Integer)) list-ref)
+Type Checker: Polymorphic function map-list could not be applied to arguments:
+Argument 1:
+  Expected: (Listof A)
+  Given:    (Listof Integer)
+Argument 2:
+  Expected: ((Listof A) Index -> B)
+  Given:    (All (a) ((Listof a) Integer -> a))
+ in: (map-list (ann (quote (1 2 3 4)) (Listof Integer)) list-ref)
+
+> (map-list '(1 2 3 4) (inst list-ref Integer))
+- : (Listof Integer)
+'(1 2 3 4)
+
+> ((inst map-list Integer Integer) '(1 2 3 4) list-ref)
+- : (Listof Integer)
+'(1 2 3 4)
+>Fix:

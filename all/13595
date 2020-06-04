@@ -1,0 +1,175 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Mar 11 13:05:14 2013
+Received: from mail-oa0-f53.google.com (mail-oa0-f53.google.com [209.85.219.53])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r2BH5BhC014275
+	for <bugs@bugs.plt-scheme.org>; Mon, 11 Mar 2013 13:05:11 -0400
+Message-Id: <201303111705.r2BH59LS014269@champlain.ccs.neu.edu>
+Date: Mon, 11 Mar 2013 13:05:09 -0400
+From: ianj@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: free-id-table-ref from submodule
+
+>Number:         13595
+>Category:       all
+>Synopsis:       free-id-table-ref from submodule
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Mar 11 13:08:01 -0400 2013
+>Closed-Date:    Wed Jul 29 20:00:52 -0400 2015
+>Last-Modified:  Wed Jul 29 20:00:52 -0400 2015
+>Originator:     J. Ian Johnson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.3
+>Environment:
+Linux x86_64 / Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:16.0) Gecko/20100101 Firefox/16.0
+>Description:
+An identifier in a submodule registered in a free-id-table outside the submodule cannot be referenced, even though a free-id-table-for-each can determine a key is indeed free-identifier=? to the key.
+>How-To-Repeat:
+#lang racket/base
+(require (for-syntax racket/base syntax/id-table))
+(define-for-syntax table (make-free-id-table))
+(define-syntax (foo stx)
+  (syntax-case stx ()
+    [(_ i x)
+     (begin
+      (free-id-table-set! table #'i #''x)
+      #`(define-syntax (i syn) (raise-syntax-error #f "For use in bar" syn)))]))
+(define-syntax (bar stx)
+  (syntax-case stx ()
+    [(_ i)
+     (begin
+       (free-id-table-for-each table (λ (k v) (when (free-identifier=? k #'i) (printf "Found~%"))))
+       #`(printf "Got ~a~%" #,(free-id-table-ref table #'i (λ () (raise-syntax-error #f "Bad ident" stx)))))]))
+
+(foo a blah)
+(bar a)
+#; ;; Uncomment for bug
+(module+ test
+  (foo a blah)
+  (bar a))
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: ianj@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13595: free-id-table-ref from submodule
+Date: Mon, 11 Mar 2013 13:48:45 -0400
+
+ Did you try this:
+ 
+ (provide foo bar)
+ (module+ test
+   (require (for-syntax (submod "..")))
+   (foo a blah)
+   (bar a))
+ 
+ 
+ 
+ 
+ 
+ 
+ On Mar 11, 2013, at 1:08 PM, ianj@ccs.neu.edu wrote:
+ 
+ > #lang racket/base
+ > (require (for-syntax racket/base syntax/id-table))
+ > (define-for-syntax table (make-free-id-table))
+ > (define-syntax (foo stx)
+ >  (syntax-case stx ()
+ >    [(_ i x)
+ >     (begin
+ >      (free-id-table-set! table #'i #''x)
+ >      #`(define-syntax (i syn) (raise-syntax-error #f "For use in bar" syn)))]))
+ > (define-syntax (bar stx)
+ >  (syntax-case stx ()
+ >    [(_ i)
+ >     (begin
+ >       (free-id-table-for-each table (λ (k v) (when (free-identifier=? k #'i) (printf "Found~%"))))
+ >       #`(printf "Got ~a~%" #,(free-id-table-ref table #'i (λ () (raise-syntax-error #f "Bad ident" stx)))))]))
+ > 
+ > (foo a blah)
+ > (bar a)
+ > #; ;; Uncomment for bug
+ > (module+ test
+ >  (foo a blah)
+ >  (bar a))
+ 
+ 
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: ianj@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13595: free-id-table-ref from submodule
+Date: Mon, 11 Mar 2013 13:57:10 -0400
+
+ You're right, the hash function for free-id-table seems to be 
+ incompatible with free-identifier=? in the case of submodules. Perhaps 
+ in other cases too, involving generated export symbols? (Submodule names 
+ seem to be renamed for export in the same way as marked names, so I 
+ wonder if the same problem exists there.) I'm not sure how to fix that.
+ 
+ You can work around the bug by updating the free-id-table *after* the 
+ definition is processed, like this:
+ 
+ (define-syntax (foo stx)
+    (syntax-case stx ()
+      [(_ i x)
+       #'(begin
+           (define-syntax (i syn)
+             (raise-syntax-error #f "For use in bar" syn))
+           (begin-for-syntax
+             (free-id-table-set! table #'i #''x)))]))
+ 
+ That's frequently what you want to do anyway, if you want 'table' to be 
+ used in the compilation of other modules (see "You Want It When?"). If 
+ you don't want the table to be persistent, then IIRC you can use 
+ 'in-phase1' from unstable/define instead of 'begin-for-syntax', and the 
+ effect will only happen for the compilation of the enclosing module.
+ 
+ Ryan
+ 
+ 
+ On 03/11/2013 01:08 PM, ianj@ccs.neu.edu wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=13595
+ >
+ > Reported by J. Ian Johnson for release: 5.3.2.3
+ >
+ > *** Description:
+ > An identifier in a submodule registered in a free-id-table outside the submodule cannot be referenced, even though a free-id-table-for-each can determine a key is indeed free-identifier=? to the key.
+ >
+ > *** How to repeat:
+ > #lang racket/base
+ > (require (for-syntax racket/base syntax/id-table))
+ > (define-for-syntax table (make-free-id-table))
+ > (define-syntax (foo stx)
+ >    (syntax-case stx ()
+ >      [(_ i x)
+ >       (begin
+ >        (free-id-table-set! table #'i #''x)
+ >        #`(define-syntax (i syn) (raise-syntax-error #f "For use in bar" syn)))]))
+ > (define-syntax (bar stx)
+ >    (syntax-case stx ()
+ >      [(_ i)
+ >       (begin
+ >         (free-id-table-for-each table (λ (k v) (when (free-identifier=? k #'i) (printf "Found~%"))))
+ >         #`(printf "Got ~a~%" #,(free-id-table-ref table #'i (λ () (raise-syntax-error #f "Bad ident" stx)))))]))
+ >
+ > (foo a blah)
+ > (bar a)
+ > #; ;; Uncomment for bug
+ > (module+ test
+ >    (foo a blah)
+ >    (bar a))
+ >
+ > *** Environment:
+ > Linux x86_64 / Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:16.0) Gecko/20100101 Firefox/16.0
+ >
+ 
+
+State changed from "open" to "closed" by samth at Wed, 29 Jul 2015 20:00:52 -0400
+Reason>>> fixed (maybe by the new expander)
+

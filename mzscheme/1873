@@ -1,0 +1,130 @@
+From nobody@cs.rice.edu  Wed Feb 28 09:28:13 2001
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id JAA28660
+	for <plt-gnats@cs.rice.edu>; Wed, 28 Feb 2001 09:28:13 -0600 (CST)
+Message-Id: <200102281528.JAA17382@web.cs.rice.edu>
+Date: Wed, 28 Feb 2001 09:28:12 -0600 (CST)
+From: md284@cam.ac.uk
+Reply-To: md284@cam.ac.uk
+To: plt-gnats@cs.rice.edu
+Subject: Memory leak in latest 103.5 from CVS 
+
+>Number:         1873
+>Category:       mzscheme
+>Synopsis:       Memory leak in latest 103.5 from CVS
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Feb 28 15:30:01 GMT 2001
+>Last-Modified:  Wed Mar 21 15:55:14 CST 2001
+>Originator:     Mark DePristo
+>Organization:
+titan
+>Release:        103.5
+>Environment:
+Linux
+>Description:
+I believe that I've discovered a memory leak in mzscheme when processing 
+large amounts of list data.  I'm routinely processing lists 100000+ 
+elements long, and I've been experiences periodic memory consumption
+explosions.  Yesterday I discovered a way to reproduce the problem
+and have isolated the bug to the code I'm submitting below.  
+Just copy it into the mzscheme interpreter and run the (break-mzscheme)
+function with the example arguments.  My suspicion is that there is some
+sort of problem with GC when the stack length grows very large, since
+this problem does not occur if I use partition! instead of partition
+in my code.  
+>How-To-Repeat:
+(require-library "synrule.ss")
+
+(define-syntax receive
+  (syntax-rules ()
+    ((receive (?vars ...) ?proc ?body ...)
+     (call-with-values (lambda () ?proc)
+       (lambda (?vars ...)
+	 ?body ...)))))
+
+(define (list-tabulate len proc)
+  (do ((i (- len 1) (- i 1))
+       (ans '() (cons (proc i) ans)))
+      ((< i 0) ans)))
+
+(define (partition pred lis)
+  (let recur ((lis lis))
+    (if (null? lis) (values lis lis)	; Use NOT-PAIR? to handle dotted lists.
+	(let ((elt (car lis))
+	      (tail (cdr lis)))
+	  (receive (in out) (recur tail)
+	    (if (pred elt)
+		(values (if (pair? out) (cons elt in) lis) out)
+		(values in (if (pair? in) (cons elt out) lis))))))))
+
+(define (break-mzscheme k n)
+  (do ((i 0 (+ i 1)))
+      ((= i k))
+    (printf "MEM-USAGE [before]: ~A~%" (current-memory-use))
+    (partition (lambda (x) (= x 1)) (list-tabulate n (lambda (i) (modulo i 5))))
+    (printf "MEM-USAGE [after]: ~A~%" (current-memory-use))
+    (collect-garbage)
+    (printf "MEM-USAGE [postgc]: ~A~%" (current-memory-use))))
+
+;; This one's ok
+;; (break-mzscheme 10 10000)
+
+;; This one's ok [sort of, since memory consumption 
+;; increases slightly over time]
+;; (break-mzscheme 100 50000)
+
+;; This one breaks mzscheme [see memory usage]
+;; (break-mzscheme 10 100000)
+>Fix:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: md284@cam.ac.uk
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1873: Memory leak in latest 103.5 from CVS 
+Date: Wed, 28 Feb 2001 08:44:41 -0700 (MST)
+
+ Quoting md284@cam.ac.uk:
+ > I believe that I've discovered a memory leak in mzscheme when processing 
+ > large amounts of list data.  [...] My suspicion is that there is some
+ > sort of problem with GC when the stack length grows very large, since
+ > this problem does not occur if I use partition! instead of partition
+ > in my code.  
+ 
+ At first I didn't see the problem, because my machine's stack can grow
+ to 64 MB. But when I limit the stack to 8 MB, I see the problem.
+ So I think your conjecture is correct.
+ 
+ More specifically: when the Scheme "stack" becomes larger than the
+ machine stack, MzScheme copies the machine stack. This copying of the
+ stack often interacts badly with conservative GC.
+ 
+ Probably a strategically zeroed pointer will solve the problem, but it
+ may take me a while to find that pointer...
+ 
+ Thanks for the report,
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Mar 19 19:11:19 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Mar 21 15:53:36 2001
+State-Changed-Why:
+Strategically zeroed some pointers, and it got much better,
+for 199.6.
+
+As a santiy check, I verified that the precisely-collected
+variant of MzScheme doesn't grow.
+ 
+>Unformatted:

@@ -1,0 +1,236 @@
+From apache@plt-scheme.org Fri Mar  3 19:11:35 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k240BXY1030237
+	for <bugs@plt-scheme.org>; Fri, 3 Mar 2006 19:11:33 -0500
+Message-Id: <200603040011.k240BXfi030235@champlain.ccs.neu.edu>
+Date: Fri, 3 Mar 2006 19:11:33 -0500
+From: qha@lysator.liu.se
+To: bugs@plt-scheme.org
+Subject: combine-url/relative fails to combine paths with more than one .. in sequence
+
+>Number:         7931
+>Category:       misc
+>Synopsis:       combine-url/relative fails to combine paths with more than one .. in sequence
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Mar 03 19:15:00 -0500 2006
+>Last-Modified:  Tue Mar 21 00:29:35 -0500 2006
+>Originator:     Ulrik Haugen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301
+>Environment:
+linux-other
+>Description:
+If combine-url/relative is given a string with more than one '..' in sequence: only zero or one from each sequence are taken into account.
+
+This is because merge-and-normalize (in url-unit.ss) throws away whatever preceeds a '..' before normalizing it. I've written a new merge-and-normalize that adresses this problem:
+
+
+      ;; merge-and-normalize : list (str) x url -> url
+      (define (merge-and-normalize base-path relative-url)
+        (let* ([reversed/normalized
+                (let normalize
+                  ([reversed (append (reverse (url-path relative-url))
+                                     (if (null? base-path) null
+                                       (cdr (reverse base-path))))])
+                  (if (null? reversed) null
+                    (let ([cdr-normalized (normalize (cdr reversed))])
+                      (cond [(string=? (car reversed) ".") cdr-normalized]
+                            [(string=? (car reversed) "..")
+                             (cond [(or (null? cdr-normalized)
+                                        (string=? (car cdr-normalized) ".."))
+                                    (cons (car reversed) cdr-normalized)]
+                                   [else (cdr cdr-normalized)])]
+                            [else (cons (car reversed) cdr-normalized)]))))])
+          (set-url-path! relative-url (reverse reversed/normalized))
+          relative-url))
+>How-To-Repeat:
+#! /opt/bin/mzscheme -qvf-
+
+(require (lib "url.ss" "net"))
+
+(define-syntax test-result
+  (syntax-rules ()
+                [(test-result expression expected)
+                 (let ([result expression])
+                   (if (string=? result expected)
+                       (display (format "Ok: `~a' evaluated to `~a'.\n"
+                                        'expression expected))
+                     (display (format
+                               "Error: `~a' evaluated to `~a', expected `~a'.\n"
+                               'expression result expected))))]))
+
+
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/base")
+                                    "../../relative"))
+ "http://host/../../relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/base")
+                                    "../../../relative"))
+ "http://host/../../../relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/base/")
+                                    "../../relative"))
+ "http://host/../relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/base/")
+                                    "../../../relative"))
+ "http://host/../../relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/path/to/base")
+                                    "../../relative"))
+ "http://host/relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/path/to/base")
+                                    "../relative"))
+ "http://host/path/relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/path/to/base/")
+                                    "../../relative"))
+ "http://host/path/relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/path/to/base/")
+                                    "../relative"))
+ "http://host/path/to/relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/path/to/base")
+                                    "/relative"))
+ "http://host/relative")
+(test-result
+ (url->string (combine-url/relative (string->url "http://host/path/to/base/")
+                                    "/relative"))
+ "http://host/relative")
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@cs.uchicago.edu>
+To: qha@lysator.liu.se, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@barzilay.org, matthias@ccs.neu.edu,
+        sk@cs.brown.edu, mflatt@cs.utah.edu, gnats@brinckerhoff.org,
+        jay@kenyamountain.com, meunier@ccs.neu.edu, sowens@cs.utah.edu,
+        kathyg@cs.utah.edu, awick@cs.utah.edu, goldberg@cs.utah.edu,
+        dskippy@ccs.neu.edu, jacobm@cs.uchicago.edu, cce@ccs.neu.edu
+Subject: Re: all/7931: combine-url/relative fails to combine paths with more than one .. in sequence
+Date: Fri, 3 Mar 2006 18:35:57 -0600
+
+ Thank you for the carefully prepared bug report! If only all bug
+ reports were that well written! :)
+ 
+ I'm not sure, but some of what you want fixed may have been fixed when
+ I rewrote the url parsing stuff in December (I can't recall of that was
+ before or after 301 was released).
+ 
+ Still, my reading of rfc 3986 suggests that these tests:
+ 
+ Error: `(url->string (combine-url/relative (string->url http://host/base) ../../relative))' evaluated to `http://host/relative', expected `http://host/../../relative'.
+ Error: `(url->string (combine-url/relative (string->url http://host/base) ../../../relative))' evaluated to `http://host/relative', expected `http://host/../../../relative'.
+ Error: `(url->string (combine-url/relative (string->url http://host/base/) ../../relative))' evaluated to `http://host/relative', expected `http://host/../relative'.
+ Error: `(url->string (combine-url/relative (string->url http://host/base/) ../../../relative))' evaluated to `http://host/relative', expected `http://host/../../relative'.
+ 
+ are actually incorrect behavior. Have a look at section 5.4
+ (specifically 5.4.2):
+ 
+   http://www.isi.edu/in-notes/rfc3986.txt
+ 
+ I believe this is the latest and greatest RFC. Were you looking at
+ something else?
+ 
+ Thanks,
+ Robby
+ 
+From: Ulrik Haugen <qha@lysator.liu.se>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org, eli@barzilay.org,
+        matthias@ccs.neu.edu, sk@cs.brown.edu, mflatt@cs.utah.edu,
+        gnats@brinckerhoff.org, jay@kenyamountain.com, meunier@ccs.neu.edu,
+        sowens@cs.utah.edu, kathyg@cs.utah.edu, awick@cs.utah.edu,
+        goldberg@cs.utah.edu, dskippy@ccs.neu.edu, jacobm@cs.uchicago.edu,
+        cce@ccs.neu.edu
+Subject: Re: all/7931: combine-url/relative fails to combine paths with more than one .. in sequence
+Date: Sat, 04 Mar 2006 04:28:32 +0100
+
+ Hi Robby!
+ 
+ On Fri, 3 Mar 2006 18:35:57 -0600, Robby Findler <robby@cs.uchicago.edu> wrote:
+ > Thank you for the carefully prepared bug report! If only all bug
+ > reports were that well written! :)
+ 
+ Thank you for your quick response!
+ 
+ 
+ > I'm not sure, but some of what you want fixed may have been fixed when
+ > I rewrote the url parsing stuff in December (I can't recall of that was
+ > before or after 301 was released).
+ 
+ Ok, digging past enough chrome to get to the svn sources I see that
+ what I started with has been completely rewritten.
+ 
+ 
+ > Still, my reading of rfc 3986 suggests that these tests:
+ 
+ > Error: `(url->string (combine-url/relative (string->url http://host/base) ../../relative))' evaluated to `http://host/relative', expected `http://host/../../relative'.
+ > Error: `(url->string (combine-url/relative (string->url http://host/base) ../../../relative))' evaluated to `http://host/relative', expected `http://host/../../../relative'.
+ > Error: `(url->string (combine-url/relative (string->url http://host/base/) ../../relative))' evaluated to `http://host/relative', expected `http://host/../relative'.
+ > Error: `(url->string (combine-url/relative (string->url http://host/base/) ../../../relative))' evaluated to `http://host/relative', expected `http://host/../../relative'.
+ 
+ > are actually incorrect behavior. Have a look at section 5.4
+ > (specifically 5.4.2):
+ 
+ >   http://www.isi.edu/in-notes/rfc3986.txt
+ 
+ > I believe this is the latest and greatest RFC. Were you looking at
+ > something else?
+ 
+ That seems very likely, I started looking for an authoritative source,
+ but I only got to RFC 1738 (section 2.3) that said "Relative links are
+ not described in this document". Then I decided that the then clause
+ in this code fragment suggested it was important to someone to
+ preserve leading "..":
+ 
+                                   [(string=? fst "..")
+                                    (if (null? (cdr segs))
+                                        segs
+                                        (loop (cddr segs)))]
+ 
+ Also there was "Note that the "/" between the host (or port) and the
+ url-path is NOT part of the url-path" in section 3.1 that got me
+ thinking: If one considers adding a url scheme for scp then leading
+ ".." would make some kind of sense in that context despite looking
+ very odd.
+ 
+ 
+ Obviously it's easy to fix my version, but since there's an
+ authoritative cheat sheet and a version that's much easier to compare
+ to it I don't think there's any use for it.
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Ulrik Haugen <qha@lysator.liu.se>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7931: combine-url/relative fails to combine paths with more than one .. in sequence
+Date: Fri, 3 Mar 2006 21:41:05 -0600
+
+ So, I think we're basically in agreement -- it doesn't seem right to
+ change the url parsing library, but it might make sense to change the
+ RFC :) (and then change the parsing library). Sound right?
+ 
+ Robby
+From: Ulrik Haugen <qha@lysator.liu.se>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7931: combine-url/relative fails to combine paths with more than one .. in sequence
+Date: Sat, 04 Mar 2006 11:14:21 +0100
+
+ Yes, agreed! ;)
+
+Responsible changed from "nobody" to "robby" by eli at Thu, 16 Mar 2006 12:49:59 -0500
+Reason>>> (to be closed)
+
+
+State changed from "open" to "closed" by robby at Tue, 21 Mar 2006 00:29:35 -0500
+Reason>>> not a bug (at least in PLT! :)
+

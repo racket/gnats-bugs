@@ -1,0 +1,106 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Aug 12 14:54:40 2010
+Received: from mail-gw0-f44.google.com (mail-gw0-f44.google.com [74.125.83.44])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o7CIscFj030900
+	for <bugs@bugs.plt-scheme.org>; Thu, 12 Aug 2010 14:54:38 -0400
+Message-Id: <201008121854.o7CIsaUP030893@champlain.ccs.neu.edu>
+Date: Thu, 12 Aug 2010 14:54:36 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: struct: generates the wrong predicate type when a field is type (Vectorof T)
+
+>Number:         11099
+>Category:       typed-scheme
+>Synopsis:       struct: generates the wrong predicate type when a field is type (Vectorof T)
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Aug 12 14:56:01 -0400 2010
+>Closed-Date:    Wed Sep 07 11:16:25 -0400 2011
+>Last-Modified:  Wed Sep 07 11:16:25 -0400 2011
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2.8) Gecko/20100723 Ubuntu/9.10 (karmic) Firefox/3.6.8
+>Description:
+The struct definition (struct: (T) foo ([v : (Vectorof T)])) generates the predicate foo? : (Any -> Boolean : #(struct:foo ((Vectorof T)))) instead of foo? : (Any -> Boolean : (foo Any)). The predicate type is correct when T is replaced by Any, or (apparently) when Vectorof is replaced by any other type constructor.
+
+define-struct: behaves the same way.
+
+This makes it impossible to use occurrence typing to differentiate between a struct and its super struct when the struct contains a (Vectorof T) field, as shown in the reproduction steps.
+
+Attempting a workaround using define-predicate fails with an apparently internal error.
+>How-To-Repeat:
+#lang typed/racket
+
+(struct: (T) a ([foo : T]))
+(struct: (T) b a ([bar : (Vectorof T)]))
+
+(define: b-val : (a Integer)
+  (b (ann 1 Integer) (ann #(1 2 3) (Vectorof Integer))))
+
+(if (b? b-val)
+    (b-bar b-val)  ; type error
+    #f)
+#|
+Type Checker: Polymorphic function b-bar could not be applied to arguments:
+Argument 1:
+  Expected: (b T)
+  Given:    #(struct:b (T (Vectorof T)))
+ in: (b-bar b-val)
+|#
+
+(define-predicate is-b? (b Any))
+; comment out the "if" above to make this error show up:
+(is-b? b-val)  ; internal error
+#|
+procedure application: expected procedure, given: #<make-contract>; arguments were: #<b>
+|#
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11099: struct: generates the wrong predicate
+ type when a field is type (Vectorof T)
+Date: Thu, 12 Aug 2010 15:05:03 -0400
+
+ On Thu, Aug 12, 2010 at 2:56 PM,  <neil.toronto@gmail.com> wrote:
+ > A new problem report is waiting at
+ > =A0http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11099
+ >
+ > Reported by Neil Toronto for release: 5.0.1
+ >
+ > *** Description:
+ > The struct definition (struct: (T) foo ([v : (Vectorof T)])) generates th=
+ e predicate foo? : (Any -> Boolean : #(struct:foo ((Vectorof T)))) instead =
+ of foo? : (Any -> Boolean : (foo Any)). The predicate type is correct when =
+ T is replaced by Any, or (apparently) when Vectorof is replaced by any othe=
+ r type constructor.
+ 
+ First, the second type you give is not the type of the predicate you
+ want - there's no relation between (foo Any) and (foo Integer), for
+ example.  You aren't ever going to get a very useful predicate.  In
+ particular, the vector you get out is unmodifiable.  This is inherent
+ in the relationship between occurrence typing and mutation.
+ 
+ Second, this should't work for HashTable either - that seems to be a
+ bug.  This is a general problem with mutable data.
+ 
+ Third, there is a genuine bug - you should be able to get a vector
+ whose length you can extract, for example.  But you probably won't be
+ able to write the program you want to write.
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+
+State changed from "open" to "closed" by samth@racket-lang.org at Wed, 07 Sep 2011 11:16:25 -0400
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c62f09ac5b

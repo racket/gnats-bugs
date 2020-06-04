@@ -1,0 +1,204 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jun  1 12:58:52 2010
+Received: from mail-gy0-f172.google.com (mail-gy0-f172.google.com [209.85.160.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o51GwoJK003957
+	for <bugs@bugs.plt-scheme.org>; Tue, 1 Jun 2010 12:58:50 -0400
+Message-Id: <201006011658.o51GwcEO003946@champlain.ccs.neu.edu>
+Date: Tue, 1 Jun 2010 12:58:38 -0400
+From: matthias@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: renaming clauses in inherit seem to confuse the class system
+
+>Number:         10948
+>Category:       mzscheme
+>Synopsis:       renaming clauses in inherit seem to confuse the class system
+>Class:          sw-bug
+>Responsible:    sstrickl
+>Severity:       serious
+>Priority:       medium
+>State:          analyzed
+>Confidential:   no
+>Arrival-Date:   Tue Jun 01 13:00:01 -0400 2010
+>Closed-Date:    
+>Last-Modified:  Tue May 03 18:10:50 -0400 2011
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.0.1--2010-05-28(4bcfbc0/g)
+>Environment:
+macosx "Darwin antarctica.ccs.neu.edu 9.8.0 Darwin Kernel Version 9.8.0: Wed Jul 15 16:55:01 PDT 2009; root:xnu-1228.15.4~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 176356944
+
+Collections:
+(("/Users/matthias/0Unison/collects/" ".DS_Store" "compiled" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web") ("/Users/matthias/Library/Racket/5.0.0.1/collects" non-existent-path) ("/Users/matthias/plt/collects" ".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs" "s-exp" "schelog" "scheme"!
+  "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "tool" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+>Description:
+this should yield a contract error but it doesn't. 
+uncomment override define and you get an error 
+
+#lang racket/load
+
+(module test racket
+  
+  (define c%
+    (class object% 
+      (define/public (m x) (cons 2 x))
+      (super-new)))
+  
+  (provide/contract
+   [c% (class/c (override [m (->m integer? cons?)])
+                (inherit [m (->m boolean? cons?)]))])
+    
+
+  )
+
+(module test2 racket
+  (require 'test)
+  
+  (define d%
+    (class c%
+      (inherit [superm m])
+      (define/public (k) (superm "no way"))
+      (define/override (m x) (cons 1 x))
+      (super-new)))
+
+  (displayln (send (new c%) m "hello world"))
+  (displayln (send (new d%) m "good bye"))
+  (displayln (send (new d%) k))
+  )
+  
+
+(require 'test2)
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "sstrickl" by sstrickl at Tue, 01 Jun 2010 13:02:09 -0400
+Reason>>> I've seen the symptoms, and so I have a good idea of where to look for the 
+problem.
+
+State changed from "open" to "analyzed" by sstrickl at Tue, 01 Jun 2010 13:02:09 -0400
+Reason>>> I've looked over Matthias's shoulder.
+
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: matthias@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10948: renaming clauses in inherit seem to confuse the class system
+Date: Tue, 1 Jun 2010 13:04:50 -0400
+
+ Just to make it clear to me (and others who may read this) about what's =
+ going on here, this version doesn't use contracts, and shows the =
+ expected result and actual result (in the comment):
+ 
+ #lang racket/load
+ 
+ (module test racket
+ 
+  (define c%
+    (class object%=20
+      (define/public (m x) (cons 2 x))
+      (super-new)))
+ 
+  (provide c%))
+ 
+ (module test2 racket
+  (require 'test)
+ 
+  (define d%
+    (class c%
+      (inherit [superm m])
+      (define/public (k) (superm "no way"))
+      (define/override (m x) (cons 1 x))
+      (super-new)))
+ 
+  (displayln (send (new d%) k)))
+ 
+ ;; Notice that we get (cons 1 "no way"), instead of (cons 2 "no way"), =
+ as you might expect.
+ ;; That means we're getting d%'s m for superm, instead of c%'s.
+ (require 'test2)
+ 
+ 
+ On Jun 1, 2010, at 1:00 PM, matthias@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D10948
+ >=20
+ > Reported by matthias for release: 5.0.0.1--2010-05-28(4bcfbc0/g)
+ >=20
+ > *** Description:
+ > this should yield a contract error but it doesn't.=20
+ > uncomment override define and you get an error=20
+ >=20
+ > #lang racket/load
+ >=20
+ > (module test racket
+ >=20
+ >  (define c%
+ >    (class object%=20
+ >      (define/public (m x) (cons 2 x))
+ >      (super-new)))
+ >=20
+ >  (provide/contract
+ >   [c% (class/c (override [m (->m integer? cons?)])
+ >                (inherit [m (->m boolean? cons?)]))])
+ >=20
+ >=20
+ >  )
+ >=20
+ > (module test2 racket
+ >  (require 'test)
+ >=20
+ >  (define d%
+ >    (class c%
+ >      (inherit [superm m])
+ >      (define/public (k) (superm "no way"))
+ >      (define/override (m x) (cons 1 x))
+ >      (super-new)))
+ >=20
+ >  (displayln (send (new c%) m "hello world"))
+ >  (displayln (send (new d%) m "good bye"))
+ >  (displayln (send (new d%) k))
+ >  )
+ >=20
+ >=20
+ > (require 'test2)
+ >=20
+ > *** How to repeat:
+ >=20
+ >=20
+ > *** Environment:
+ > macosx "Darwin antarctica.ccs.neu.edu 9.8.0 Darwin Kernel Version =
+ 9.8.0: Wed Jul 15 16:55:01 PDT 2009; root:xnu-1228.15.4~1/RELEASE_I386 =
+ i386" (i386-macosx/3m) (get-display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 176356944
+ >=20
+ > Collections:
+ > (("/Users/matthias/0Unison/collects/" ".DS_Store" "compiled" "date" =
+ "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" =
+ "tll-collects" "utils" "web") =
+ ("/Users/matthias/Library/Racket/5.0.0.1/collects" non-existent-path) =
+ ("/Users/matthias/plt/collects" ".gitignore" "2htdp" "afm" "algol60" =
+ "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" =
+ "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" =
+ "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" =
+ "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" =
+ "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" =
+ "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" =
+ "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" =
+ "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" =
+ "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" =
+ "repos-time-stamp" "rnrs" "s-exp" "schelog" "scheme"!
+ >  "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" =
+ "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" =
+ "string-constants" "swindle" "syntax" "syntax-color" "teachpack" =
+ "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "tool" =
+ "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" =
+ "web-server" "wxme" "xml"))
+ > Computer Language: (("Determine language from source") (#(#t print =
+ mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+ >=20
+ 
+

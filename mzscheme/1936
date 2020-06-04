@@ -1,0 +1,188 @@
+From robby@cs.rice.edu  Thu Apr 26 15:41:38 2001
+Received: from localhost (cupertino.cs.rice.edu [128.42.2.124])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id PAA10435
+	for <plt-gnats>; Thu, 26 Apr 2001 15:41:37 -0500 (CDT)
+Message-Id: <200104262041.PAA10435@cs.rice.edu>
+Date: Thu, 26 Apr 2001 15:41:37 -0500 (CDT)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: unit doesn't seem to catch bindings properly
+
+>Number:         1936
+>Category:       mzscheme
+>Synopsis:       unit doesn't seem to catch bindings properly
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          doc-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Apr 26 20:45:02 GMT 2001
+>Last-Modified:  Thu Jul 12 17:40:05 CDT 2001
+>Originator:     Robert Bruce Findler
+>Organization:
+titan
+>Release:        199.9
+>Environment:
+unix (ppc-linux) (get-display-depth) = 15
+Tools: ("CVS" "analysis" "info.ss" "debug" "project-manager" "search" "spidey2" "stepper" "syncheck" "typeset" "unit-bundle")
+Docs Installed:
+("help" "drscheme" "icons" "beginning" "advanced" "intermediate" "misclib" "mzscheme")
+Collections:
+(("/home/robby/cvs/robby/collects" ("CVS" "account" "backgammon" "checkers" "doonesbury" "friendly" "icfp-pc-99" "mac-cd-database" "magic" "mahjongg" "paper-utils" "pente" "pop-pop" "sample-solutions" "set-fonts" "solutions" "test-image-map" "xmahjongg")) ("/home/robby/cvs/robby/proj/talks" ("CVS" "bundle-proposal" "drscheme-architecture" "icfp98" "jcontracts" "lc" "lunch1" "unit-patterns" "unit-proposal" "util" "proposal")) ("/home/robby/cvs/robby/proj/papers" ("CVS" "c+u.save" "drafthead.sty" "contract-challenge" "dr" "dr-column" "dr-journal" "extensibility-problem" "geometric-control" "graphical-units" "include" "inputs" "java-blame" "java-blame-theory" "lw-strict" "proposal" "sba-procedures" "senior-thesis" "signature-constraints" "type-safety" "typed-unit-calculus" "unit" "unit-semantics")) ("/home/robby/cvs/plt/collects" ("CVS" "afm" "syntax" "browser" "browser2" "doc" "compiler" "countdwn" "defaults" "drjava" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "guserspce" "help" "hierarchy" "hierlist" "htdp" "html" "setup-plt" "icons" "launcher" "make" "mrdemo" "mred" "mrspidey" "mysterx" "mzlib" "mzscheme" "net" "newspidey" "quasiquote" "readline" "setup" "slatex" "slibinit" "srpersist" "stepper" "stepper-graphical" "tests" "texpict" "typeset" "userspce" "xml" "zodiac")) ("/home/robby/cvs/mflatt/collects" ("CVS" "sirmail")))
+>Description:
+For some reason, unit/sig is getting confused about the exports
+to this unit. The code below works properly at the toplevel, but
+doesn't work properly inside a unit.
+>How-To-Repeat:
+(module sig mzscheme
+  (require-for-syntax (lib "list.ss"))
+  (provide define-struct/parse)
+  
+  (define-syntax (define-struct/parse stx)
+    (syntax-case stx ()
+      [(_ str (fields ...))
+       (let* ([defn (syntax->list (expand (syntax (define-struct str (fields ...)))))])
+         (with-syntax ([bindings (second defn)]
+		       [all-bindings (second defn)]
+		       [(original-names ...) (second defn)]
+		       [exp (third defn)])
+           (syntax
+            (define-values all-bindings
+	      (let-values ([bindings exp])
+		(values original-names ...))))))])))
+
+(require sig)
+(require (lib "unitsig.ss"))
+
+(define-struct/parse s (a b))
+(display make-s)
+(newline)
+
+(unit/sig (make-s)
+  (import)
+  (define-struct/parse s (a b)))
+
+>Fix:
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Thu Apr 26 18:18:34 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: mflatt
+State-Changed-When: Thu Apr 26 18:18:37 2001
+State-Changed-Why:
+
+Changed to doc-bug.
+
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1936: unit doesn't seem to catch bindings properly
+Date: Thu, 26 Apr 2001 17:17:19 -0600 (MDT)
+
+ Use `local-expand' instead of `expand':
+ 
+  (local-expand 
+    (syntax (define-struct str (fields ...)))
+    'internal-define
+    ;; stop when we get a `define-values' expression:
+    (list (quote-syntax define-values)))
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1936: unit doesn't seem to catch bindings properly
+Date: Thu, 26 Apr 2001 22:52:49 -0500
+
+ So, is it always illegal to call `expand' during expansion?
+ 
+ Robby
+ 
+ At 5:17 PM -0600 4/26/01, Matthew Flatt wrote:
+ >Use `local-expand' instead of `expand':
+ >
+ >  (local-expand
+ >    (syntax (define-struct str (fields ...)))
+ >    'internal-define
+ >    ;; stop when we get a `define-values' expression:
+ >    (list (quote-syntax define-values)))
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1936: unit doesn't seem to catch bindings properly
+Date: Fri, 27 Apr 2001 06:14:17 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > So, is it always illegal to call `expand' during expansion?
+ 
+ No, it's not illegal. And it will do what you want if you're expanding
+ an expression that is intended as a top-level expression (which is why
+ the first test in your PR worked).
+ 
+ The problem in the second exmaple is that the expanded expression (or
+ its parts) needed to be used in its original non-top-level context. And
+ `expand' has to hide a little of that information to make multiple
+ expansions work.
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1936: unit doesn't seem to catch bindings properly
+Date: Fri, 27 Apr 2001 10:11:22 -0500 (CDT)
+
+ Why shouldn't the second argument to local-expand be the result of
+ calling syntax-local-context? That is, should the define-struct
+ expression be expanded as if it is "where it is" as represented by the
+ result of syntax-local-context? If the macro being exanded is at the
+ top-level shouldn't the second argument be 'top-level?
+ 
+ Robby
+ 
+ Quoting Matthew Flatt:
+ > Use `local-expand' instead of `expand':
+ > 
+ >  (local-expand 
+ >    (syntax (define-struct str (fields ...)))
+ >    'internal-define
+ >    ;; stop when we get a `define-values' expression:
+ >    (list (quote-syntax define-values)))
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1936: unit doesn't seem to catch bindings properly
+Date: Mon, 30 Apr 2001 10:37:47 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > Why shouldn't the second argument to local-expand be the result of
+ > calling syntax-local-context? That is, should the define-struct
+ > expression be expanded as if it is "where it is" as represented by the
+ > result of syntax-local-context? If the macro being exanded is at the
+ > top-level shouldn't the second argument be 'top-level?
+ 
+ Depends on how you're using the expansion, but in this case, that makes
+ sense. (Actually, because `define-struct' and `define' currently let
+ `define-values' take care of wrong-place-for-defn errors, and that's
+ the only effect of the expansion context right now, it doesn't matter
+ at the moment.)
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: mflatt
+State-Changed-When: Thu Jul 12 17:40:02 2001
+State-Changed-Why:
+
+ 
+>Unformatted:

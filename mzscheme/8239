@@ -1,0 +1,204 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug 25 20:56:43 2006
+Received: from wr-out-f131.google.com (wr-out-f131.google.com [64.233.184.131])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k7Q0ua9J011171
+	for <bugs@bugs.plt-scheme.org>; Fri, 25 Aug 2006 20:56:36 -0400
+Message-Id: <200608260056.k7Q0uVKa011164@champlain.ccs.neu.edu>
+Date: Fri, 25 Aug 2006 20:56:31 -0400
+From: ari@debian.org
+To: bugs@plt-scheme.org
+Subject: Stack direction detection doesn't work on hppa
+
+>Number:         8239
+>Category:       mzscheme
+>Synopsis:       Stack direction detection doesn't work on hppa
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 25 21:00:01 -0400 2006
+>Closed-Date:    Wed Nov 15 17:18:44 -0500 2006
+>Last-Modified:  Wed Nov 15 17:18:44 -0500 2006
+>Originator:     Ari Pollak
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352
+>Environment:
+linux-other
+>Description:
+Recently (r3592), code was put into configure.ac to automatically detect which direction the stack grows. This doesn't work properly on PA-RISC, in which the stack grows up:
+
+checking for stack direction... down
+
+As would be expected, this causes a problem when running mzscheme:
+Stack grows UP, not DOWN.
+
+This is probably due to the fact that the test code doesn't even compile with gcc 4.0:
+conftest.c: In function 'main':
+conftest.c:40: error: too few arguments to function 'grows_down_p'
+conftest.c:41: warning: control reaches end of non-void function 
+
+So the line in configure.ac that says this:
+    return grows_down_p();
+Should probably say this instead:
+    return grows_down_p(0, NULL);
+
+Also, there seems to be a typo below the test program:
+ if test "${stack_direction}" = "uknown" ; then
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: "Ari Pollak" <ari@debian.org>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8239: Stack direction detection doesn't work on hppa
+Date: Fri, 25 Aug 2006 21:04:08 -0400 (EDT)
+
+ Actually, that NULL should probably be (void*)0, since NULL hasn't been
+ defined yet.
+ 
+From: "Ari Pollak" <ari@debian.org>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8239: Stack direction detection doesn't work on hppa
+Date: Fri, 25 Aug 2006 22:06:00 -0400 (EDT)
+
+ Actually, it turns out even with the configure.ac fix, running mzscheme
+ with the setup script just coredumps on pa-risc, even though running
+ mzscheme alone and calling some simple functions works fine.
+ 
+ 
+ LD_LIBRARY_PATH="/home/ari/drscheme-352/debian/drscheme//usr/lib" \
+                 "/home/ari/drscheme-352/debian/drscheme//usr/bin/mzscheme"
+ -mvqX
+ "/home/ari/drscheme-352/debian/drscheme//usr/lib/plt/collects"
+ -M setup
+ setup-plt: bootstrapping from source...
+ make[1]: *** [install] Segmentation fault (core dumped)
+ 
+ (gdb) bt
+ #0  0x00000004 in ?? ()
+ #1  0x00000004 in ?? ()
+ Previous frame identical to this frame (corrupt stack?)
+ 
+ 
+
+State changed from "open" to "analyzed" by mflatt at Sun, 27 Aug 2006 18:33:26 -0400
+Reason>>> This will be fixed, hopefully, when I mrege changes
+from 352.5 back into the SVN trunk.
+
+I don't see the "uknown" typo, actually. But I suspect that
+I was confused about the last argument, mistaking it to be
+"action if problem with compiling" instead of "action if
+cross-compiling". I've added new configure arguments to
+handle the case of cross-compilation when the stack grows
+up or when configure can't determine endianness.
+
+Thanks,
+Matthew
+
+From: "Ari Pollak" <ari@debian.org>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: mzscheme/8239 Stack direction detection doesn't work on hppa
+Date: Sun, 27 Aug 2006 18:52:43 -0400 (EDT)
+
+ Oh, weird. I don't see "unkown" in my copy anymore. There is one typo
+ though - on line 783 in configure.ac, it says endiannes=unknown instead of
+ endianness=unknown.
+ 
+ Should I file a separate bug about the hppa segfault?
+ 
+From: "Ari Pollak" <ari@debian.org>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: mzscheme/8239 Stack direction detection doesn't work on hppa
+Date: Sun, 27 Aug 2006 20:54:30 -0400 (EDT)
+
+ Matthew Flatt wrote:
+ > It might help if you run
+ >   collects/tests/mzscheme/mz.ss
+ > Maybe it will crash on a particular test that helps pinpoint the problem.
+ 
+ Ah, it did crash, but with a slightly more useful backtrace this time:
+ 
+ (#<primitive:call-with-current-continuation>
+ #<procedure:...zscheme/basic.ss:1390:16>) ==> -3
+ (#<procedure:list-length> (1 2 3 4)) ==> 4
+ (#<procedure:list-length> (a b . c)) ==> #f
+ (#<primitive:map> #<primitive:cadr> ()) ==> ()
+ (#<primitive:call-with-values> #<procedure:...zscheme/basic.ss:1447:8>
+ #<primitive:list>) ==> (a b c)
+ (#<primitive:dynamic-wind> #<procedure:...zscheme/basic.ss:1459:8>
+ #<procedure:...zscheme/basic.ss:1460:8>
+ #<procedure:...zscheme/basic.ss:1461:8>) ==> 1
+ (#<primitive:call-with-current-continuation>
+ #<procedure:...zscheme/basic.ss:1465:8>) ==> 2
+ (#<primitive:call-with-current-continuation>
+ #<procedure:...zscheme/basic.ss:1471:8>) ==> 3
+ (#<procedure:rv> #<procedure:...zscheme/basic.ss:1565:13>) ==> 4
+ (#<procedure:r56>) ==> (5 6)
+ (#<procedure:rx.y> #<procedure:...zscheme/basic.ss:1568:22>
+ #<procedure:...zscheme/basic.ss:1568:36>) ==> (7 . 8)
+ (#<procedure:rv2> #<procedure:...zscheme/basic.ss:1570:14>) ==> zsh: 5157
+ segmentation fault (core dumped) 
+ LD_LIBRARY_PATH="/home/ari/drscheme-352/debian/drscheme//usr/lib"  -mvqf
+ 
+ (gdb) bt
+ #0  0x4036fd2c in internal_call_cc (argc=0, argv=0x0)
+     at /home/ari/drscheme-352/src/mzscheme/src/fun.c:3512
+ #1  0x00000000 in ?? ()
+ 
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Ari Pollak" <ari@debian.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: mzscheme/8239 Stack direction detection doesn't work on hppa
+Date: Mon, 28 Aug 2006 11:05:55 0800
+
+ At Sun, 27 Aug 2006 20:54:30 -0400 (EDT), "Ari Pollak" wrote:
+ > #0  0x4036fd2c in internal_call_cc (argc=0, argv=0x0)
+ 
+ Ah, of course.
+ 
+ After staring at the code, I think I have the sign backwards at line
+ 360 of setjmpup.c:
+ 
+   #ifdef STACK_GROWS_UP
+         top_delta = ((unsigned long)c->stack_from 
+                      - ((unsigned long)c->cont->buf.stack_from
+                         + c->cont->buf.stack_size));
+   #else
+ 
+ Can you try adding 
+ 
+         top_delta = -top_delta;
+ 
+ before the "#else"?
+ 
+ Thanks,
+ Matthew
+ 
+From: "Ari Pollak" <ari@debian.org>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: mzscheme/8239 Stack direction detection doesn't work on hppa
+Date: Mon, 28 Aug 2006 00:50:52 -0400 (EDT)
+
+ Matthew Flatt wrote:
+ > Can you try adding
+ >
+ >         top_delta = -top_delta;
+ >
+ > before the "#else"?
+ 
+ Yup, that definitely fixes the crash in both the test and during install.
+ Both the full test suite and the install now run fully (albeit very slowly
+ and with lots of memory used).
+ 
+
+State changed from "analyzed" to "closed" by mflatt at Wed, 15 Nov 2006 17:18:44 -0500
+Reason>>> fix merged to trunk a while ago
+

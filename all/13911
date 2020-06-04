@@ -1,0 +1,85 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jul  9 21:54:07 2013
+Received: from mail-ob0-f175.google.com (mail-ob0-f175.google.com [209.85.214.175])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r6A1s32V002912
+	for <bugs@bugs.plt-scheme.org>; Tue, 9 Jul 2013 21:54:03 -0400
+Message-Id: <201307100154.r6A1s157002906@champlain.ccs.neu.edu>
+Date: Tue, 9 Jul 2013 21:54:01 -0400
+From: cce@racket-lang.org
+To: bugs@racket-lang.org
+Subject: free id tables and rename transformers aren't playing together nicely
+
+>Number:         13911
+>Category:       all
+>Synopsis:       free id tables and rename transformers aren't playing together nicely
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jul 09 21:56:01 -0400 2013
+>Closed-Date:    Wed Jul 10 09:29:54 -0400 2013
+>Last-Modified:  Wed Jul 10 14:58:03 -0400 2013
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.900.5
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:21.0) Gecko/20100101 Firefox/21.0
+>Description:
+The program below constructs a free-id-table whose behavior is not consistent with free-identifier=?, apparently with respect to rename transformers.  The rename transformer is bound before the identifier is added to the table, so this shouldn't be an issue with mutation changing the identifier's meaning.  I think this is a problem with free id tables relying on identifier-binding to track renames, given that identifier-binding will only produce 'lexical here.  I think free id tables will need to use syntax-local-value/immediate to track rename transformers for this to work properly.
+>How-To-Repeat:
+#lang racket/base
+
+(require
+  (for-syntax racket/base racket/dict syntax/id-table))
+
+(begin-for-syntax
+
+  (define registry
+    (make-free-id-table))
+
+  (define (register-id! stx)
+    (dict-set! registry stx "dummy")
+    (values))
+
+  (define (lookup-id stx)
+    (unless (dict-has-key? registry stx)
+      (for {[key (in-dict-keys registry)]
+            #:when (free-identifier=? stx key)}
+        (raise-syntax-error #f "bad key" stx)))
+    (values)))
+
+(let {}
+  (define-syntax name 'dummy)
+  (define-syntax alias (make-rename-transformer #'name))
+  (define-syntaxes {} (register-id! #'alias))
+  (define-syntaxes {} (lookup-id #'name))
+  (void))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Wed, 10 Jul 2013 09:29:54 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/fe98a80c22
+State changed from "open" to "closed" by mflatt@racket-lang.org at Wed, 10 Jul 2013 09:29:54 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/fe98a80c22
+  | add `identifier-bindig-symbol'; fix free-id-table for renames
+  | 
+  | The implement of `free-id-table' uses `identifier-binding'
+  | to decide on a symbolic name as a key for each identifier,
+  | but `identifier-binding' doesn't provide enough information
+  | for local and top-level bindings. The new `identifier-binding-symbol'
+  | function provides that information.
+  | 
+  | Closes PR 13911
+
+
+----------
+A commit by mflatt@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/39dd0bb3be
+  | fix `syntax/boundmap', too
+  | 
+  | Related to PR 13911
+

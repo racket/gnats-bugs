@@ -1,0 +1,211 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Oct  1 00:56:27 2010
+Received: from mail-gx0-f172.google.com (mail-gx0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o914uPDt024489
+	for <bugs@bugs.plt-scheme.org>; Fri, 1 Oct 2010 00:56:25 -0400
+Message-Id: <201010010456.o914uNQZ024481@champlain.ccs.neu.edu>
+Date: Fri, 1 Oct 2010 00:56:23 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Bad performance around typed/racket and contracts
+
+>Number:         11275
+>Category:       typed-scheme
+>Synopsis:       Bad performance around typed/racket and contracts
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Oct 01 01:00:01 -0400 2010
+>Last-Modified:  Wed Oct 06 16:57:15 -0400 2010
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Win32 / Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/534.3 (KHTML, like Gecko) Chrome/6.0.472.62 Safari/534.3
+>Description:
+By redefining `number?', I verified that if I do this:
+
+  #lang typed/racket
+  (: foo : Number -> Number)
+  (define (foo x) (add1 x))
+  (provide foo)
+
+and use it from untyped code, then both the input *and* the output
+are checked.  That's pretty bad, given the effort put in TR to prove
+that this check is never needed.
+
+But it gets better.  If I'm a good programmer, then I'd write my
+untyped code with contracts:
+
+  #lang racket
+  (provide/contract [foo (number? . -> . number?)])
+  (define (foo x) (+ x 1))
+
+I'd then remember Sam's talks about how great it is to be able to
+convert only parts of my code, and I'd change some client module to
+TR:
+
+  #lang typed/racket
+  (require/typed "u.rkt"
+    [foo : Number -> Number])
+  (foo 12345)
+
+And what happens with this is the expected sad story: TR checks that
+12345 is a number on its way out, "u.rkt" checks that it's a number
+too, and then checks that the 12346 result is a number, and for the
+main comic effect, TR will check that 12346 is a number again.  I
+don't know the details of more complicated contracts, but I won't be
+surprised if they can be much more expensive -- and that's in addition
+to TR that will generate proper contracts, which means much more time.
+
+BTW, I recently tried to play a bit with Hari's code, and I was
+surprised to see just how expensive crossing the two worlds is,
+going either way.  IIRC, the using the imperative queue in TR was
+about 15000 slower.  Repeating the contract checks is very bad in
+this context.
+
+[I'll continue when this gets to my mailbox.]
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: bugs@racket-lang.org
+Cc: bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11275: Bad performance around typed/racket and contracts
+Date: Fri, 1 Oct 2010 01:24:27 -0400
+
+ About a minute ago, eli@barzilay.org wrote:
+ > 
+ > [I'll continue when this gets to my mailbox.]
+ 
+ I also get the double-double checks if I write another module with
+ good code:
+ 
+   #lang racket
+   (require "u.rkt")
+   (provide/contract [foo2 (number? . -> . number?)])
+   (define (foo2 x) (foo x))
+ 
+ [The reason I consider this worse than usual is the association with
+ TR: you're being (heavily) penalized for writing good code.  (For
+ example, the macro bill of rights is encouraging good code by
+ guaranteeing that good code will not be penalized -- here we have two
+ well behaved ways of writing good code, and the penalty *is* there.)]
+ 
+ A solution to this should, IMO, involve work in the contract system
+ and in TR (probably more in TR):
+ 
+ 1. When a contracted input function is re-contracted, and the contract
+    is the same, no wrapping should happen.  ([1b] Ideally this would
+    involve a description of the intersection, so wrapping a `number?'
+    check around something that was itself wrapped around `number?'
+    would still drop the redundant check.)
+ 
+ 2. Typed Racket should generate contracts that don't check redundant
+    things (like checking the result of a typed function, or the input
+    for an untyped one).  This would reduce the barrier cost by
+    probably more than a half (since I guess that TR's contracts are
+    more complete therefore more expensive than the manual ones).
+ 
+ 3a. Typed Racket should inspect contract information -- so if I'm
+     specifying a contract over `foo' that verifies that it's returning
+     a number, then there's no reason to check in the typed side that
+     it did so.
+ 
+     But this is kind of iffy, given that TR often checks more things,
+     so a better alternative:
+ 
+ 3b. Typed Racket and the contract system should play more nicely with
+     each other.  If they agree "enough" on how to do things, then my
+ 
+       (provide/contract [foo (number? . -> . number?)])
+ 
+     would become exactly the same as the contract generated by a
+     (Number -> Number) type, and with #1, this means that no redundant
+     checking will happen.
+ 
+     Perhaps one way of doing that would be to make a contract library
+     that uses TR types to specify contracts, which will generate the
+     same contracts TR does.  This will also make it easier to write
+     contracts for people who already know how to use TR, since you
+     don't need to learn more stuff.
+ 
+     This might even help with [1b], since TR can already do such
+     things.
+ 
+ I'm guessing that all of this is far from easy, which probably makes
+ it a candidate for a "sounds good for future research" kind of answer.
+ But I think that delaying it to some unmaterialized future is a
+ mistake, since the costs that I've seen make this a similar situation
+ as with the `scheme' vs `r6rs' issue: sure, you can have code in both,
+ and you can even make programs with some modules here and some there,
+ but the cost of doing so is so high that in practice you're either
+ here or there.
+ 
+ In the TR case, Hari's library is very nice -- but using it from
+ untyped code is as impractical as using untyped libraries from TR.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11275: Bad performance around typed/racket and contracts
+Date: Fri, 1 Oct 2010 01:30:24 -0400
+
+ On Oct 1, 2010, at 1:24 AM, Eli Barzilay wrote:
+ > 1. When a contracted input function is re-contracted, and the contract
+ >   is the same, no wrapping should happen.  ([1b] Ideally this would
+ >   involve a description of the intersection, so wrapping a `number?'
+ >   check around something that was itself wrapped around `number?'
+ >   would still drop the redundant check.)
+ 
+ I've already have ideas about how to do this (and more), but right now =
+ the conversion of the contract system to proxies/chaperones has been a =
+ higher priority.  Once I finish that, my next planned coding job will be =
+ putting my ideas on contract optimization into effect.
+ 
+ Stevie=
+From: Eli Barzilay <eli@barzilay.org>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11275: Bad performance around typed/racket and contracts
+Date: Fri, 1 Oct 2010 04:13:13 -0400
+
+ Three hours ago, Stevie Strickland wrote:
+ > On Oct 1, 2010, at 1:24 AM, Eli Barzilay wrote:
+ > > 1. When a contracted input function is re-contracted, and the contract
+ > >   is the same, no wrapping should happen.  ([1b] Ideally this
+ > >   would involve a description of the intersection, so wrapping a
+ > >   `number?' check around something that was itself wrapped around
+ > >   `number?' would still drop the redundant check.)
+ > 
+ > I've already have ideas about how to do this (and more), but right
+ > now the conversion of the contract system to proxies/chaperones has
+ > been a higher priority.  Once I finish that, my next planned coding
+ > job will be putting my ideas on contract optimization into effect.
+ 
+ I should have also thought about HOF as an extreme case -- here's a
+ particularly slow `add1' function:
+ 
+   #lang racket/load
+   (module m1 racket
+     (provide/contract
+      [foo ((number? . -> . number?) . -> . (number? . -> . number?))])
+     (define (foo x) x))
+   (module m2 racket
+     (require "m1.rkt")
+     (define 1+ (for/fold ([f add1]) ([i (in-range 10000)]) (foo f)))
+     (time (for ([i (in-range 1000)]) (1+ i)))
+     (time (for ([i (in-range 1000)]) (add1 i))))
+   (require 'm2)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+

@@ -1,0 +1,185 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Oct 24 16:13:40 2014
+Received: from mail-ie0-f174.google.com (mail-ie0-f174.google.com [209.85.223.174])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s9OKDZPC024374
+	for <bugs@bugs.plt-scheme.org>; Fri, 24 Oct 2014 16:13:35 -0400
+Message-Id: <201410242013.s9OKDWQI024362@winooski.ccs.neu.edu>
+Date: Fri, 24 Oct 2014 16:13:32 -0400
+From: pnguyen@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: TR: guard in for/fold does not refine accumulator's type
+
+>Number:         14792
+>Category:       typed-scheme
+>Synopsis:       TR: guard in for/fold does not refine accumulator's type
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Oct 24 16:16:01 -0400 2014
+>Last-Modified:  Thu Jun 25 17:32:01 -0400 2015
+>Originator:     Phil Nguyen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.2--2014-10-24(17cafe6/a)
+>Environment:
+unix "Linux ubudel 3.16.0-23-generic #31-Ubuntu SMP Tue Oct 21 17:56:17 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 563220316
+raco pkg (show):
+Installation-wide:
+ Package               Checksum                                    Source
+ main-distribution     660b41fcd534d360f61dbe57d53040d4112d3418    (catalog main-distribution)
+ optimization-coach    94a16b44b13d152ef2be575a9a41f6690921cfa1    (catalog optimization-coach)
+ racket-lib            c1ec1b670c7b5979178a1b660d76a1484ad08a88    (catalog racket-lib)
+ [181 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ [none]
+
+
+
+Collections:
+("/home/phil/.racket/snapshot/collects"
+ (non-existent-path))
+("/home/phil/Apps/Racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+It would be nicer if the #:when clause in for/fold also refines the accumulator's type inside its body. It currently only refines the type of the element from the sequence.
+
+For example, the following program typechecks:
+
+(for/fold ([a 0])
+          ([i (list 1 "2" 3)]
+           #:when (integer? i))
+  (+ a i))
+
+But the following does not:
+
+(for/fold ([a : (U String Integer) 0])
+          ([i (list 1 2 3)]
+           #:when (integer? a))
+  (+ a i))
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Phil Nguyen <pnguyen@ccs.neu.edu>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14792: TR: guard in for/fold does not refine
+ accumulator's type
+Date: Fri, 24 Oct 2014 16:39:09 -0400 (EDT)
+
+ I actually wanted #:break, but it seem #:break is currently not supported in TR.
+ 
+ ----- Original Message -----
+ From: bugs@racket-lang.org
+ To: pnguyen@ccs.neu.edu
+ Sent: Friday, October 24, 2014 4:16:01 PM GMT -05:00 US/Canada Eastern
+ Subject: Re: [racket-bug] all/14792: TR: guard in for/fold does not refine accumulator's type
+ 
+ Thank you very much for your problem report.
+ It has the internal identification `all/14792'.
+ You can check on the status of your problem report at
+   http://bugs.racket-lang.org/query/?cmd=view&pr=14792
+ 
+ If you wish to provide further information regarding this problem
+ you can do so as a reply to this message.  (But please make sure
+ that your mailer replies to both "bugs" and "bug-notification".)
+ 
+
+From: Brian LaChance <blachanc@ccs.neu.edu>
+To: bugs@racket-lang.org
+Cc: 
+Subject: Re: typed-scheme/14792: TR: guard in for/fold does not refine
+ accumulator's type
+Date: Thu, 25 Jun 2015 17:28:41 -0400
+
+ --001a1144cea6adda6505195e4eeb
+ Content-Type: text/plain; charset=UTF-8
+ 
+ This is because of a general limitation in TR. The way it tracks some type
+ annotations is by putting them in syntax-properties, which can be
+ problematic
+ with macros that copy annotated identifiers. In general, we don't have a
+ way to
+ fix the underlying issue: the assumption that TR uses with these properties.
+ 
+ Roughly, TR assumes that, if an identifier has the "type" syntax property,
+ then
+ that's the type that the user wanted for that identifier. Some macros
+ reuse/copy
+ an identifier and thus copy its syntax properties; concretely, for/fold
+ reuses
+ the accumulator's identifier as the formal argument in various nested
+ let's. If
+ the accumulator is annotated by the user, then the copied sites will also
+ have
+ that annotation. Here's the relevant portion of the expanded code:
+ 
+ (if (#%app integer? a)
+   (let-values (((a) a))
+     (let-values (((a) (let-values () (#%app + a i))))
+       (#%app values a)))
+   a)
+ 
+ Each of the let-values' LHS are copies of the user-annotated identifier and
+ are
+ also effectively annotated. The fact that a is an integer in the
+ then-branch is
+ thrown away once it's bound to an (annotated) identifier.
+ 
+ We could try fixing this by rewriting the for macros, but that doesn't
+ solve the
+ underlying issue with this duplicated syntax property. We can't in general
+ distinguish between a user-specified annotation and a macro-copied
+ annotation,
+ so there doesn't seem to be a good fix here.
+ 
+ Other macros might trigger this same "issue" but we're just not yet aware of
+ it. To find macros that do the perfectly-reasonable identifier copying, we
+ could
+ enforce that an annotated identifier is only ever "consulted" once in a
+ binding
+ position and raise an error on repeated usages. If we had that, then we
+ could
+ point out which macros are seemingly incompatible with TR.
+ 
+ --001a1144cea6adda6505195e4eeb
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">This is because of a general limitation in TR. The way it =
+ tracks some type<br>annotations is by putting them in syntax-properties, wh=
+ ich can be problematic<br>with macros that copy annotated identifiers. In g=
+ eneral, we don&#39;t have a way to<br>fix the underlying issue: the assumpt=
+ ion that TR uses with these properties.<br><br>Roughly, TR assumes that, if=
+  an identifier has the &quot;type&quot; syntax property, then<br>that&#39;s=
+  the type that the user wanted for that identifier. Some macros reuse/copy<=
+ br>an identifier and thus copy its syntax properties; concretely, for/fold =
+ reuses<br>the accumulator&#39;s identifier as the formal argument in variou=
+ s nested let&#39;s. If<br>the accumulator is annotated by the user, then th=
+ e copied sites will also have<br>that annotation. Here&#39;s the relevant p=
+ ortion of the expanded code:<br><br>(if (#%app integer? a)<br>=C2=A0 (let-v=
+ alues (((a) a))<br>=C2=A0=C2=A0=C2=A0 (let-values (((a) (let-values () (#%a=
+ pp + a i))))<br>=C2=A0=C2=A0=C2=A0=C2=A0=C2=A0 (#%app values a)))<br>=C2=A0=
+  a)<br><br>Each of the let-values&#39; LHS are copies of the user-annotated=
+  identifier and are<br>also effectively annotated. The fact that a is an in=
+ teger in the then-branch is<br>thrown away once it&#39;s bound to an (annot=
+ ated) identifier.<br><br>We could try fixing this by rewriting the for macr=
+ os, but that doesn&#39;t solve the<br>underlying issue with this duplicated=
+  syntax property. We can&#39;t in general<br>distinguish between a user-spe=
+ cified annotation and a macro-copied annotation,<br>so there doesn&#39;t se=
+ em to be a good fix here.<br><br>Other macros might trigger this same &quot=
+ ;issue&quot; but we&#39;re just not yet aware of<br>it. To find macros that=
+  do the perfectly-reasonable identifier copying, we could<br>enforce that a=
+ n annotated identifier is only ever &quot;consulted&quot; once in a binding=
+ <br>position and raise an error on repeated usages. If we had that, then we=
+  could<br>point out which macros are seemingly incompatible with TR.<br><br=
+ ></div>
+ 
+ --001a1144cea6adda6505195e4eeb--

@@ -1,0 +1,148 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat May 12 12:10:39 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.238])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l4CGAdSm021506
+	for <bugs@bugs.plt-scheme.org>; Sat, 12 May 2007 12:10:39 -0400
+Message-Id: <200705121610.l4CGAbrx021501@champlain.ccs.neu.edu>
+Date: Sat, 12 May 2007 12:10:37 -0400
+From: cobbe@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: contract.ss doesn't always report names correctly
+
+>Number:         8667
+>Category:       mzscheme
+>Synopsis:       contract.ss doesn't always report names correctly
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat May 12 12:15:01 -0400 2007
+>Last-Modified:  Sun May 13 11:55:41 -0400 2007
+>Originator:     Richard Cobbe
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.100-svn8may2007
+>Environment:
+macosx "Darwin Ridcully.local 8.9.0 Darwin Kernel Version 8.9.0: Thu Feb 22 20:54:07 PST 2007; root:xnu-792.17.14~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/cobbe/Applications/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 299640016
+
+Collections:
+(("/Users/cobbe/Library/PLT Scheme/369.100/collects" non-existent-path) ("/Users/cobbe/Applications/plt/collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+The contract system sometimes reports the name of a violated contract incorrectly.  I can reliably trigger this behavior when I use a predicate in a contract that was itself imported with its own contract, and the predicate's contract has to be a specific kind of contract.  (See below.)
+>How-To-Repeat:
+Type the following into the defns window, textual language.
+
+(module a mzscheme
+  
+  (require (lib "contract.ss")
+           (planet "contract-utils.ss" ("cobbe" "contract-utils.plt" 3)))
+  
+  (provide/contract [symbol? predicate/c]))
+
+(module b mzscheme
+  
+  (require (lib "contract.ss")
+           (prefix a: a))
+  
+  (define symbol-length
+    (lambda (s)
+      (string-length (symbol->string s))))
+  
+  (provide/contract
+   [symbol-length (a:symbol? . -> . number?)]))
+
+(module c mzscheme
+  
+  (require b)
+  
+  (provide f g)
+  
+  (define f (lambda () (symbol-length 'foo)))
+  (define g (lambda () (symbol-length "foo"))))
+
+Execute.
+
+> (require c)
+> (f)
+3
+> (g)
+. 27:24: c broke the contract (-> predicate/c number?) on symbol-length; expected <predicate/c>, given: "foo"
+
+The application of g should indeed have failed, but it would be more helpful if the contract were printed as (-> symbol? number?).
+
+If you edit module a to provide symbol? with the contract
+(any/c . -> . boolean?), the contract system does print the desired contract on applying g.  So this seems to have something to do with the fact that I'm using a named contract for symbol? in a.
+
+The predicate/c contract comes from my contract-utils.plt planet package, and is defined there as follows:
+
+  (define predicate/c (any/c . -> . boolean?))
+  (provide/contract ...
+                    [predicate/c contract?]
+                    ...)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by robby at Sat, 12 May 2007 12:41:15 -0400
+Reason>>> I need help with inferred names to get this right, I believe
+(see followup email).
+
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: cobbe@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8667: contract.ss doesn't always report names correctly
+Date: Sat, 12 May 2007 11:41:30 -0500
+
+ Matthew: this appears to boil down to the fact that the inferred-name
+ syntax property is ignored when the value already has a different name
+ from some other source. I'm not sure what the right behavior for the
+ inferred-name syntax property, but I can't make the value have no name
+ in this case. Is there a way around this?
+ 
+ Specifically, this program prints (the-name f) and I would like it to
+ print (the-name the-name):
+ 
+ (define-syntax (m stx)
+   (syntax-case stx ()
+     [(_ a)
+      (syntax-property #'a 'inferred-name 'the-name)]))
+ 
+ (printf "~s\n"
+         (map object-name
+              (list (m (lambda (x) x))
+                    (m (let ([f (lambda (x) x)]) f)))))
+ 
+ 
+ As background, for those that are interested:
+ 
+ It seems that the name is being reported correctly -- the problem is
+ that the name that gets put on symbol? is wrong and that gets
+ propagated on to make the problem appear as Richard first reported.
+ 
+ Hopefully this program will clarify:
+ 
+   (module a mzscheme
+     (require (lib "contract.ss"))
+     (define predicate/c (any/c . -> . boolean?))
+     (provide/contract [symbol? predicate/c]))
+ 
+   (require (prefix a: a))
+   (printf "a:symbol? ~s\n" a:symbol?)
+ 
+ It prints this:
+ 
+   a:symbol? #<procedure:predicate/c>
+ 
+ but the procedure should have the name "symbol?".
+ 
+ Robby

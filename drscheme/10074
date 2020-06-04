@@ -1,0 +1,210 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Feb 14 18:38:54 2009
+Received: from yx-out-2324.google.com (yx-out-2324.google.com [74.125.44.30])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n1ENcjBX005678
+	for <bugs@bugs.plt-scheme.org>; Sat, 14 Feb 2009 18:38:45 -0500
+Message-Id: <200902142338.n1ENcgfT005671@champlain.ccs.neu.edu>
+Date: Sat, 14 Feb 2009 18:38:42 -0500
+From: jld@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Unsafe use of locking in hash_table_get
+
+>Number:         10074
+>Category:       drscheme
+>Synopsis:       Unsafe use of locking in hash_table_get
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Feb 14 18:40:01 -0500 2009
+>Last-Modified:  Mon Mar 16 01:12:11 -0400 2009
+>Originator:     Jed Davis
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.x
+>Environment:
+Linux / Opera/9.63 (X11; Linux x86_64; U; en) Presto/2.1.1
+>Description:
+The C function hash_table_get, in src/mzscheme/src/list.c, takes a lock on the hash table in question while calling scheme_hash_get.  However, it apparently does not release that lock if any kind of interrupt, such as a user break or the thread being killed, occurs.  Once that happens, all future accesses to the hash table will hang.  It is likely that related routines have similar problems.
+
+Because the lock appears to be held around taking the hash of the key as well as the actual table lookup, it is easy to reliably reproduce this bug by using large keys.  (I originally encountered it by way of PLT Redex's caching of pattern-matcher results.)
+
+I have reproduced this with various versions from 4.1.3 to a several-week-old trunk build, on machines covering three Unix variants and four architectures, as well as Mac OS X Intel, so it is likely to be platform-independent.
+>How-To-Repeat:
+#lang scheme/base
+(provide test-case check)
+
+(define (peano n)
+  (if (zero? n) 'O
+      `(S ,(peano (- n 1)))))
+
+(define ht (make-hash))
+(define bigval (peano 1000))
+(define (check) (hash-ref ht 'X #f))
+
+(define (loop)
+  (hash-set! ht bigval #t)
+  (loop))
+
+(define (tloop)
+  (let ((thr (thread loop)))
+    (sleep 1)
+    (kill-thread thr)))
+
+(define (test-case)
+  (tloop)
+  (check))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: jld@ccs.neu.edu, bugs@plt-scheme.org
+Cc: eli@plt-scheme.org, matthias@plt-scheme.org, robby@plt-scheme.org
+Subject: Re: [plt-bug] all/10074: Unsafe use of locking in hash_table_get
+Date: Sat, 14 Feb 2009 19:12:20 -0700
+
+ At Sat, 14 Feb 2009 18:40:01 -0500, jld@ccs.neu.edu wrote:
+ > The C function hash_table_get, in src/mzscheme/src/list.c, takes a
+ > lock on the hash table in question while calling scheme_hash_get.
+ > However, it apparently does not release that lock if any kind of
+ > interrupt, such as a user break or the thread being killed, occurs.
+ > Once that happens, all future accesses to the hash table will hang.
+ 
+ Thanks for the report, but the documentation describes this limitation
+ on `equal?'-based tables. I will improve the `hash-ref', etc. entries
+ to point more explicitly to the "Caveat concerning concurrent
+ modification" that appears earlier in that section (i.e., earlier on
+ the page in HTML form).
+ 
+ A related bug in the docs is that that caveat should also apply to
+ `eqv?'-based tables.
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: jld@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10074: Unsafe use of locking in hash_table_get
+Date: Sat, 14 Feb 2009 20:26:34 -0600
+
+ What was the usage pattern w/ Redex? Were you breaking REPL
+ interactions or something like that?
+ 
+ Robby
+ 
+ On 2/14/09, jld@ccs.neu.edu <jld@ccs.neu.edu> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=10074
+ >
+ > Reported by Jed Davis for release: 4.1.x
+ >
+ > *** Description:
+ > The C function hash_table_get, in src/mzscheme/src/list.c, takes a lock on
+ > the hash table in question while calling scheme_hash_get.  However, it
+ > apparently does not release that lock if any kind of interrupt, such as a
+ > user break or the thread being killed, occurs.  Once that happens, all
+ > future accesses to the hash table will hang.  It is likely that related
+ > routines have similar problems.
+ >
+ > Because the lock appears to be held around taking the hash of the key as
+ > well as the actual table lookup, it is easy to reliably reproduce this bug
+ > by using large keys.  (I originally encountered it by way of PLT Redex's
+ > caching of pattern-matcher results.)
+ >
+ > I have reproduced this with various versions from 4.1.3 to a
+ > several-week-old trunk build, on machines covering three Unix variants and
+ > four architectures, as well as Mac OS X Intel, so it is likely to be
+ > platform-independent.
+ >
+ > *** How to repeat:
+ > #lang scheme/base
+ > (provide test-case check)
+ >
+ > (define (peano n)
+ >   (if (zero? n) 'O
+ >       `(S ,(peano (- n 1)))))
+ >
+ > (define ht (make-hash))
+ > (define bigval (peano 1000))
+ > (define (check) (hash-ref ht 'X #f))
+ >
+ > (define (loop)
+ >   (hash-set! ht bigval #t)
+ >   (loop))
+ >
+ > (define (tloop)
+ >   (let ((thr (thread loop)))
+ >     (sleep 1)
+ >     (kill-thread thr)))
+ >
+ > (define (test-case)
+ >   (tloop)
+ >   (check))
+ >
+ > *** Environment:
+ > Linux / Opera/9.63 (X11; Linux x86_64; U; en) Presto/2.1.1
+ >
+ >
+From: Jed Davis <jld@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        robby@plt-scheme.org
+Subject: Re: [plt-bug] all/10074: Unsafe use of locking in hash_table_get
+Date: Tue, 17 Feb 2009 02:25:55 -0500
+
+ On Sat, Feb 14, 2009 at 07:12:20PM -0700, Matthew Flatt wrote:
+ > 
+ > Thanks for the report, but the documentation describes this limitation
+ > on `equal?'-based tables.
+ 
+ My apologies; I'd already been rummaging through the source for a while
+ to track the problem down to hash-ref, so it didn't occur to me to
+ check the documentation rather than just continue reading the source.
+ (Usually documentation conveys a subset of the information contained in
+ the program -- often proper, sometimes empty -- but not in this case.)
+ 
+ -- 
+ (let ((C call-with-current-continuation)) (apply (lambda (x y) (x y)) (map
+ ((lambda (r) ((C C) (lambda (s) (r (lambda l (apply (s s) l))))))  (lambda
+ (f) (lambda (l) (if (null? l) C (lambda (k) (display (car l)) ((f (cdr l))
+ (C k)))))))    '((#\J #\d #\D #\v #\s) (#\e #\space #\a #\i #\newline)))))
+From: Jed Davis <jld@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org, eli@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, cce@plt-scheme.org,
+        samth@plt-scheme.org, ryanc@plt-scheme.org, gcooper@plt-scheme.org,
+        sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10074: Unsafe use of locking in hash_table_get
+Date: Tue, 17 Feb 2009 02:50:47 -0500
+
+ On Sat, Feb 14, 2009 at 08:26:34PM -0600, Robby Findler wrote:
+ > What was the usage pattern w/ Redex? Were you breaking REPL
+ > interactions or something like that?
+ 
+ Just so.  I have a reduction relation that has infinite reduction
+ sequences on certain inputs (specifically, it's the purported algorithm
+ for deciding subtyping in $F_\le$, converted to a small-step-style
+ sequential machine from an inductively defined relation; the problem is
+ of course undecidable (Pierce, 1991)), which I was experimenting with.
+ 
+ In particular, I had written a simple test-case generator (ad-hoc;
+ Redex's random tester looks like it'd need side conditions I haven't yet
+ written to restrict it to closed statements) and was curious how often
+ it woutld hit on a term that diverged.  Thus resulted a lot of breaking
+ at the REPL, and eventually trying to call apply-reduction-relation* in
+ a thread that would be killed after a certain time.
+ 
+ (caching-enabled? #f) appears to be an effective workaround for this
+ feature as far as Redex is concerned.
+ 
+ -- 
+ (let ((C call-with-current-continuation)) (apply (lambda (x y) (x y)) (map
+ ((lambda (r) ((C C) (lambda (s) (r (lambda l (apply (s s) l))))))  (lambda
+ (f) (lambda (l) (if (null? l) C (lambda (k) (display (car l)) ((f (cdr l))
+ (C k)))))))    '((#\J #\d #\D #\v #\s) (#\e #\space #\a #\i #\newline)))))
+

@@ -1,0 +1,95 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Sep 29 21:11:39 2013
+Received: from mail-wg0-f50.google.com (mail-wg0-f50.google.com [74.125.82.50])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id r8U1Bbkn006455
+	for <bugs@bugs.plt-scheme.org>; Sun, 29 Sep 2013 21:11:37 -0400
+Message-Id: <201309300111.r8U1BYiW006446@winooski.ccs.neu.edu>
+Date: Sun, 29 Sep 2013 21:11:34 -0400
+From: zeppieri@gmail.com
+To: bugs@racket-lang.org
+Subject: equal-hash-code applied to symbols creates duplicates too often
+
+>Number:         14059
+>Category:       mzscheme
+>Synopsis:       equal-hash-code applied to symbols creates duplicates too often
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Sep 29 21:12:01 -0400 2013
+>Closed-Date:    Sat Oct 12 10:46:56 -0400 2013
+>Last-Modified:  Sat Oct 12 10:46:56 -0400 2013
+>Originator:     Jon Zeppieri
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.6
+>Environment:
+macosx "Darwin Jon-Zeppieris-MacBook-Pro.local 12.4.0 Darwin Kernel Version 12.4.0: Wed May  1 17:57:12 PDT 2013; root:xnu-2050.24.15~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 267596656
+Links: (links) = ("px"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.6):
+ [none]
+
+
+
+Collections:
+("/Users/jaz/Library/Racket/5.3.6/collects"
+ (non-existent-path))
+("/Applications/Racket v5.3.6/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "math" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "pkg" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "realm" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket/base\n" #t #t ((main) (test))))
+>Description:
+A simple program that quickly collects the equal-hash-codes of symbols will get many duplicates, which seriously impacts the performance of code that depends on mostly collision-free hashing of symbols. I see similar results running in DrRacket or in command-line Racket.
+
+Oddly, the typical sizes of the groups seems to depend on the input size. In the program below, I'm generating 10000 hash codes. At that size, Racket tends to generate identical hash codes for 8 consecutive inputs. If I lower the test size to 1000, Racket then tends to generate identical hash codes in groups of 4, instead. If the problem is caused by a race condition, then possibly the greater effectiveness of the JIT on longer-running programs accounts for this difference in typical group size.
+
+I don't have a 32-bit build currently installed to test on.
+>How-To-Repeat:
+#lang racket/base
+
+(require unstable/list)
+
+(define hash-codes
+  (for/list ([i (in-range 10000)])
+    (equal-hash-code
+     (string->symbol
+      (number->string i)))))
+
+(define freqs
+  (map length
+       (group-by = hash-codes)))
+
+
+(printf "hash codes:\n~s\n\n" hash-codes)
+(printf "frequencies:\n~s\n\n" freqs)
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sat, 12 Oct 2013 10:46:56 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/8b7b96215b
+  | equal hash code: avoid dropping useful bits
+  | 
+  | Closes PR 14059
+  | 
+  | Symbols in the PR were mapped to coliding hashes in
+  | groups of 4 because the low 2 bits of the `eq?` hash
+  | code were begin dropped to generate an `equal?` hash
+  | code. Those two bits got lost due to a refectoring
+  | a while back that moved the dropping of two useless
+  | bits to a more centralized place, but the 2-bit shift
+  | did not get removed from the `equal` hash code comparision.
+  | 
+  | The PR's example program will still generate groups of 2
+  | when hashing around 10k symbols (which used to be groups of 8).
+  | That's because there's a bit in the hash-code counter that
+  | turns out to be forced to 1.
+

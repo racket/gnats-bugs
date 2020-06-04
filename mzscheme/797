@@ -1,0 +1,546 @@
+From nobody@cs.rice.edu  Thu Sep 10 03:11:46 1998
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id DAA23952
+	for <plt-gnats@cs.rice.edu>; Thu, 10 Sep 1998 03:11:46 -0500 (CDT)
+Message-Id: <199809100811.DAA21539@web.cs.rice.edu>
+Date: Thu, 10 Sep 1998 03:11:45 -0500 (CDT)
+From: joeljp@hepp.uio.no
+Reply-To: joeljp@hepp.uio.no
+To: plt-gnats@cs.rice.edu
+Subject: unable to break from co-rutine loops using call/cc (windows98). 
+
+>Number:         797
+>Category:       mzscheme
+>Synopsis:       unable to break from co-rutine loops using call/cc (windows98).
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Sep 10 08:15:19 GMT 1998
+>Last-Modified:  Fri Apr 23 13:12:44 CDT 1999
+>Originator:     joel priestley
+>Organization:
+titan
+>Release:        latest
+>Environment:
+MS Windows 95
+>Description:
+I am unable to cause a break from eternal loops of co-rutines
+using call/cc (such as described below).
+>How-To-Repeat:
+(define kont-a #t)
+(define kont-b #t)
+(define (a) (call/cc(lambda (k)
+                      (set! kont-a k)))
+        (write 0)
+        (kont-b #t))
+(define (b) (call/cc(lambda (k)
+                      (set! kont-b k)))
+        (write 1)
+        (kont-a #t))
+>Fix:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: steck@cs.rice.edu
+Subject: Re: all/797: unable to break from co-rutine loops using call/cc (windows98). 
+Date: Thu, 10 Sep 1998 07:44:58 -0500 (CDT)
+
+ Quoting joeljp@hepp.uio.no:
+ > >Description:
+ > I am unable to cause a break from eternal loops of co-rutines
+ > using call/cc (such as described below).
+ > >How-To-Repeat:
+ > (define kont-a #t)
+ > (define kont-b #t)
+ > (define (a) (call/cc(lambda (k)
+ >                       (set! kont-a k)))
+ >         (write 0)
+ >         (kont-b #t))
+ > (define (b) (call/cc(lambda (k)
+ >                       (set! kont-b k)))
+ >         (write 1)
+ >         (kont-a #t))
+ 
+ This may be a MzScheme bug. Even in mzscheme, drop the calls to
+ `write', load the file, evaluate (a) (fails) then evaluate (b) (loops)
+ and you have a 50/50 chance of getting an error on bvreaking.
+ 
+ In short, there's definitely a MzScheme bug, and it may be causing the
+ DrScheme bug.
+ 
+ Further evidence - load the following file:
+ 
+ (define kont-a #t)
+ (define kont-b #t)
+ (define (a) (call/cc(lambda (k)
+                       (set! kont-a k)))
+         '(write 0)
+ 	(when (procedure? kont-b)
+ 	  (kont-b #t)))
+ (define (b) (call/cc(lambda (k)
+                       (set! kont-b k)))
+         '(write 1)
+         (kont-a #t))
+ (a)
+ (b)
+ 
+ and you can break in both DrScheme and MzScheme (reliably). It
+ suggests yet another bug in the interaction between call/cc and
+ dynamic-wind.
+ 
+ I'll claim the PR for now.
+ 
+ Matthew
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: joeljp@hepp.uio.no
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-rutine loops using call/cc (windows98). 
+Date: Thu, 10 Sep 1998 09:56:43 -0500 (CDT)
+
+ Quoting joeljp@hepp.uio.no:
+ > >Description:
+ > I am unable to cause a break from eternal loops of co-rutines
+ > using call/cc (such as described below).
+ > >How-To-Repeat:
+ > (define kont-a #t)
+ > (define kont-b #t)
+ > (define (a) (call/cc(lambda (k)
+ >                       (set! kont-a k)))
+ >         (write 0)
+ >         (kont-b #t))
+ > (define (b) (call/cc(lambda (k)
+ >                       (set! kont-b k)))
+ >         (write 1)
+ >         (kont-a #t))
+ 
+ Using your program, in the interactions window I evalutes
+ 
+  > (a)
+  <error, which I ingore, then..>
+  > (b)
+  010101010...
+ 
+ and it's unbreakable, as you reported. We'll fix that bug for the next
+ release.  The problem has to do with jumping between two continuations
+ that were caputured between two different prompts in the interaction
+ window.
+ 
+ I changed your program so that the first invocation of (a) doesn't
+ give an error:
+ 
+  (define (a) (call/cc(lambda (k)
+                       (set! kont-a k)))
+   (write 0)
+   (when (procedure? kont-b)
+     (kont-b #t)))
+ 
+ Then, evaluating
+ 
+  (begin (a) (b))
+ 
+ in the REPL works and is breakable. You can also just put
+ 
+  (a)
+  (b)
+ 
+ at the end of the program in the program window.
+ 
+ Thanks for your helpful report,
+ Matthew
+
+
+From: <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Fri, 11 Sep 1998 22:48:25 -0500
+
+ I was confused from what you said, so I did some experimentation. First I
+ ran this program:
+ 
+ (define (f)
+   (let ([t (current-thread)])
+     (thread
+      (letrec ([f (lambda ()
+ 		   (when (thread-running? t)
+ 		     ;(sleep)
+ 		     (break-thread t))
+ 		   (f))])
+        f))))
+ (f)
+ 
+ in mzscheme and it worked great. read-eval-print-loop never broke in a bad
+ spot. Then it occured to me "maybe thread switching is only happening at
+ fortuitously good spots". So, I wrote my own read-eval-print loop:
+ 
+ (define (my-read-eval-print-loop)
+   (let* ([eeh #f]
+ 	   [jump #f]
+ 	   [rep-error-escape-handler (lambda () (jump))])
+     (dynamic-wind
+       (lambda () (set! eeh (error-escape-handler))
+ 		   (error-escape-handler rep-error-escape-handler))
+       (lambda ()
+ 	(let/ec done
+           (let loop ()
+ 	    (sleep)
+ 	    (let/ec k
+               (dynamic-wind
+                  (lambda () (set! jump k))
+ 		 (lambda ()
+ 		   (let ([v ((current-prompt-read))])
+ 		     (when (eof-object? v) (done (void)))
+ 		     (call-with-values
+ 		      (lambda () ((current-eval) v))
+ 		      (lambda results (for-each (current-print) results)))))
+ 		 (lambda () (set! jump #f))))
+ 	    (loop))))
+       (lambda () (error-escape-handler eeh)
+ 		   (set! jump #f)
+                    (set! eeh #f)))))
+ 
+ my-read-eval-print-loop is exactly the same as the one in
+ plt/src/mzscheme/src/macro.ss, except that #%s are removed, and it has a
+ "(sleep)" in it. This call to sleep is designed to encourage thread
+ switching at a potentially bad spot. The addition of the sleep should _not_
+ change the behaviour of this function. (I assume that you agree with this
+ until I hear differently). So, I put those two definitions above and the
+ expression "(my-read-eval-print)" in "tmp.ss" (in that order). Then I ran
+ mzscheme like this:
+ 
+   [piccadilly-circus] ~> mzscheme -vf tmp.ss 
+   Welcome to MzScheme version 100/8, Copyright (c) 1995-98 PLT (Matthew Flatt)
+   loading .mzschemerc...
+   |- (f)
+   #<thread>
+   user break
+   error trying to escape from error: exception raised: procedure
+   application: expected procedure, given: #f (no arguments)
+   Exit -1
+ 
+ and we get the error.
+ 
+ So, I don't think that adding protection in dynamic-wind solves the problem
+ at all. You have to prevent breaking in all critical sections (anything
+ outside of the middle section of the dynamic wind), not just the ones in
+ the pre- and post- thunks of dynamic-wind.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: <robby@cs.rice.edu>
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Sat, 12 Sep 1998 08:23:12 -0500 (CDT)
+
+ Ah, you are right. In my mind, the escape handler was only set when
+ `jump' was set. Clearly that's not true in the code. I made the code
+ match my mental model:
+ 
+ (define (read-eval-print-loop)
+   (let ([eeh #f])
+      (let/ec done
+        (let loop ()
+ 	  (let/ec k
+             (dynamic-wind
+                (lambda () 
+ 		 (set! eeh (error-escape-handler))
+ 		 (error-escape-handler k))
+ 	       (lambda ()
+ 		 (let ([v ((current-prompt-read))])
+ 		   (when (eof-object? v) (done (void)))
+ 		   (call-with-values
+ 		    (lambda () ((current-eval) v))
+ 		    (lambda results (for-each (current-print) results)))))
+ 		(lambda ()
+                   (error-escape-handler eeh)
+                   (set! eeh #f))))
+ 	    (loop)))))
+ 
+ Of course, this code still relies on non-breaking before and after
+ thunks.
+ 
+ Thanks!
+ Matthew
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: <robby@cs.rice.edu>
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Sat, 12 Sep 1998 09:17:08 -0500 (CDT)
+
+ Ok, my previous try missed a lot of subtlety in r-e-p-l. for one
+ things, those nested dynmaic-winds where there to separate setting the
+ error escape handler from setting the actual escape procedure. That
+ was, a REPL user can install a different escape handler for a sequence
+ of interactions. I restored the old two-level structure.
+ 
+ In addition, I hadn't thought though whether breaking should be
+ allowed on a loop boundary. (I was only thinking about maintaining the
+ invariants regarding escape procedures.) You don't want something
+ different to happen if you hit break microseconds before or after the
+ previous expression's value has finished printing. So we disable
+ breaks while returning to the beginning of the loop.
+ 
+ Here's code that does all that. To avoid the bug Robby must recently
+ pointed out, breaks are disabled whenever jump is #f.
+ 
+ Further inspection of the code is appreciated.
+ 
+ Thanks,
+ Matthew
+ 
+ ----------------------------------------
+ 
+ (define (read-eval-print-loop)
+   (let* ([p (make-parameterization)]
+            [user-p (current-parameterization)]
+            [eeh #f]
+ 	   [jump #f]
+ 	   [rep-error-escape-handler (lambda () (jump))])
+     ((in-parameterization p break-enabled) #f)
+     (dynamic-wind
+       (lambda () (set! eeh (error-escape-handler))
+ 		   (error-escape-handler rep-error-escape-handler)
+                    (current-parameterization p))
+       (lambda ()
+ 	(let/ec done
+           (let loop ()
+ 	    (let/ec k
+               (dynamic-wind
+                  (lambda ()
+                    (current-parameterization user-p)
+                    (set! jump k))
+ 		 (lambda ()
+ 		   (let ([v ((current-prompt-read))])
+ 		     (when (eof-object? v) (done (void)))
+ 		     (call-with-values
+ 		      (lambda () ((current-eval) v))
+ 		      (lambda results (for-each (current-print) results)))))
+ 		 (lambda () 
+                    (set! user-p (current-parameterization))
+                    (current-parameterization p)
+                    (set! jump #f))))
+ 	    (loop))))
+       (lambda () (error-escape-handler eeh)
+                    (current-parameterization user-p)
+ 		   (set! jump #f)
+                    (set! eeh #f)))))
+ 
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Sat, 12 Sep 1998 16:10:20 +0000
+
+ With this code, it is possible to "kill" the repl with breaking which also
+ seems like a bad thing to me.
+ Although I don't see a way to cause a mis-application of a primitve, you also
+ want to be sure that
+ the loop only exits when you call "done". In order to do that, you need to
+ turn off breaking everywhere except the inside of the dynamic-wind's middle
+ thunk.
+ 
+ Robby
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Sat, 12 Sep 1998 12:10:24 -0500 (CDT)
+
+ Quoting Robert Bruce Findler:
+ > With this code, it is possible to "kill" the repl with breaking which also
+ > seems like a bad thing to me.
+ 
+ Do you mean kill-thread? There's no way to bloack a kill-thread (which
+ is more or less the point of kill-thread).
+ 
+ > Although I don't see a way to cause a mis-application of a primitve,
+ > you also want to be sure that the loop only exits when you call
+ > "done". In order to do that, you need to turn off breaking
+ > everywhere except the inside of the dynamic-wind's middle thunk.
+ 
+ I belive that breaking is, in fact, turned off everywhere except the
+ middlemost thunk. If you can point out a place where breaking is
+ allowed, I appreciate the help.
+ 
+ Thanks,
+ Matthew
+ 
+
+From: Robert Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Sat, 12 Sep 1998 12:28:07 -0500 (CDT)
+
+ Matthew Flatt writes:
+ > (define (read-eval-print-loop)
+ >   (let ([eeh #f])
+ >      (let/ec done
+ >        (let loop ()
+   -- here --
+ > 	  (let/ec k
+   -- here --
+ >             (dynamic-wind
+ >                (lambda () 
+ > 		 (set! eeh (error-escape-handler))
+ > 		 (error-escape-handler k))
+ > 	       (lambda ()
+ > 		 (let ([v ((current-prompt-read))])
+ > 		   (when (eof-object? v) (done (void)))
+ > 		   (call-with-values
+ > 		    (lambda () ((current-eval) v))
+ > 		    (lambda results (for-each (current-print) results)))))
+ > 		(lambda ()
+ >                   (error-escape-handler eeh)
+ >                   (set! eeh #f))))
+   -- here --
+ > 	    (loop)))))
+ 
+ Matthew Flatt writes:
+ > Do you mean kill-thread? There's no way to bloack a kill-thread (which
+ > is more or less the point of kill-thread).
+ 
+ No, not kill-thread. break-thread can make read-eval-print-loop stop
+ looping, which seems bad. Not as bad as before, where it could make
+ read-eval-print-loop apply #f as a function, but still not good.
+ 
+ This is bad, because I can try to break some computation that I have
+ started, but instead end up breaking mzscheme repl itself.
+ 
+ > I belive that breaking is, in fact, turned off everywhere except the
+ > middlemost thunk. If you can point out a place where breaking is allowed,
+ > I appreciate the help.
+ 
+ It's allowed everywhere except the first and last thunks of the dynamic
+ wind. There are lots of such places.  I have annotated a few above. (other
+ are harder to annotate, since they occur after variable lookups and before
+ applications, like in the subexpression "(loop)")
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Findler <robby@cs.rice.edu>
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Sat, 12 Sep 1998 12:39:16 -0500 (CDT)
+
+ Quoting Robert Findler:
+ > Matthew Flatt writes:
+ > > (define (read-eval-print-loop)
+ > >   (let ([eeh #f])
+ > >      (let/ec done
+ > >        (let loop ()
+ >   -- here --
+ > > 	  (let/ec k
+ >   -- here --
+ > >             (dynamic-wind
+ > >                (lambda () 
+ > > 		 (set! eeh (error-escape-handler))
+ > > 		 (error-escape-handler k))
+ > > 	       (lambda ()
+ > > 		 (let ([v ((current-prompt-read))])
+ > > 		   (when (eof-object? v) (done (void)))
+ > > 		   (call-with-values
+ > > 		    (lambda () ((current-eval) v))
+ > > 		    (lambda results (for-each (current-print) results)))))
+ > > 		(lambda ()
+ > >                   (error-escape-handler eeh)
+ > >                   (set! eeh #f))))
+ >   -- here --
+ > > 	    (loop)))))
+ > [...]
+ > 
+ > It's allowed everywhere except the first and last thunks of the dynamic
+ > wind. There are lots of such places.  I have annotated a few above. (other
+ > are harder to annotate, since they occur after variable lookups and before
+ > applications, like in the subexpression "(loop)")
+ 
+ That's the wrong implementation. Did my revised mail not go out right?
+ (I sent two implementations this morning; one that was the above - it
+ overlooked a lot of what r-e-p-l was supposed to do, and then a fixed
+ one with an explanation.)
+ 
+ Here's the latest (see PR 797 for the explanation):
+ 
+ (define (read-eval-print-loop)
+   (let* ([p (make-parameterization)]
+            [user-p (current-parameterization)]
+            [eeh #f]
+ 	   [jump #f]
+ 	   [rep-error-escape-handler (lambda () (jump))])
+     ((in-parameterization p break-enabled) #f)
+     (dynamic-wind
+       (lambda () (set! eeh (error-escape-handler))
+ 		   (error-escape-handler rep-error-escape-handler)
+                    (current-parameterization p))
+       (lambda ()
+ 	(let/ec done
+           (let loop ()
+ 	    (let/ec k
+               (dynamic-wind
+                  (lambda ()
+                    (current-parameterization user-p)
+                    (set! jump k))
+ 		 (lambda ()
+ 		   (let ([v ((current-prompt-read))])
+ 		     (when (eof-object? v) (done (void)))
+ 		     (call-with-values
+ 		      (lambda () ((current-eval) v))
+ 		      (lambda results (for-each (current-print) results)))))
+ 		 (lambda () 
+                    (set! user-p (current-parameterization))
+                    (current-parameterization p)
+                    (set! jump #f))))
+ 	    (loop))))
+       (lambda () (error-escape-handler eeh)
+                    (current-parameterization user-p)
+ 		   (set! jump #f)
+                    (set! eeh #f)))))
+ 
+
+From: Robert Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: steck@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/797: unable to break from co-routine using call/cc (windows98).
+Date: Sat, 12 Sep 1998 12:46:49 -0500 (CDT)
+
+ That looks perfect.
+ 
+ Robby
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Apr 23 13:12:35 1999
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Apr 23 13:12:37 1999
+State-Changed-Why:
+Fixed.
+
+>Unformatted:
+
+Some MzScheme support is probably necessary to fix the bug; MzScheme's
+read-eval-print-loop had a similar problem.
+
+Starting with 100/8, breaking will not be allowed during the
+application of dynamic-wind pre and post thunks, either when called
+via the dynamic-wind calling sequence itself or when called via a
+continuation hop.
+
+Matthew
+

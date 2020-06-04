@@ -1,0 +1,142 @@
+From apache@plt-scheme.org Sat Apr  1 23:21:09 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k324L1Z4017510
+	for <bugs@plt-scheme.org>; Sat, 1 Apr 2006 23:21:01 -0500
+Message-Id: <200604020421.k324L1d3017508@champlain.ccs.neu.edu>
+Date: Sat, 1 Apr 2006 23:21:01 -0500
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: bug in collects/framework/keybinding-lang.ss prevents use of 'keybinding' in functions
+
+>Number:         7988
+>Category:       drscheme
+>Synopsis:       bug in collects/framework/keybinding-lang.ss prevents use of 'keybinding' in functions
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Apr 01 23:25:01 -0500 2006
+>Last-Modified:  Sun Jun 04 18:29:23 -0400 2006
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301
+>Environment:
+windows-2000
+>Description:
+Included is a fix to make sure all keybinding-bound handlers have a uniquely-identifying name.  (This might not show up well, so I'll also try to attach it as a file after the bug submits.)
+
+
+Index: keybinding-lang.ss
+===================================================================
+--- keybinding-lang.ss	(revision 2574)
++++ keybinding-lang.ss	(working copy)
+@@ -19,42 +19,45 @@
+          (syntax (#%plain-module-begin 
+                   (define #%keymap (make-object keymap:aug-keymap%))
+                   (provide #%keymap)
+-                  (define (#%keybinding key proc src line col pos)
+-                    (unless (string? key)
+-                      (error 'keybinding "expected string as first argument, got ~e (other arg ~e)" key proc))
+-                    (unless (and (procedure? proc)
+-                                 (procedure-arity-includes? proc 2))
+-                      (error 'keybinding "expected procedure of two arguments as second argument, got ~e (other arg ~e)"
+-                             proc
+-                             key))
+-                    (let ([name (if (and line col)
+-                                    (format "~a:~a.~a" src line col)
+-                                    (format "~a:~a" src pos))])
+-                      (send #%keymap add-function name 
+-                            ( (x y)
+-                              (let ([end-edit-sequence
+-                                     ( ()
+-                                       (when (is-a? x editor<%>)
+-                                         (let loop ()
+-                                           (when (send x in-edit-sequence?)
+-                                             (send x end-edit-sequence)
+-                                             (loop)))))])
+-                              (with-handlers ([exn:fail? 
+-                                               ( (x)
+-                                                 (end-edit-sequence)
+-                                                 (message-box (string-constant drscheme)
+-                                                              (format (string-constant user-defined-keybinding-error) 
+-                                                                      name
+-                                                                      (exn-message x))))])
+-                                (proc x y)
+-                                (when (is-a? x editor<%>)
+-                                  (when (send x in-edit-sequence?)
+-                                    (end-edit-sequence)
+-                                    (message-box (string-constant drscheme)
+-                                                 (format (string-constant user-defined-keybinding-error) 
+-                                                                      name
+-                                                                      "Editor left in edit-sequence"))))))))
+-                      (send #%keymap map-function key name)))
++                  (define #%keybinding 
++                    (let ((name-counter 0))
++                      (lambda (key proc src line col pos)
++                        (unless (string? key)
++                          (error 'keybinding "expected string as first argument, got ~e (other arg ~e)" key proc))
++                        (unless (and (procedure? proc)
++                                     (procedure-arity-includes? proc 2))
++                          (error 'keybinding "expected procedure of two arguments as second argument, got ~e (other arg ~e)"
++                                 proc
++                                 key))
++                        (set! name-counter (add1 name-counter))
++                        (let ([name (if (and line col)
++                                        (format "~a:~a:~a.~a" src name-counter line col)
++                                        (format "~a:~a:~a" src name-counter pos))])
++                          (send #%keymap add-function name 
++                                ( (x y)
++                                  (let ([end-edit-sequence
++                                         ( ()
++                                           (when (is-a? x editor<%>)
++                                             (let loop ()
++                                               (when (send x in-edit-sequence?)
++                                                 (send x end-edit-sequence)
++                                                 (loop)))))])
++                                    (with-handlers ([exn:fail? 
++                                                     ( (x)
++                                                       (end-edit-sequence)
++                                                       (message-box (string-constant drscheme)
++                                                                    (format (string-constant user-defined-keybinding-error) 
++                                                                            name
++                                                                            (exn-message x))))])
++                                      (proc x y)
++                                      (when (is-a? x editor<%>)
++                                        (when (send x in-edit-sequence?)
++                                          (end-edit-sequence)
++                                          (message-box (string-constant drscheme)
++                                                       (format (string-constant user-defined-keybinding-error) 
++                                                               name
++                                                               "Editor left in edit-sequence"))))))))
++                          (send #%keymap map-function key name)))))
+                   (define-syntax (keybinding stx)
+                     (syntax-case stx ()
+                       [(_ key val)
+
+
+The core change is to modify %keybindings to keep an internal name-counter that is used to uniquely tag the names of keymap handlers.  See: http://list.cs.brown.edu/pipermail/plt-scheme/2006-March/012391.html for the motivation.
+>How-To-Repeat:
+The following user-defined keybindings:
+
+(module test-keybinding (lib "keybinding-lang.ss" "framework")
+  (define (bind-literal target literal)
+    (keybinding 
+     target 
+     (lambda (editor event) (send editor insert (make-object string-snip% literal)))))
+  (bind-literal "M:," "<")
+  (bind-literal "M:." ">"))
+
+under the current implementation, this causes both M:, and M:. to act as the greater-than symbol.  What is happening is that the implementation of the %keybindings function causes both handlers to share the same name based on the location of the usage of the keybindings macro.
+>Fix:
+>Release-Note:
+There doesn't seem to be a contract violation that would have caught this bug. It is legitamate, but bad behavior no matter how I cut it :(
+>Audit-Trail:
+State changed from "open" to "closed" by robby at Sun, 04 Jun 2006 18:29:23 -0400
+Reason>>> fixed and released to SVN.
+
+Thanks for the excellent bug report!!
+

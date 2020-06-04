@@ -1,0 +1,938 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Oct 19 13:11:29 2012
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q9JHBPn3032319
+	for <bugs@bugs.plt-scheme.org>; Fri, 19 Oct 2012 13:11:25 -0400
+Message-Id: <201210191711.q9JHBJ6D032311@champlain.ccs.neu.edu>
+Date: Fri, 19 Oct 2012 13:11:19 -0400
+From: emina@eecs.berkeley.edu
+To: bugs@racket-lang.org
+Subject: possible concurrency bug in DrRacket 5.3
+
+>Number:         13199
+>Category:       all
+>Synopsis:       possible concurrency bug in DrRacket 5.3
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Oct 19 13:12:01 -0400 2012
+>Closed-Date:    Sat Oct 20 11:38:24 -0400 2012
+>Last-Modified:  Sat Oct 20 13:48:01 -0400 2012
+>Originator:     Emina Torlak
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+>Description:
+Dear Racket developers,
+
+After switching to (Dr) Racket 5.3 from 5.2.1, I started seeing what appears to be a concurrency bug.  
+
+The main thread of my Racket program starts a Java process using the (subprocess ...) command.  The Java program is a long-lived server; it receives text input from Racket, and prints the output to its standard output stream.  This is then picked up by the Racket program.  Communication with the Java program is done through the port handles returned by (subprocess ...) using fprintf, display, and read.
+
+The problem happens when the Racket program spawns another thread, which concurrently writes messages to (current-output-port).  Specifically, the second thread is running a log handler procedure that receives info/warning/error messages from the main thread and then uses (printf ...) to display them.  The main thread uses Racket's logging facilities to generate these messages, and the second thread receives them asynchronously through a log-receiver event.
+
+In the above scenario, Racket 5.3 will occasionally (but repeatably) write fragments of log messages both to Dr Racket's (current-output-port) and to the Java program's input stream.  This happens only when a relatively large amount of input is being fed to the Java program (~1400 lines of text, with ~30 characters per line).  The stray message fragments cause parse errors on the Java side, which is how I discovered the problem. 
+
+All of this works without any problems in 5.2.1.  My Racket code never parameterizes or changes the value of (current-output-port) in any way.  So, as far as the program is concerned, the Java port and (current-output-port) are completely unrelated.  But the behavior I observed makes it seem as if there is a race involving the (current-output-port) location; it's almost as if 5.3 is internally setting the (current-output-port) location to the Java program's input port while the main thread is invoking fprintf/display on that port.  
+
+I was unable to solve the problem in 5.3 (other than by disabling logging completely), so I've reverted back to using 5.2.1.   
+
+Thanks!
+
+Emina 
+
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: emina@eecs.berkeley.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13199: possible concurrency bug in DrRacket 5.3
+Date: Fri, 19 Oct 2012 12:31:25 -0500
+
+ Hi: thanks for the report!
+ 
+ If you have the energy to produce a (hopefully not too terribly large)
+ program that behaves badly, that would probably give us a fighting
+ chance to finding the bug.
+ 
+ Robby
+ 
+ On Fri, Oct 19, 2012 at 12:12 PM,  <emina@eecs.berkeley.edu> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13199
+ >
+ > Reported by Emina Torlak for release: 5.3
+ >
+ > *** Description:
+ > Dear Racket developers,
+ >
+ > After switching to (Dr) Racket 5.3 from 5.2.1, I started seeing what appears to be a concurrency bug.
+ >
+ > The main thread of my Racket program starts a Java process using the (subprocess ...) command.  The Java program is a long-lived server; it receives text input from Racket, and prints the output to its standard output stream.  This is then picked up by the Racket program.  Communication with the Java program is done through the port handles returned by (subprocess ...) using fprintf, display, and read.
+ >
+ > The problem happens when the Racket program spawns another thread, which concurrently writes messages to (current-output-port).  Specifically, the second thread is running a log handler procedure that receives info/warning/error messages from the main thread and then uses (printf ...) to display them.  The main thread uses Racket's logging facilities to generate these messages, and the second thread receives them asynchronously through a log-receiver event.
+ >
+ > In the above scenario, Racket 5.3 will occasionally (but repeatably) write fragments of log messages both to Dr Racket's (current-output-port) and to the Java program's input stream.  This happens only when a relatively large amount of input is being fed to the Java program (~1400 lines of text, with ~30 characters per line).  The stray message fragments cause parse errors on the Java side, which is how I discovered the problem.
+ >
+ > All of this works without any problems in 5.2.1.  My Racket code never parameterizes or changes the value of (current-output-port) in any way.  So, as far as the program is concerned, the Java port and (current-output-port) are completely unrelated.  But the behavior I observed makes it seem as if there is a race involving the (current-output-port) location; it's almost as if 5.3 is internally setting the (current-output-port) location to the Java program's input port while the main thread is invoking fprintf/display on that port.
+ >
+ > I was unable to solve the problem in 5.3 (other than by disabling logging completely), so I've reverted back to using 5.2.1.
+ >
+ > Thanks!
+ >
+ > Emina
+ >
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+ >
+ 
+From: Jay McCarthy <jay.mccarthy@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: emina@eecs.berkeley.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13199: possible concurrency bug in DrRacket 5.3
+Date: Fri, 19 Oct 2012 12:54:45 -0600
+
+ And even the very large program (provided we could run it) may be
+ useful, because we may be able to think of debugging information to
+ gather that you wouldn't. [For example, you can get the file
+ descriptors underneath the Racket ports using scheme_get_port_fd and
+ port-file-identity].
+ 
+ In the past, we've sometimes had to ssh into a user's machine if they
+ can't extract a run-able example.
+ 
+ If you'd like to explore these options, you can send private details
+ to Robby, me, or Matthew. [I volunteer!]
+ 
+ Jay
+ 
+ On Fri, Oct 19, 2012 at 11:31 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Hi: thanks for the report!
+ >
+ > If you have the energy to produce a (hopefully not too terribly large)
+ > program that behaves badly, that would probably give us a fighting
+ > chance to finding the bug.
+ >
+ > Robby
+ >
+ > On Fri, Oct 19, 2012 at 12:12 PM,  <emina@eecs.berkeley.edu> wrote:
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=13199
+ >>
+ >> Reported by Emina Torlak for release: 5.3
+ >>
+ >> *** Description:
+ >> Dear Racket developers,
+ >>
+ >> After switching to (Dr) Racket 5.3 from 5.2.1, I started seeing what appears to be a concurrency bug.
+ >>
+ >> The main thread of my Racket program starts a Java process using the (subprocess ...) command.  The Java program is a long-lived server; it receives text input from Racket, and prints the output to its standard output stream.  This is then picked up by the Racket program.  Communication with the Java program is done through the port handles returned by (subprocess ...) using fprintf, display, and read.
+ >>
+ >> The problem happens when the Racket program spawns another thread, which concurrently writes messages to (current-output-port).  Specifically, the second thread is running a log handler procedure that receives info/warning/error messages from the main thread and then uses (printf ...) to display them.  The main thread uses Racket's logging facilities to generate these messages, and the second thread receives them asynchronously through a log-receiver event.
+ >>
+ >> In the above scenario, Racket 5.3 will occasionally (but repeatably) write fragments of log messages both to Dr Racket's (current-output-port) and to the Java program's input stream.  This happens only when a relatively large amount of input is being fed to the Java program (~1400 lines of text, with ~30 characters per line).  The stray message fragments cause parse errors on the Java side, which is how I discovered the problem.
+ >>
+ >> All of this works without any problems in 5.2.1.  My Racket code never parameterizes or changes the value of (current-output-port) in any way.  So, as far as the program is concerned, the Java port and (current-output-port) are completely unrelated.  But the behavior I observed makes it seem as if there is a race involving the (current-output-port) location; it's almost as if 5.3 is internally setting the (current-output-port) location to the Java program's input port while the main thread is invoking fprintf/display on that port.
+ >>
+ >> I was unable to solve the problem in 5.3 (other than by disabling logging completely), so I've reverted back to using 5.2.1.
+ >>
+ >> Thanks!
+ >>
+ >> Emina
+ >>
+ >>
+ >> *** How to repeat:
+ >>
+ >>
+ >> *** Environment:
+ >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+ >>
+ 
+ 
+ 
+ -- 
+ Jay McCarthy <jay@cs.byu.edu>
+ Assistant Professor / Brigham Young University
+ http://faculty.cs.byu.edu/~jay
+ 
+ "The glory of God is Intelligence" - D&C 93
+ 
+From: Emina Torlak <emina@eecs.berkeley.edu>
+To: Jay McCarthy <jay.mccarthy@gmail.com>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/13199: possible concurrency bug in DrRacket 5.3
+Date: Fri, 19 Oct 2012 13:45:20 -0700
+
+ --f46d040711e50cde8404cc6f95b2
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Hi and thanks for the responses!  I'll try to reduce the problem to a
+ reasonably small example.  I'll also see if I can reproduce it on Linux
+ and/or Windows so we can at least rule out OS-related issues.  If none of
+ this yields any useful information, I'd be happy to share the code
+ privately with anyone on the Racket team.  (It's not yet ready for a public
+ release.)
+ 
+ Emina
+ 
+ On Fri, Oct 19, 2012 at 11:54 AM, Jay McCarthy <jay.mccarthy@gmail.com>wrote:
+ 
+ > And even the very large program (provided we could run it) may be
+ > useful, because we may be able to think of debugging information to
+ > gather that you wouldn't. [For example, you can get the file
+ > descriptors underneath the Racket ports using scheme_get_port_fd and
+ > port-file-identity].
+ >
+ > In the past, we've sometimes had to ssh into a user's machine if they
+ > can't extract a run-able example.
+ >
+ > If you'd like to explore these options, you can send private details
+ > to Robby, me, or Matthew. [I volunteer!]
+ >
+ > Jay
+ >
+ > On Fri, Oct 19, 2012 at 11:31 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ > > Hi: thanks for the report!
+ > >
+ > > If you have the energy to produce a (hopefully not too terribly large)
+ > > program that behaves badly, that would probably give us a fighting
+ > > chance to finding the bug.
+ > >
+ > > Robby
+ > >
+ > > On Fri, Oct 19, 2012 at 12:12 PM,  <emina@eecs.berkeley.edu> wrote:
+ > >> A new problem report is waiting at
+ > >>   http://bugs.racket-lang.org/query/?cmd=view&pr=13199
+ > >>
+ > >> Reported by Emina Torlak for release: 5.3
+ > >>
+ > >> *** Description:
+ > >> Dear Racket developers,
+ > >>
+ > >> After switching to (Dr) Racket 5.3 from 5.2.1, I started seeing what
+ > appears to be a concurrency bug.
+ > >>
+ > >> The main thread of my Racket program starts a Java process using the
+ > (subprocess ...) command.  The Java program is a long-lived server; it
+ > receives text input from Racket, and prints the output to its standard
+ > output stream.  This is then picked up by the Racket program.
+ >  Communication with the Java program is done through the port handles
+ > returned by (subprocess ...) using fprintf, display, and read.
+ > >>
+ > >> The problem happens when the Racket program spawns another thread,
+ > which concurrently writes messages to (current-output-port).  Specifically,
+ > the second thread is running a log handler procedure that receives
+ > info/warning/error messages from the main thread and then uses (printf ...)
+ > to display them.  The main thread uses Racket's logging facilities to
+ > generate these messages, and the second thread receives them asynchronously
+ > through a log-receiver event.
+ > >>
+ > >> In the above scenario, Racket 5.3 will occasionally (but repeatably)
+ > write fragments of log messages both to Dr Racket's (current-output-port)
+ > and to the Java program's input stream.  This happens only when a
+ > relatively large amount of input is being fed to the Java program (~1400
+ > lines of text, with ~30 characters per line).  The stray message fragments
+ > cause parse errors on the Java side, which is how I discovered the problem.
+ > >>
+ > >> All of this works without any problems in 5.2.1.  My Racket code never
+ > parameterizes or changes the value of (current-output-port) in any way.
+ >  So, as far as the program is concerned, the Java port and
+ > (current-output-port) are completely unrelated.  But the behavior I
+ > observed makes it seem as if there is a race involving the
+ > (current-output-port) location; it's almost as if 5.3 is internally setting
+ > the (current-output-port) location to the Java program's input port while
+ > the main thread is invoking fprintf/display on that port.
+ > >>
+ > >> I was unable to solve the problem in 5.3 (other than by disabling
+ > logging completely), so I've reverted back to using 5.2.1.
+ > >>
+ > >> Thanks!
+ > >>
+ > >> Emina
+ > >>
+ > >>
+ > >> *** How to repeat:
+ > >>
+ > >>
+ > >> *** Environment:
+ > >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5)
+ > AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+ > >>
+ >
+ >
+ >
+ > --
+ > Jay McCarthy <jay@cs.byu.edu>
+ > Assistant Professor / Brigham Young University
+ > http://faculty.cs.byu.edu/~jay
+ >
+ > "The glory of God is Intelligence" - D&C 93
+ >
+ 
+ --f46d040711e50cde8404cc6f95b2
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Hi and thanks for the responses! =A0I&#39;ll try to reduce the problem to a=
+  reasonably small example. =A0I&#39;ll also see if I can reproduce it on Li=
+ nux and/or Windows so we can at least rule out OS-related issues. =A0If non=
+ e of this yields any useful information, I&#39;d be happy to share the code=
+  privately with anyone on the Racket team. =A0(It&#39;s not yet ready for a=
+  public release.)<div>
+ <br></div><div>Emina<br><br><div class=3D"gmail_quote">On Fri, Oct 19, 2012=
+  at 11:54 AM, Jay McCarthy <span dir=3D"ltr">&lt;<a href=3D"mailto:jay.mcca=
+ rthy@gmail.com" target=3D"_blank">jay.mccarthy@gmail.com</a>&gt;</span> wro=
+ te:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">
+ And even the very large program (provided we could run it) may be<br>
+ useful, because we may be able to think of debugging information to<br>
+ gather that you wouldn&#39;t. [For example, you can get the file<br>
+ descriptors underneath the Racket ports using scheme_get_port_fd and<br>
+ port-file-identity].<br>
+ <br>
+ In the past, we&#39;ve sometimes had to ssh into a user&#39;s machine if th=
+ ey<br>
+ can&#39;t extract a run-able example.<br>
+ <br>
+ If you&#39;d like to explore these options, you can send private details<br=
+ >
+ to Robby, me, or Matthew. [I volunteer!]<br>
+ <br>
+ Jay<br>
+ <div><div><br>
+ On Fri, Oct 19, 2012 at 11:31 AM, Robby Findler<br>
+ &lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">robby@=
+ eecs.northwestern.edu</a>&gt; wrote:<br>
+ &gt; Hi: thanks for the report!<br>
+ &gt;<br>
+ &gt; If you have the energy to produce a (hopefully not too terribly large)=
+ <br>
+ &gt; program that behaves badly, that would probably give us a fighting<br>
+ &gt; chance to finding the bug.<br>
+ &gt;<br>
+ &gt; Robby<br>
+ &gt;<br>
+ &gt; On Fri, Oct 19, 2012 at 12:12 PM, =A0&lt;<a href=3D"mailto:emina@eecs.=
+ berkeley.edu" target=3D"_blank">emina@eecs.berkeley.edu</a>&gt; wrote:<br>
+ &gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt; =A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;p=
+ r=3D13199" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&=
+ amp;pr=3D13199</a><br>
+ &gt;&gt;<br>
+ &gt;&gt; Reported by Emina Torlak for release: 5.3<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>
+ &gt;&gt; Dear Racket developers,<br>
+ &gt;&gt;<br>
+ &gt;&gt; After switching to (Dr) Racket 5.3 from 5.2.1, I started seeing wh=
+ at appears to be a concurrency bug.<br>
+ &gt;&gt;<br>
+ &gt;&gt; The main thread of my Racket program starts a Java process using t=
+ he (subprocess ...) command. =A0The Java program is a long-lived server; it=
+  receives text input from Racket, and prints the output to its standard out=
+ put stream. =A0This is then picked up by the Racket program. =A0Communicati=
+ on with the Java program is done through the port handles returned by (subp=
+ rocess ...) using fprintf, display, and read.<br>
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; The problem happens when the Racket program spawns another thread,=
+  which concurrently writes messages to (current-output-port). =A0Specifical=
+ ly, the second thread is running a log handler procedure that receives info=
+ /warning/error messages from the main thread and then uses (printf ...) to =
+ display them. =A0The main thread uses Racket&#39;s logging facilities to ge=
+ nerate these messages, and the second thread receives them asynchronously t=
+ hrough a log-receiver event.<br>
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; In the above scenario, Racket 5.3 will occasionally (but repeatabl=
+ y) write fragments of log messages both to Dr Racket&#39;s (current-output-=
+ port) and to the Java program&#39;s input stream. =A0This happens only when=
+  a relatively large amount of input is being fed to the Java program (~1400=
+  lines of text, with ~30 characters per line). =A0The stray message fragmen=
+ ts cause parse errors on the Java side, which is how I discovered the probl=
+ em.<br>
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; All of this works without any problems in 5.2.1. =A0My Racket code=
+  never parameterizes or changes the value of (current-output-port) in any w=
+ ay. =A0So, as far as the program is concerned, the Java port and (current-o=
+ utput-port) are completely unrelated. =A0But the behavior I observed makes =
+ it seem as if there is a race involving the (current-output-port) location;=
+  it&#39;s almost as if 5.3 is internally setting the (current-output-port) =
+ location to the Java program&#39;s input port while the main thread is invo=
+ king fprintf/display on that port.<br>
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; I was unable to solve the problem in 5.3 (other than by disabling =
+ logging completely), so I&#39;ve reverted back to using 5.2.1.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Thanks!<br>
+ &gt;&gt;<br>
+ &gt;&gt; Emina<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** How to repeat:<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>
+ &gt;&gt; MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWeb=
+ Kit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14<br>
+ &gt;&gt;<br>
+ <br>
+ <br>
+ <br>
+ </div></div><span><font color=3D"#888888">--<br>
+ Jay McCarthy &lt;<a href=3D"mailto:jay@cs.byu.edu" target=3D"_blank">jay@cs=
+ .byu.edu</a>&gt;<br>
+ Assistant Professor / Brigham Young University<br>
+ <a href=3D"http://faculty.cs.byu.edu/~jay" target=3D"_blank">http://faculty=
+ .cs.byu.edu/~jay</a><br>
+ <br>
+ &quot;The glory of God is Intelligence&quot; - D&amp;C 93<br>
+ </font></span></blockquote></div><br></div>
+ 
+ --f46d040711e50cde8404cc6f95b2--
+From: Emina Torlak <emina@eecs.berkeley.edu>
+To: Jay McCarthy <jay.mccarthy@gmail.com>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/13199: possible concurrency bug in DrRacket 5.3
+Date: Sat, 20 Oct 2012 01:29:34 -0700
+
+ --bcaec55240b48f127e04cc796b48
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Hi again,
+ 
+ I've managed to create a small, self-contained program that reproduces this
+ problem on Mac OS 10.7.5 and Windows 7.  It runs without crashing on Ubuntu
+ 12.04.  The reduced program can be downloaded as a zip archive from
+ http://people.csail.mit.edu/emina/pr13199.zip.
+ 
+ Running the code requires Java 7 to be on the search path; in particular,
+ it should be installed at a location discoverable by (find-executable-path
+ ...).
+ 
+ The reduced program includes four Racket files and a directory with the
+ necessary jar/JNI libraries (for all three OSs listed above).  The Racket
+ files are:
+ 
+ * log.rkt contains the log-handling procedure and related macros.
+ * solver.rkt calls the Java program.
+ * input.rkt contains a list representation of the input to the Java program
+ that is generated by my original Racket program, and which causes the crash
+ to happen.
+ * driver.rkt contains a simple driver procedure called (bug) which feeds
+ the input to a new instance of the Java server.
+ 
+ On my Mac and Windows machines, calling (bug) once from within DrRacket 5.3
+ will cause the crash.  The result will look something like this:
+ 
+ > (bug)
+ [info] some pre-solving info ...
+ [info] Welcome to Racket v5.3.
+ 
+ [info] symbolic execution time (ms): ...
+ [info] compilation time (ms): ...
+ [info] solver invocation time (ms): 150
+ [info] [SEVERE] BasicParseError (line 734, pos 1):
+ [info] 0mpilation time (ms): ...
+ [info] ^
+ . . read-solution: Unrecognized solver output: #<eof>
+ 
+ When it detects malformed input (due to stray fragments of log messages),
+ the Java program outputs what it has received from Racket to
+ "<home>/error-output.txt" before terminating.  Normally, the text that it
+ sees should be exactly the solver-input list defined in "input.rkt". But if
+ you open the "error-output.txt" file and go to the specified error line
+ (734 in the above execution), you will see a stray message fragment.   The
+ zip file that contains the reduced program also includes a copy of the
+ "error-out.txt" file generated above.
+ 
+ The reduced program, just like the original, works correctly in DrRacket
+ 5.2.1, producing the following output:
+ 
+ > (bug)
+ [info] some pre-solving info ...
+ [info] Welcome to Racket v5.2.1.
+ 
+ [info] symbolic execution time (ms): ...
+ [info] compilation time (ms): ...
+ [info] solver invocation time (ms): 114
+ [info] [INFO] p cnf : 4130 15041
+ [info] solution construction time (ms): 217
+ [info] solution: #t #hash((r1 . ((0))) (r2 . ((1))) (r55 . ((2 2) (3 3) (4
+ 4) (5 5) (6 6))) (r4 . ()) (r3 . ((2) (3) (4) (5) (6))) (r0 . ((0) (1)))
+ (r9 . ((2))) (r8 . ((4) (5))) (r7 . ((3))) (r5 . ()) (r13 . ((4))) (r12 .
+ ()) (r11 . ()) (r10 . ()) (r17 . ((3))) (r16 . ()) (r15 . ((2) (3))) (r14 .
+ ((2))) (r21 . ((3))) (r20 . ((2))) (r19 . ((2) (4))) (r18 . ((3))) (r25 .
+ ((3) (5))) (r24 . ()) (r23 . ((2) (3))) (r22 . ((4) (5))) (r29 . ((2) (3)))
+ (r28 . ((3) (5))) (r27 . ((2))) (r26 . ((3))) (r33 . ((2) (3))) (r32 . ((2)
+ (3))) (r31 . ((3) (4))) (r30 . ((3))) (r37 . ((2) (3))) (r36 . ((5))) (r35
+ . ()) (r34 . ((4))) (r41 . ((2))) (r40 . ()) (r39 . ((3))) (r38 . ((4)
+ (5))) (r45 . ((2) (3))) (r44 . ((3))) (r43 . ((2) (5))) (r42 . ()) (r49 .
+ ((2))) (r48 . ()) (r47 . ()) (r46 . ((2))) (r53 . ()) (r52 . ((2) (3)))
+ (r51 . ()) (r50 . ((3))) (r54 . ((2) (3))) (r6 . ((0) (1) (2) (3) (4) (5)
+ (6))))
+ [info] [INFO] primary variables : 240
+ [info] [INFO] parsing time (ms) : 241
+ [info] [INFO] translation time (ms) : 413
+ [info] [INFO] solving time (ms) : 1534
+ 
+ 
+ I hope this helps, and thanks for looking into it!
+ 
+ Emina
+ 
+ On Fri, Oct 19, 2012 at 1:45 PM, Emina Torlak <emina@eecs.berkeley.edu>wrote:
+ 
+ > Hi and thanks for the responses!  I'll try to reduce the problem to a
+ > reasonably small example.  I'll also see if I can reproduce it on Linux
+ > and/or Windows so we can at least rule out OS-related issues.  If none of
+ > this yields any useful information, I'd be happy to share the code
+ > privately with anyone on the Racket team.  (It's not yet ready for a public
+ > release.)
+ >
+ > Emina
+ >
+ >
+ > On Fri, Oct 19, 2012 at 11:54 AM, Jay McCarthy <jay.mccarthy@gmail.com>wrote:
+ >
+ >> And even the very large program (provided we could run it) may be
+ >> useful, because we may be able to think of debugging information to
+ >> gather that you wouldn't. [For example, you can get the file
+ >> descriptors underneath the Racket ports using scheme_get_port_fd and
+ >> port-file-identity].
+ >>
+ >> In the past, we've sometimes had to ssh into a user's machine if they
+ >> can't extract a run-able example.
+ >>
+ >> If you'd like to explore these options, you can send private details
+ >> to Robby, me, or Matthew. [I volunteer!]
+ >>
+ >> Jay
+ >>
+ >> On Fri, Oct 19, 2012 at 11:31 AM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >> > Hi: thanks for the report!
+ >> >
+ >> > If you have the energy to produce a (hopefully not too terribly large)
+ >> > program that behaves badly, that would probably give us a fighting
+ >> > chance to finding the bug.
+ >> >
+ >> > Robby
+ >> >
+ >> > On Fri, Oct 19, 2012 at 12:12 PM,  <emina@eecs.berkeley.edu> wrote:
+ >> >> A new problem report is waiting at
+ >> >>   http://bugs.racket-lang.org/query/?cmd=view&pr=13199
+ >> >>
+ >> >> Reported by Emina Torlak for release: 5.3
+ >> >>
+ >> >> *** Description:
+ >> >> Dear Racket developers,
+ >> >>
+ >> >> After switching to (Dr) Racket 5.3 from 5.2.1, I started seeing what
+ >> appears to be a concurrency bug.
+ >> >>
+ >> >> The main thread of my Racket program starts a Java process using the
+ >> (subprocess ...) command.  The Java program is a long-lived server; it
+ >> receives text input from Racket, and prints the output to its standard
+ >> output stream.  This is then picked up by the Racket program.
+ >>  Communication with the Java program is done through the port handles
+ >> returned by (subprocess ...) using fprintf, display, and read.
+ >> >>
+ >> >> The problem happens when the Racket program spawns another thread,
+ >> which concurrently writes messages to (current-output-port).  Specifically,
+ >> the second thread is running a log handler procedure that receives
+ >> info/warning/error messages from the main thread and then uses (printf ...)
+ >> to display them.  The main thread uses Racket's logging facilities to
+ >> generate these messages, and the second thread receives them asynchronously
+ >> through a log-receiver event.
+ >> >>
+ >> >> In the above scenario, Racket 5.3 will occasionally (but repeatably)
+ >> write fragments of log messages both to Dr Racket's (current-output-port)
+ >> and to the Java program's input stream.  This happens only when a
+ >> relatively large amount of input is being fed to the Java program (~1400
+ >> lines of text, with ~30 characters per line).  The stray message fragments
+ >> cause parse errors on the Java side, which is how I discovered the problem.
+ >> >>
+ >> >> All of this works without any problems in 5.2.1.  My Racket code never
+ >> parameterizes or changes the value of (current-output-port) in any way.
+ >>  So, as far as the program is concerned, the Java port and
+ >> (current-output-port) are completely unrelated.  But the behavior I
+ >> observed makes it seem as if there is a race involving the
+ >> (current-output-port) location; it's almost as if 5.3 is internally setting
+ >> the (current-output-port) location to the Java program's input port while
+ >> the main thread is invoking fprintf/display on that port.
+ >> >>
+ >> >> I was unable to solve the problem in 5.3 (other than by disabling
+ >> logging completely), so I've reverted back to using 5.2.1.
+ >> >>
+ >> >> Thanks!
+ >> >>
+ >> >> Emina
+ >> >>
+ >> >>
+ >> >> *** How to repeat:
+ >> >>
+ >> >>
+ >> >> *** Environment:
+ >> >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5)
+ >> AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+ >> >>
+ >>
+ >>
+ >>
+ >> --
+ >> Jay McCarthy <jay@cs.byu.edu>
+ >> Assistant Professor / Brigham Young University
+ >> http://faculty.cs.byu.edu/~jay
+ >>
+ >> "The glory of God is Intelligence" - D&C 93
+ >>
+ >
+ >
+ 
+ --bcaec55240b48f127e04cc796b48
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Hi again,<div><br></div><div>I&#39;ve managed to create a small, self-conta=
+ ined program that reproduces this problem on Mac OS 10.7.5 and Windows 7. =
+ =A0It runs without crashing on Ubuntu 12.04. =A0The reduced program can be =
+ downloaded as a zip archive from <a href=3D"http://people.csail.mit.edu/emi=
+ na/pr13199.zip">http://people.csail.mit.edu/emina/pr13199.zip</a>.=A0</div>
+ 
+ <div><br></div><div>Running the code requires Java 7 to be on the search pa=
+ th; in particular, it should be installed at a location discoverable by=A0(=
+ find-executable-path ...). =A0</div><div><br></div><div>The reduced program=
+  includes four Racket files and a directory with the necessary jar/JNI libr=
+ aries (for all three OSs listed above). =A0The Racket files are:</div>
+ 
+ <div><br></div><div>* log.rkt contains the log-handling procedure and relat=
+ ed macros.</div><div>* solver.rkt calls the Java program.</div><div>* input=
+ .rkt contains a list representation of the input to the Java program that i=
+ s generated by my original Racket program, and which causes the crash to ha=
+ ppen.</div>
+ 
+ <div>* driver.rkt contains a simple driver procedure called (bug) which fee=
+ ds the input to a new instance of the Java server.</div><div><br></div><div=
+ >On my Mac and Windows machines, calling (bug) once from within DrRacket 5.=
+ 3 will cause the crash. =A0The result will look something like this:</div>
+ 
+ <div><br></div><div><div><font face=3D"courier new, monospace">&gt; (bug)</=
+ font></div><div><font face=3D"courier new, monospace">[info] some pre-solvi=
+ ng info ...</font></div><div><font face=3D"courier new, monospace">[info] W=
+ elcome to Racket v5.3.</font></div>
+ 
+ <div><font face=3D"courier new, monospace"><br></font></div><div><font face=
+ =3D"courier new, monospace">[info] symbolic execution time (ms): ...</font>=
+ </div><div><font face=3D"courier new, monospace">[info] compilation time (m=
+ s): ...</font></div>
+ 
+ <div><font face=3D"courier new, monospace">[info] solver invocation time (m=
+ s): 150</font></div><div><font face=3D"courier new, monospace">[info] [SEVE=
+ RE] BasicParseError (line 734, pos 1):</font></div><div><font face=3D"couri=
+ er new, monospace">[info] 0mpilation time (ms): ...</font></div>
+ 
+ <div><font face=3D"courier new, monospace">[info] ^</font></div><div><font =
+ face=3D"courier new, monospace">. . read-solution: Unrecognized solver outp=
+ ut: #&lt;eof&gt;</font></div></div><div><br></div><div>When it detects malf=
+ ormed input (due to stray fragments of log messages), the Java program outp=
+ uts what it has received from Racket to &quot;&lt;home&gt;/error-output.txt=
+ &quot; before terminating. =A0Normally, the text that it sees should be exa=
+ ctly the solver-input list defined in &quot;input.rkt&quot;. But if you ope=
+ n the &quot;error-output.txt&quot; file and go to the specified error line =
+ (734 in the above execution), you will see a stray message fragment. =A0 Th=
+ e zip file that contains the reduced program also includes a copy of the &q=
+ uot;error-out.txt&quot; file generated above.</div>
+ 
+ <div><br></div><div>The reduced program, just like the original, works corr=
+ ectly in DrRacket 5.2.1, producing the following output:</div><div><br></di=
+ v><div><div><font face=3D"courier new, monospace">&gt; (bug)</font></div>
+ 
+ <div><font face=3D"courier new, monospace">[info] some pre-solving info ...=
+ </font></div><div><font face=3D"courier new, monospace">[info] Welcome to R=
+ acket v5.2.1.</font></div><div><font face=3D"courier new, monospace"><br></=
+ font></div>
+ 
+ <div><font face=3D"courier new, monospace">[info] symbolic execution time (=
+ ms): ...</font></div><div><font face=3D"courier new, monospace">[info] comp=
+ ilation time (ms): ...</font></div><div><font face=3D"courier new, monospac=
+ e">[info] solver invocation time (ms): 114</font></div>
+ 
+ <div><font face=3D"courier new, monospace">[info] [INFO] p cnf : 4130 15041=
+ </font></div><div><font face=3D"courier new, monospace">[info] solution con=
+ struction time (ms): 217</font></div><div><font face=3D"courier new, monosp=
+ ace">[info] solution: #t #hash((r1 . ((0))) (r2 . ((1))) (r55 . ((2 2) (3 3=
+ ) (4 4) (5 5) (6 6))) (r4 . ()) (r3 . ((2) (3) (4) (5) (6))) (r0 . ((0) (1)=
+ )) (r9 . ((2))) (r8 . ((4) (5))) (r7 . ((3))) (r5 . ()) (r13 . ((4))) (r12 =
+ . ()) (r11 . ()) (r10 . ()) (r17 . ((3))) (r16 . ()) (r15 . ((2) (3))) (r14=
+  . ((2))) (r21 . ((3))) (r20 . ((2))) (r19 . ((2) (4))) (r18 . ((3))) (r25 =
+ . ((3) (5))) (r24 . ()) (r23 . ((2) (3))) (r22 . ((4) (5))) (r29 . ((2) (3)=
+ )) (r28 . ((3) (5))) (r27 . ((2))) (r26 . ((3))) (r33 . ((2) (3))) (r32 . (=
+ (2) (3))) (r31 . ((3) (4))) (r30 . ((3))) (r37 . ((2) (3))) (r36 . ((5))) (=
+ r35 . ()) (r34 . ((4))) (r41 . ((2))) (r40 . ()) (r39 . ((3))) (r38 . ((4) =
+ (5))) (r45 . ((2) (3))) (r44 . ((3))) (r43 . ((2) (5))) (r42 . ()) (r49 . (=
+ (2))) (r48 . ()) (r47 . ()) (r46 . ((2))) (r53 . ()) (r52 . ((2) (3))) (r51=
+  . ()) (r50 . ((3))) (r54 . ((2) (3))) (r6 . ((0) (1) (2) (3) (4) (5) (6)))=
+ )</font></div>
+ 
+ <div><font face=3D"courier new, monospace">[info] [INFO] primary variables =
+ : 240</font></div><div><font face=3D"courier new, monospace">[info] [INFO] =
+ parsing time (ms) : 241</font></div><div><font face=3D"courier new, monospa=
+ ce">[info] [INFO] translation time (ms) : 413</font></div>
+ 
+ <div><font face=3D"courier new, monospace">[info] [INFO] solving time (ms) =
+ : 1534</font></div></div><div><br></div><div><br></div><div>I hope this hel=
+ ps, and thanks for looking into it!</div><div><br></div><div>Emina</div>
+ <div>
+ <br><div class=3D"gmail_quote">On Fri, Oct 19, 2012 at 1:45 PM, Emina Torla=
+ k <span dir=3D"ltr">&lt;<a href=3D"mailto:emina@eecs.berkeley.edu" target=
+ =3D"_blank">emina@eecs.berkeley.edu</a>&gt;</span> wrote:<br><blockquote cl=
+ ass=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;p=
+ adding-left:1ex">
+ 
+ Hi and thanks for the responses! =A0I&#39;ll try to reduce the problem to a=
+  reasonably small example. =A0I&#39;ll also see if I can reproduce it on Li=
+ nux and/or Windows so we can at least rule out OS-related issues. =A0If non=
+ e of this yields any useful information, I&#39;d be happy to share the code=
+  privately with anyone on the Racket team. =A0(It&#39;s not yet ready for a=
+  public release.)<span><font color=3D"#888888"><div>
+ 
+ 
+ <br></div></font></span><div><span><font color=3D"#888888">Emina</font></sp=
+ an><div><div><br><br><div class=3D"gmail_quote">On Fri, Oct 19, 2012 at 11:=
+ 54 AM, Jay McCarthy <span dir=3D"ltr">&lt;<a href=3D"mailto:jay.mccarthy@gm=
+ ail.com" target=3D"_blank">jay.mccarthy@gmail.com</a>&gt;</span> wrote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">
+ And even the very large program (provided we could run it) may be<br>
+ useful, because we may be able to think of debugging information to<br>
+ gather that you wouldn&#39;t. [For example, you can get the file<br>
+ descriptors underneath the Racket ports using scheme_get_port_fd and<br>
+ port-file-identity].<br>
+ <br>
+ In the past, we&#39;ve sometimes had to ssh into a user&#39;s machine if th=
+ ey<br>
+ can&#39;t extract a run-able example.<br>
+ <br>
+ If you&#39;d like to explore these options, you can send private details<br=
+ >
+ to Robby, me, or Matthew. [I volunteer!]<br>
+ <br>
+ Jay<br>
+ <div><div><br>
+ On Fri, Oct 19, 2012 at 11:31 AM, Robby Findler<br>
+ &lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">robby@=
+ eecs.northwestern.edu</a>&gt; wrote:<br>
+ &gt; Hi: thanks for the report!<br>
+ &gt;<br>
+ &gt; If you have the energy to produce a (hopefully not too terribly large)=
+ <br>
+ &gt; program that behaves badly, that would probably give us a fighting<br>
+ &gt; chance to finding the bug.<br>
+ &gt;<br>
+ &gt; Robby<br>
+ &gt;<br>
+ &gt; On Fri, Oct 19, 2012 at 12:12 PM, =A0&lt;<a href=3D"mailto:emina@eecs.=
+ berkeley.edu" target=3D"_blank">emina@eecs.berkeley.edu</a>&gt; wrote:<br>
+ &gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt; =A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;p=
+ r=3D13199" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&=
+ amp;pr=3D13199</a><br>
+ &gt;&gt;<br>
+ &gt;&gt; Reported by Emina Torlak for release: 5.3<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>
+ &gt;&gt; Dear Racket developers,<br>
+ &gt;&gt;<br>
+ &gt;&gt; After switching to (Dr) Racket 5.3 from 5.2.1, I started seeing wh=
+ at appears to be a concurrency bug.<br>
+ &gt;&gt;<br>
+ &gt;&gt; The main thread of my Racket program starts a Java process using t=
+ he (subprocess ...) command. =A0The Java program is a long-lived server; it=
+  receives text input from Racket, and prints the output to its standard out=
+ put stream. =A0This is then picked up by the Racket program. =A0Communicati=
+ on with the Java program is done through the port handles returned by (subp=
+ rocess ...) using fprintf, display, and read.<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; The problem happens when the Racket program spawns another thread,=
+  which concurrently writes messages to (current-output-port). =A0Specifical=
+ ly, the second thread is running a log handler procedure that receives info=
+ /warning/error messages from the main thread and then uses (printf ...) to =
+ display them. =A0The main thread uses Racket&#39;s logging facilities to ge=
+ nerate these messages, and the second thread receives them asynchronously t=
+ hrough a log-receiver event.<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; In the above scenario, Racket 5.3 will occasionally (but repeatabl=
+ y) write fragments of log messages both to Dr Racket&#39;s (current-output-=
+ port) and to the Java program&#39;s input stream. =A0This happens only when=
+  a relatively large amount of input is being fed to the Java program (~1400=
+  lines of text, with ~30 characters per line). =A0The stray message fragmen=
+ ts cause parse errors on the Java side, which is how I discovered the probl=
+ em.<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; All of this works without any problems in 5.2.1. =A0My Racket code=
+  never parameterizes or changes the value of (current-output-port) in any w=
+ ay. =A0So, as far as the program is concerned, the Java port and (current-o=
+ utput-port) are completely unrelated. =A0But the behavior I observed makes =
+ it seem as if there is a race involving the (current-output-port) location;=
+  it&#39;s almost as if 5.3 is internally setting the (current-output-port) =
+ location to the Java program&#39;s input port while the main thread is invo=
+ king fprintf/display on that port.<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; I was unable to solve the problem in 5.3 (other than by disabling =
+ logging completely), so I&#39;ve reverted back to using 5.2.1.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Thanks!<br>
+ &gt;&gt;<br>
+ &gt;&gt; Emina<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** How to repeat:<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>
+ &gt;&gt; MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWeb=
+ Kit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14<br>
+ &gt;&gt;<br>
+ <br>
+ <br>
+ <br>
+ </div></div><span><font color=3D"#888888">--<br>
+ Jay McCarthy &lt;<a href=3D"mailto:jay@cs.byu.edu" target=3D"_blank">jay@cs=
+ .byu.edu</a>&gt;<br>
+ Assistant Professor / Brigham Young University<br>
+ <a href=3D"http://faculty.cs.byu.edu/~jay" target=3D"_blank">http://faculty=
+ .cs.byu.edu/~jay</a><br>
+ <br>
+ &quot;The glory of God is Intelligence&quot; - D&amp;C 93<br>
+ </font></span></blockquote></div><br></div></div></div>
+ </blockquote></div><br></div>
+ 
+ --bcaec55240b48f127e04cc796b48--
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Emina Torlak <emina@eecs.berkeley.edu>
+Cc: Jay McCarthy <jay.mccarthy@gmail.com>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13199: possible concurrency bug in DrRacket 5.3
+Date: Sat, 20 Oct 2012 07:50:56 -0600
+
+ At Sat, 20 Oct 2012 01:29:34 -0700, Emina Torlak wrote:
+ > I've managed to create a small, self-contained program that reproduces this
+ > problem on Mac OS 10.7.5 and Windows 7.
+ 
+ Thanks! I'm able to replicate the problem with your example, and I'm
+ looking into it...
+ 
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sat, 20 Oct 2012 11:38:24 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/70fee17ef9
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sat, 20 Oct 2012 11:38:24 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/70fee17ef9
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Emina Torlak <emina@eecs.berkeley.edu>
+Cc: Jay McCarthy <jay.mccarthy@gmail.com>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13199: possible concurrency bug in DrRacket 5.3
+Date: Sat, 20 Oct 2012 09:42:26 -0600
+
+ I've pushed a repair to the git repo, and it will be included in the
+ upcoming v5.3.1 release.
+ 
+ Thanks very much for the example! I would not have been able to figure
+ out the problem without it, and the bug was obviously fairly serious
+ (due to a mistake that I made back in early June).
+ 
+From: Emina Torlak <emina@eecs.berkeley.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Jay McCarthy <jay.mccarthy@gmail.com>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13199: possible concurrency bug in DrRacket 5.3
+Date: Sat, 20 Oct 2012 10:45:48 -0700
+
+ --e0cb4efe2be0cdb12104cc81309c
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Thanks for the update!  I'm glad I was able to help, and I look forward to
+ trying v5.3.1.
+ 
+ Emina
+ 
+ On Sat, Oct 20, 2012 at 8:42 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > I've pushed a repair to the git repo, and it will be included in the
+ > upcoming v5.3.1 release.
+ >
+ > Thanks very much for the example! I would not have been able to figure
+ > out the problem without it, and the bug was obviously fairly serious
+ > (due to a mistake that I made back in early June).
+ >
+ >
+ 
+ --e0cb4efe2be0cdb12104cc81309c
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Thanks for the update! =A0I&#39;m glad I was able to help, and I look forwa=
+ rd to trying v5.3.1.<div><br></div><div>Emina<br><br><div class=3D"gmail_qu=
+ ote">On Sat, Oct 20, 2012 at 8:42 AM, Matthew Flatt <span dir=3D"ltr">&lt;<=
+ a href=3D"mailto:mflatt@cs.utah.edu" target=3D"_blank">mflatt@cs.utah.edu</=
+ a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">I&#39;ve pushed a repair to the git repo, an=
+ d it will be included in the<br>
+ upcoming v5.3.1 release.<br>
+ <br>
+ Thanks very much for the example! I would not have been able to figure<br>
+ out the problem without it, and the bug was obviously fairly serious<br>
+ (due to a mistake that I made back in early June).<br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --e0cb4efe2be0cdb12104cc81309c--

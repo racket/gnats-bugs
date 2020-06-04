@@ -1,0 +1,143 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Jun 14 14:18:07 2008
+Received: from fg-out-1718.google.com (fg-out-1718.google.com [72.14.220.157])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m5EIHxDU013328
+	for <bugs@bugs.plt-scheme.org>; Sat, 14 Jun 2008 14:17:59 -0400
+Message-Id: <200806141817.m5EIHsuo013321@champlain.ccs.neu.edu>
+Date: Sat, 14 Jun 2008 14:17:54 -0400
+From: hag@linnaean.org
+To: bugs@plt-scheme.org
+Subject: mzscheme 4.0 build problems on netbsd 4.0 i386
+
+>Number:         9505
+>Category:       mzscheme
+>Synopsis:       mzscheme 4.0 build problems on netbsd 4.0 i386
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Jun 14 14:20:01 -0400 2008
+>Closed-Date:    
+>Last-Modified:  Fri Nov 14 20:32:18 -0500 2008
+>Originator:     Daniel Hagerty
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0
+>Environment:
+>Description:
+mzscheme 4.0 fails to build out of the box on netbsd-4.0-i386.  So far all of the problems I've had stem from the apparent incestuousness xform.ss.
+
+NetBSD's libc floating point has a couple of additional floating point functions that need to be listed in xform.ss's non-functions list: __isinfd __isnanf __isnand
+
+Adding these gets past the first problem where bool.c and number.c explode running through xform.ss with "function $mumble declared __xform_nongcing__, but includes a function call".
+
+Next problem I haven't figured out how to fix yet:  A bunch of wx related C++ files fail to compile with "redeclaration of C++ built-in type 'wchar_t'".  The typedef is somehow part of the system include files (specifically machine/ansi.h) that gets added in by xform.ss running source through g++ -E.
+
+I would naively think that my system include files shouldn't be adding a wchar_t typedef to C++ code, but the compiler has shown itself good on many megabytes of prior C++, so there's something more complicated going on here, but I don't know what.
+
+I will eventually dig more deeply, but thought it would be good to get the bug report in while I work on other things.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Daniel Hagerty <hag@linnaean.org>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9505: mzscheme 4.0 build problems on netbsd 4.0 i386
+Date: Sun, 15 Jun 2008 00:32:15 -0400
+
+     Quite a train wreck.
+ 
+ g++ -E output has a typedef for wchar_t in it, and it can do that
+ because it also emits a line number tag that marks the source as a
+ system header file and supresses some errors (like a typedef of
+ wchar_t being an error).
+ 
+ The transmogrification that xform.ss does removes the line number tag
+ and so gets flagged as an error.
+ 
+ What I ended up doing was changing xform.ss to omit typedefs for
+ wchar_t if it's processing C++ source (C source got unhappy w/o the
+ typedef).
+ 
+ Patch for my changes to get it minimally working on this system
+ attached.  Might be a better way to go about it.
+ 
+ --- collects/compiler/private/xform.ss.orig	2008-03-29 08:48:59.000000000 -0400
+ +++ collects/compiler/private/xform.ss	2008-06-14 23:45:28.000000000 -0400
+ @@ -836,6 +836,7 @@
+ 
+                 strlen cos sin exp pow log sqrt atan2
+                 isnan isinf fpclass _fpclass _isnan __isfinited __isnanl
+ +	       __isinfd __isnanf __isnand
+                 __isinff __isinfl isnanf isinff
+                 floor ceil round fmod fabs __maskrune _errno __errno
+                 isalpha isdigit isspace tolower toupper
+ @@ -1377,9 +1378,11 @@
+                       (unused-struc-typedef? e))
+                   null
+                   (begin
+ -                   (when pgc?
+ -                     (check-pointer-type e))
+ -                   e))]
+ +                   (if pgc?
+ +		       (if (check-pointer-type e)
+ +			   null
+ +			   e)
+ +		       e)))]
+              [(proc-prototype? e)
+               (let ([name (register-proto-information e)])
+                 (when (eq? (tok-n (car e)) '__xform_nongcing__)
+ @@ -1735,7 +1738,11 @@
+                                                 pointers)
+                                         (append l non-pointers))))])
+              (set! pointer-types (append pointers pointer-types))
+ -            (set! non-pointer-types (append (map car non-pointers) non-pointer-types))))
+ +            (set! non-pointer-types (append (map car non-pointers) non-pointer-types))
+ +
+ +	    (and source-is-c++?
+ +		 (pair? non-pointers)
+ +		 (eq? 'wchar_t (caar non-pointers)))))
+ 
+          ;; get-vars : tok-list str bool -> (values list-of-(cons sym vtype) list-of-(cons sym vtype))
+          ;; Parses a declaration  of one line (which may have multiple, comma-separated variables).
+
+State changed from "open" to "analyzed" by mflatt at Sun, 15 Jun 2008 07:39:58 -0400
+Reason>>> Added the three "non-functions". (We have a tool that avoids this sort
+of dependence on known non-GCing functions, but it has never quite made
+it to production, so far.) 
+
+The wchar_t problem sounds familiar, but I think we saw it previously
+when pre-processing through `gcc -E' instead of `g++ -E', and the
+makefile seems to be correctly using `g++ -E'.
+
+From: Daniel Hagerty <hag@linnaean.org>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] mzscheme/9505 mzscheme 4.0 build problems on netbsd 4.0 i386
+Date: Sun, 15 Jun 2008 17:11:38 -0400
+
+     Yes, this isn't an issue with using the gcc rather than g++ .
+ 
+ The setup for netbsd's header files will always emit a typedef for
+ wchar_t, even when processing C++.  The header files can do so knowing
+ that g++ has been instructed to supress the error.  xform.ss doesn't
+ preserve what's needed for the supression.
+ 
+ As wchar_t is a language supplied type in C++, it seems that xform.ss
+ omitting any typedef of wchar_t is a reasonable thing to do.  At least
+ on this system, the typedef was still needed for C code.
+From: Daniel Hagerty <hag@linnaean.org>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] mzscheme/9505 mzscheme 4.0 build problems on netbsd 4.0 i386
+Date: Thu, 14 Aug 2008 15:21:43 -0400
+
+     wchar_t problems are still present in 4.1.
+
+State changed from "analyzed" to "closed" by mflatt at Fri, 14 Nov 2008 20:32:18 -0500
+Reason>>> For the next release, xform preserves source line information,
+including the flag indicating whether the code originated
+from a system header.
+

@@ -1,0 +1,506 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jan  2 12:12:56 2007
+Received: from wr-out-0506.google.com (wr-out-0506.google.com [64.233.184.239])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l02HCOm6008520
+	for <bugs@bugs.plt-scheme.org>; Tue, 2 Jan 2007 12:12:25 -0500
+Message-Id: <200701021712.l02HCMNj008513@champlain.ccs.neu.edu>
+Date: Tue, 2 Jan 2007 12:12:22 -0500
+From: robby@cs.uchicago.edu
+To: bugs@plt-scheme.org
+Subject: continuations & functions & let & ordering issues
+
+>Number:         8458
+>Category:       mzscheme
+>Synopsis:       continuations & functions & let & ordering issues
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jan 02 12:15:01 -0500 2007
+>Closed-Date:    Mon Jan 15 01:03:16 -0500 2007
+>Last-Modified:  Fri May 04 03:38:40 -0400 2007
+>Originator:     Robby Findler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.2-svn31dec2006
+>Environment:
+macosx "Darwin alishan.local 8.8.1 Darwin Kernel Version 8.8.1: Mon Sep 25 19:42:00 PDT 2006; root:xnu-792.13.8.obj~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/robby/svn/exp/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 126991808
+
+Collections:
+(("/Users/robby/Library/PLT Scheme/369.2/collects" non-existent-path) ("/Users/robby/svn/exp/plt/collects" ".svn" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Graphical (MrEd, includes MzScheme)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+I would have expected all four code snippets below to produce the same results, but they don't.
+
+Note: this behavior goes back to v209, so it doens't seem to be the JIT or the recent continuation changes. (Maybe it isn't even a bug??)
+>How-To-Repeat:
+(let ([first-time? #t]
+      [k (call/cc values)])
+  (if first-time?
+      (begin
+        (printf "first-time?.1 ~s\n" first-time?)
+        (set! first-time? #f)
+        (printf "first-time?.2 ~s\n" first-time?)
+        (k values))))
+
+(printf "==============================\n")
+
+(let ([k (call/cc values)]
+      [first-time? #t])
+  (if first-time?
+      (begin
+        (printf "first-time?.1 ~s\n" first-time?)
+        (set! first-time? #f)
+        (printf "first-time?.2 ~s\n" first-time?)
+        (k values))))
+
+(printf "==============================\n")
+
+((lambda (first-time? k)
+   (if first-time?
+       (begin
+         (printf "first-time?.1 ~s\n" first-time?)
+         (set! first-time? #f)
+         (printf "first-time?.2 ~s\n" first-time?)
+         (k values))))
+ #t
+ (call/cc values))
+
+(printf "==============================\n")
+
+((lambda (k first-time?)
+   (if first-time?
+       (begin
+         (printf "first-time?.1 ~s\n" first-time?)
+         (set! first-time? #f)
+         (printf "first-time?.2 ~s\n" first-time?)
+         (k values))))
+ (call/cc values)
+ #t)
+
+Here's the output I get:
+
+first-time?.1 #t
+first-time?.2 #f
+==============================
+first-time?.1 #t
+first-time?.2 #f
+first-time?.1 #t
+first-time?.2 #f
+==============================
+first-time?.1 #t
+first-time?.2 #f
+==============================
+first-time?.1 #t
+first-time?.2 #f
+first-time?.1 #t
+first-time?.2 #f
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: robby@cs.uchicago.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        goldberg@plt-scheme.org, dskippy@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8458: continuations & functions & let & ordering issues
+Date: Wed, 3 Jan 2007 14:56:08 -0500
+
+ On Jan 2, 2007, at 12:15 PM, robby@cs.uchicago.edu wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8458
+ >
+ > Reported by Robby Findler for release: 369.2-svn31dec2006
+ >
+ > *** Description:
+ > I would have expected all four code snippets below to produce the  
+ > same results, but they don't.
+ >
+ > Note: this behavior goes back to v209, so it doens't seem to be the  
+ > JIT or the recent continuation changes. (Maybe it isn't even a bug??)
+ >
+ > *** How to repeat:
+ > (let ([first-time? #t]
+ >       [k (call/cc values)])
+ >   (if first-time?
+ >       (begin
+ >         (printf "first-time?.1 ~s\n" first-time?)
+ >         (set! first-time? #f)
+ >         (printf "first-time?.2 ~s\n" first-time?)
+ >         (k values))))
+ >
+ > (printf "==============================\n")
+ >
+ > (let ([k (call/cc values)]
+ >       [first-time? #t])
+ >   (if first-time?
+ >       (begin
+ >         (printf "first-time?.1 ~s\n" first-time?)
+ >         (set! first-time? #f)
+ >         (printf "first-time?.2 ~s\n" first-time?)
+ >         (k values))))
+ >
+ 
+ 
+ The above two are obviously different. Assuming a left-to-right  
+ application evaluation order, the first one evaluates the expression  
+ for first-time? __before__ it grabs the continuation. In the second  
+ snippet, the expression becomes a part of the continuation.
+ 
+ The expansion of let clarifies this nicely.
+ 
+ (I don't know why you're using values; \x.x would do fine, too.)
+ 
+ -- Matthias
+ 
+ 
+ 
+ 
+ 
+ 
+ > (printf "==============================\n")
+ >
+ > ((lambda (first-time? k)
+ >    (if first-time?
+ >        (begin
+ >          (printf "first-time?.1 ~s\n" first-time?)
+ >          (set! first-time? #f)
+ >          (printf "first-time?.2 ~s\n" first-time?)
+ >          (k values))))
+ >  #t
+ >  (call/cc values))
+ >
+ > (printf "==============================\n")
+ >
+ > ((lambda (k first-time?)
+ >    (if first-time?
+ >        (begin
+ >          (printf "first-time?.1 ~s\n" first-time?)
+ >          (set! first-time? #f)
+ >          (printf "first-time?.2 ~s\n" first-time?)
+ >          (k values))))
+ >  (call/cc values)
+ >  #t)
+ >
+ > Here's the output I get:
+ >
+ > first-time?.1 #t
+ > first-time?.2 #f
+ > ==============================
+ > first-time?.1 #t
+ > first-time?.2 #f
+ > first-time?.1 #t
+ > first-time?.2 #f
+ > ==============================
+ > first-time?.1 #t
+ > first-time?.2 #f
+ > ==============================
+ > first-time?.1 #t
+ > first-time?.2 #f
+ > first-time?.1 #t
+ > first-time?.2 #f
+ >
+ > *** Environment:
+ > macosx "Darwin alishan.local 8.8.1 Darwin Kernel Version 8.8.1: Mon  
+ > Sep 25 19:42:00 PDT 2006; root:xnu-792.13.8.obj~1/RELEASE_I386 i386  
+ > i386" (i386-macosx/3m) (get-display-depth) = 32
+ > Docs Installed:
+ > (("/Users/robby/svn/exp/plt/doc" "r5rs" "mzscheme" "mred" "help"  
+ > "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework"  
+ > "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot"  
+ > "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning- 
+ > abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack"  
+ > "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj- 
+ > advanced"))
+ > Human Language: english
+ > (current-memory-use) 126991808
+ >
+ > Collections:
+ > (("/Users/robby/Library/PLT Scheme/369.2/collects" non-existent- 
+ > path) ("/Users/robby/svn/exp/plt/collects" ".svn" "afm" "algol60"  
+ > "browser" "compiler" "config" "defaults" "drscheme" "dynext"  
+ > "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime"  
+ > "games" "graphics" "guibuilder" "handin-client" "handin-server"  
+ > "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info- 
+ > domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred"  
+ > "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake"  
+ > "net" "openssl" "parser-tools" "planet" "plot" "preprocessor"  
+ > "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos- 
+ > time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex"  
+ > "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string- 
+ > constants" "swindle" "syntax" "syntax-color" "teachpack" "test- 
+ > suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld"  
+ > "web-server" "xelda" "xml"))
+ > Teachpack filenames: ()
+ > Computer Language: (("Professional Languages" "PLT" "Graphical  
+ > (MrEd, includes MzScheme)") #6(#t write mixed-fraction-e #f #t debug))
+ >
+ 
+From: "Robby Findler" <robby.findler@gmail.com>
+To: "Matthias Felleisen" <matthias@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Jacob Matthews" <jacobm@cs.uchicago.edu>
+Subject: Re: [plt-bug] all/8458: continuations & functions & let & ordering issues
+Date: Wed, 3 Jan 2007 17:11:33 -0600
+
+ I don't think that's obvious.
+ 
+ In particular, I'm surprised to see that the box holding the value of
+ first-time? is created before the arguments to the procedure are all
+ evaluated.
+ 
+ In fact, it means that a rule like this:
+ 
+   (store (sf ...) E[((lambda (x1 y1) e) v1 v2)])
+   -->
+   (store (sf ... (x1 v1) (x2 v2)) E[e])
+ 
+ (assuming x1 and x2 are unique of course) is bogus. In particular, the
+ continuation of the evaluation of the first argument needs to include
+ the allocation of the box for the second argument, which it doesn't
+ above.
+ 
+ I would say that's a subtle point :)
+ 
+ Does the r6 report specify this? Anyone know?
+ 
+ Robby
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: "Robby Findler" <robby.findler@gmail.com>
+Cc: bugs@plt-scheme.org, "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Jacob Matthews" <jacobm@cs.uchicago.edu>
+Subject: Re: [plt-bug] all/8458: continuations & functions & let & ordering issues
+Date: Wed, 3 Jan 2007 18:33:15 -0500
+
+ You're right. I just calculated this thru on paper, and the four-line  
+ output is the only acceptable one in both cases. I was too hasty in  
+ making this call.
+ 
+ If it were just the let program that exhibited this strange behavior,  
+ I'd say that the interpreter unfolds the
+ 
+   (let ([first-time #t]
+         [k          (call/cc values)])
+ 
+ into
+ 
+   (let ([first-time #t])
+     (let ([k (call/cc values)])
+        ...)
+ 
+ but it seems that the macro expansion has the same problem. Ergo,  
+ there is too much sharing between the argument list and the allocated  
+ boxed going on. Strange.
+ 
+ Chez Scheme does produce the correct four-line output in both cases.
+ 
+ > denali 2> scheme
+ > Chez Scheme Version 6.1
+ > Copyright (c) 1998 Cadence Research Systems
+ >
+ > > (let ([first-time? #t]
+ >       [k (call/cc values)])
+ >   (if first-time?
+ >       (begin
+ >         (printf "first-time?.1 ~s\n" first-time?)
+ >         (set! first-time? #f)
+ >         (printf "first-time?.2 ~s\n" first-time?)
+ >         (k values))))
+ > first-time?.1 #tnfirst-time?.2 #fnfirst-time?.1 #tnfirst-time?.2  
+ > #fn#<procedure values>
+ > > (let ([k (call/cc values)]
+ >       [first-time? #t])
+ >   (if first-time?
+ >       (begin
+ >         (printf "first-time?.1 ~s\n" first-time?)
+ >         (set! first-time? #f)
+ >         (printf "first-time?.2 ~s\n" first-time?)
+ >         (k values))))
+ > first-time?.1 #tnfirst-time?.2 #fnfirst-time?.1 #tnfirst-time?.2  
+ > #fn#<procedure values>
+ > >
+ 
+ 
+ 
+ 
+ 
+ On Jan 3, 2007, at 6:11 PM, Robby Findler wrote:
+ 
+ > I don't think that's obvious.
+ >
+ > In particular, I'm surprised to see that the box holding the value of
+ > first-time? is created before the arguments to the procedure are all
+ > evaluated.
+ >
+ > In fact, it means that a rule like this:
+ >
+ >  (store (sf ...) E[((lambda (x1 y1) e) v1 v2)])
+ >  -->
+ >  (store (sf ... (x1 v1) (x2 v2)) E[e])
+ >
+ > (assuming x1 and x2 are unique of course) is bogus. In particular, the
+ > continuation of the evaluation of the first argument needs to include
+ > the allocation of the box for the second argument, which it doesn't
+ > above.
+ >
+ > I would say that's a subtle point :)
+ >
+ > Does the r6 report specify this? Anyone know?
+ >
+ > Robby
+ 
+From: "Robby Findler" <robby.findler@gmail.com>
+To: "Matthias Felleisen" <matthias@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Jacob Matthews" <jacobm@cs.uchicago.edu>
+Subject: Re: [plt-bug] all/8458: continuations & functions & let & ordering issues
+Date: Wed, 3 Jan 2007 18:28:29 -0600
+
+ Here's a better example for a test suite:
+ 
+                ((lambda (count)
+                   ((lambda (first-time? k)
+                      (if first-time?
+                          (begin
+                            (set! first-time? #f)
+                            (set! count (+ count 1))
+                            (k values))))
+                    #t
+                    (call/cc values))
+                   count)
+                 0)
+ It should return 2, but returns 1 in mz.
+ 
+ (the r6 semantics returns 2 :)
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: "Robby Findler" <robby.findler@gmail.com>, bugs@plt-scheme.org,
+        "Jacob Matthews" <jacobm@cs.uchicago.edu>
+Subject: Re: [plt-bug] all/8458: continuations & functions & let & ordering issues
+Date: Thu, 4 Jan 2007 14:48:27 +0800
+
+ Fixed for 369.3.
+ 
+ Matthew
+ 
+ At Wed, 3 Jan 2007 18:33:15 -0500, Matthias Felleisen wrote:
+ > You're right. I just calculated this thru on paper, and the four-line  
+ > output is the only acceptable one in both cases. I was too hasty in  
+ > making this call.
+ > 
+ > If it were just the let program that exhibited this strange behavior,  
+ > I'd say that the interpreter unfolds the
+ > 
+ >   (let ([first-time #t]
+ >         [k          (call/cc values)])
+ > 
+ > into
+ > 
+ >   (let ([first-time #t])
+ >     (let ([k (call/cc values)])
+ >        ...)
+ > 
+ > but it seems that the macro expansion has the same problem. Ergo,  
+ > there is too much sharing between the argument list and the allocated  
+ > boxed going on. Strange.
+ > 
+ > Chez Scheme does produce the correct four-line output in both cases.
+ > 
+ > > denali 2> scheme
+ > > Chez Scheme Version 6.1
+ > > Copyright (c) 1998 Cadence Research Systems
+ > >
+ > > > (let ([first-time? #t]
+ > >       [k (call/cc values)])
+ > >   (if first-time?
+ > >       (begin
+ > >         (printf "first-time?.1 ~s\n" first-time?)
+ > >         (set! first-time? #f)
+ > >         (printf "first-time?.2 ~s\n" first-time?)
+ > >         (k values))))
+ > > first-time?.1 #tnfirst-time?.2 #fnfirst-time?.1 #tnfirst-time?.2  
+ > > #fn#<procedure values>
+ > > > (let ([k (call/cc values)]
+ > >       [first-time? #t])
+ > >   (if first-time?
+ > >       (begin
+ > >         (printf "first-time?.1 ~s\n" first-time?)
+ > >         (set! first-time? #f)
+ > >         (printf "first-time?.2 ~s\n" first-time?)
+ > >         (k values))))
+ > > first-time?.1 #tnfirst-time?.2 #fnfirst-time?.1 #tnfirst-time?.2  
+ > > #fn#<procedure values>
+ > > >
+ > 
+ > 
+ > 
+ > 
+ > 
+ > On Jan 3, 2007, at 6:11 PM, Robby Findler wrote:
+ > 
+ > > I don't think that's obvious.
+ > >
+ > > In particular, I'm surprised to see that the box holding the value of
+ > > first-time? is created before the arguments to the procedure are all
+ > > evaluated.
+ > >
+ > > In fact, it means that a rule like this:
+ > >
+ > >  (store (sf ...) E[((lambda (x1 y1) e) v1 v2)])
+ > >  -->
+ > >  (store (sf ... (x1 v1) (x2 v2)) E[e])
+ > >
+ > > (assuming x1 and x2 are unique of course) is bogus. In particular, the
+ > > continuation of the evaluation of the first argument needs to include
+ > > the allocation of the box for the second argument, which it doesn't
+ > > above.
+ > >
+ > > I would say that's a subtle point :)
+ > >
+ > > Does the r6 report specify this? Anyone know?
+ > >
+ > > Robby
+
+State changed from "open" to "closed" by mflatt at Mon, 15 Jan 2007 01:03:16 -0500
+Reason>>> fixed
+
+From: "Robby Findler" <robby.findler@gmail.com>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8458 continuations & functions & let & ordering issues
+Date: Mon, 15 Jan 2007 07:00:38 -0600
+
+ Thanks.
+ 
+ Good to see that the time I spent on the r6 semantics fixed one bug in
+ mzscheme :)
+ 
+ BTW, does this bugfix hurt performance? Ie, was it a buggy
+ optimization, or just something that's performance neutral?
+ 
+ Robby
+ 
+ On 1/15/07, mflatt@plt-scheme.org <mflatt@plt-scheme.org> wrote:
+ >
+ > State changed from "open" to "closed" by mflatt at Mon, 15 Jan 2007 01:03:16 -0500
+ > Reason>>> fixed
+ >
+ >
+ > View:
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8458
+ >
+ >
+

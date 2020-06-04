@@ -1,0 +1,451 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jan 21 13:04:18 2009
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.225])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n0LI48n2015083
+	for <bugs@bugs.plt-scheme.org>; Wed, 21 Jan 2009 13:04:08 -0500
+Message-Id: <200901211804.n0LI45OR015077@champlain.ccs.neu.edu>
+Date: Wed, 21 Jan 2009 13:04:05 -0500
+From: cce@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Sandbox interrupts external module evaluation
+
+>Number:         10034
+>Category:       misc
+>Synopsis:       Sandbox interrupts external module evaluation
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jan 21 13:08:01 -0500 2009
+>Closed-Date:    Sun Dec 04 04:00:16 -0500 2011
+>Last-Modified:  Sun Dec 04 04:00:16 -0500 2011
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.4
+>Environment:
+macosx "Darwin aeryn.qarl.org 8.11.0 Darwin Kernel Version 8.11.0: Wed Oct 10 18:26:00 PDT 2007; root:xnu-792.24.17~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 81194100
+
+Collections:
+(("/Users/cce/Library/PLT Scheme/4.1.4/collects" non-existent-path) ("/Applications/PLT Scheme v4.1.4/collects" "2htdp" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Dracula" "ACL2") #(#t write mixed-fraction-e #f #t debug))
+>Description:
+When I try to construct a sandbox for Dracula evaluation as a top-level module definition, the evaluation (or possibly bindings?) of the module are somehow interrupted.  Definitions before the sandbox are still available, but the definition of the sandbox and subsequent definitions are unavailable.
+
+This may indicate some problem with Dracula, as other languages (e.g. scheme, or (planet ("dherman" "javascript.plt" 9 0))) are not affected, but if so the sandbox is still not sandbox-ing the error.  Since there is no error message, nor an evaluator I can run, I can't find the problem with Dracula.
+>How-To-Repeat:
+At the command line:
+
+planet install cce scheme.plt 2 0
+planet install cce dracula.plt 7 1
+
+In DrScheme, Module language, definitions window:
+
+#lang scheme
+(require scheme/sandbox)
+(define before 1)
+(define dracula-eval
+  (parameterize ([sandbox-path-permissions '([read #rx#""])]
+                 [sandbox-output 'string]
+                 [sandbox-error-output 'string]
+                 [sandbox-eval-limits (list 30 120)])
+    (make-evaluator '(planet "lang/dracula.ss" ("cce" "dracula.plt" 7 1)))))
+(define after 2)
+
+Hit Run, then in the interactions window try to refer to the three definitions.  I see the following behavior:
+
+Welcome to DrScheme, version 4.1.4 [3m].
+Language: Module.
+> before
+1
+> dracula-eval
+. . reference to an identifier before its definition: dracula-eval
+> after
+. . reference to an identifier before its definition: after
+> 
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: cce@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+	evaluation
+Date: Wed, 21 Jan 2009 12:10:56 -0600
+
+ Is the program in PR somehow equivalent to:
+ 
+   #lang scheme
+   (define before 1)
+   (define dracula-eval (car 'x))
+   (define after 2)
+ 
+ but where the error is just lost? Ie equivalent to this:
+ 
+   #lang scheme
+   (define before 1)
+   (define dracula-eval (parameterize ([error-display-handler void]) (car 'x)))
+   (define after 2)
+ 
+ Robby
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: cce@ccs.neu.edu, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+ 	evaluation
+Date: Wed, 21 Jan 2009 13:21:15 -0500
+
+ On Jan 21, Robby Findler wrote:
+ > Is the program in PR somehow equivalent to:
+ > 
+ >   #lang scheme
+ >   (define before 1)
+ >   (define dracula-eval (car 'x))
+ >   (define after 2)
+ > 
+ > but where the error is just lost? Ie equivalent to this:
+ > 
+ >   #lang scheme
+ >   (define before 1)
+ >   (define dracula-eval (parameterize ([error-display-handler void]) (car 'x)))
+ >   (define after 2)
+ 
+ This seems to me like the most likely reason -- specifically, I expect
+ that leaving the error port visible will show the error that happened.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+	evaluation
+Date: Wed, 21 Jan 2009 14:49:26 -0500
+
+ On Wed, Jan 21, 2009 at 1:21 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Jan 21, Robby Findler wrote:
+ >> Is the program in PR somehow equivalent to:
+ >>
+ >>   #lang scheme
+ >>   (define before 1)
+ >>   (define dracula-eval (car 'x))
+ >>   (define after 2)
+ >>
+ >> but where the error is just lost? Ie equivalent to this:
+ >>
+ >>   #lang scheme
+ >>   (define before 1)
+ >>   (define dracula-eval (parameterize ([error-display-handler void]) (car 'x)))
+ >>   (define after 2)
+ >
+ > This seems to me like the most likely reason -- specifically, I expect
+ > that leaving the error port visible will show the error that happened.
+ 
+ Thanks for the suggestions.  I hadn't realized that an error partway
+ through a module would have this behavior.  Why is the error
+ "invisible" or "lost" in this case?  How can I make it visible again?
+ 
+ -- 
+ Carl Eastlund
+From: Eli Barzilay <eli@barzilay.org>
+To: Carl Eastlund <cce@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+ 	evaluation
+Date: Wed, 21 Jan 2009 15:02:36 -0500
+
+ On Jan 21, Carl Eastlund wrote:
+ > On Wed, Jan 21, 2009 at 1:21 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > > On Jan 21, Robby Findler wrote:
+ > >> Is the program in PR somehow equivalent to:
+ > >>
+ > >>   #lang scheme
+ > >>   (define before 1)
+ > >>   (define dracula-eval (car 'x))
+ > >>   (define after 2)
+ > >>
+ > >> but where the error is just lost? Ie equivalent to this:
+ > >>
+ > >>   #lang scheme
+ > >>   (define before 1)
+ > >>   (define dracula-eval (parameterize ([error-display-handler void]) (car 'x)))
+ > >>   (define after 2)
+ > >
+ > > This seems to me like the most likely reason -- specifically, I expect
+ > > that leaving the error port visible will show the error that happened.
+ > 
+ > Thanks for the suggestions.  I hadn't realized that an error partway
+ > through a module would have this behavior.  Why is the error
+ > "invisible" or "lost" in this case?  How can I make it visible again?
+ 
+ The error is caught and reported inside the sandboxed thread, and I
+ think that this is why you don't see a highlight of the
+ `make-evaluator' expression.  Other than that, you redirected the
+ standard error so the message got hidden too.  I'm not sure that
+ there's anything that can be done in the sandbox code to improve this.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+	evaluation
+Date: Wed, 21 Jan 2009 15:17:21 -0500
+
+ On Wed, Jan 21, 2009 at 3:02 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> >
+ >> > This seems to me like the most likely reason -- specifically, I expect
+ >> > that leaving the error port visible will show the error that happened.
+ >>
+ >> Thanks for the suggestions.  I hadn't realized that an error partway
+ >> through a module would have this behavior.  Why is the error
+ >> "invisible" or "lost" in this case?  How can I make it visible again?
+ >
+ > The error is caught and reported inside the sandboxed thread, and I
+ > think that this is why you don't see a highlight of the
+ > `make-evaluator' expression.  Other than that, you redirected the
+ > standard error so the message got hidden too.  I'm not sure that
+ > there's anything that can be done in the sandbox code to improve this.
+ 
+ But I didn't redirect standard-error.  I redirected sandbox errors.
+ This error is happening outside the sandbox.  I don't understand why
+ the sandbox is swallowing up output for an exception it is
+ nevertheless propagating outside.  I would have expected one or the
+ other, but not both.
+ 
+ I was able to get at the error message using with-handlers, and it
+ looks like I need to use a "trusted" evaluator; I'm getting a
+ certification error.  I can use
+ call-with-trusted-sandbox-configuration for these tests (I'll try that
+ to make sure it works), but I wonder whether this means Dracula is
+ incompatible with handin server evaluation, for instance.  I don't
+ really understand the kind of certificates involved well enough to
+ work out the implications.
+ 
+ --
+ Carl Eastlund
+From: Eli Barzilay <eli@barzilay.org>
+To: Carl Eastlund <cce@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+ 	evaluation
+Date: Wed, 21 Jan 2009 15:27:13 -0500
+
+ On Jan 21, Carl Eastlund wrote:
+ > On Wed, Jan 21, 2009 at 3:02 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > >> >
+ > >> > This seems to me like the most likely reason -- specifically, I expect
+ > >> > that leaving the error port visible will show the error that happened.
+ > >>
+ > >> Thanks for the suggestions.  I hadn't realized that an error partway
+ > >> through a module would have this behavior.  Why is the error
+ > >> "invisible" or "lost" in this case?  How can I make it visible again?
+ > >
+ > > The error is caught and reported inside the sandboxed thread, and I
+ > > think that this is why you don't see a highlight of the
+ > > `make-evaluator' expression.  Other than that, you redirected the
+ > > standard error so the message got hidden too.  I'm not sure that
+ > > there's anything that can be done in the sandbox code to improve this.
+ > 
+ > But I didn't redirect standard-error.  I redirected sandbox errors.
+ 
+ Very little is done in `make-evaluator' before it's going into the
+ sandboxed context.
+ 
+ 
+ > This error is happening outside the sandbox.  I don't understand why
+ > the sandbox is swallowing up output for an exception it is
+ > nevertheless propagating outside.  I would have expected one or the
+ > other, but not both.
+ 
+ That's the part that is not clear to me too.  To clarify: I can get
+ similar behavior with:
+ 
+   (define a (parameterize ([sandbox-error-output 'string])
+               (make-evaluator 'bleh)))
+ 
+ in mzscheme -- the output is swallowed, the error is raised but not
+ reported.
+ 
+ (I can't look at it now though.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: Carl Eastlund <cce@ccs.neu.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+  	evaluation
+Date: Wed, 21 Jan 2009 15:50:45 -0500
+
+ On Jan 21, Eli Barzilay wrote:
+ > That's the part that is not clear to me too.  To clarify: I can get
+ > similar behavior with:
+ > 
+ >   (define a (parameterize ([sandbox-error-output 'string])
+ >               (make-evaluator 'bleh)))
+ > 
+ > in mzscheme -- the output is swallowed, the error is raised but not
+ > reported.
+ 
+ Actually, it's pretty easy to recreate this:
+ 
+   (define a (parameterize ([current-error-port (open-output-string)])
+               (car)))
+ 
+ does the same kind of swallowing the reported error so nothing is
+ shown.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+	evaluation
+Date: Wed, 21 Jan 2009 16:08:18 -0500
+
+ On Wed, Jan 21, 2009 at 3:50 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Jan 21, Eli Barzilay wrote:
+ >> That's the part that is not clear to me too.  To clarify: I can get
+ >> similar behavior with:
+ >>
+ >>   (define a (parameterize ([sandbox-error-output 'string])
+ >>               (make-evaluator 'bleh)))
+ >>
+ >> in mzscheme -- the output is swallowed, the error is raised but not
+ >> reported.
+ >
+ > Actually, it's pretty easy to recreate this:
+ >
+ >  (define a (parameterize ([current-error-port (open-output-string)])
+ >              (car)))
+ >
+ > does the same kind of swallowing the reported error so nothing is
+ > shown.
+ 
+ I think that makes sense, though I'm a little surprised the error gets
+ printed out based on where the error is raised (inside the
+ parameterization) rather than where it gets caught (whatever the
+ default DrScheme error handler is, presumably outside the
+ parameterization).
+ 
+ For the sandbox library, where is it redirecting current-error-port
+ based on sandbox-error-output?  I had assumed it did that in the
+ sandboxed thread, and kept error output and exceptions confined there.
+  The exception I saw in the bug report seemed to happen outside the
+ sandboxed thread, yet still have a redirected current-error-output.
+ It's that boundary mismatch -- that exception capture and error output
+ capture aren't happening at the same place -- that surprises me.
+ 
+ -- 
+ Carl Eastlund
+From: Eli Barzilay <eli@barzilay.org>
+To: Carl Eastlund <cce@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10034: Sandbox interrupts external module 
+ 	evaluation
+Date: Thu, 22 Jan 2009 17:57:12 -0500
+
+ On Jan 21, Carl Eastlund wrote:
+ > On Wed, Jan 21, 2009 at 3:50 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > >
+ > > Actually, it's pretty easy to recreate this:
+ > >
+ > >  (define a (parameterize ([current-error-port (open-output-string)])
+ > >              (car)))
+ > >
+ > > does the same kind of swallowing the reported error so nothing is
+ > > shown.
+ > 
+ > I think that makes sense, though I'm a little surprised the error
+ > gets printed out based on where the error is raised (inside the
+ > parameterization) rather than where it gets caught (whatever the
+ > default DrScheme error handler is, presumably outside the
+ > parameterization).
+ 
+ Matthew: is this intended?  In other words, perhaps there's a good
+ reason for it, but I should somehow make the sandbox creation avoid
+ doing it?
+ 
+ 
+ > For the sandbox library, where is it redirecting current-error-port
+ > based on sandbox-error-output?  I had assumed it did that in the
+ > sandboxed thread, and kept error output and exceptions confined
+ > there.  The exception I saw in the bug report seemed to happen
+ > outside the sandboxed thread, yet still have a redirected
+ > current-error-output.  It's that boundary mismatch -- that exception
+ > capture and error output capture aren't happening at the same place
+ > -- that surprises me.
+ 
+ That's why I said that very little happens outside of the protected
+ context.  If you look at the `make-evaluator*' function you'll see
+ that it does nearly nothing (many definitions but almost nothing else)
+ before it starts setting up the protected context.  At the end of this
+ work the user thread is started and left in that context.  I think
+ that what you're seeing is that the initial evaluation of the user
+ module is what breaks -- and that's already happenning on the user
+ thread, but errors that happen at that stage are raised from the
+ `make-evaluator' call itself -- just like (make-evaluator 'blah).
+ 
+ BTW, re the certificate problem -- if you find some tweak that could
+ have made things work and that the sandbox library does not provide a
+ hook for, then tell me and I'll extend it.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+Responsible changed from "nobody" to "eli" by samth at Sat, 03 Dec 2011 11:38:47 -0500
+Reason>>> sandbox
+
+
+State changed from "open" to "closed" by eli at Sun, 04 Dec 2011 04:00:16 -0500
+Reason>>> Errors at sandbox creation time are now raised with the non-
+sandboxed error port.
+

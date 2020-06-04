@@ -1,0 +1,652 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Oct 21 17:38:33 2007
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.190])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l9LLcWL8026772
+	for <bugs@bugs.plt-scheme.org>; Sun, 21 Oct 2007 17:38:33 -0400
+Message-Id: <200710212138.l9LLcOXw026766@champlain.ccs.neu.edu>
+Date: Sun, 21 Oct 2007 17:38:24 -0400
+From: farr@mit.edu
+To: bugs@plt-scheme.org
+Subject: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+
+>Number:         9014
+>Category:       mzscheme
+>Synopsis:       Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Oct 21 17:40:01 -0400 2007
+>Last-Modified:  Tue May 03 16:45:18 -0400 2011
+>Originator:     Will M. Farr
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        371.3-svn18oct2007
+>Environment:
+macosx "Darwin sydneypacific-seven-forty-seven.mit.edu 8.10.0 Darwin Kernel Version 8.10.0: Wed May 23 16:50:59 PDT 2007; root:xnu-792.21.3~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/farr/Documents/code/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "gui" "guide" "quick" "reference" "release-notes" "scribble" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-intermediate-access" "profj-advanced") (* "/Users/farr/Documents/code/nbody/doc" "/Users/farr/Documents/code/nbody/doc"))
+Human Language: english
+(current-memory-use) 106945436
+
+Collections:
+(("/Users/farr/Library/PLT Scheme/371.3/collects" non-existent-path) ("/Users/farr/Documents/code/plt/collects" ".svn" "afm" "algol60" "big" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "readline" "repos-time-stamp" "scribble" "scribblings" "setup" "sgl" "sirmail" "skipper" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+If I have a module which requires two other modules, M1 and M2, where M1 has syntax which uses a literal, x, and M2 exports a binding by the name of x, syntax from M1 doesn't recognize x in macro invocations as a literal.  
+
+The only solution is to rename (or simply avoid require-ing, via (all-except M1 ...)) the offending binding from M2, since the syntax literals of M1 are purely internal (i.e. they aren't provided at all, so I can't re-name them on the require line).
+
+It would be nicest if this could be fixed; if it can't, it would be second-nicest if the module system would throw an error like "imported binding ': from (lib "42.ss" "srfi") conflicts with internal syntax identifier ': from (lib "foreign.ss"); please rename or exclude ': from (lib "42.ss" "srfi") from imports.
+>How-To-Repeat:
+In the following module, the : in the _fun syntax is not recognized as a literal, as evidenced by the (extremely cryptic) error upon clicking Check Syntax in DrScheme:
+
+(module undefined-variable mzscheme
+  (require (lib "42.ss" "srfi")
+           (lib "foreign.ss"))
+  
+  (unsafe!)
+  
+  (define my-malloc
+    (get-ffi-obj 'malloc #f
+                 (_fun (len : _ufixnum) -> _pointer))))
+
+While the folloing Checks Syntax just fine:
+
+(module undefined-variable mzscheme
+  (require (all-except (lib "42.ss" "srfi") :)
+           (lib "foreign.ss"))
+  
+  (unsafe!)
+  
+  (define my-malloc
+    (get-ffi-obj 'malloc #f
+                 (_fun (len : _ufixnum) -> _pointer))))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: farr@mit.edu, bugs@plt-scheme.org
+Cc: eli@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Sun, 21 Oct 2007 15:53:33 -0600
+
+ I think thsi should be treated as bug in "foreign.ss" and as a
+ documentation issue.
+ 
+ It's a bug in "foreign.ss" because a macro should not match free
+ identifier (e.g., `:' as matched by `_fun') using
+ `module-identifier=?', for exactly the reasons explained below. The
+ right choices are are symbolic equality or a comparison to a bound
+ identifier. Symbolic equality is not a good idea if the position being
+ matched might be otherwise bound (e.g., an expression position); I
+ don't know if that applies in this case.
+ 
+ It's also an issue for the documentation, which doesn't explain this
+ class of problems to implementors. The new documentation should cover
+ this issue.
+ 
+ Thanks for the report,
+ Matthew
+ 
+ At Sun, 21 Oct 2007 17:40:01 -0400, farr@mit.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=9014
+ > 
+ > Reported by Will M. Farr for release: 371.3-svn18oct2007
+ > 
+ > *** Description:
+ > If I have a module which requires two other modules, M1 and M2, where M1 has 
+ > syntax which uses a literal, x, and M2 exports a binding by the name of x, 
+ > syntax from M1 doesn't recognize x in macro invocations as a literal.  
+ > 
+ > The only solution is to rename (or simply avoid require-ing, via (all-except 
+ > M1 ...)) the offending binding from M2, since the syntax literals of M1 are 
+ > purely internal (i.e. they aren't provided at all, so I can't re-name them on 
+ > the require line).
+ > 
+ > It would be nicest if this could be fixed; if it can't, it would be second-
+ > nicest if the module system would throw an error like "imported binding ': 
+ > from (lib "42.ss" "srfi") conflicts with internal syntax identifier ': from 
+ > (lib "foreign.ss"); please rename or exclude ': from (lib "42.ss" "srfi") from 
+ > imports.
+ > 
+ > *** How to repeat:
+ > In the following module, the : in the _fun syntax is not recognized as a 
+ > literal, as evidenced by the (extremely cryptic) error upon clicking Check 
+ > Syntax in DrScheme:
+ > 
+ > (module undefined-variable mzscheme
+ >   (require (lib "42.ss" "srfi")
+ >            (lib "foreign.ss"))
+ >   
+ >   (unsafe!)
+ >   
+ >   (define my-malloc
+ >     (get-ffi-obj 'malloc #f
+ >                  (_fun (len : _ufixnum) -> _pointer))))
+ > 
+ > While the folloing Checks Syntax just fine:
+ > 
+ > (module undefined-variable mzscheme
+ >   (require (all-except (lib "42.ss" "srfi") :)
+ >            (lib "foreign.ss"))
+ >   
+ >   (unsafe!)
+ >   
+ >   (define my-malloc
+ >     (get-ffi-obj 'malloc #f
+ >                  (_fun (len : _ufixnum) -> _pointer))))
+ > 
+ > *** Environment:
+ > macosx "Darwin sydneypacific-seven-forty-seven.mit.edu 8.10.0 Darwin Kernel 
+ > Version 8.10.0: Wed May 23 16:50:59 PDT 2007; root:xnu-792.21.3~1/RELEASE_PPC 
+ > Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+ > Docs Installed:
+ > (("/Users/farr/Documents/code/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" 
+ > "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" 
+ > "tools" "insidemz" "web-server" "swindle" "plot" "gui" "guide" "quick" 
+ > "reference" "release-notes" "scribble" "t-y-scheme" "tex2page" "beginning" 
+ > "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" 
+ > "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-intermediate-
+ > access" "profj-advanced") (* "/Users/farr/Documents/code/nbody/doc" 
+ > "/Users/farr/Documents/code/nbody/doc"))
+ > Human Language: english
+ > (current-memory-use) 106945436
+ > 
+ > Collections:
+ > (("/Users/farr/Library/PLT Scheme/371.3/collects" non-existent-path) 
+ > ("/Users/farr/Documents/code/plt/collects" ".svn" "afm" "algol60" "big" 
+ > "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" 
+ > "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" 
+ > "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" 
+ > "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" 
+ > "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" 
+ > "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" 
+ > "preprocessor" "profj" "profjWizard" "r5rs" "readline" "repos-time-stamp" 
+ > "scribble" "scribblings" "setup" "sgl" "sirmail" "skipper" "slatex" 
+ > "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" 
+ > "syntax-color" "teachpack" "test-box-recovery" "tests" "tex2page" "texpict" 
+ > "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+ > Computer Language: (("Professional Languages" "(module ...)") (#6(#t write 
+ > mixed-fraction-e #f #t debug) (default) #0()))
+From: "Carl Eastlund" <cce@plt-scheme.org>
+To: farr@mit.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        jacobm@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Sun, 21 Oct 2007 17:55:18 -0400
+
+ You can also change your macro to recognize your literal by name,
+ rather than by binding.  The syntax-case macro recognizes so-called
+ "literals" by module-identifier=?, but syntax-case* lets you change
+ the equivalence procedure.  You want a procedure that compares
+ identifiers solely by symbol name, and not by any binding information.
+ 
+ I have a Planet package that provides what you may want:
+ (require (planet "syntax-utils.ss" ("cce" "syntax-utils.plt" 1 0)))
+ 
+ Check out syntax-case-by-name and identifier-name=? in the documentation.
+ 
+ --Carl
+ 
+ On 10/21/07, farr@mit.edu <farr@mit.edu> wrote:
+ > *** Description:
+ > If I have a module which requires two other modules, M1 and M2, where M1 has syntax which uses a literal, x, and M2 exports a binding by the name of x, syntax from M1 doesn't recognize x in macro invocations as a literal.
+ >
+ > The only solution is to rename (or simply avoid require-ing, via (all-except M1 ...)) the offending binding from M2, since the syntax literals of M1 are purely internal (i.e. they aren't provided at all, so I can't re-name them on the require line).
+ >
+ > It would be nicest if this could be fixed; if it can't, it would be second-nicest if the module system would throw an error like "imported binding ': from (lib "42.ss" "srfi") conflicts with internal syntax identifier ': from (lib "foreign.ss"); please rename or exclude ': from (lib "42.ss" "srfi") from imports.
+From: "Will Farr" <farr@mit.edu>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Sun, 21 Oct 2007 18:02:16 -0400
+
+ > It's a bug in "foreign.ss" because a macro should not match free
+ > identifier (e.g., `:' as matched by `_fun') using
+ > `module-identifier=?', for exactly the reasons explained below. The
+ > right choices are are symbolic equality or a comparison to a bound
+ > identifier. Symbolic equality is not a good idea if the position being
+ > matched might be otherwise bound (e.g., an expression position); I
+ > don't know if that applies in this case.
+ 
+ A quick look in foreign.ss suggests that it declares the ': identifier using
+ 
+ (syntax-case stx (: ...) ...)
+ 
+ Shouldn't this "do the right thing"?
+ 
+ > Thanks for the report,
+ 
+ You're very welcome.  Thank you for the quick response, and the great
+ scheme system!
+ 
+ Will
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Will Farr" <farr@mit.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Sun, 21 Oct 2007 16:23:55 -0600
+
+ At Sun, 21 Oct 2007 18:02:16 -0400, "Will Farr" wrote:
+ > > It's a bug in "foreign.ss" because a macro should not match free
+ > > identifier (e.g., `:' as matched by `_fun') using
+ > > `module-identifier=?', for exactly the reasons explained below. The
+ > > right choices are are symbolic equality or a comparison to a bound
+ > > identifier. Symbolic equality is not a good idea if the position being
+ > > matched might be otherwise bound (e.g., an expression position); I
+ > > don't know if that applies in this case.
+ > 
+ > A quick look in foreign.ss suggests that it declares the ': identifier using
+ > 
+ > (syntax-case stx (: ...) ...)
+ > 
+ > Shouldn't this "do the right thing"?
+ 
+ No, not quite. The problem is that `:' isn't bound in the context of
+ the `syntax-case' form, so the comparison is looking for a `:' that
+ also isn't bound at the use site.
+ 
+ My first thought was that maybe `syntax-case' should warn the
+ programmer about this case, and maybe not allow free variables in the
+ literals sequence. But the actual code uses `syntax-case*' with a
+ custom comparison, `id=?'; `syntax-case' wouldn't be able to guess the
+ intent in that case.
+ 
+ The solution might be to change the given `id=?' to a
+ symbolic-comparison operator. Or it might be to bind `:'. The latter
+ generally works best with identifiers used in prefix positions; I'm
+ less sure of the trade-offs for identifiers used in infix positions.
+ 
+ Matthew
+ 
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Carl Eastlund" <cce@plt-scheme.org>
+Cc: farr@mit.edu, bugs@plt-scheme.org, nobody@plt-scheme.org,
+        eli@plt-scheme.org, matthias@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org, clements@plt-scheme.org, jay@plt-scheme.org,
+        meunier@plt-scheme.org, sowens@plt-scheme.org, kathyg@plt-scheme.org,
+        awick@plt-scheme.org, jacobm@plt-scheme.org, dalev@plt-scheme.org,
+        samth@plt-scheme.org, ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Sun, 21 Oct 2007 17:40:25 -0500
+
+ I think that's probably not a good choice. I'm never sure of the
+ ramifications, but each time I change to use by name comparisons in my
+ macro, I'm sorry later. I believe Matthew has a good rationale.
+ 
+ Robby
+ 
+ On 10/21/07, Carl Eastlund <cce@plt-scheme.org> wrote:
+ > You can also change your macro to recognize your literal by name,
+ > rather than by binding.  The syntax-case macro recognizes so-called
+ > "literals" by module-identifier=?, but syntax-case* lets you change
+ > the equivalence procedure.  You want a procedure that compares
+ > identifiers solely by symbol name, and not by any binding information.
+ >
+ > I have a Planet package that provides what you may want:
+ > (require (planet "syntax-utils.ss" ("cce" "syntax-utils.plt" 1 0)))
+ >
+ > Check out syntax-case-by-name and identifier-name=? in the documentation.
+ >
+ > --Carl
+ >
+ > On 10/21/07, farr@mit.edu <farr@mit.edu> wrote:
+ > > *** Description:
+ > > If I have a module which requires two other modules, M1 and M2, where M1 has syntax which uses a literal, x, and M2 exports a binding by the name of x, syntax from M1 doesn't recognize x in macro invocations as a literal.
+ > >
+ > > The only solution is to rename (or simply avoid require-ing, via (all-except M1 ...)) the offending binding from M2, since the syntax literals of M1 are purely internal (i.e. they aren't provided at all, so I can't re-name them on the require line).
+ > >
+ > > It would be nicest if this could be fixed; if it can't, it would be second-nicest if the module system would throw an error like "imported binding ': from (lib "42.ss" "srfi") conflicts with internal syntax identifier ': from (lib "foreign.ss"); please rename or exclude ': from (lib "42.ss" "srfi") from imports.
+ >
+From: "Will Farr" <farr@mit.edu>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Sun, 21 Oct 2007 18:50:58 -0400
+
+ > The solution might be to change the given `id=?' to a
+ > symbolic-comparison operator. Or it might be to bind `:'. The latter
+ > generally works best with identifiers used in prefix positions; I'm
+ > less sure of the trade-offs for identifiers used in infix positions.
+ 
+ Argh---this makes my head hurt, though I think I finally understand
+ what it's about.  Just to make sure: if I'm going to try to match
+ literals in my code, I should use the following pieces:
+ 
+ (module ouch mzscheme
+   ...
+ 
+   (provide : my-macro-that-uses-:-literal ...)
+ 
+   (define : (gensym 'literal-:-))
+ 
+   (define-syntax my-macro-that-uses-:-literal
+     (syntax-rules (:)
+       ((... (: id range-expr) ...)))))
+ 
+ That way, syntax-rules will be looking for the bound ':, not a
+ top-level-free ':, and definitely not a ': coming from another module?
+ 
+ (Not that I'm presently writing a macro that recognizes a literal in
+ its pattern, but I have in the past, and it would be nice to get it
+ right in the future.)
+ 
+ Thanks for the coherent explanations,
+ Will
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Will Farr" <farr@mit.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Sun, 21 Oct 2007 17:11:26 -0600
+
+ At Sun, 21 Oct 2007 18:50:58 -0400, "Will Farr" wrote:
+ > Just to make sure: if I'm going to try to match
+ > literals in my code, I should use the following pieces:
+ > 
+ > (module ouch mzscheme
+ >   ...
+ > 
+ >   (provide : my-macro-that-uses-:-literal ...)
+ > 
+ >   (define : (gensym 'literal-:-))
+ > 
+ >   (define-syntax my-macro-that-uses-:-literal
+ >     (syntax-rules (:)
+ >       ((... (: id range-expr) ...)))))
+ > 
+ > That way, syntax-rules will be looking for the bound ':, not a
+ > top-level-free ':, and definitely not a ': coming from another module?
+ 
+ Yes. As a small refinement, I suggest
+ 
+   (define-syntax : 
+     (lambda (stx) (raise-syntax-error #f "out of context" stx)))
+ 
+ so that if someone accidentally uses the binding of `:' directly, they
+ get an error message.
+ 
+ Matthew
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: "Carl Eastlund" <cce@plt-scheme.org>, farr@mit.edu, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        jacobm@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Mon, 22 Oct 2007 22:16:02 -0400
+
+ On Oct 21, Robby Findler wrote:
+ > I think that's probably not a good choice. I'm never sure of the
+ > ramifications, but each time I change to use by name comparisons in
+ > my macro, I'm sorry later. I believe Matthew has a good rationale.
+ 
+ The rationale is that it doesn't play nicely with binders.  This
+ matters when the keyword can actually appear in the same place that an
+ expression can appear.  For example, if I change foreign to compare
+ the `:' keyword as a symbol, then it means that it cannot be used as
+ an expression.  Here's an example:
+ 
+   ;; say that (_foo x y) is some ctype constructor
+   (let ([: 1])
+     (_fun _int -> (_foo : 2)))
+ 
+ This will parse the `:' as a keyword and eventually complain about `2'
+ not being a ctype.
+ 
+ 
+ (This part is a followup to Matthew's message.)
+ 
+ As for the actual problem this PR is about (foreign using `:' as a
+ keyword without providing a binding) -- the two options that I have
+ are either provide an otherwise useless `:' identifier (like `->'), or
+ do symbolic comparison and suffer from the above problem.  I know that
+ you (Matthew) prefer the former, but that will just increase the
+ number of modules that are incompatible with foreign (srfi-42, in
+ addition to contracts).
+ 
+ I'm really tempted to just do the symbolic comparison (for `->' too),
+ and add an explicit warning to the documentation that these cannot be
+ used as identifiers with `_fun' types.  It seems to me that this will
+ be generally be better:
+ 
+ * It will forbid uses such as the above example, which never happen in
+   practice (esp. since people who use foreign are generally aware of
+   its syntax), and if they do happen, they're easy to solve (just use
+   a different name).
+ 
+ * The only practical example of this being a problem that I can think
+   of is if the contract `->' (or srfi-42's `:') becomes useful inside
+   `_fun' types.  Still, these cases should be obvious for the
+   (hopefully aware) foreign user who knows that these have special
+   meanings in `_fun's and just use a binding for such values
+ 
+     (define foo (... expression with -> ...))
+     (define bar (_fun ... foo ...))
+ 
+   or require a prefixed or renamed version of `->' (or `:').
+ 
+ * OTOH, the big advantage is that it won't be a problem to use foreign
+   with contracts or srfi-42.
+ 
+ How does that sound?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: "Carl Eastlund" <cce@plt-scheme.org>, farr@mit.edu, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        jacobm@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Mon, 22 Oct 2007 21:23:17 -0500
+
+ Does it make sense for foreign to have explicit boundaries that mark
+ the beginning of a foreign type declaration (or whatever else) and
+ then mark the exit from that back to Scheme? (If you did do that, then
+ you could use those boundaries to enforce some kind of separate
+ namespaces (not the mzscheme namespaces, but the kind Matthew emailed
+ about in his most recent design document).)
+ 
+ I'm starting to think it makes sense to have that for the contract
+ library, but I'm not sure. Another bonus (for contracts) is that I can
+ optimize inside the boundaries and avoid allocation.
+ 
+ Robby
+ 
+ On 10/22/07, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Oct 21, Robby Findler wrote:
+ > > I think that's probably not a good choice. I'm never sure of the
+ > > ramifications, but each time I change to use by name comparisons in
+ > > my macro, I'm sorry later. I believe Matthew has a good rationale.
+ >
+ > The rationale is that it doesn't play nicely with binders.  This
+ > matters when the keyword can actually appear in the same place that an
+ > expression can appear.  For example, if I change foreign to compare
+ > the `:' keyword as a symbol, then it means that it cannot be used as
+ > an expression.  Here's an example:
+ >
+ >   ;; say that (_foo x y) is some ctype constructor
+ >   (let ([: 1])
+ >     (_fun _int -> (_foo : 2)))
+ >
+ > This will parse the `:' as a keyword and eventually complain about `2'
+ > not being a ctype.
+ >
+ >
+ > (This part is a followup to Matthew's message.)
+ >
+ > As for the actual problem this PR is about (foreign using `:' as a
+ > keyword without providing a binding) -- the two options that I have
+ > are either provide an otherwise useless `:' identifier (like `->'), or
+ > do symbolic comparison and suffer from the above problem.  I know that
+ > you (Matthew) prefer the former, but that will just increase the
+ > number of modules that are incompatible with foreign (srfi-42, in
+ > addition to contracts).
+ >
+ > I'm really tempted to just do the symbolic comparison (for `->' too),
+ > and add an explicit warning to the documentation that these cannot be
+ > used as identifiers with `_fun' types.  It seems to me that this will
+ > be generally be better:
+ >
+ > * It will forbid uses such as the above example, which never happen in
+ >   practice (esp. since people who use foreign are generally aware of
+ >   its syntax), and if they do happen, they're easy to solve (just use
+ >   a different name).
+ >
+ > * The only practical example of this being a problem that I can think
+ >   of is if the contract `->' (or srfi-42's `:') becomes useful inside
+ >   `_fun' types.  Still, these cases should be obvious for the
+ >   (hopefully aware) foreign user who knows that these have special
+ >   meanings in `_fun's and just use a binding for such values
+ >
+ >     (define foo (... expression with -> ...))
+ >     (define bar (_fun ... foo ...))
+ >
+ >   or require a prefixed or renamed version of `->' (or `:').
+ >
+ > * OTOH, the big advantage is that it won't be a problem to use foreign
+ >   with contracts or srfi-42.
+ >
+ > How does that sound?
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                   http://www.barzilay.org/                 Maze is Life!
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: "Carl Eastlund" <cce@plt-scheme.org>, farr@mit.edu, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        jacobm@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Mon, 22 Oct 2007 22:29:22 -0400
+
+ On Oct 22, Robby Findler wrote:
+ > Does it make sense for foreign to have explicit boundaries that mark
+ > the beginning of a foreign type declaration (or whatever else) and
+ > then mark the exit from that back to Scheme?
+ 
+ Well, that's what will happen -- the boundaries will be from the
+ `(_fun' up to the matching `)'.
+ 
+ 
+ > (If you did do that, then you could use those boundaries to enforce
+ > some kind of separate namespaces (not the mzscheme namespaces, but
+ > the kind Matthew emailed about in his most recent design document).)
+ 
+ Not really -- you still want plain mzscheme in `_fun' types, and you
+ still want plain ctypes in scheme.
+ 
+ 
+ > I'm starting to think it makes sense to have that for the contract
+ > library, but I'm not sure. Another bonus (for contracts) is that I can
+ > optimize inside the boundaries and avoid allocation.
+ 
+ I'm not sure what you mean.  IIUC, that means that the contract
+ language becomes completely separate from scheme.  So `integer?' will
+ use some contract definition for `integer?', so a random scheme
+ predicate cannot be used, and you cannot use scheme code to construct
+ contracts.  It does sound fine for typed scheme though.  (Again,
+ IIUC.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Carl Eastlund" <cce@plt-scheme.org>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: "Robby Findler" <robby@cs.uchicago.edu>, farr@mit.edu, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        jacobm@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Mon, 22 Oct 2007 22:30:58 -0400
+
+ On 10/22/07, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Oct 21, Robby Findler wrote:
+ > > I think that's probably not a good choice. I'm never sure of the
+ > > ramifications, but each time I change to use by name comparisons in
+ > > my macro, I'm sorry later. I believe Matthew has a good rationale.
+ >
+ > The rationale is that it doesn't play nicely with binders.  This
+ > matters when the keyword can actually appear in the same place that an
+ > expression can appear.
+ 
+ This is true.  For literals in a non-expression position, though,
+ matching by name works fine, I believe.  I'm not sure which case is
+ relevant to the original bug.
+ 
+ -- 
+ Carl Eastlund
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: "Carl Eastlund" <cce@plt-scheme.org>, farr@mit.edu, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        jacobm@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/9014: Literal identifiers in syntax of require-d module shadowed by exported identifiers of another require-d module
+Date: Mon, 22 Oct 2007 22:04:04 -0500
+
+ On 10/22/07, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Oct 22, Robby Findler wrote:
+ > > Does it make sense for foreign to have explicit boundaries that mark
+ > > the beginning of a foreign type declaration (or whatever else) and
+ > > then mark the exit from that back to Scheme?
+ >
+ > Well, that's what will happen -- the boundaries will be from the
+ > `(_fun' up to the matching `)'.
+ >
+ >
+ > > (If you did do that, then you could use those boundaries to enforce
+ > > some kind of separate namespaces (not the mzscheme namespaces, but
+ > > the kind Matthew emailed about in his most recent design document).)
+ >
+ > Not really -- you still want plain mzscheme in `_fun' types, and you
+ > still want plain ctypes in scheme.
+ 
+ The point of my suggestion is to make it explicit where the ctypes
+ leave off and mzscheme begins again with a syntactic marker. Yes,
+ that's more typing. Think quote and unquote, except instead of
+ constructing quoted data, you're constructing ctypes or other foreign
+ things (or contracts).
+ 
+ > > I'm starting to think it makes sense to have that for the contract
+ > > library, but I'm not sure. Another bonus (for contracts) is that I can
+ > > optimize inside the boundaries and avoid allocation.
+ >
+ > I'm not sure what you mean.  IIUC, that means that the contract
+ > language becomes completely separate from scheme.  So `integer?' will
+ > use some contract definition for `integer?', so a random scheme
+ > predicate cannot be used, and you cannot use scheme code to construct
+ > contracts.  It does sound fine for typed scheme though.  (Again,
+ > IIUC.)
+ 
+ No, you'd have to use some kind of unquote mechanism to get back to
+ Scheme. Probably the contract language would bind all of the mz
+ primitives, just for convenience (and to make optimizing them easier).
+ 
+ Robby
+
+Responsible changed from "nobody" to "eli" by ryanc at Tue, 03 May 2011 16:45:18 -0400
+Reason>>> ffi
+

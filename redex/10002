@@ -1,0 +1,885 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jan  4 12:15:17 2009
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.234])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n04HF9dD022419
+	for <bugs@bugs.plt-scheme.org>; Sun, 4 Jan 2009 12:15:09 -0500
+Message-Id: <200901041715.n04HF7b1022413@champlain.ccs.neu.edu>
+Date: Sun, 4 Jan 2009 12:15:07 -0500
+From: samth@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: redex gives internal with-syntax error
+
+>Number:         10002
+>Category:       redex
+>Synopsis:       redex gives internal with-syntax error
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jan 04 12:16:01 -0500 2009
+>Last-Modified:  Sat May 09 11:48:27 -0400 2009
+>Originator:     Sam TH
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.3.8-svn2jan2009
+>Environment:
+unix "Linux hermes 2.6.24-16-386 #1 Thu Apr 10 12:50:06 UTC 2008 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 137560272
+
+Collections:
+(("/home/samth/scheme" "html-maker" "foo.ss" "acl-test.ss" "new-match" "sam" "beamer" "info-domain") ("/home/samth/work/csu660/collects/" ".svn" "CSU660" "handin-server" "info-domain") ("/home/samth/.plt-scheme/4.1.3.8/collects" non-existent-path) ("/home/samth/sw/plt4/collects" ".svn" "tex2page" "wxme" "string-constants" "test-engine" "planet" "mzcom" "typed-scheme" "drscheme" "r6rs" "s-exp" "framework" "srpersist" "sirmail" "test-box-recovery" "scribblings" "slideshow" "syntax-color" "srfi" "algol60" "redex" "dynext" "make" "plot" "file" "lang" "web-server" "openssl" "macro-debugger" "scribble" "typed" "frtime" "combinator-parser" "mred" "guibuilder" "htdp" "graphics" "setup" "profjWizard" "afm" "scheme" "config" "gui-debugger" "defaults" "honu" "icons" "handin-client" "lazy" "texpict" "teachpack" "browser" "rnrs" "waterworld" "parser-tools" "r5rs" "games" "eopl" "tests" "html" "swindle" "handin-server" "repos-time-stamp" "compiler" "embedded-gui" "profj" "stepper" "readli!
+ ne" "hierlist" "sgl" "version" "preprocessor" "net" "syntax" "help" "htdch" "trace" "slatex" "xml" "launcher" "ffi" "mrlib" "errortrace" "mzscheme" "mysterx" "mzlib" "info-domain"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme/base\n" #t))
+>Description:
+This program gives the error:
+
+with-syntax: binding match failed in: ((lhs-for-lw _ _ ...) ...)
+
+The identfier `lhs-for-lw' is from redex, not my program.
+
+#lang scheme/base
+
+(require mzlib/trace
+         (except-in scheme/list flatten #;lookup)
+         scheme/match 
+         scheme/class
+         mred/mred
+         redex
+         #;
+         "utils.ss"
+         (for-syntax scheme/base)
+         #;
+         (planet cobbe/environment:3/environment))
+
+(provide (all-defined-out))
+
+(define-language occur-lang
+  ;; expressions
+  [e x
+     (e e ...) 
+     (if e e e)
+     wrong
+     v]
+  ;; values
+  [v (lambda ([x : t] ...) e) number #t #f c (cons v v)]
+  [boolean #t #f]
+  ;; constants
+  [c add1 number? boolean? zero? not cons car cdr cons? procedure?]
+  ;; variables
+  [x (variable-except lambda add1 if number? boolean? zero? not cons car cdr cons? procedure?)]
+
+  ;; contexts
+  [E (v ... E e ...) (if E e e) hole]
+
+  ;; types
+  [(t u) N proctop top #t #f (t ... -> t : fh ... : sh) (pr t t) (U t ...)]
+  ;; effects
+  [f ((p ...) (p ...))]
+  [fh ((ph ...) (ph ...))]
+  [p (t pi x) (! t pi x) bot]
+  
+  [ph (t pi) (! t pi) both]
+  
+  [s 0 (pi x)]
+  [sh 0 (pi i)]
+  
+  [pi (pe ...)]
+  [pe car cdr]
+  
+  [G ((x t) ...)]
+  )
+
+(define type? (redex-match occur-lang t))
+
+(define-metafunction occur-lang
+  <: : t t -> boolean
+  ;; S-Refl
+  [(t_1 . <: . t_1) #t]
+  ;; S-ProcTop
+  [((t_1 ... -> t_2 : fh ... : sh) . <: . proctop) #t]
+  ;; S-Top
+  [(t_1 . <: . top) #t]
+  ;; S-Pair
+  [((pr t_1 u_1) . <: . (pr t_2 u_2)) 
+   #t
+   (side-condition (term (t_1 . <: . t_2)))
+   (side-condition (term (u_1 . <: . u_2)))]
+  ;; S-UnionSub
+  [((U t_1 ...) . <: . t_2)
+   #t
+   (side-condition (term (all (t_1 . <: . t_2) ...)))]
+  ;; S-UnionSuper
+  [(t_2 . <: . (U t_1 ...))
+   #t
+   (side-condition (term (any (t_2 . <: . t_1) ...)))]
+  ;; S-Fun
+  [((t_a ... -> t_r : ph_1 ... : sh_1) . <: . (u_a ... -> u_r : ph_2 ... : sh_2))
+   #t
+   (side-condition (term (t_r . <: . u_r)))
+   (side-condition (term (all (u_a . <: . t_a) ...)))
+   (side-condition (or (equal? (term sh_1) (term sh_2))
+                       (equal? (term sh_2) (term 0))))
+   (side-condition (term (all (subset ph_1 ph_2) ...)))]
+  ;; otherwise
+  [(t_1 . <: . t_2) #f])
+
+(define-metafunction occur-lang
+  all : boolean ... -> boolean  
+  [(all #t ...) #t]
+  [(all any_1 ...) #f])
+
+(define-metafunction occur-lang
+  any : boolean ... -> boolean
+  [(any #f ...) #f]
+  [(any any_1 ...) #t])
+
+(define-metafunction occur-lang
+  subst-n : (x e) ... e -> e
+  [(subst-n (x_1 any_1) (x_2 any_2) ... any_3) (subst x_1 any_1 (subst-n (x_2 any_2) ... any_3))]
+  [(subst-n any_3) any_3]) 
+
+(define-metafunction occur-lang
+  subst : x e e -> e
+  ;; 1. x_1 bound, so don't continue in λ body
+  [(subst x_1 any_1 (lambda ([x_2 : t_2] ... [x_1 : t_1] [x_3 : t_3] ...) any_2))
+   (lambda ([x_2 : t_2] ... [x_1 : t_1] [x_3 : t_3] ...) any_2)
+   (side-condition (not (member (term x_1) (term (x_2 ...)))))]
+  ;; 2. general purpose capture avoiding case
+  [(subst x_1 any_1 (lambda ([x_2 : t] ...) any_2))
+   ,(term-let ([(x_new ...)
+                (variables-not-in (term (x_1 any_1 any_2)) 
+                                  (term (x_2 ...)))])
+              (term 
+               (lambda ([x_new : t] ...)
+                 (subst x_1 any_1 (subst-vars (x_2 x_new) ... any_2)))))]
+  ;; 3. replace x_1 with e_1
+  [(subst x_1 any_1 x_1) any_1]
+  ;; 4. x_1 and x_2 are different, so don't replace
+  [(subst x_1 any_1 x_2) x_2]
+  ;; if
+  [(subst x_1 any_1 (if e_1 e_2 e_3))
+   (if (subst x_1 any_1 e_1)
+       (subst x_1 any_1 e_2)
+       (subst x_1 any_1 e_3))]
+  ;; constants (values that aren't lambda)
+  [(subst x any_1 v_2) v_2]
+  ;; app
+  [(subst x_1 any_1 (e_1 ...))
+   ((subst x_1 any_1 e_1) ...)])
+
+;; dumb substitution
+(define-metafunction occur-lang
+  subst-vars : (x e) ... e -> e 
+  [(subst-vars (x_1 e_1) (lambda ([x_2 : t_2] ...) e_2))
+   (lambda ([x_2 : t_2] ...) (subst-vars (x_1 e_1) e_2))]  
+  ;; 3. replace x_1 with e_1
+  [(subst-vars (x_1 e_1) x_1) e_1]
+  ;; 4. x_1 and x_2 are different, so don't replace
+  [(subst-vars (x_1 e_1) x_2) x_2]
+  ;; if
+  [(subst-vars (x_1 e_0) (if e_1 e_2 e_3))
+   (if (subst-vars (x_1 e_0) e_1)
+       (subst-vars (x_1 e_0) e_2)
+       (subst-vars (x_1 e_0) e_3))]
+  ;; constants (values that aren't lambda)
+  [(subst-vars (x_1 e_1) v_2) v_2]
+  ;; app
+  [(subst-vars (x_1 e_0) (e_1 ...))
+   ((subst-vars (x_1 e_0) e_1) ...)]
+  ;; multi-arg
+  [(subst-vars (x_1 e_1) (x_2 e_2) ... e_t)
+   (subst-vars (x_1 e_1) (subst-vars (x_2 e_2) ... e_t))])
+  
+
+(define-metafunction occur-lang
+  u : (x ...) ... -> (x ...)
+  [(u) ()]
+  [(u (x_1 ...)) (x_1 ...)]
+  [(u (x_1 ...) (x_2 ...)) (x_1 ... x_2 ...)]
+  [(u (x_1 ...) any_2 ...) (u (x_1 ...) (u any_2 ...))])
+
+;; free-vars : e -> (listof x)
+(define-metafunction occur-lang
+  free-vars : e -> (x ...)
+  [(free-vars (e_1 e_2)) (u (free-vars e_1) (free-vars e_2))]
+  [(free-vars x_1) (x_1)]
+  [(free-vars (if e_1 e_2 e_3)) (u (free-vars e_1) (free-vars e_2) (free-vars e_3))]
+  [(free-vars (lambda ([x_1 : t] ...) e_1))
+   (var- (x_1 ...) (free-vars e_1))]
+  [(free-vars v_1) ()])
+
+(define-metafunction occur-lang
+  var- : (x ...) (x ...) -> (x ...)
+  [(var- any_1 any_2) ,(remq* (term any_1) (term any_2))])
+
+(define (closed e) (equal? (term (free-vars ,e)) null))
+
+(define value? (redex-match occur-lang v))
+
+
+(define-metafunction occur-lang
+  delta : e -> any
+  [(delta (add1 number_1)) ,(+ 1 (term number_1))]
+  [(delta (zero? 0)) #t]
+  [(delta (zero? number_1)) #f]
+  [(delta (not #t)) #f]
+  [(delta (not #f)) #t]
+  [(delta (car (cons v_1 v_2))) v_1]
+  [(delta (cdr (cons v_1 v_2))) v_2]
+  [(delta (cons? (cons v_1 v_2))) #t]
+  [(delta (cons? v)) #f]
+  [(delta (procedure? (lambda ([x : t] ...) e))) #t]
+  [(delta (procedure? v)) #f]
+  [(delta (number? number_1)) #t]
+  [(delta (number? v_1)) #f]
+  [(delta (boolean? boolean_1)) #t]
+  [(delta (boolean? v_1)) #f]
+  [(delta (c_1 v_1)) wrong])
+
+(define-metafunction occur-lang
+  delta-t : c -> t
+  [(delta-t number?) (predty N ())]
+  [(delta-t boolean?) (predty (U #t #f) ())]
+  [(delta-t procedure?) (predty proctop ())]
+  [(delta-t cons?) (predty (pr top top) ())]
+  [(delta-t add1) (simplefun N N)]
+  [(delta-t zero?) (simplefun N (U #t #f))]
+  [(delta-t not) (simplefun (U #t #f) (U #t #f))])
+
+(define-metafunction occur-lang
+  simplefun : t t -> t
+  [(simplefun t u) (t -> u : (() ()) : 0)])
+
+(define-metafunction occur-lang
+  predty : t pi -> t
+  [(predty t pi)
+   (top -> (U #t #f) : (((t pi)) ((! t pi))) : 0)])
+
+(define reductions
+  (reduction-relation 
+   occur-lang
+   [==> ((lambda ([x_1 : t_1] ...) e_body) v_arg ...)
+        (subst-n (x_1 v_arg) ... e_body)
+        E-Beta]
+   [==> (if #f e_2 e_3)
+        e_3
+        E-IfFalse]
+   [==> (if v_1 e_2 e_3)
+        e_2
+        E-IfTrue
+        (side-condition (term v_1))]   
+   [==> (c_op v_arg ...) (delta (c_op v_arg ...))
+        E-Delta
+        (side-condition (not (value? (term (c_op v_arg ...)))))]
+   [--> (in-hole E_1 wrong) wrong
+        E-Wrong
+        (side-condition (not (equal? (term wrong) (term (in-hole E_1 wrong)))))]
+   with
+   [(--> (in-hole E_1 a) (in-hole E_1 b)) (==> a b)]
+   ))
+
+
+(define-metafunction occur-lang
+  abstract-filter : x f -> fh
+  [(abstract-filter x ((p_1 ...) (p_2 ...)))
+   ((flatten (abo x p_1) ...)
+    (flatten (abo x p_2) ...))])
+
+(define-metafunction occur-lang
+  apply-filter : fh t s -> f
+  [(apply-filter ((ph_+ ...) (ph_- ...)) t s)
+   ((flatten (apo ph_+ t s) ...)
+    (flatten (apo ph_- t s) ...))
+   #;
+   (where any (begin (display (term ((apo ph_+ t s) ...)))
+                     (newline)
+                     (display (term ((apo ph_- t s) ...)))
+                     (newline)
+                     (term 1)))])
+
+(define-metafunction occur-lang
+  abo : x p -> (ph ...)
+  [(abo x bot) (both)]
+  [(abo x (t pi x)) ((t pi))]
+  [(abo x (! t pi x)) ((! t pi))]
+  [(abo x (t pi y)) () (side-condition (not (equal? (term x) (term y))))]
+  [(abo x (! t pi y)) () (side-condition (not (equal? (term x) (term y))))])
+
+(define-metafunction occur-lang
+  apo : ph t s -> (p ...)
+  [(apo any_1 any_2 any_3) 
+   #f                           
+   (side-condition (and (printf "args: ~a\n" (term (any_1 any_2 any_3))) #f))]
+  [(apo both t s) (bot)]
+  [(apo (! t pi) u s) (bot) (side-condition (term (u . <: . t)))]
+  [(apo (t pi) u s) (bot) (side-condition (and (printf "in no-overlap~n")(term (no-overlap u t))))]
+  [(apo ph u 0) ()]
+  [(apo (t (pe_1 ...)) u ((pe_2 ...) x)) ((t (pe_1 ... pe_2 ...) x))]
+  [(apo (! t (pe_1 ...)) u ((pe_2 ...) x)) ((! t (pe_1 ... pe_2 ...) x))])
+
+(define-metafunction occur-lang
+  flatten : any ... -> any  
+  [(flatten (any_1 ...) ...) (any_1 ... ...)])
+
+;; conservative
+(define-metafunction occur-lang
+  comb-filter : f f f -> f
+  [(comb-filter f_1 f_2 f_3) (() ())])
+
+(define-metafunction occur-lang
+  restrict : t t -> t
+  [(restrict t u) (U) (side-condition (term (no-overlap t u)))]
+  [(restrict (U t ...) u) (U (restrict t u) ...)]
+  [(restrict t u) t (side-condition (term (t . <: . u)))]
+  [(restrict t u) u])
+
+(define-metafunction occur-lang
+  remove : t t -> t
+  [(remove t u) (U) (side-condition (term (t . <: . u)))]
+  [(remove (U t ...) u) (U (remove t u) ...)]
+  [(remove t u) t])
+
+(define no-overlap-recur (make-parameter #t))
+
+(define-metafunction occur-lang
+  no-overlap : t t -> any
+  [(no-overlap N #t) #t]
+  [(no-overlap N #f) #t]
+  [(no-overlap N (pr t_1 t_2)) #t]
+  [(no-overlap #t (pr t_1 t_2)) #t]
+  [(no-overlap #f (pr t_1 t_2)) #t]
+  [(no-overlap N (t ... -> u : fh ... : sh)) #t]
+  [(no-overlap #t (t ... -> u : fh ... : sh)) #t]
+  [(no-overlap #f (t ... -> u : fh ... : sh)) #t]
+  [(no-overlap (pr t_1 t_2) (t ... -> u : fh ... : sh)) #t]
+  [(no-overlap (U t ...) u) (all (no-overlap t u) ...)]
+  [(no-overlap t u) 
+   #t
+   (side-condition (and (no-overlap-recur)
+                        (parameterize ([no-overlap-recur #f]) (term (no-overlap u t)))))]
+  [(no-overlap t u) #f])
+
+(define-metafunction occur-lang
+  update : t ph -> t
+  [(update (pr t_1 t_2) (u (car pi)))
+   (pr (update t_1 (u pi)) t_2)]
+  [(update (pr t_1 t_2) (u (cdr pi)))
+   (pr t_1 (update t_2 (u pi)))]
+  [(update (pr t_1 t_2) (! u (car pi)))
+   (pr (update t_1 (! u pi)) t_2)]
+  [(update (pr t_1 t_2) (! u (cdr pi)))
+   (pr t_1 (update t_2 (! u pi)))]
+  [(update t (u ())) (restrict t u)]
+  [(update t (! u ())) (remove t u)])
+
+(define-metafunction occur-lang
+  env+ : G (p ...) -> G
+  [(env+ G ()) G]
+  [(env+ ((x_1 t_1) ... (x t_t) (x_2 t_2) ...) ((t pi x_t) p_rest ...))
+   (env+ ((x_1 t_1) ...
+          (x_t (update t_t (t pi)))
+          (x_2 t_2) ...)
+         (p_rest ...))]
+  [(env+ ((x_1 t_1) ... (x t_t) (x_2 t_2) ...) ((! t pi x_t) p_rest ...))
+   (env+ ((x_1 t_1) ...
+          (x_t (update t_t (! t pi)))
+          (x_2 t_2) ...)
+         (p_rest ...))]
+  [(env+ ((x t) ...) (bot p_rest)) ((x (U)) ...)]
+  ;; the relevant variable not in G
+  [(env+ G (p p_rest ...)) (env+ G (p_rest ...))])
+
+(define-metafunction occur-lang
+  lookup : G x -> t
+  [(lookup ((x_1 t_1) ... (x t) (x_2 t_2) ...) x) t]
+  [(lookup G x) ,(error "variable not found in env" (term G) (term x))])
+
+;; the type rules!
+
+(define (find x l) (if (null? l) #f
+                       (if (equal? x (car l)) 
+                           0
+                           (cond [(find x (cdr l)) => add1]
+                                 [else #f]))))
+
+
+(define-syntax term-let*
+  (syntax-rules ()
+    [(term-let* () . e) (term-let () . e)]
+    [(term-let* (cl . rest) . e) (term-let (cl) (term-let* rest . e))]))
+
+(define-syntax (*term-let-one stx)
+  (syntax-case stx ()
+    [(_ lang ([pat rhs]) . body)
+     (with-syntax ([(mf-name) (generate-temporaries (list 'mf))])
+       (quasisyntax/loc stx
+         (let ([r rhs])
+           (define-metafunction lang 
+             mf-name : any -> any
+             [(mf-name pat) ,(begin . body)]
+             [(mf-name any) ,#,(syntax/loc stx (error 'term-let "term ~a did not match pattern ~a" r 'pat))])
+           (term (mf-name ,r)))))]))
+
+(define-syntax *term-let
+  (syntax-rules ()
+    [(*term-let lang () . e) (term-let () . e)]
+    [(*term-let lang (cl . rest) . e) (*term-let-one lang (cl) (*term-let lang rest . e))]))
+
+(define-metafunction occur-lang
+  proctype? : t -> boolean
+  [(proctype? (t_f ... -> t_r : ((ph_f+ ...) (ph_f- ...)) ... : sh_f)) #t]
+  [(proctype? any) #f])
+
+(define-metafunction occur-lang
+  tc : G e -> (t ((p ...) (p ...)) s)
+  ;; T-Var
+  [(tc G x) ((lookup G x) (((! #f () x)) ((#f () x))) (() x))]
+  ;; T-Const
+  [(tc G c) ((delta-t c) (() (bot)) 0)]
+  ;; T-Num
+  [(tc G number) (N (() (bot)) 0)]
+  ;; T-True
+  [(tc G #t) (#t (() (bot)) 0)]
+  ;; T-False
+  [(tc G #f) (#f ((bot) ()) 0)]
+  ;; T-Abs
+  [(tc G (lambda ([x : u] ...) e))
+   ,(*term-let occur-lang
+               ([(t ((p_+ ...) (p_- ...)) s) (term (tc ((x u) ... . G) e))]
+                [f (term ((p_+ ...) (p_- ...)))]
+                [sh_new (match (term s)
+                          [0 (term 0)]
+                          [(list pi x_i) 
+                           (let ([idx (find x_i (term (x ...)))])
+                             (if idx
+                                 (list pi idx)
+                                 0))])]
+                [(fh ...)
+                 (term ((abstract-filter x f) ...))])
+               (term ((u ... -> t : fh ... : sh_new) (() (bot)) 0)))]
+  ;; T-App
+  [(tc G (e_op e_args ...))
+   ,(*term-let occur-lang
+               ([any (printf "started\n")]
+                [(t_op ((p_op+ ...) (p_op- ...)) s_op) (term (tc G e_op))]
+                [((t_a ((p_a+ ...) (p_a- ...)) s_a) ...) (term ((tc G e_args) ...))]
+                [any (display (term t_op))]
+                [any (unless (term (proctype? t_op))
+                       (error 'tc "~a not a proc type in ~a" (term t_op) (term e_op)))]
+                [(t_f ... -> t_r : fh_f ... : sh_f) (term t_op)]
+                [#t (term (all (t_a . <: . t_f) ...))]
+                [any (display "got here 1")]
+                [(((p_+ ...) (p_- ...)) ...) (term ((apply-filter fh_f t_a s_a) ...))]                
+                [any (display "got here 4\n")]
+                [s_r (match (term sh_f)                       
+                       [(list pi* i)
+                        (match (list-ref (term (s_a ...)) i)
+                          [(list pi x) (list (append pi* pi) x)]
+                          [_ 0])]
+                       [_ 0])]
+                [any (display "got here 5\n")])
+               (term (t_r ((p_+ ... ...) (p_- ... ...)) s_r)))]
+  ;; T-If
+  [(tc G (if e_tst e_thn e_els)
+       ,(*term-let occur-lang
+                   ([(t_tst f_tst s_tst) (term (tc G e_tst))]
+                    [((p_tst+ ...) (p_tst- ...)) (term f_tst)]
+                    [(t_thn f_thn s_thn) (term (tc (env+ G (p_tst+ ...) e_thn)))]
+                    [(t_els f_els s_els) (term (tc (env+ G (p_tst- ...) e_els)))]
+                    [f (term (comb-filter f_tst f_thn f_els))])
+                   (term ((U t_thn t_els) f 0))))]
+  )
+>How-To-Repeat:
+This was a missing check in the syntax error checking for Redex.
+>Fix:
+This would not have been a type error. One could argue that it is a contract error at a lower level.
+>Audit-Trail:
+From: "Robby Findler" <robby@plt-scheme.org>
+To: samth@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10002: redex gives internal with-syntax error
+Date: Sun, 4 Jan 2009 11:20:35 -0600
+
+ RG8geW91IGhhdmUgbm8gbW9yZSBpbmZvcm1hdGlvbiBhYm91dCB3aGVyZSB0aGUgYnVnIG1pZ2h0
+ IGJlPyBEaWQgeW91Cm5vdCBqdXN0IG1ha2UgYSBjaGFuZ2UgdGhhdCBsZWQgdG8gdGhhdCBhbmQg
+ c28gY2FuIHBlcmhhcHMgc3VwcGx5IGEKc21hbGxlciBleGFtcGxlPwoKUm9iYnkKCk9uIFN1biwg
+ SmFuIDQsIDIwMDkgYXQgMTE6MTYgQU0sICA8c2FtdGhAY2NzLm5ldS5lZHU+IHdyb3RlOgo+IEEg
+ bmV3IHByb2JsZW0gcmVwb3J0IGlzIHdhaXRpbmcgYXQKPiAgaHR0cDovL2J1Z3MucGx0LXNjaGVt
+ ZS5vcmcvcXVlcnkvP2NtZD12aWV3JnByPTEwMDAyCj4KPiBSZXBvcnRlZCBieSBTYW0gVEggZm9y
+ IHJlbGVhc2U6IDQuMS4zLjgtc3ZuMmphbjIwMDkKPgo+ICoqKiBEZXNjcmlwdGlvbjoKPiBUaGlz
+ IHByb2dyYW0gZ2l2ZXMgdGhlIGVycm9yOgo+Cj4gd2l0aC1zeW50YXg6IGJpbmRpbmcgbWF0Y2gg
+ ZmFpbGVkIGluOiAoKGxocy1mb3ItbHcgXyBfIC4uLikgLi4uKQo+Cj4gVGhlIGlkZW50ZmllciBg
+ bGhzLWZvci1sdycgaXMgZnJvbSByZWRleCwgbm90IG15IHByb2dyYW0uCj4KPiAjbGFuZyBzY2hl
+ bWUvYmFzZQo+Cj4gKHJlcXVpcmUgbXpsaWIvdHJhY2UKPiAgICAgICAgIChleGNlcHQtaW4gc2No
+ ZW1lL2xpc3QgZmxhdHRlbiAjO2xvb2t1cCkKPiAgICAgICAgIHNjaGVtZS9tYXRjaAo+ICAgICAg
+ ICAgc2NoZW1lL2NsYXNzCj4gICAgICAgICBtcmVkL21yZWQKPiAgICAgICAgIHJlZGV4Cj4gICAg
+ ICAgICAjOwo+ICAgICAgICAgInV0aWxzLnNzIgo+ICAgICAgICAgKGZvci1zeW50YXggc2NoZW1l
+ L2Jhc2UpCj4gICAgICAgICAjOwo+ICAgICAgICAgKHBsYW5ldCBjb2JiZS9lbnZpcm9ubWVudDoz
+ L2Vudmlyb25tZW50KSkKPgo+IChwcm92aWRlIChhbGwtZGVmaW5lZC1vdXQpKQo+Cj4gKGRlZmlu
+ ZS1sYW5ndWFnZSBvY2N1ci1sYW5nCj4gIDs7IGV4cHJlc3Npb25zCj4gIFtlIHgKPiAgICAgKGUg
+ ZSAuLi4pCj4gICAgIChpZiBlIGUgZSkKPiAgICAgd3JvbmcKPiAgICAgdl0KPiAgOzsgdmFsdWVz
+ Cj4gIFt2IChsYW1iZGEgKFt4IDogdF0gLi4uKSBlKSBudW1iZXIgI3QgI2YgYyAoY29ucyB2IHYp
+ XQo+ICBbYm9vbGVhbiAjdCAjZl0KPiAgOzsgY29uc3RhbnRzCj4gIFtjIGFkZDEgbnVtYmVyPyBi
+ b29sZWFuPyB6ZXJvPyBub3QgY29ucyBjYXIgY2RyIGNvbnM/IHByb2NlZHVyZT9dCj4gIDs7IHZh
+ cmlhYmxlcwo+ICBbeCAodmFyaWFibGUtZXhjZXB0IGxhbWJkYSBhZGQxIGlmIG51bWJlcj8gYm9v
+ bGVhbj8gemVybz8gbm90IGNvbnMgY2FyIGNkciBjb25zPyBwcm9jZWR1cmU/KV0KPgo+ICA7OyBj
+ b250ZXh0cwo+ICBbRSAodiAuLi4gRSBlIC4uLikgKGlmIEUgZSBlKSBob2xlXQo+Cj4gIDs7IHR5
+ cGVzCj4gIFsodCB1KSBOIHByb2N0b3AgdG9wICN0ICNmICh0IC4uLiAtPiB0IDogZmggLi4uIDog
+ c2gpIChwciB0IHQpIChVIHQgLi4uKV0KPiAgOzsgZWZmZWN0cwo+ICBbZiAoKHAgLi4uKSAocCAu
+ Li4pKV0KPiAgW2ZoICgocGggLi4uKSAocGggLi4uKSldCj4gIFtwICh0IHBpIHgpICghIHQgcGkg
+ eCkgYm90XQo+Cj4gIFtwaCAodCBwaSkgKCEgdCBwaSkgYm90aF0KPgo+ICBbcyAwIChwaSB4KV0K
+ PiAgW3NoIDAgKHBpIGkpXQo+Cj4gIFtwaSAocGUgLi4uKV0KPiAgW3BlIGNhciBjZHJdCj4KPiAg
+ W0cgKCh4IHQpIC4uLildCj4gICkKPgo+IChkZWZpbmUgdHlwZT8gKHJlZGV4LW1hdGNoIG9jY3Vy
+ LWxhbmcgdCkpCj4KPiAoZGVmaW5lLW1ldGFmdW5jdGlvbiBvY2N1ci1sYW5nCj4gIDw6IDogdCB0
+ IC0+IGJvb2xlYW4KPiAgOzsgUy1SZWZsCj4gIFsodF8xIC4gPDogLiB0XzEpICN0XQo+ICA7OyBT
+ LVByb2NUb3AKPiAgWygodF8xIC4uLiAtPiB0XzIgOiBmaCAuLi4gOiBzaCkgLiA8OiAuIHByb2N0
+ b3ApICN0XQo+ICA7OyBTLVRvcAo+ICBbKHRfMSAuIDw6IC4gdG9wKSAjdF0KPiAgOzsgUy1QYWly
+ Cj4gIFsoKHByIHRfMSB1XzEpIC4gPDogLiAocHIgdF8yIHVfMikpCj4gICAjdAo+ICAgKHNpZGUt
+ Y29uZGl0aW9uICh0ZXJtICh0XzEgLiA8OiAuIHRfMikpKQo+ICAgKHNpZGUtY29uZGl0aW9uICh0
+ ZXJtICh1XzEgLiA8OiAuIHVfMikpKV0KPiAgOzsgUy1VbmlvblN1Ygo+ICBbKChVIHRfMSAuLi4p
+ IC4gPDogLiB0XzIpCj4gICAjdAo+ICAgKHNpZGUtY29uZGl0aW9uICh0ZXJtIChhbGwgKHRfMSAu
+ IDw6IC4gdF8yKSAuLi4pKSldCj4gIDs7IFMtVW5pb25TdXBlcgo+ICBbKHRfMiAuIDw6IC4gKFUg
+ dF8xIC4uLikpCj4gICAjdAo+ICAgKHNpZGUtY29uZGl0aW9uICh0ZXJtIChhbnkgKHRfMiAuIDw6
+ IC4gdF8xKSAuLi4pKSldCj4gIDs7IFMtRnVuCj4gIFsoKHRfYSAuLi4gLT4gdF9yIDogcGhfMSAu
+ Li4gOiBzaF8xKSAuIDw6IC4gKHVfYSAuLi4gLT4gdV9yIDogcGhfMiAuLi4gOiBzaF8yKSkKPiAg
+ ICN0Cj4gICAoc2lkZS1jb25kaXRpb24gKHRlcm0gKHRfciAuIDw6IC4gdV9yKSkpCj4gICAoc2lk
+ ZS1jb25kaXRpb24gKHRlcm0gKGFsbCAodV9hIC4gPDogLiB0X2EpIC4uLikpKQo+ICAgKHNpZGUt
+ Y29uZGl0aW9uIChvciAoZXF1YWw/ICh0ZXJtIHNoXzEpICh0ZXJtIHNoXzIpKQo+ICAgICAgICAg
+ ICAgICAgICAgICAgICAoZXF1YWw/ICh0ZXJtIHNoXzIpICh0ZXJtIDApKSkpCj4gICAoc2lkZS1j
+ b25kaXRpb24gKHRlcm0gKGFsbCAoc3Vic2V0IHBoXzEgcGhfMikgLi4uKSkpXQo+ICA7OyBvdGhl
+ cndpc2UKPiAgWyh0XzEgLiA8OiAuIHRfMikgI2ZdKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24g
+ b2NjdXItbGFuZwo+ICBhbGwgOiBib29sZWFuIC4uLiAtPiBib29sZWFuCj4gIFsoYWxsICN0IC4u
+ LikgI3RdCj4gIFsoYWxsIGFueV8xIC4uLikgI2ZdKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24g
+ b2NjdXItbGFuZwo+ICBhbnkgOiBib29sZWFuIC4uLiAtPiBib29sZWFuCj4gIFsoYW55ICNmIC4u
+ LikgI2ZdCj4gIFsoYW55IGFueV8xIC4uLikgI3RdKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24g
+ b2NjdXItbGFuZwo+ICBzdWJzdC1uIDogKHggZSkgLi4uIGUgLT4gZQo+ICBbKHN1YnN0LW4gKHhf
+ MSBhbnlfMSkgKHhfMiBhbnlfMikgLi4uIGFueV8zKSAoc3Vic3QgeF8xIGFueV8xIChzdWJzdC1u
+ ICh4XzIgYW55XzIpIC4uLiBhbnlfMykpXQo+ICBbKHN1YnN0LW4gYW55XzMpIGFueV8zXSkKPgo+
+ IChkZWZpbmUtbWV0YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAgc3Vic3QgOiB4IGUgZSAtPiBlCj4g
+ IDs7IDEuIHhfMSBib3VuZCwgc28gZG9uJ3QgY29udGludWUgaW4gzrsgYm9keQo+ICBbKHN1YnN0
+ IHhfMSBhbnlfMSAobGFtYmRhIChbeF8yIDogdF8yXSAuLi4gW3hfMSA6IHRfMV0gW3hfMyA6IHRf
+ M10gLi4uKSBhbnlfMikpCj4gICAobGFtYmRhIChbeF8yIDogdF8yXSAuLi4gW3hfMSA6IHRfMV0g
+ W3hfMyA6IHRfM10gLi4uKSBhbnlfMikKPiAgIChzaWRlLWNvbmRpdGlvbiAobm90IChtZW1iZXIg
+ KHRlcm0geF8xKSAodGVybSAoeF8yIC4uLikpKSkpXQo+ICA7OyAyLiBnZW5lcmFsIHB1cnBvc2Ug
+ Y2FwdHVyZSBhdm9pZGluZyBjYXNlCj4gIFsoc3Vic3QgeF8xIGFueV8xIChsYW1iZGEgKFt4XzIg
+ OiB0XSAuLi4pIGFueV8yKSkKPiAgICwodGVybS1sZXQgKFsoeF9uZXcgLi4uKQo+ICAgICAgICAg
+ ICAgICAgICh2YXJpYWJsZXMtbm90LWluICh0ZXJtICh4XzEgYW55XzEgYW55XzIpKQo+ICAgICAg
+ ICAgICAgICAgICAgICAgICAgICAgICAgICAgICh0ZXJtICh4XzIgLi4uKSkpXSkKPiAgICAgICAg
+ ICAgICAgKHRlcm0KPiAgICAgICAgICAgICAgIChsYW1iZGEgKFt4X25ldyA6IHRdIC4uLikKPiAg
+ ICAgICAgICAgICAgICAgKHN1YnN0IHhfMSBhbnlfMSAoc3Vic3QtdmFycyAoeF8yIHhfbmV3KSAu
+ Li4gYW55XzIpKSkpKV0KPiAgOzsgMy4gcmVwbGFjZSB4XzEgd2l0aCBlXzEKPiAgWyhzdWJzdCB4
+ XzEgYW55XzEgeF8xKSBhbnlfMV0KPiAgOzsgNC4geF8xIGFuZCB4XzIgYXJlIGRpZmZlcmVudCwg
+ c28gZG9uJ3QgcmVwbGFjZQo+ICBbKHN1YnN0IHhfMSBhbnlfMSB4XzIpIHhfMl0KPiAgOzsgaWYK
+ PiAgWyhzdWJzdCB4XzEgYW55XzEgKGlmIGVfMSBlXzIgZV8zKSkKPiAgIChpZiAoc3Vic3QgeF8x
+ IGFueV8xIGVfMSkKPiAgICAgICAoc3Vic3QgeF8xIGFueV8xIGVfMikKPiAgICAgICAoc3Vic3Qg
+ eF8xIGFueV8xIGVfMykpXQo+ICA7OyBjb25zdGFudHMgKHZhbHVlcyB0aGF0IGFyZW4ndCBsYW1i
+ ZGEpCj4gIFsoc3Vic3QgeCBhbnlfMSB2XzIpIHZfMl0KPiAgOzsgYXBwCj4gIFsoc3Vic3QgeF8x
+ IGFueV8xIChlXzEgLi4uKSkKPiAgICgoc3Vic3QgeF8xIGFueV8xIGVfMSkgLi4uKV0pCj4KPiA7
+ OyBkdW1iIHN1YnN0aXR1dGlvbgo+IChkZWZpbmUtbWV0YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAg
+ c3Vic3QtdmFycyA6ICh4IGUpIC4uLiBlIC0+IGUKPiAgWyhzdWJzdC12YXJzICh4XzEgZV8xKSAo
+ bGFtYmRhIChbeF8yIDogdF8yXSAuLi4pIGVfMikpCj4gICAobGFtYmRhIChbeF8yIDogdF8yXSAu
+ Li4pIChzdWJzdC12YXJzICh4XzEgZV8xKSBlXzIpKV0KPiAgOzsgMy4gcmVwbGFjZSB4XzEgd2l0
+ aCBlXzEKPiAgWyhzdWJzdC12YXJzICh4XzEgZV8xKSB4XzEpIGVfMV0KPiAgOzsgNC4geF8xIGFu
+ ZCB4XzIgYXJlIGRpZmZlcmVudCwgc28gZG9uJ3QgcmVwbGFjZQo+ICBbKHN1YnN0LXZhcnMgKHhf
+ MSBlXzEpIHhfMikgeF8yXQo+ICA7OyBpZgo+ICBbKHN1YnN0LXZhcnMgKHhfMSBlXzApIChpZiBl
+ XzEgZV8yIGVfMykpCj4gICAoaWYgKHN1YnN0LXZhcnMgKHhfMSBlXzApIGVfMSkKPiAgICAgICAo
+ c3Vic3QtdmFycyAoeF8xIGVfMCkgZV8yKQo+ICAgICAgIChzdWJzdC12YXJzICh4XzEgZV8wKSBl
+ XzMpKV0KPiAgOzsgY29uc3RhbnRzICh2YWx1ZXMgdGhhdCBhcmVuJ3QgbGFtYmRhKQo+ICBbKHN1
+ YnN0LXZhcnMgKHhfMSBlXzEpIHZfMikgdl8yXQo+ICA7OyBhcHAKPiAgWyhzdWJzdC12YXJzICh4
+ XzEgZV8wKSAoZV8xIC4uLikpCj4gICAoKHN1YnN0LXZhcnMgKHhfMSBlXzApIGVfMSkgLi4uKV0K
+ PiAgOzsgbXVsdGktYXJnCj4gIFsoc3Vic3QtdmFycyAoeF8xIGVfMSkgKHhfMiBlXzIpIC4uLiBl
+ X3QpCj4gICAoc3Vic3QtdmFycyAoeF8xIGVfMSkgKHN1YnN0LXZhcnMgKHhfMiBlXzIpIC4uLiBl
+ X3QpKV0pCj4KPgo+IChkZWZpbmUtbWV0YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAgdSA6ICh4IC4u
+ LikgLi4uIC0+ICh4IC4uLikKPiAgWyh1KSAoKV0KPiAgWyh1ICh4XzEgLi4uKSkgKHhfMSAuLi4p
+ XQo+ICBbKHUgKHhfMSAuLi4pICh4XzIgLi4uKSkgKHhfMSAuLi4geF8yIC4uLildCj4gIFsodSAo
+ eF8xIC4uLikgYW55XzIgLi4uKSAodSAoeF8xIC4uLikgKHUgYW55XzIgLi4uKSldKQo+Cj4gOzsg
+ ZnJlZS12YXJzIDogZSAtPiAobGlzdG9mIHgpCj4gKGRlZmluZS1tZXRhZnVuY3Rpb24gb2NjdXIt
+ bGFuZwo+ICBmcmVlLXZhcnMgOiBlIC0+ICh4IC4uLikKPiAgWyhmcmVlLXZhcnMgKGVfMSBlXzIp
+ KSAodSAoZnJlZS12YXJzIGVfMSkgKGZyZWUtdmFycyBlXzIpKV0KPiAgWyhmcmVlLXZhcnMgeF8x
+ KSAoeF8xKV0KPiAgWyhmcmVlLXZhcnMgKGlmIGVfMSBlXzIgZV8zKSkgKHUgKGZyZWUtdmFycyBl
+ XzEpIChmcmVlLXZhcnMgZV8yKSAoZnJlZS12YXJzIGVfMykpXQo+ICBbKGZyZWUtdmFycyAobGFt
+ YmRhIChbeF8xIDogdF0gLi4uKSBlXzEpKQo+ICAgKHZhci0gKHhfMSAuLi4pIChmcmVlLXZhcnMg
+ ZV8xKSldCj4gIFsoZnJlZS12YXJzIHZfMSkgKCldKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24g
+ b2NjdXItbGFuZwo+ICB2YXItIDogKHggLi4uKSAoeCAuLi4pIC0+ICh4IC4uLikKPiAgWyh2YXIt
+ IGFueV8xIGFueV8yKSAsKHJlbXEqICh0ZXJtIGFueV8xKSAodGVybSBhbnlfMikpXSkKPgo+IChk
+ ZWZpbmUgKGNsb3NlZCBlKSAoZXF1YWw/ICh0ZXJtIChmcmVlLXZhcnMgLGUpKSBudWxsKSkKPgo+
+ IChkZWZpbmUgdmFsdWU/IChyZWRleC1tYXRjaCBvY2N1ci1sYW5nIHYpKQo+Cj4KPiAoZGVmaW5l
+ LW1ldGFmdW5jdGlvbiBvY2N1ci1sYW5nCj4gIGRlbHRhIDogZSAtPiBhbnkKPiAgWyhkZWx0YSAo
+ YWRkMSBudW1iZXJfMSkpICwoKyAxICh0ZXJtIG51bWJlcl8xKSldCj4gIFsoZGVsdGEgKHplcm8/
+ IDApKSAjdF0KPiAgWyhkZWx0YSAoemVybz8gbnVtYmVyXzEpKSAjZl0KPiAgWyhkZWx0YSAobm90
+ ICN0KSkgI2ZdCj4gIFsoZGVsdGEgKG5vdCAjZikpICN0XQo+ICBbKGRlbHRhIChjYXIgKGNvbnMg
+ dl8xIHZfMikpKSB2XzFdCj4gIFsoZGVsdGEgKGNkciAoY29ucyB2XzEgdl8yKSkpIHZfMl0KPiAg
+ WyhkZWx0YSAoY29ucz8gKGNvbnMgdl8xIHZfMikpKSAjdF0KPiAgWyhkZWx0YSAoY29ucz8gdikp
+ ICNmXQo+ICBbKGRlbHRhIChwcm9jZWR1cmU/IChsYW1iZGEgKFt4IDogdF0gLi4uKSBlKSkpICN0
+ XQo+ICBbKGRlbHRhIChwcm9jZWR1cmU/IHYpKSAjZl0KPiAgWyhkZWx0YSAobnVtYmVyPyBudW1i
+ ZXJfMSkpICN0XQo+ICBbKGRlbHRhIChudW1iZXI/IHZfMSkpICNmXQo+ICBbKGRlbHRhIChib29s
+ ZWFuPyBib29sZWFuXzEpKSAjdF0KPiAgWyhkZWx0YSAoYm9vbGVhbj8gdl8xKSkgI2ZdCj4gIFso
+ ZGVsdGEgKGNfMSB2XzEpKSB3cm9uZ10pCj4KPiAoZGVmaW5lLW1ldGFmdW5jdGlvbiBvY2N1ci1s
+ YW5nCj4gIGRlbHRhLXQgOiBjIC0+IHQKPiAgWyhkZWx0YS10IG51bWJlcj8pIChwcmVkdHkgTiAo
+ KSldCj4gIFsoZGVsdGEtdCBib29sZWFuPykgKHByZWR0eSAoVSAjdCAjZikgKCkpXQo+ICBbKGRl
+ bHRhLXQgcHJvY2VkdXJlPykgKHByZWR0eSBwcm9jdG9wICgpKV0KPiAgWyhkZWx0YS10IGNvbnM/
+ KSAocHJlZHR5IChwciB0b3AgdG9wKSAoKSldCj4gIFsoZGVsdGEtdCBhZGQxKSAoc2ltcGxlZnVu
+ IE4gTildCj4gIFsoZGVsdGEtdCB6ZXJvPykgKHNpbXBsZWZ1biBOIChVICN0ICNmKSldCj4gIFso
+ ZGVsdGEtdCBub3QpIChzaW1wbGVmdW4gKFUgI3QgI2YpIChVICN0ICNmKSldKQo+Cj4gKGRlZmlu
+ ZS1tZXRhZnVuY3Rpb24gb2NjdXItbGFuZwo+ICBzaW1wbGVmdW4gOiB0IHQgLT4gdAo+ICBbKHNp
+ bXBsZWZ1biB0IHUpICh0IC0+IHUgOiAoKCkgKCkpIDogMCldKQo+Cj4gKGRlZmluZS1tZXRhZnVu
+ Y3Rpb24gb2NjdXItbGFuZwo+ICBwcmVkdHkgOiB0IHBpIC0+IHQKPiAgWyhwcmVkdHkgdCBwaSkK
+ PiAgICh0b3AgLT4gKFUgI3QgI2YpIDogKCgodCBwaSkpICgoISB0IHBpKSkpIDogMCldKQo+Cj4g
+ KGRlZmluZSByZWR1Y3Rpb25zCj4gIChyZWR1Y3Rpb24tcmVsYXRpb24KPiAgIG9jY3VyLWxhbmcK
+ PiAgIFs9PT4gKChsYW1iZGEgKFt4XzEgOiB0XzFdIC4uLikgZV9ib2R5KSB2X2FyZyAuLi4pCj4g
+ ICAgICAgIChzdWJzdC1uICh4XzEgdl9hcmcpIC4uLiBlX2JvZHkpCj4gICAgICAgIEUtQmV0YV0K
+ PiAgIFs9PT4gKGlmICNmIGVfMiBlXzMpCj4gICAgICAgIGVfMwo+ICAgICAgICBFLUlmRmFsc2Vd
+ Cj4gICBbPT0+IChpZiB2XzEgZV8yIGVfMykKPiAgICAgICAgZV8yCj4gICAgICAgIEUtSWZUcnVl
+ Cj4gICAgICAgIChzaWRlLWNvbmRpdGlvbiAodGVybSB2XzEpKV0KPiAgIFs9PT4gKGNfb3Agdl9h
+ cmcgLi4uKSAoZGVsdGEgKGNfb3Agdl9hcmcgLi4uKSkKPiAgICAgICAgRS1EZWx0YQo+ICAgICAg
+ ICAoc2lkZS1jb25kaXRpb24gKG5vdCAodmFsdWU/ICh0ZXJtIChjX29wIHZfYXJnIC4uLikpKSkp
+ XQo+ICAgWy0tPiAoaW4taG9sZSBFXzEgd3JvbmcpIHdyb25nCj4gICAgICAgIEUtV3JvbmcKPiAg
+ ICAgICAgKHNpZGUtY29uZGl0aW9uIChub3QgKGVxdWFsPyAodGVybSB3cm9uZykgKHRlcm0gKGlu
+ LWhvbGUgRV8xIHdyb25nKSkpKSldCj4gICB3aXRoCj4gICBbKC0tPiAoaW4taG9sZSBFXzEgYSkg
+ KGluLWhvbGUgRV8xIGIpKSAoPT0+IGEgYildCj4gICApKQo+Cj4KPiAoZGVmaW5lLW1ldGFmdW5j
+ dGlvbiBvY2N1ci1sYW5nCj4gIGFic3RyYWN0LWZpbHRlciA6IHggZiAtPiBmaAo+ICBbKGFic3Ry
+ YWN0LWZpbHRlciB4ICgocF8xIC4uLikgKHBfMiAuLi4pKSkKPiAgICgoZmxhdHRlbiAoYWJvIHgg
+ cF8xKSAuLi4pCj4gICAgKGZsYXR0ZW4gKGFibyB4IHBfMikgLi4uKSldKQo+Cj4gKGRlZmluZS1t
+ ZXRhZnVuY3Rpb24gb2NjdXItbGFuZwo+ICBhcHBseS1maWx0ZXIgOiBmaCB0IHMgLT4gZgo+ICBb
+ KGFwcGx5LWZpbHRlciAoKHBoXysgLi4uKSAocGhfLSAuLi4pKSB0IHMpCj4gICAoKGZsYXR0ZW4g
+ KGFwbyBwaF8rIHQgcykgLi4uKQo+ICAgIChmbGF0dGVuIChhcG8gcGhfLSB0IHMpIC4uLikpCj4g
+ ICAjOwo+ICAgKHdoZXJlIGFueSAoYmVnaW4gKGRpc3BsYXkgKHRlcm0gKChhcG8gcGhfKyB0IHMp
+ IC4uLikpKQo+ICAgICAgICAgICAgICAgICAgICAgKG5ld2xpbmUpCj4gICAgICAgICAgICAgICAg
+ ICAgICAoZGlzcGxheSAodGVybSAoKGFwbyBwaF8tIHQgcykgLi4uKSkpCj4gICAgICAgICAgICAg
+ ICAgICAgICAobmV3bGluZSkKPiAgICAgICAgICAgICAgICAgICAgICh0ZXJtIDEpKSldKQo+Cj4g
+ KGRlZmluZS1tZXRhZnVuY3Rpb24gb2NjdXItbGFuZwo+ICBhYm8gOiB4IHAgLT4gKHBoIC4uLikK
+ PiAgWyhhYm8geCBib3QpIChib3RoKV0KPiAgWyhhYm8geCAodCBwaSB4KSkgKCh0IHBpKSldCj4g
+ IFsoYWJvIHggKCEgdCBwaSB4KSkgKCghIHQgcGkpKV0KPiAgWyhhYm8geCAodCBwaSB5KSkgKCkg
+ KHNpZGUtY29uZGl0aW9uIChub3QgKGVxdWFsPyAodGVybSB4KSAodGVybSB5KSkpKV0KPiAgWyhh
+ Ym8geCAoISB0IHBpIHkpKSAoKSAoc2lkZS1jb25kaXRpb24gKG5vdCAoZXF1YWw/ICh0ZXJtIHgp
+ ICh0ZXJtIHkpKSkpXSkKPgo+IChkZWZpbmUtbWV0YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAgYXBv
+ IDogcGggdCBzIC0+IChwIC4uLikKPiAgWyhhcG8gYW55XzEgYW55XzIgYW55XzMpCj4gICAjZgo+
+ ICAgKHNpZGUtY29uZGl0aW9uIChhbmQgKHByaW50ZiAiYXJnczogfmFcbiIgKHRlcm0gKGFueV8x
+ IGFueV8yIGFueV8zKSkpICNmKSldCj4gIFsoYXBvIGJvdGggdCBzKSAoYm90KV0KPiAgWyhhcG8g
+ KCEgdCBwaSkgdSBzKSAoYm90KSAoc2lkZS1jb25kaXRpb24gKHRlcm0gKHUgLiA8OiAuIHQpKSld
+ Cj4gIFsoYXBvICh0IHBpKSB1IHMpIChib3QpIChzaWRlLWNvbmRpdGlvbiAoYW5kIChwcmludGYg
+ ImluIG5vLW92ZXJsYXB+biIpKHRlcm0gKG5vLW92ZXJsYXAgdSB0KSkpKV0KPiAgWyhhcG8gcGgg
+ dSAwKSAoKV0KPiAgWyhhcG8gKHQgKHBlXzEgLi4uKSkgdSAoKHBlXzIgLi4uKSB4KSkgKCh0IChw
+ ZV8xIC4uLiBwZV8yIC4uLikgeCkpXQo+ICBbKGFwbyAoISB0IChwZV8xIC4uLikpIHUgKChwZV8y
+ IC4uLikgeCkpICgoISB0IChwZV8xIC4uLiBwZV8yIC4uLikgeCkpXSkKPgo+IChkZWZpbmUtbWV0
+ YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAgZmxhdHRlbiA6IGFueSAuLi4gLT4gYW55Cj4gIFsoZmxh
+ dHRlbiAoYW55XzEgLi4uKSAuLi4pIChhbnlfMSAuLi4gLi4uKV0pCj4KPiA7OyBjb25zZXJ2YXRp
+ dmUKPiAoZGVmaW5lLW1ldGFmdW5jdGlvbiBvY2N1ci1sYW5nCj4gIGNvbWItZmlsdGVyIDogZiBm
+ IGYgLT4gZgo+ICBbKGNvbWItZmlsdGVyIGZfMSBmXzIgZl8zKSAoKCkgKCkpXSkKPgo+IChkZWZp
+ bmUtbWV0YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAgcmVzdHJpY3QgOiB0IHQgLT4gdAo+ICBbKHJl
+ c3RyaWN0IHQgdSkgKFUpIChzaWRlLWNvbmRpdGlvbiAodGVybSAobm8tb3ZlcmxhcCB0IHUpKSld
+ Cj4gIFsocmVzdHJpY3QgKFUgdCAuLi4pIHUpIChVIChyZXN0cmljdCB0IHUpIC4uLildCj4gIFso
+ cmVzdHJpY3QgdCB1KSB0IChzaWRlLWNvbmRpdGlvbiAodGVybSAodCAuIDw6IC4gdSkpKV0KPiAg
+ WyhyZXN0cmljdCB0IHUpIHVdKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24gb2NjdXItbGFuZwo+
+ ICByZW1vdmUgOiB0IHQgLT4gdAo+ICBbKHJlbW92ZSB0IHUpIChVKSAoc2lkZS1jb25kaXRpb24g
+ KHRlcm0gKHQgLiA8OiAuIHUpKSldCj4gIFsocmVtb3ZlIChVIHQgLi4uKSB1KSAoVSAocmVtb3Zl
+ IHQgdSkgLi4uKV0KPiAgWyhyZW1vdmUgdCB1KSB0XSkKPgo+IChkZWZpbmUgbm8tb3ZlcmxhcC1y
+ ZWN1ciAobWFrZS1wYXJhbWV0ZXIgI3QpKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24gb2NjdXIt
+ bGFuZwo+ICBuby1vdmVybGFwIDogdCB0IC0+IGFueQo+ICBbKG5vLW92ZXJsYXAgTiAjdCkgI3Rd
+ Cj4gIFsobm8tb3ZlcmxhcCBOICNmKSAjdF0KPiAgWyhuby1vdmVybGFwIE4gKHByIHRfMSB0XzIp
+ KSAjdF0KPiAgWyhuby1vdmVybGFwICN0IChwciB0XzEgdF8yKSkgI3RdCj4gIFsobm8tb3Zlcmxh
+ cCAjZiAocHIgdF8xIHRfMikpICN0XQo+ICBbKG5vLW92ZXJsYXAgTiAodCAuLi4gLT4gdSA6IGZo
+ IC4uLiA6IHNoKSkgI3RdCj4gIFsobm8tb3ZlcmxhcCAjdCAodCAuLi4gLT4gdSA6IGZoIC4uLiA6
+ IHNoKSkgI3RdCj4gIFsobm8tb3ZlcmxhcCAjZiAodCAuLi4gLT4gdSA6IGZoIC4uLiA6IHNoKSkg
+ I3RdCj4gIFsobm8tb3ZlcmxhcCAocHIgdF8xIHRfMikgKHQgLi4uIC0+IHUgOiBmaCAuLi4gOiBz
+ aCkpICN0XQo+ICBbKG5vLW92ZXJsYXAgKFUgdCAuLi4pIHUpIChhbGwgKG5vLW92ZXJsYXAgdCB1
+ KSAuLi4pXQo+ICBbKG5vLW92ZXJsYXAgdCB1KQo+ICAgI3QKPiAgIChzaWRlLWNvbmRpdGlvbiAo
+ YW5kIChuby1vdmVybGFwLXJlY3VyKQo+ICAgICAgICAgICAgICAgICAgICAgICAgKHBhcmFtZXRl
+ cml6ZSAoW25vLW92ZXJsYXAtcmVjdXIgI2ZdKSAodGVybSAobm8tb3ZlcmxhcCB1IHQpKSkpKV0K
+ PiAgWyhuby1vdmVybGFwIHQgdSkgI2ZdKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24gb2NjdXIt
+ bGFuZwo+ICB1cGRhdGUgOiB0IHBoIC0+IHQKPiAgWyh1cGRhdGUgKHByIHRfMSB0XzIpICh1IChj
+ YXIgcGkpKSkKPiAgIChwciAodXBkYXRlIHRfMSAodSBwaSkpIHRfMildCj4gIFsodXBkYXRlIChw
+ ciB0XzEgdF8yKSAodSAoY2RyIHBpKSkpCj4gICAocHIgdF8xICh1cGRhdGUgdF8yICh1IHBpKSkp
+ XQo+ICBbKHVwZGF0ZSAocHIgdF8xIHRfMikgKCEgdSAoY2FyIHBpKSkpCj4gICAocHIgKHVwZGF0
+ ZSB0XzEgKCEgdSBwaSkpIHRfMildCj4gIFsodXBkYXRlIChwciB0XzEgdF8yKSAoISB1IChjZHIg
+ cGkpKSkKPiAgIChwciB0XzEgKHVwZGF0ZSB0XzIgKCEgdSBwaSkpKV0KPiAgWyh1cGRhdGUgdCAo
+ dSAoKSkpIChyZXN0cmljdCB0IHUpXQo+ICBbKHVwZGF0ZSB0ICghIHUgKCkpKSAocmVtb3ZlIHQg
+ dSldKQo+Cj4gKGRlZmluZS1tZXRhZnVuY3Rpb24gb2NjdXItbGFuZwo+ICBlbnYrIDogRyAocCAu
+ Li4pIC0+IEcKPiAgWyhlbnYrIEcgKCkpIEddCj4gIFsoZW52KyAoKHhfMSB0XzEpIC4uLiAoeCB0
+ X3QpICh4XzIgdF8yKSAuLi4pICgodCBwaSB4X3QpIHBfcmVzdCAuLi4pKQo+ICAgKGVudisgKCh4
+ XzEgdF8xKSAuLi4KPiAgICAgICAgICAoeF90ICh1cGRhdGUgdF90ICh0IHBpKSkpCj4gICAgICAg
+ ICAgKHhfMiB0XzIpIC4uLikKPiAgICAgICAgIChwX3Jlc3QgLi4uKSldCj4gIFsoZW52KyAoKHhf
+ MSB0XzEpIC4uLiAoeCB0X3QpICh4XzIgdF8yKSAuLi4pICgoISB0IHBpIHhfdCkgcF9yZXN0IC4u
+ LikpCj4gICAoZW52KyAoKHhfMSB0XzEpIC4uLgo+ICAgICAgICAgICh4X3QgKHVwZGF0ZSB0X3Qg
+ KCEgdCBwaSkpKQo+ICAgICAgICAgICh4XzIgdF8yKSAuLi4pCj4gICAgICAgICAocF9yZXN0IC4u
+ LikpXQo+ICBbKGVudisgKCh4IHQpIC4uLikgKGJvdCBwX3Jlc3QpKSAoKHggKFUpKSAuLi4pXQo+
+ ICA7OyB0aGUgcmVsZXZhbnQgdmFyaWFibGUgbm90IGluIEcKPiAgWyhlbnYrIEcgKHAgcF9yZXN0
+ IC4uLikpIChlbnYrIEcgKHBfcmVzdCAuLi4pKV0pCj4KPiAoZGVmaW5lLW1ldGFmdW5jdGlvbiBv
+ Y2N1ci1sYW5nCj4gIGxvb2t1cCA6IEcgeCAtPiB0Cj4gIFsobG9va3VwICgoeF8xIHRfMSkgLi4u
+ ICh4IHQpICh4XzIgdF8yKSAuLi4pIHgpIHRdCj4gIFsobG9va3VwIEcgeCkgLChlcnJvciAidmFy
+ aWFibGUgbm90IGZvdW5kIGluIGVudiIgKHRlcm0gRykgKHRlcm0geCkpXSkKPgo+IDs7IHRoZSB0
+ eXBlIHJ1bGVzIQo+Cj4gKGRlZmluZSAoZmluZCB4IGwpIChpZiAobnVsbD8gbCkgI2YKPiAgICAg
+ ICAgICAgICAgICAgICAgICAgKGlmIChlcXVhbD8geCAoY2FyIGwpKQo+ICAgICAgICAgICAgICAg
+ ICAgICAgICAgICAgMAo+ICAgICAgICAgICAgICAgICAgICAgICAgICAgKGNvbmQgWyhmaW5kIHgg
+ KGNkciBsKSkgPT4gYWRkMV0KPiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFtlbHNl
+ ICNmXSkpKSkKPgo+Cj4gKGRlZmluZS1zeW50YXggdGVybS1sZXQqCj4gIChzeW50YXgtcnVsZXMg
+ KCkKPiAgICBbKHRlcm0tbGV0KiAoKSAuIGUpICh0ZXJtLWxldCAoKSAuIGUpXQo+ICAgIFsodGVy
+ bS1sZXQqIChjbCAuIHJlc3QpIC4gZSkgKHRlcm0tbGV0IChjbCkgKHRlcm0tbGV0KiByZXN0IC4g
+ ZSkpXSkpCj4KPiAoZGVmaW5lLXN5bnRheCAoKnRlcm0tbGV0LW9uZSBzdHgpCj4gIChzeW50YXgt
+ Y2FzZSBzdHggKCkKPiAgICBbKF8gbGFuZyAoW3BhdCByaHNdKSAuIGJvZHkpCj4gICAgICh3aXRo
+ LXN5bnRheCAoWyhtZi1uYW1lKSAoZ2VuZXJhdGUtdGVtcG9yYXJpZXMgKGxpc3QgJ21mKSldKQo+
+ ICAgICAgIChxdWFzaXN5bnRheC9sb2Mgc3R4Cj4gICAgICAgICAobGV0IChbciByaHNdKQo+ICAg
+ ICAgICAgICAoZGVmaW5lLW1ldGFmdW5jdGlvbiBsYW5nCj4gICAgICAgICAgICAgbWYtbmFtZSA6
+ IGFueSAtPiBhbnkKPiAgICAgICAgICAgICBbKG1mLW5hbWUgcGF0KSAsKGJlZ2luIC4gYm9keSld
+ Cj4gICAgICAgICAgICAgWyhtZi1uYW1lIGFueSkgLCMsKHN5bnRheC9sb2Mgc3R4IChlcnJvciAn
+ dGVybS1sZXQgInRlcm0gfmEgZGlkIG5vdCBtYXRjaCBwYXR0ZXJuIH5hIiByICdwYXQpKV0pCj4g
+ ICAgICAgICAgICh0ZXJtIChtZi1uYW1lICxyKSkpKSldKSkKPgo+IChkZWZpbmUtc3ludGF4ICp0
+ ZXJtLWxldAo+ICAoc3ludGF4LXJ1bGVzICgpCj4gICAgWygqdGVybS1sZXQgbGFuZyAoKSAuIGUp
+ ICh0ZXJtLWxldCAoKSAuIGUpXQo+ICAgIFsoKnRlcm0tbGV0IGxhbmcgKGNsIC4gcmVzdCkgLiBl
+ KSAoKnRlcm0tbGV0LW9uZSBsYW5nIChjbCkgKCp0ZXJtLWxldCBsYW5nIHJlc3QgLiBlKSldKSkK
+ Pgo+IChkZWZpbmUtbWV0YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAgcHJvY3R5cGU/IDogdCAtPiBi
+ b29sZWFuCj4gIFsocHJvY3R5cGU/ICh0X2YgLi4uIC0+IHRfciA6ICgocGhfZisgLi4uKSAocGhf
+ Zi0gLi4uKSkgLi4uIDogc2hfZikpICN0XQo+ICBbKHByb2N0eXBlPyBhbnkpICNmXSkKPgo+IChk
+ ZWZpbmUtbWV0YWZ1bmN0aW9uIG9jY3VyLWxhbmcKPiAgdGMgOiBHIGUgLT4gKHQgKChwIC4uLikg
+ KHAgLi4uKSkgcykKPiAgOzsgVC1WYXIKPiAgWyh0YyBHIHgpICgobG9va3VwIEcgeCkgKCgoISAj
+ ZiAoKSB4KSkgKCgjZiAoKSB4KSkpICgoKSB4KSldCj4gIDs7IFQtQ29uc3QKPiAgWyh0YyBHIGMp
+ ICgoZGVsdGEtdCBjKSAoKCkgKGJvdCkpIDApXQo+ICA7OyBULU51bQo+ICBbKHRjIEcgbnVtYmVy
+ KSAoTiAoKCkgKGJvdCkpIDApXQo+ICA7OyBULVRydWUKPiAgWyh0YyBHICN0KSAoI3QgKCgpIChi
+ b3QpKSAwKV0KPiAgOzsgVC1GYWxzZQo+ICBbKHRjIEcgI2YpICgjZiAoKGJvdCkgKCkpIDApXQo+
+ ICA7OyBULUFicwo+ICBbKHRjIEcgKGxhbWJkYSAoW3ggOiB1XSAuLi4pIGUpKQo+ICAgLCgqdGVy
+ bS1sZXQgb2NjdXItbGFuZwo+ICAgICAgICAgICAgICAgKFsodCAoKHBfKyAuLi4pIChwXy0gLi4u
+ KSkgcykgKHRlcm0gKHRjICgoeCB1KSAuLi4gLiBHKSBlKSldCj4gICAgICAgICAgICAgICAgW2Yg
+ KHRlcm0gKChwXysgLi4uKSAocF8tIC4uLikpKV0KPiAgICAgICAgICAgICAgICBbc2hfbmV3ICht
+ YXRjaCAodGVybSBzKQo+ICAgICAgICAgICAgICAgICAgICAgICAgICBbMCAodGVybSAwKV0KPiAg
+ ICAgICAgICAgICAgICAgICAgICAgICAgWyhsaXN0IHBpIHhfaSkKPiAgICAgICAgICAgICAgICAg
+ ICAgICAgICAgIChsZXQgKFtpZHggKGZpbmQgeF9pICh0ZXJtICh4IC4uLikpKV0pCj4gICAgICAg
+ ICAgICAgICAgICAgICAgICAgICAgIChpZiBpZHgKPiAgICAgICAgICAgICAgICAgICAgICAgICAg
+ ICAgICAgIChsaXN0IHBpIGlkeCkKPiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDAp
+ KV0pXQo+ICAgICAgICAgICAgICAgIFsoZmggLi4uKQo+ICAgICAgICAgICAgICAgICAodGVybSAo
+ KGFic3RyYWN0LWZpbHRlciB4IGYpIC4uLikpXSkKPiAgICAgICAgICAgICAgICh0ZXJtICgodSAu
+ Li4gLT4gdCA6IGZoIC4uLiA6IHNoX25ldykgKCgpIChib3QpKSAwKSkpXQo+ICA7OyBULUFwcAo+
+ ICBbKHRjIEcgKGVfb3AgZV9hcmdzIC4uLikpCj4gICAsKCp0ZXJtLWxldCBvY2N1ci1sYW5nCj4g
+ ICAgICAgICAgICAgICAoW2FueSAocHJpbnRmICJzdGFydGVkXG4iKV0KPiAgICAgICAgICAgICAg
+ ICBbKHRfb3AgKChwX29wKyAuLi4pIChwX29wLSAuLi4pKSBzX29wKSAodGVybSAodGMgRyBlX29w
+ KSldCj4gICAgICAgICAgICAgICAgWygodF9hICgocF9hKyAuLi4pIChwX2EtIC4uLikpIHNfYSkg
+ Li4uKSAodGVybSAoKHRjIEcgZV9hcmdzKSAuLi4pKV0KPiAgICAgICAgICAgICAgICBbYW55IChk
+ aXNwbGF5ICh0ZXJtIHRfb3ApKV0KPiAgICAgICAgICAgICAgICBbYW55ICh1bmxlc3MgKHRlcm0g
+ KHByb2N0eXBlPyB0X29wKSkKPiAgICAgICAgICAgICAgICAgICAgICAgKGVycm9yICd0YyAifmEg
+ bm90IGEgcHJvYyB0eXBlIGluIH5hIiAodGVybSB0X29wKSAodGVybSBlX29wKSkpXQo+ICAgICAg
+ ICAgICAgICAgIFsodF9mIC4uLiAtPiB0X3IgOiBmaF9mIC4uLiA6IHNoX2YpICh0ZXJtIHRfb3Ap
+ XQo+ICAgICAgICAgICAgICAgIFsjdCAodGVybSAoYWxsICh0X2EgLiA8OiAuIHRfZikgLi4uKSld
+ Cj4gICAgICAgICAgICAgICAgW2FueSAoZGlzcGxheSAiZ290IGhlcmUgMSIpXQo+ICAgICAgICAg
+ ICAgICAgIFsoKChwXysgLi4uKSAocF8tIC4uLikpIC4uLikgKHRlcm0gKChhcHBseS1maWx0ZXIg
+ ZmhfZiB0X2Egc19hKSAuLi4pKV0KPiAgICAgICAgICAgICAgICBbYW55IChkaXNwbGF5ICJnb3Qg
+ aGVyZSA0XG4iKV0KPiAgICAgICAgICAgICAgICBbc19yIChtYXRjaCAodGVybSBzaF9mKQo+ICAg
+ ICAgICAgICAgICAgICAgICAgICBbKGxpc3QgcGkqIGkpCj4gICAgICAgICAgICAgICAgICAgICAg
+ ICAobWF0Y2ggKGxpc3QtcmVmICh0ZXJtIChzX2EgLi4uKSkgaSkKPiAgICAgICAgICAgICAgICAg
+ ICAgICAgICAgWyhsaXN0IHBpIHgpIChsaXN0IChhcHBlbmQgcGkqIHBpKSB4KV0KPiAgICAgICAg
+ ICAgICAgICAgICAgICAgICAgW18gMF0pXQo+ICAgICAgICAgICAgICAgICAgICAgICBbXyAwXSld
+ Cj4gICAgICAgICAgICAgICAgW2FueSAoZGlzcGxheSAiZ290IGhlcmUgNVxuIildKQo+ICAgICAg
+ ICAgICAgICAgKHRlcm0gKHRfciAoKHBfKyAuLi4gLi4uKSAocF8tIC4uLiAuLi4pKSBzX3IpKSld
+ Cj4gIDs7IFQtSWYKPiAgWyh0YyBHIChpZiBlX3RzdCBlX3RobiBlX2VscykKPiAgICAgICAsKCp0
+ ZXJtLWxldCBvY2N1ci1sYW5nCj4gICAgICAgICAgICAgICAgICAgKFsodF90c3QgZl90c3Qgc190
+ c3QpICh0ZXJtICh0YyBHIGVfdHN0KSldCj4gICAgICAgICAgICAgICAgICAgIFsoKHBfdHN0KyAu
+ Li4pIChwX3RzdC0gLi4uKSkgKHRlcm0gZl90c3QpXQo+ICAgICAgICAgICAgICAgICAgICBbKHRf
+ dGhuIGZfdGhuIHNfdGhuKSAodGVybSAodGMgKGVudisgRyAocF90c3QrIC4uLikgZV90aG4pKSld
+ Cj4gICAgICAgICAgICAgICAgICAgIFsodF9lbHMgZl9lbHMgc19lbHMpICh0ZXJtICh0YyAoZW52
+ KyBHIChwX3RzdC0gLi4uKSBlX2VscykpKV0KPiAgICAgICAgICAgICAgICAgICAgW2YgKHRlcm0g
+ KGNvbWItZmlsdGVyIGZfdHN0IGZfdGhuIGZfZWxzKSldKQo+ICAgICAgICAgICAgICAgICAgICh0
+ ZXJtICgoVSB0X3RobiB0X2VscykgZiAwKSkpKV0KPiAgKQo+Cj4gKioqIEhvdyB0byByZXBlYXQ6
+ Cj4KPgo+ICoqKiBFbnZpcm9ubWVudDoKPiB1bml4ICJMaW51eCBoZXJtZXMgMi42LjI0LTE2LTM4
+ NiAjMSBUaHUgQXByIDEwIDEyOjUwOjA2IFVUQyAyMDA4IGk2ODYgR05VL0xpbnV4IiAoaTM4Ni1s
+ aW51eC8zbSkgKGdldC1kaXNwbGF5LWRlcHRoKSA9IDI0Cj4gSHVtYW4gTGFuZ3VhZ2U6IGVuZ2xp
+ c2gKPiAoY3VycmVudC1tZW1vcnktdXNlKSAxMzc1NjAyNzIKPgo+IENvbGxlY3Rpb25zOgo+ICgo
+ Ii9ob21lL3NhbXRoL3NjaGVtZSIgImh0bWwtbWFrZXIiICJmb28uc3MiICJhY2wtdGVzdC5zcyIg
+ Im5ldy1tYXRjaCIgInNhbSIgImJlYW1lciIgImluZm8tZG9tYWluIikgKCIvaG9tZS9zYW10aC93
+ b3JrL2NzdTY2MC9jb2xsZWN0cy8iICIuc3ZuIiAiQ1NVNjYwIiAiaGFuZGluLXNlcnZlciIgImlu
+ Zm8tZG9tYWluIikgKCIvaG9tZS9zYW10aC8ucGx0LXNjaGVtZS80LjEuMy44L2NvbGxlY3RzIiBu
+ b24tZXhpc3RlbnQtcGF0aCkgKCIvaG9tZS9zYW10aC9zdy9wbHQ0L2NvbGxlY3RzIiAiLnN2biIg
+ InRleDJwYWdlIiAid3htZSIgInN0cmluZy1jb25zdGFudHMiICJ0ZXN0LWVuZ2luZSIgInBsYW5l
+ dCIgIm16Y29tIiAidHlwZWQtc2NoZW1lIiAiZHJzY2hlbWUiICJyNnJzIiAicy1leHAiICJmcmFt
+ ZXdvcmsiICJzcnBlcnNpc3QiICJzaXJtYWlsIiAidGVzdC1ib3gtcmVjb3ZlcnkiICJzY3JpYmJs
+ aW5ncyIgInNsaWRlc2hvdyIgInN5bnRheC1jb2xvciIgInNyZmkiICJhbGdvbDYwIiAicmVkZXgi
+ ICJkeW5leHQiICJtYWtlIiAicGxvdCIgImZpbGUiICJsYW5nIiAid2ViLXNlcnZlciIgIm9wZW5z
+ c2wiICJtYWNyby1kZWJ1Z2dlciIgInNjcmliYmxlIiAidHlwZWQiICJmcnRpbWUiICJjb21iaW5h
+ dG9yLXBhcnNlciIgIm1yZWQiICJndWlidWlsZGVyIiAiaHRkcCIgImdyYXBoaWNzIiAic2V0dXAi
+ ICJwcm9maldpemFyZCIgImFmbSIgInNjaGVtZSIgImNvbmZpZyIgImd1aS1kZWJ1Z2dlciIgImRl
+ ZmF1bHRzIiAiaG9udSIgImljb25zIiAiaGFuZGluLWNsaWVudCIgImxhenkiICJ0ZXhwaWN0IiAi
+ dGVhY2hwYWNrIiAiYnJvd3NlciIgInJucnMiICJ3YXRlcndvcmxkIiAicGFyc2VyLXRvb2xzIiAi
+ cjVycyIgImdhbWVzIiAiZW9wbCIgInRlc3RzIiAiaHRtbCIgInN3aW5kbGUiICJoYW5kaW4tc2Vy
+ dmVyIiAicmVwb3MtdGltZS1zdGFtcCIgImNvbXBpbGVyIiAiZW1iZWRkZWQtZ3VpIiAicHJvZmoi
+ ICJzdGVwcGVyIiAicmVhZGxpIQo+ICBuZSIgImhpZXJsaXN0IiAic2dsIiAidmVyc2lvbiIgInBy
+ ZXByb2Nlc3NvciIgIm5ldCIgInN5bnRheCIgImhlbHAiICJodGRjaCIgInRyYWNlIiAic2xhdGV4
+ IiAieG1sIiAibGF1bmNoZXIiICJmZmkiICJtcmxpYiIgImVycm9ydHJhY2UiICJtenNjaGVtZSIg
+ Im15c3RlcngiICJtemxpYiIgImluZm8tZG9tYWluIikpCj4gQ29tcHV0ZXIgTGFuZ3VhZ2U6ICgo
+ Ik1vZHVsZSIpICgjKCN0IHdyaXRlIG1peGVkLWZyYWN0aW9uLWUgI2YgI3Qgbm9uZSkgKGRlZmF1
+ bHQpICMoKSAiI2xhbmcgc2NoZW1lL2Jhc2VcbiIgI3QpKQo+Cj4K
+From: "Robby Findler" <robby@plt-scheme.org>
+To: "Sam TH" <samth@ccs.neu.edu>
+Cc: "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/10002: redex gives internal with-syntax error
+Date: Sun, 4 Jan 2009 11:24:01 -0600
+
+ 2009/1/4 Sam TH <samth@ccs.neu.edu>:
+ > I don't remember what the change was that led to that (I saved away
+ > that file to report the bug while w/o internet), but if you don't know
+ > immediately what's going on, I can try to narrow it down.  It's likely
+ > in the `tc' metafunction.
+ 
+ Yes, thank you. I'll take you up on that offer.
+ 
+ Robby
+From: "Sam TH" <samth@ccs.neu.edu>
+To: "Robby Findler" <robby@plt-scheme.org>
+Cc: "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/10002: redex gives internal with-syntax error
+Date: Sun, 4 Jan 2009 12:29:32 -0500
+
+ #lang scheme/base
+ 
+ (require redex)
+ (define-language occur-lang)
+ (define-metafunction occur-lang
+   tc : any -> any
+   [(tc)])
+ 
+ On Sun, Jan 4, 2009 at 12:24 PM, Robby Findler <robby@plt-scheme.org> wrote:
+ > 2009/1/4 Sam TH <samth@ccs.neu.edu>:
+ >> I don't remember what the change was that led to that (I saved away
+ >> that file to report the bug while w/o internet), but if you don't know
+ >> immediately what's going on, I can try to narrow it down.  It's likely
+ >> in the `tc' metafunction.
+ >
+ > Yes, thank you. I'll take you up on that offer.
+ >
+ > Robby
+ >
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+
+Responsible changed from "nobody" to "robby" by robby at Sun, 04 Jan 2009 13:12:52 -0500
+Reason>>> rbf
+
+State changed from "open" to "closed" by robby at Sun, 04 Jan 2009 13:12:52 -0500
+Reason>>> I added extra checking for syntax errors to Redex
+
+From: "Robby Findler" <robby@plt-scheme.org>
+To: "Sam TH" <samth@ccs.neu.edu>
+Cc: "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/10002: redex gives internal with-syntax error
+Date: Sun, 4 Jan 2009 12:13:06 -0600
+
+ On Sun, Jan 4, 2009 at 11:29 AM, Sam TH <samth@ccs.neu.edu> wrote:
+ > #lang scheme/base
+ >
+ > (require redex)
+ > (define-language occur-lang)
+ > (define-metafunction occur-lang
+ >  tc : any -> any
+ >  [(tc)])
+ 
+ Thanks!
+ 
+ Robby
+

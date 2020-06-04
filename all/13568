@@ -1,0 +1,284 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Mar  2 12:36:21 2013
+Received: from mail-ob0-f176.google.com (mail-ob0-f176.google.com [209.85.214.176])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r22HaICI016931
+	for <bugs@bugs.plt-scheme.org>; Sat, 2 Mar 2013 12:36:18 -0500
+Message-Id: <201303021736.r22HaFWo016926@champlain.ccs.neu.edu>
+Date: Sat, 2 Mar 2013 12:36:15 -0500
+From: matthias@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: with-limits raises wrong exception
+
+>Number:         13568
+>Category:       all
+>Synopsis:       with-limits raises wrong exception
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Mar 02 12:40:01 -0500 2013
+>Last-Modified:  Sat Mar 02 17:20:02 -0500 2013
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.3.7--2013-02-27(f5e85a65/d)
+>Environment:
+macosx "Darwin europeII.local 11.4.2 Darwin Kernel Version 11.4.2: Thu Aug 23 16:25:48 PDT 2012; root:xnu-1699.32.7~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 389446252
+Links: (links) = ("Acquire"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+Planet2 (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.3.7):
+ [none]
+
+
+
+Collections:
+("/Users/matthias/0Unison/collects/"
+ ("._.DS_Store" ".DS_Store" "compiled" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web"))
+("/Users/matthias/Library/Racket/5.3.3.7/collects"
+ (non-existent-path))
+("/Users/matthias/plt/collects"
+ (".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "math" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "planet2" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "realm" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs" "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "s!
+ windle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "tool" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+with-limits is supposed to raise exn:fail:resource when memory limits are exceeded but it raises an exn:fail:out-of-memory instead. 
+>How-To-Repeat:
+> (with-handlers ((exn:fail? (lambda (x) x))) (with-limits 1 1 (void (make-bytes 10000000))))
+(exn:fail:out-of-memory "out of memory " #<continuation-mark-set>)
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: matthias@ccs.neu.edu, bugs@racket-lang.org
+Cc: bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13568: with-limits raises wrong exception
+Date: Sat, 2 Mar 2013 14:14:04 -0500
+
+ An hour and a half ago, matthias@ccs.neu.edu wrote:
+ > with-limits is supposed to raise exn:fail:resource when memory
+ > limits are exceeded but it raises an exn:fail:out-of-memory instead.
+ > 
+ > *** How to repeat:
+ > > (with-handlers ((exn:fail? (lambda (x) x))) (with-limits 1 1 (void (make-bytes 10000000))))
+ > (exn:fail:out-of-memory "out of memory " #<continuation-mark-set>)
+ 
+ (Advantage for being code picky: the first sign I had that the error
+ is not from the sandbox is the extra space at the end of the message.)
+ 
+ It seems to me that this runs into the primitive memory protection in
+ the core, so you get that error instead of the error from the
+ sandbox.  IOW, the sandbox doesn't even see a memory problem, just a
+ regular exception which is propagated up as usual.
+ 
+ One solution would be to make the sandbox catch these errors and
+ translate them to its own exc:fail:resource.  I don't like it since
+ it's generally not doing such tweaking of errors or values.
+ 
+ I think that a better solution is to unify the two things: either move
+ the exn:fail:resource exception to the core and make it throw it, or
+ make the sandbox use exn:fail:out-of-memory.  I prefer the former,
+ since there are other resources that could be used: there's the
+ runtime resource currently, and in the future it might have other
+ things like a network limits, opened ports or whatever.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13568: with-limits raises wrong exception
+Date: Sat, 2 Mar 2013 17:08:13 -0500
+
+ On Mar 2, 2013, at 2:14 PM, Eli Barzilay wrote:
+ 
+ > An hour and a half ago, matthias@ccs.neu.edu wrote:
+ >> with-limits is supposed to raise exn:fail:resource when memory
+ >> limits are exceeded but it raises an exn:fail:out-of-memory instead.
+ >> 
+ >> *** How to repeat:
+ >>> (with-handlers ((exn:fail? (lambda (x) x))) (with-limits 1 1 (void (make-bytes 10000000))))
+ >> (exn:fail:out-of-memory "out of memory " #<continuation-mark-set>)
+ > 
+ > (Advantage for being code picky: the first sign I had that the error
+ > is not from the sandbox is the extra space at the end of the message.)
+ > 
+ > It seems to me that this runs into the primitive memory protection in
+ > the core, so you get that error instead of the error from the
+ > sandbox.  IOW, the sandbox doesn't even see a memory problem, just a
+ > regular exception which is propagated up as usual.
+ > 
+ > One solution would be to make the sandbox catch these errors and
+ > translate them to its own exc:fail:resource.  I don't like it since
+ > it's generally not doing such tweaking of errors or values.
+ > 
+ > I think that a better solution is to unify the two things: either move
+ > the exn:fail:resource exception to the core and make it throw it, or
+ > make the sandbox use exn:fail:out-of-memory.  I prefer the former,
+ > since there are other resources that could be used: there's the
+ > runtime resource currently, and in the future it might have other
+ > things like a network limits, opened ports or whatever.
+ 
+ 
+ 
+ I don't understand this reply. From where I sit,
+ 
+  [1] with-limits 1 1 promises to stop the program if it allocates more than 1Mb
+  [2] and it promises a certain exception 
+ 
+ My program exceeds the allocation limit and raises a different exception. So one of two things is wrong: 
+ 
+ 1. the sandbox 
+ 2. the docs. 
+ 
+ Am I wrong? 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13568: with-limits raises wrong exception
+Date: Sat, 2 Mar 2013 17:14:47 -0500
+
+ Just now, Matthias Felleisen wrote:
+ > 
+ > I don't understand this reply. From where I sit,
+ > 
+ >  [1] with-limits 1 1 promises to stop the program if it allocates
+ >  more than 1Mb
+ >  [2] and it promises a certain exception 
+ > 
+ > My program exceeds the allocation limit and raises a different
+ > exception. So one of two things is wrong:
+ > 
+ > 1. the sandbox 
+ > 2. the docs. 
+ > 
+ > Am I wrong? 
+ 
+ Your #2 is right in principle, but its definition iffy: it promises to
+ throw a certain exception if it detects using more than 1mb, but in
+ this case it didn't detect any -- it happened at the core level, when
+ you tried to allocate a chunk of memory that is larger than 1mb.  So
+ as far as the code in the sandbox goes, it's as if you tried (+ 1 "2")
+ where an error got thrown before it ran out of memory.
+ 
+ This is all being too pedantic from a user's point of view, so I did
+ suggest three solutions:
+ 
+ 1. Modify the core-thrown exception,
+ 2. Unify the two exceptions so they're the same, either by making
+    (a) the core throw the sandbox exception, or (b) the other way.
+ 
+ All of these will result in what you want as a user (modulo the change
+ in the exception type with the 2b solution).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13568: with-limits raises wrong exception
+Date: Sat, 2 Mar 2013 17:17:46 -0500
+
+ Sounds like you and Matthew need to talk. 
+ 
+ 
+ On Mar 2, 2013, at 5:14 PM, Eli Barzilay wrote:
+ 
+ > Just now, Matthias Felleisen wrote:
+ >> 
+ >> I don't understand this reply. From where I sit,
+ >> 
+ >> [1] with-limits 1 1 promises to stop the program if it allocates
+ >> more than 1Mb
+ >> [2] and it promises a certain exception 
+ >> 
+ >> My program exceeds the allocation limit and raises a different
+ >> exception. So one of two things is wrong:
+ >> 
+ >> 1. the sandbox 
+ >> 2. the docs. 
+ >> 
+ >> Am I wrong? 
+ > 
+ > Your #2 is right in principle, but its definition iffy: it promises to
+ > throw a certain exception if it detects using more than 1mb, but in
+ > this case it didn't detect any -- it happened at the core level, when
+ > you tried to allocate a chunk of memory that is larger than 1mb.  So
+ > as far as the code in the sandbox goes, it's as if you tried (+ 1 "2")
+ > where an error got thrown before it ran out of memory.
+ > 
+ > This is all being too pedantic from a user's point of view, so I did
+ > suggest three solutions:
+ > 
+ > 1. Modify the core-thrown exception,
+ > 2. Unify the two exceptions so they're the same, either by making
+ >   (a) the core throw the sandbox exception, or (b) the other way.
+ > 
+ > All of these will result in what you want as a user (modulo the change
+ > in the exception type with the 2b solution).
+ > 
+ > -- 
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                    http://barzilay.org/                   Maze is Life!
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13568: with-limits raises wrong exception
+Date: Sat, 2 Mar 2013 17:18:27 -0500
+
+ Just now, Matthias Felleisen wrote:
+ > 
+ > Sounds like you and Matthew need to talk. 
+ 
+ Yes, it's between the sandbox and the core.
+ 
+ 
+ > On Mar 2, 2013, at 5:14 PM, Eli Barzilay wrote:
+ > 
+ > > Just now, Matthias Felleisen wrote:
+ > >> 
+ > >> I don't understand this reply. From where I sit,
+ > >> 
+ > >> [1] with-limits 1 1 promises to stop the program if it allocates
+ > >> more than 1Mb
+ > >> [2] and it promises a certain exception 
+ > >> 
+ > >> My program exceeds the allocation limit and raises a different
+ > >> exception. So one of two things is wrong:
+ > >> 
+ > >> 1. the sandbox 
+ > >> 2. the docs. 
+ > >> 
+ > >> Am I wrong? 
+ > > 
+ > > Your #2 is right in principle, but its definition iffy: it
+ > > promises to throw a certain exception if it detects using more
+ > > than 1mb, but in this case it didn't detect any -- it happened at
+ > > the core level, when you tried to allocate a chunk of memory that
+ > > is larger than 1mb.  So as far as the code in the sandbox goes,
+ > > it's as if you tried (+ 1 "2") where an error got thrown before it
+ > > ran out of memory.
+ > > 
+ > > This is all being too pedantic from a user's point of view, so I
+ > > did suggest three solutions:
+ > > 
+ > > 1. Modify the core-thrown exception,
+ > > 2. Unify the two exceptions so they're the same, either by making
+ > >   (a) the core throw the sandbox exception, or (b) the other way.
+ > > 
+ > > All of these will result in what you want as a user (modulo the
+ > > change in the exception type with the 2b solution).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!

@@ -1,0 +1,102 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jan  7 22:06:19 2016
+Received: from mail-io0-f180.google.com (mail-io0-f180.google.com [209.85.223.180])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u0836GeP025896
+	for <bugs@bugs.plt-scheme.org>; Thu, 7 Jan 2016 22:06:16 -0500
+Message-Id: <201601080306.u0836D6V025889@winooski.ccs.neu.edu>
+Date: Thu, 7 Jan 2016 22:06:13 -0500
+From: iam@juanfra.info
+To: bugs@racket-lang.org
+Subject: "raco distribute" doesn't work on OpenBSD
+
+>Number:         15214
+>Category:       all
+>Synopsis:       "raco distribute" doesn't work on OpenBSD
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Jan 07 22:08:01 -0500 2016
+>Last-Modified:  Mon Jan 11 22:36:01 -0500 2016
+>Originator:     Juan Francisco Cantero Hurtado
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.3
+>Environment:
+unix "OpenBSD sobremesa.juanfra 5.9 GENERIC.MP#1783 amd64" (x86_64-openbsd/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 290629940
+raco pkg (show):
+Installation-wide:
+ Package     Checksum     Source
+ racket-lib  1f53b49c...  catalog racket-lib
+User-specific for installation "6.3":
+ Package            Checksum     Source
+ main-distribution  46973fb2...  catalog main-distribution
+ racket-test-core   864875e6...  catalog racket-test-core
+ [183 auto-installed packages not shown]
+
+
+
+Collections:
+("/home/juanfra/.racket/6.3/collects"
+ (non-existent-path))
+("/usr/local/share/racket/collects"
+ ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test)) #t))
+>Description:
+"raco distribute" doesn't work on OpenBSD because "raco exe" generates an executable without the write permission. I'm using racket-minimal. The same commands work fine on Linux. Maybe a bug similar to PR 15008 ?.
+>How-To-Repeat:
+Install racket-minimal on OpenBSD and follow these steps:
+
+$ cat example.rkt
+#lang racket/base
+
+(displayln (+ 2 2))
+$ racket example.rkt
+4
+$ raco exe example.rkt
+$ ./example
+4
+$ raco distribute output example
+with-output-to-file: cannot open output file
+  path: /tmp/racket/output/bin/example
+  system error: Permission denied; errno=13
+  context...:
+   /usr/local/share/racket/collects/racket/private/kw-file.rkt:88:2: with-output-to-file5
+4
+   /usr/local/share/racket/collects/compiler/distribute.rkt:325:2: patch-stub-exe-paths
+   /usr/local/share/racket/collects/compiler/..:64:19: loop
+   /usr/local/share/racket/collects/compiler/distribute.rkt:18:2: assemble-distribution11
+$ ls -lh example*
+-r-xr-xr-x  1 juanfra  wheel   857K Jan  8 03:39 example
+-rwxr-xr-x  1 juanfra  wheel    39B Jan  8 03:37 example.rkt
+$ chmod 755 example
+$ ls -lh example*
+-rwxr-xr-x  1 juanfra  wheel   857K Jan  8 03:39 example
+-rwxr-xr-x  1 juanfra  wheel    39B Jan  8 03:37 example.rkt
+$ raco distribute output example
+$ ./output/bin/example
+4
+>Fix:
+>Audit-Trail:
+From: Juan Francisco Cantero Hurtado <iam@juanfra.info>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/15214: "raco distribute" doesn't work on OpenBSD
+Date: Tue, 12 Jan 2016 04:32:09 +0100
+
+ I think that I see where is the problem. On OpenBSD, the racket binaries 
+ are installed without the write permission (555). "raco exe" modifies 
+ temporally the permissions of the file to embed the content, restoring 
+ the original permissions later (look the commit 5affb68). "raco 
+ distribute" doesn't change the write permission itself, so it can't 
+ embed the content in the executable. Adding a similar patch at the 
+ beginning/end of the "distribute" code would fix the bug.
+ 
+ Probably the bug is reproducible on any unix system if you change the 
+ permissions of the racket binary to 555.

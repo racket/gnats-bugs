@@ -1,0 +1,1501 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Sep 24 15:41:55 2007
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.191])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l8OJfsJK011449
+	for <bugs@bugs.plt-scheme.org>; Mon, 24 Sep 2007 15:41:54 -0400
+Message-Id: <200709241941.l8OJfkuU011444@champlain.ccs.neu.edu>
+Date: Mon, 24 Sep 2007 15:41:46 -0400
+From: pbewig@gmail.com
+To: bugs@plt-scheme.org
+Subject: Space leak in infinite streams
+
+>Number:         8963
+>Category:       mzscheme
+>Synopsis:       Space leak in infinite streams
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Sep 24 15:45:01 -0400 2007
+>Closed-Date:    Sat Feb 09 15:24:34 -0500 2008
+>Last-Modified:  Sat Feb 09 15:25:06 -0500 2008
+>Originator:     Phil Bewig
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        360
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Program Files\\PLT\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 156065792
+
+Collections:
+(("C:\\Documents and Settings\\pbewig\\Application Data\\PLT Scheme\\360\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "readline" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tex2page" "texpict" "trace" "version" "web-server" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "Standard (R5RS)") #6(#f write mixed-fraction-e #f #t debug))
+>Description:
+I am working on a sequel to my SRFI-40 on streams.  The following program causes a space leak in PLT but not Chez:
+
+(define (times3 n)
+  (stream-ref
+    (stream-filter
+      (lambda (x) (zero? (modulo x n)))
+      (stream-from 0))
+    3))
+
+Called as (times3 10000000), the memory consumed by PLT, as reported by the Windows Task Manager, increases continuously.  With Chez Scheme, memory usage is constant.  The code of my streams package is attached.
+
+Please email me if you need more information.
+>How-To-Repeat:
+; streams.ss PLB 24SEP2007
+
+; Copyright (C) 2007 by Philip L. Bewig of Saint Louis, Missouri, USA.  All rights
+; reserved.  Permission is granted to use, distribute and/or modify the program
+; library described herein under the terms of the GNU General Public License, Version
+; 3 or any later version published by the Free Software Foundation, available at
+; www.gnu.org/copyleft/gpl.html.  Permission is also granted to use, distribute
+; and/or modify the program library described herein under the terms of the GNU
+; Lesser General Public License, Version 3 or any later version published by the
+; Free Software Foundation, available at www.gnu.org/copylert/lesser.html.  A
+; printed copy of any of these licenses is also available by writing to the Free
+; Software Foundation, 51 Franklin Street, Fifth Floor, Boston, Massachusetts 02110,
+; USA. The program library described herein is distributed in the hope that it will
+; be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE, as described in the GNU
+; General Public License.   The author can be reached at pbewig@gmail.com.  The
+; program library is available at schemephil.googlepages.com/streams.ss; a document
+; describing it is available at schemephil.googlepages.com/streams.pdf.
+
+; This file contains the complete source code from the Streams paper.  Since R6RS
+; systems are not yet available, the code is provided in a form that can be loaded in
+; any R5RS (or even R4RS) Scheme system that provides syntax-case macros.  Since these
+; systems have no module system, it is incumbent on the user to refrain from using
+; private functions of the two modules.  Use only those functions, procedures and
+; macros described in the Streams paper.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SRFI-9 records
+
+; Definition of DEFINE-RECORD-TYPE
+
+(define-syntax define-record-type
+  (syntax-rules ()
+    ((define-record-type type
+       (constructor constructor-tag ...)
+       predicate
+       (field-tag accessor . more) ...)
+     (begin
+       (define type
+         (make-record-type 'type '(field-tag ...)))
+       (define constructor
+         (record-constructor type '(constructor-tag ...)))
+       (define predicate
+         (record-predicate type))
+       (define-record-field type field-tag accessor . more)
+       ...))))
+
+; An auxilliary macro for define field accessors and modifiers.
+; This is needed only because modifiers are optional.
+
+(define-syntax define-record-field
+  (syntax-rules ()
+    ((define-record-field type field-tag accessor)
+     (define accessor (record-accessor type 'field-tag)))
+    ((define-record-field type field-tag accessor modifier)
+     (begin
+       (define accessor (record-accessor type 'field-tag))
+       (define modifier (record-modifier type 'field-tag))))))
+
+; This implements a record abstraction that is identical to vectors,
+; except that they are not vectors (VECTOR? returns false when given a
+; record and RECORD? returns false when given a vector).  The following
+; procedures are provided:
+;   (record? <value>)                -> <boolean>
+;   (make-record <size>)             -> <record>
+;   (record-ref <record> <index>)    -> <value>
+;   (record-set! <record> <index> <value>) -> <unspecific>
+;
+; These can implemented in R5RS Scheme as vectors with a distinguishing
+; value at index zero, providing VECTOR? is redefined to be a procedure
+; that returns false if its argument contains the distinguishing record
+; value.  EVAL is also redefined to use the new value of VECTOR?.
+
+; Define the marker and redefine VECTOR? and EVAL.
+
+(define record-marker (list 'record-marker))
+
+(define real-vector? vector?)
+
+(define (vector? x)
+  (and (real-vector? x)
+       (or (= 0 (vector-length x))
+	   (not (eq? (vector-ref x 0)
+		record-marker)))))
+
+; This won't work if ENV is the interaction environment and someone has
+; redefined LAMBDA there.
+
+(define eval
+  (let ((real-eval eval))
+    (lambda (exp env)
+      ((real-eval `(lambda (vector?) ,exp))
+       vector?))))
+
+; Definitions of the record procedures.
+
+(define (record? x)
+  (and (real-vector? x)
+       (< 0 (vector-length x))
+       (eq? (vector-ref x 0)
+            record-marker)))
+
+(define (make-record size)
+  (let ((new (make-vector (+ size 1))))
+    (vector-set! new 0 record-marker)
+    new))
+
+(define (record-ref record index)
+  (vector-ref record (+ index 1)))
+
+(define (record-set! record index value)
+  (vector-set! record (+ index 1) value))
+
+; We define the following procedures:
+; 
+; (make-record-type <type-name <field-names>)    -> <record-type>
+; (record-constructor <record-type<field-names>) -> <constructor>
+; (record-predicate <record-type>)               -> <predicate>
+; (record-accessor <record-type <field-name>)    -> <accessor>
+; (record-modifier <record-type <field-name>)    -> <modifier>
+;   where
+; (<constructor> <initial-value> ...)         -> <record>
+; (<predicate> <value>)                       -> <boolean>
+; (<accessor> <record>)                       -> <value>
+; (<modifier> <record> <value>)         -> <unspecific>
+
+; Record types are implemented using vector-like records.  The first
+; slot of each record contains the record's type, which is itself a
+; record.
+
+(define (record-type record)
+  (record-ref record 0))
+
+;----------------
+; Record types are themselves records, so we first define the type for
+; them.  Except for problems with circularities, this could be defined as:
+;  (define-record-type :record-type
+;    (make-record-type name field-tags)
+;    record-type?
+;    (name record-type-name)
+;    (field-tags record-type-field-tags))
+; As it is, we need to define everything by hand.
+
+(define :record-type (make-record 3))
+(record-set! :record-type 0 :record-type)	; Its type is itself.
+(record-set! :record-type 1 ':record-type)
+(record-set! :record-type 2 '(name field-tags))
+
+; Now that :record-type exists we can define a procedure for making more
+; record types.
+
+(define (make-record-type name field-tags)
+  (let ((new (make-record 3)))
+    (record-set! new 0 :record-type)
+    (record-set! new 1 name)
+    (record-set! new 2 field-tags)
+    new))
+
+; Accessors for record types.
+
+(define (record-type-name record-type)
+  (record-ref record-type 1))
+
+(define (record-type-field-tags record-type)
+  (record-ref record-type 2))
+
+;----------------
+; A utility for getting the offset of a field within a record.
+
+(define (field-index type tag)
+  (let loop ((i 1) (tags (record-type-field-tags type)))
+    (cond ((null? tags)
+           (error "record type has no such field" type tag))
+          ((eq? tag (car tags))
+           i)
+          (else
+           (loop (+ i 1) (cdr tags))))))
+
+;----------------
+; Now we are ready to define RECORD-CONSTRUCTOR and the rest of the
+; procedures used by the macro expansion of DEFINE-RECORD-TYPE.
+
+(define (record-constructor type tags)
+  (let ((size (length (record-type-field-tags type)))
+        (arg-count (length tags))
+        (indexes (map (lambda (tag)
+                        (field-index type tag))
+                      tags)))
+    (lambda args
+      (if (= (length args)
+             arg-count)
+          (let ((new (make-record (+ size 1))))
+            (record-set! new 0 type)
+            (for-each (lambda (arg i)
+			(record-set! new i arg))
+                      args
+                      indexes)
+            new)
+          (error "wrong number of arguments to constructor" type args)))))
+
+(define (record-predicate type)
+  (lambda (thing)
+    (and (record? thing)
+         (eq? (record-type thing)
+              type))))
+
+(define (record-accessor type tag)
+  (let ((index (field-index type tag)))
+    (lambda (thing)
+      (if (and (record? thing)
+               (eq? (record-type thing)
+                    type))
+          (record-ref thing index)
+          (error "accessor applied to bad value" type tag thing)))))
+
+(define (record-modifier type tag)
+  (let ((index (field-index type tag)))
+    (lambda (thing value)
+      (if (and (record? thing)
+               (eq? (record-type thing)
+                    type))
+          (record-set! thing index value)
+          (error "modifier applied to bad value" type tag thing)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; SRFI-23 errors
+
+(define (error reason . args)
+  (display "Error: ")
+  (display reason)
+  (for-each (lambda (arg) 
+            (display " ")
+            (write arg))
+            args)
+  (newline)
+  (scheme-report-environment -1))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; stream-primitives
+
+;(module stream-primitives mzscheme
+
+;  (require (lib "9.ss" "srfi"))
+
+  (define-record-type stream-type
+    (make-stream box)
+    stream?
+    (box stream-promise stream-promise!))
+
+  (define-syntax stream-lazy
+    (syntax-rules ()
+      ((lazy expr)
+        (make-stream
+          (cons 'lazy (lambda () expr))))))
+
+  (define (stream-eager expr)
+    (make-stream
+      (cons 'eager expr)))
+
+  (define-syntax stream-delay
+    (syntax-rules ()
+      ((stream-delay expr)
+        (stream-lazy (stream-eager expr)))))
+
+  (define (stream-force promise)
+    (let ((content (stream-promise promise)))
+      (case (car content)
+        ((eager) (cdr content))
+        ((lazy)  (let* ((promise* ((cdr content)))
+                        (content  (stream-promise promise)))
+                   (if (not (eqv? (car content) 'eager))
+                       (begin (set-car! content (car (stream-promise promise*)))
+                              (set-cdr! content (cdr (stream-promise promise*)))
+                              (stream-promise! promise* content)))
+                   (stream-force promise))))))
+
+  (define stream-null (stream-delay (cons 'stream 'null)))
+
+  (define-record-type stream-pare-type
+    (make-stream-pare kar kdr)
+    stream-pare?
+    (kar stream-kar)
+    (kdr stream-kdr))
+
+  (define (stream-pair? obj)
+    (and (stream? obj) (stream-pare? (stream-force obj))))
+
+  (define (stream-null? obj)
+    (and (stream? obj)
+         (eqv? (stream-force obj)
+               (stream-force stream-null))))
+
+  (define-syntax stream-cons
+    (syntax-rules ()
+      ((stream-cons obj strm)
+        (stream-delay (make-stream-pare (stream-delay obj) (stream-lazy strm))))))
+
+  (define (stream-car strm)
+    (cond ((not (stream? strm)) (error "attempt to take stream-car of non-stream"))
+          ((stream-null? strm) (error "attempt to take stream-car of null stream"))
+          (else (stream-force (stream-kar (stream-force strm))))))
+
+  (define (stream-cdr strm)
+    (cond ((not (stream? strm)) (error "attempt to take stream-cdr of non-stream"))
+          ((stream-null? strm) (error "attempt to take stream-cdr of null stream"))
+          (else (stream-kdr (stream-force strm)))))
+
+  (define-syntax stream-lambda
+    (syntax-rules ()
+      ((stream-lambda formals body0 body1 ...)
+        (lambda formals (stream-lazy (let () body0 body1 ...))))))
+
+ 
+;  (provide stream-lambda
+;           stream-null stream-cons
+;           stream? stream-null? stream-pair?
+;           stream-car stream-cdr))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; stream-library
+
+;(module stream-library mzscheme
+ 
+;  (require stream-primitives)
+
+
+  (define (ormap pred? . lists)
+    (and (not (null? (car lists)))
+         (or (apply pred? (map car lists))
+             (apply ormap pred? (map cdr lists)))))
+
+  (define-syntax define-stream
+    (syntax-rules ()
+      ((define-stream (name . formal) body0 body1 ...)
+        (define name (stream-lambda formal body0 body1 ...)))
+      ((define-stream (name formals ...) body0 body1 ...)
+        (define name (stream-lambda (formals ...) body0 body1 ...)))))
+
+  (define (list->stream objs)
+    (define list->stream
+      (stream-lambda (objs)
+        (if (null? objs)
+            stream-null
+            (stream-cons (car objs) (list->stream (cdr objs))))))
+    (if (not (list? objs))
+        (error "non-list argument to list->stream")
+        (list->stream objs)))
+
+  (define (port->stream . port)
+    (define port->stream
+      (stream-lambda (c port)
+        (if (eof-object? c)
+            stream-null
+            (stream-cons c (port->stream (read-char port) port)))))
+    (let ((p (if (null? port) (current-input-port) (car port))))
+      (if (not (input-port? p))
+          (error "non-input-port argument to port->stream")
+          (port->stream (read-char p) p))))
+
+  (define-syntax stream
+    (syntax-rules ()
+      ((stream) stream-null)
+      ((stream x y ...) (stream-cons x (stream y ...)))))
+
+  (define (stream->list . args)
+    (let ((n (if (= 1 (length args)) -1 (car args)))
+          (strm (if (= 1 (length args)) (car args) (cadr args))))
+      (cond ((not (stream? strm)) (error "non-stream argument to stream->list"))
+            ((not (integer? n)) (error "non-integer count to stream->list"))
+            ((< n -1) (error "negative count to stream->list"))
+            (else (let loop ((n (if n n -1)) (strm strm))
+                    (if (or (zero? n) (stream-null? strm))
+                        '()
+                        (cons (stream-car strm) (loop (- n 1) (stream-cdr strm)))))))))
+
+  (define (stream-append . strms)
+    (define stream-append
+      (stream-lambda (strms)
+        (cond ((null? (cdr strms)) (car strms))
+              ((stream-null? (car strms)) (stream-append (cdr strms)))
+              (else (stream-cons (stream-car (car strms))
+                                 (stream-append (cons (stream-cdr (car strms)) (cdr strms))))))))
+    (cond ((null? strms) stream-null)
+          ((ormap (lambda (x) (not (stream? x))) strms)
+            (error "non-stream argument to stream-append"))
+          (else (stream-append strms))))
+
+  (define stream-constant
+    (stream-lambda objs
+      (cond ((null? objs) stream-null)
+            ((null? (cdr objs)) (stream-cons (car objs) (stream-constant (car objs))))
+            (else (stream-cons (car objs)
+                               (apply stream-constant (append (cdr objs) (list (car objs)))))))))
+
+  (define (stream-drop n strm)
+    (define stream-drop
+      (stream-lambda (n strm)
+        (if (or (zero? n) (stream-null? strm))
+            strm
+            (stream-drop (- n 1) (stream-cdr strm)))))
+    (cond ((not (integer? n)) (error "non-integer argument to stream-drop"))
+          ((negative? n) (error "negative argument to stream-drop"))
+          ((not (stream? strm)) (error "non-stream argument to stream-drop"))
+          (else (stream-drop n strm))))
+
+  (define (stream-drop-while pred? strm)
+    (define stream-drop-while
+      (stream-lambda (strm)
+        (if (pred? (stream-car strm))
+            (stream-drop-while (stream-cdr strm))
+            strm)))
+    (cond ((not (procedure? pred?)) (error "non-functional argument to stream-drop-while"))
+          ((not (stream? strm)) (error "non-stream-argument to stream-drop-while"))
+          (else (stream-drop-while strm))))
+
+  (define (stream-filter pred? strm)
+    (define stream-filter
+      (stream-lambda (strm)
+        (cond ((stream-null? strm) stream-null)
+              ((pred? (stream-car strm))
+                (stream-cons (stream-car strm) (stream-filter (stream-cdr strm))))
+              (else (stream-filter (stream-cdr strm))))))
+    (cond ((not (procedure? pred?)) (error "non-functional argument to stream-filter"))
+          ((not (stream? strm)) (error "non-stream argument to stream-filter"))
+          (else (stream-filter strm))))
+
+  (define (stream-fold func base strm)
+    (cond ((not (procedure? func)) (error "non-functional argument to stream-fold"))
+          ((not (stream? strm)) (error "non-stream argument to stream-fold"))
+          (else (let loop ((base base) (strm strm))
+                  (if (stream-null? strm)
+                      base
+                      (loop (func base (stream-car strm)) (stream-cdr strm)))))))
+
+  (define (stream-for-each proc . strms)
+    (define (stream-for-each strms)
+      (if (not (ormap stream-null? strms))
+          (begin (apply proc (map stream-car strms))
+                 (stream-for-each (map stream-cdr strms)))))
+    (cond ((not (procedure? proc)) (error "non-functional argument to stream-for-each"))
+          ((null? strms) (error "no stream arguments to stream-for-each"))
+          ((ormap (lambda (x) (not (stream? x))) strms)
+            (error "non-stream argument to stream-for-each"))
+          (else (stream-for-each strms))))
+
+  (define (stream-from first . step)
+    (define stream-from
+      (stream-lambda (first delta)
+        (stream-cons first (stream-from (+ first delta) delta))))
+    (let ((delta (if (null? step) 1 (car step))))
+      (cond ((not (number? first)) (error "non-numeric starting number in stream-from"))
+            ((not (number? delta)) (error "non-numeric step size in stream-from"))
+            (else (stream-from first delta)))))
+
+  (define (stream-iterate func base)
+    (define stream-iterate
+      (stream-lambda (base)
+        (stream-cons base (stream-iterate (func base)))))
+    (if (not (procedure? func))
+        (error "non-functional argument to stream-iterate")
+        (stream-iterate base)))
+
+  (define (stream-length strm)
+    (if (not (stream? strm))
+        (error "non-functional argument to stream-length")
+        (let loop ((len 0) (strm strm))
+          (if (stream-null? strm)
+              len
+              (loop (+ len 1) (stream-cdr strm))))))
+
+  (define-syntax stream-let
+    (syntax-rules ()
+      ((stream-let tag ((name val) ...) body1 body2 ...)
+       ((stream-letrec ((tag (stream-lambda (name ...) body1 body2 ...))) tag) val ...))))
+
+  (define-syntax stream-letrec
+    (syntax-rules ()
+      ((stream-letrec ((var1 init1) ...) body ...)
+        (stream-letrec "generate temp names"
+          (var1 ...) () ((var1 init1) ...) body ...))
+      ((stream-letrec "generate temp names" () (temp1 ...) ((var1 init1) ...) body ...)
+        (let ((var1 #f) ...)
+          (let ((temp1 init1) ...) (set! var1 temp1) ... body ...)))
+      ((stream-letrec "generate temp names"
+                      (x y ...) (temp ...) ((var1 init1) ...) body ...)
+       (stream-letrec "generate temp names"
+                      (y ...) (newtemp temp ...) ((var1 init1) ...) body ...))))
+
+  (define (stream-map func . strms)
+    (define stream-map
+      (stream-lambda (strms)
+        (if (ormap stream-null? strms)
+            stream-null
+            (stream-cons (apply func (map stream-car strms))
+                         (stream-map (map stream-cdr strms))))))
+    (cond ((not (procedure? func)) (error "non-functional argument to stream-map"))
+          ((null? strms) (error "no stream arguments to stream-map"))
+          ((ormap (lambda (x) (not (stream? x))) strms)
+            (error "non-stream argument to stream-map"))
+          (else (stream-map strms))))
+
+  (define-syntax stream-match
+  (syntax-rules ()
+   ((stream-match strm-expr (pattern expr0 expr ...) ...)
+    (let ((strm strm-expr))
+     (cond
+      ((not (stream? strm))
+       (error "non-stream argument to stream-match"))
+      ((stream-match-aux strm pattern
+        (list (let () expr0 expr ...))) => car) ...
+      (else (error "pattern failure in stream-match")))))))
+
+  (define-syntax (stream-match-aux stx)
+    (define (constant? x)
+      (and (not (identifier? x))
+      (let ((x (syntax-object->datum x)))
+        (or (boolean? x)
+        (number? x)
+        (char? x)
+        (string? x)))))
+   (syntax-case stx (_)
+     ((stream-match-aux strm () body)
+       (syntax (and (stream-null? strm) body)))
+     ((stream-match-aux strm _ body)
+      (syntax body))
+     ((stream-match-aux strm var body)
+       (identifier? (syntax var))
+       (syntax (let ((var strm)) body)))
+     ((stream-match-aux strm (_ . more) body)
+       (syntax
+         (and (stream-pair? strm)
+              (let ((strm-kdr (stream-cdr strm)))
+                (stream-match-aux strm-kdr more body)))))
+     ((stream-match-aux strm (var . more) body)
+       (identifier? (syntax var))
+       (syntax
+         (and (stream-pair? strm)
+           (let ((var (stream-car strm)) (strm-kdr (stream-cdr strm)))
+             (stream-match-aux strm-kdr more body)))))
+     ((stream-match-aux strm (const . more) body)
+       (constant? (syntax const))
+       (syntax
+         (and (stream-pair? strm) (equal? const (stream-car strm))
+           (let ((strm-kdr (stream-cdr strm)))
+             (stream-match-aux strm-kdr more body)))))
+     ((stream-match-aux strm wrong-pattern body)
+       (raise-syntax-error 'stream-match "pattern failure in stream-match"
+       stx (syntax wrong-pattern)))))
+
+  (define-syntax stream-of
+    (syntax-rules ()
+      ((_ expr rest ...)
+        (stream-of-aux expr stream-null rest ...))))
+
+  (define-syntax stream-of-aux
+    (syntax-rules (in is step ..)
+      ((stream-of-aux expr base)
+        (stream-cons expr base))
+      ((stream-of-aux expr base (var in stream) rest ...)
+        (stream-let loop ((strm stream))
+          (if (stream-null? strm)
+              base
+              (let ((var (stream-car strm)))
+                (stream-of-aux expr (loop (stream-cdr strm)) rest ...)))))
+      ((stream-of-aux expr base (var step first second .. past) rest ...)
+        (let ((lt? (if (< first past) < >)) (delta (- second first)))
+          (stream-let loop ((x first))
+            (if (lt? x past)
+                (let ((var x))
+                  (stream-of-aux expr (loop (+ x delta)) rest ...))
+                base))))
+      ((stream-of-aux expr base (var step first .. past) rest ...)
+        (let ((delta (if (< first past) 1 -1)))
+          (stream-of-aux expr base (var step first (+ first delta) .. past) rest ...)))
+      ((stream-of-aux expr base (var step first second) rest ...)
+        (stream-of-aux expr base (var step first second .. (- first second)) rest ...))
+      ((stream-of-aux expr base (var step first) rest ...)
+        (stream-of-aux expr base (var step first (+ first 1) .. (- first 1)) rest ...))
+      ((stream-of-aux expr base (var1 is var2) rest ...)
+        (let ((var1 var2)) (stream-of-aux expr base rest ...)))
+      ((stream-of-aux expr base pred? rest ...)
+        (if pred? (stream-of-aux expr base rest ...) base))))
+
+  (define (stream-range first past . step)
+    (define stream-range
+      (stream-lambda (first past delta lt?)
+        (if (lt? first past)
+            (stream-cons first (stream-range (+ first delta) past delta lt?))
+            stream-null)))
+    (let ((lt? (if (< first past) < >))
+          (delta (cond ((pair? step) (car step)) ((< first past) 1) (else -1))))
+      (cond ((not (number? first)) (error "non-numeric starting number in stream-range"))
+            ((not (number? past)) (error "non-numeric ending number in stream-range"))
+            ((not (number? delta)) (error "non-numeric step size in stream-range"))
+            (else (stream-range first past delta lt?)))))
+
+  (define (stream-ref strm n)
+    (cond ((not (stream? strm)) (error "non-stream argument to stream-ref"))
+          ((not (integer? n)) (error "non-integer argument to stream-ref"))
+          ((negative? n) (error "negative argument to stream-ref"))
+          (else (let loop ((strm strm) (n n))
+                  (cond ((stream-null? strm) (error "attempt to reference beyond end of stream"))
+                        ((zero? n) (stream-car strm))
+                        (else (loop (stream-cdr strm) (- n 1))))))))
+
+  (define (stream-reverse strm)
+    (define stream-reverse
+      (stream-lambda (strm rev)
+        (if (stream-null? strm)
+            rev
+            (stream-reverse (stream-cdr strm) (stream-cons (stream-car strm) rev)))))
+    (if (not (stream? strm))
+        (error "non-stream argument to stream-reverse")
+        (stream-reverse strm stream-null)))
+
+  (define (stream-scan func base strm)
+    (define stream-scan
+      (stream-lambda (base strm)
+        (if (stream-null? strm)
+            (stream base)
+            (stream-cons base (stream-scan (func base (stream-car strm)) (stream-cdr strm))))))
+    (cond ((not (procedure? func)) (error "non-functional argument to stream-scan"))
+          ((not (stream? strm)) (error "non-stream argument to stream-scan"))
+          (else (stream-scan base strm))))
+
+  (define (stream-take n strm)
+    (define stream-take
+      (stream-lambda (n strm)
+        (if (or (stream-null? strm) (zero? n))
+            stream-null
+            (stream-cons (stream-car strm) (stream-take (- n 1) (stream-cdr strm))))))
+    (cond ((not (stream? strm)) (error "non-stream argument to stream-take"))
+          ((not (integer? n)) (error "non-integer argument to stream-take"))
+          ((negative? n) (error "negative argument to stream-take"))
+          (else (stream-take n strm))))
+
+  (define (stream-take-while pred? strm)
+    (define stream-take-while
+      (stream-lambda (strm)
+        (cond ((stream-null? strm) stream-null)
+              ((pred? (stream-car strm))
+                (stream-cons (stream-car strm) (stream-take-while (stream-cdr strm))))
+              (else stream-null))))
+    (cond ((not (stream? strm)) (error "non-stream argument to stream-take-while"))
+          ((not (procedure? pred?)) (error "non-functional argument to stream-take-while"))
+          (else (stream-take-while strm))))
+
+  (define (stream-unfold mapper pred? generator base)
+    (define stream-unfold
+      (stream-lambda (base)
+        (if (pred? base)
+            stream-null
+            (stream-cons (mapper base) (stream-unfold (generator base))))))
+    (cond ((not (procedure? mapper)) (error "non-functional mapper in stream-unfold"))
+          ((not (procedure? pred?)) (error "non-functional pred? in stream-unfold"))
+          ((not (procedure? generator)) (error "non-functional generator in stream-unfold"))
+          (else (stream-unfold base))))
+
+  (define (stream-unfolds gen seed)
+    (define (len-values gen seed)
+      (call-with-values
+        (lambda () (gen seed))
+        (lambda vs (- (length vs) 1))))
+    (define unfold-result-stream
+      (stream-lambda (seed)
+        (call-with-values
+          (lambda () (gen seed))
+          (lambda (next . results)
+            (stream-cons results (unfold-result-stream next))))))
+    (define result-stream->output-stream
+      (stream-lambda (result-stream i)
+        (let ((result (list-ref (stream-car result-stream) (- i 1))))
+          (cond ((pair? result)
+                  (stream-cons
+                    (car result)
+                    (result-stream->output-stream (stream-cdr result-stream) i)))
+                ((not result)
+                  (result-stream->output-stream (stream-cdr result-stream) i))
+                ((null? result) stream-null)
+                (else (error "can't happen"))))))
+    (define (result-stream->output-streams result-stream)
+      (let loop ((i (len-values gen seed)) (outputs '()))
+        (if (zero? i)
+            (apply values outputs)
+            (loop (- i 1) (cons (result-stream->output-stream result-stream i) outputs)))))
+    (if (not (procedure? gen))
+        (error "non-functional argument to stream-unfolds")
+        (result-stream->output-streams (unfold-result-stream gen seed))))
+
+  (define (stream-zip . strms)
+    (define stream-zip
+      (stream-lambda (strms)
+        (if (ormap stream-null? strms)
+            stream-null
+            (stream-cons (map stream-car strms) (stream-zip (map stream-cdr strms))))))
+    (cond ((null? strms) (error "no stream arguments to stream-zip"))
+          ((ormap (lambda (x) (not (stream? x))) strms)
+            (error "non-stream argument to stream-zip"))
+          (else (stream-zip strms))))
+
+;  (provide (all-from stream-primitives))
+;  (provide (all-defined)))
+
+;(require stream-library)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; test suite
+
+(define (assert expr result)
+  (if (not (equal? (eval expr) result))
+      (begin
+          (for-each display `(
+              "failed assertion: "
+              ,expr
+              " returned "
+              ,(eval expr)
+              " but expected "
+              ,result))
+          (newline))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; utilities
+
+(define (identity obj) obj)
+
+(define (const obj) (lambda x obj))
+
+(define (negate pred?) (lambda (x) (not (pred? x))))
+
+(define (lsec func . args) (lambda x (apply func (append args x))))
+
+(define (rsec func . args) (lambda x (apply func (reverse (append (reverse args) (reverse x))))))
+
+(define (compose . fns)
+  (let comp ((fns fns))
+    (cond
+      ((null? fns) 'error)
+      ((null? (cdr fns)) (car fns))
+      (else
+        (lambda args
+          (call-with-values
+            (lambda ()
+              (apply
+                (comp (cdr fns))
+                args))
+            (car fns)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; examples
+
+(define-stream (stream-lines strm)
+  (stream-let loop ((strm strm) (line '()))
+    (stream-match strm
+      (() (if (null? line)
+              stream-null
+              (stream
+                (list->string
+                  (reverse line)))))
+      ((#\return #\newline . cs)
+        (stream-cons
+          (list->string (reverse line))
+          (loop cs '())))
+      ((#\newline #\return . cs)
+        (stream-cons
+          (list->string (reverse line))
+          (loop cs '())))
+      ((#\return . cs)
+        (stream-cons
+          (list->string (reverse line))
+          (loop cs '())))
+      ((#\newline . cs)
+        (stream-cons
+          (list->string (reverse line))
+          (loop cs '())))
+      ((c . cs)
+        (loop cs (cons c line))))))
+
+(define-stream (qsort lt? strm)
+  (if (stream-null? strm)
+      stream-null
+      (let ((x (stream-car strm))
+            (xs (stream-cdr strm)))
+        (stream-append
+          (qsort lt?
+            (stream-filter
+              (lambda (u) (lt? u x))
+              xs))
+          (stream x)
+          (qsort lt?
+            (stream-filter
+              (lambda (u) (not (lt? u x)))
+              xs))))))
+
+(define-stream (stream-unique eql? strm)
+  (if (stream-null? strm)
+      stream-null
+      (stream-cons (stream-car strm)
+        (stream-unique eql?
+          (stream-drop-while
+            (lambda (x)
+              (eql? (stream-car strm) x))
+            strm)))))
+
+(define-stream (isort lt? strm)
+    (define-stream (insert strm x)
+      (stream-match strm
+        (() (stream x))
+        ((y . ys)
+          (if (lt? y x)
+              (stream-cons y (insert ys x))
+              (stream-cons x strm)))))
+    (stream-fold insert stream-null strm))
+
+(define (display-file filename)
+  (with-input-from-file filename
+    (stream-for-each display (port->stream))))
+
+(define primes
+  (stream-letrec
+    ((next
+      (stream-lambda (base mult strm)
+        (let ((first (stream-car strm))
+              (rest (stream-cdr strm)))
+          (cond ((< first mult)
+                  (stream-cons first
+                    (next base mult rest)))
+                ((< mult first)
+                  (next base
+                    (+ base mult) strm))
+                (else (next base
+                        (+ base mult) rest))))))
+     (sift
+       (stream-lambda (base strm)
+         (next base (+ base base) strm)))
+     (sieve
+       (stream-lambda (strm)
+         (let ((first (stream-car strm))
+               (rest (stream-cdr strm)))
+           (stream-cons first
+             (sieve (sift first rest)))))))
+    (sieve (stream-from 2))))
+
+(define-stream (stream-merge lt? . strms)
+  (define-stream (merge xx yy)
+    (stream-match xx (() yy) ((x . xs)
+      (stream-match yy (() xx) ((y . ys)
+        (if (lt? y x)
+            (stream-cons y (merge xx ys))
+            (stream-cons x (merge xs yy))))))))
+  (stream-let loop ((strms strms))
+    (cond ((null? strms) stream-null)
+          ((null? (cdr strms)) (car strms))
+          (else
+            (merge (car strms)
+                   (apply stream-merge lt?
+                     (cdr strms)))))))
+
+(define (fact n)
+  (stream-ref
+    (stream-scan * 1 (stream-from 1)))
+    n)
+
+(define-stream (msort lt? strm)
+  (let* ((n (quotient (stream-length strm) 2))
+         (ts (stream-take n strm))
+         (ds (stream-drop n strm)))
+    (if (zero? n)
+        strm
+        (stream-merge lt?
+          (msort < ts) (msort < ds)))))
+
+(define (stream-partition pred? strm)
+  (stream-unfolds
+    (lambda (s)
+      (if (stream-null? s)
+          (values s '() '())
+          (let ((a (stream-car s))
+                (d (stream-cdr s)))
+            (if (pred? a)
+                (values d (list a) #f)
+                (values d #f (list a))))))
+    strm)) 
+
+(define-stream (stream-finds eql? obj strm)
+  (stream-of (car x)
+    (x in (stream-zip (stream-from 0) strm))
+    (eql? obj (cadr x))))
+
+(define (stream-find eql? obj strm)
+  (stream-car
+    (stream-append
+      (stream-find eql? obj strm)
+      #f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; infinite streams
+
+(define nats
+  (stream-cons 0
+    (stream-map add1 nats)))
+
+(define fibs
+  (stream-cons 1
+    (stream-cons 1
+      (stream-map +
+        fibs
+        (stream-cdr fibs)))))
+
+(define hamming
+  (stream-unique =
+    (stream-cons 1
+      (stream-merge <
+        (stream-map (lsec * 2) hamming)
+        (stream-merge <
+          (stream-map (lsec * 3) hamming)
+          (stream-map (lsec * 5) hamming))))))
+
+(define power-table
+  (stream-of
+    (stream-of (expt m n) (m step 1))
+    (n step 2)))
+
+(define rats
+  (stream-iterate
+    (lambda (x)
+      (let* ((n (floor x))
+             (y (- x n)))
+        (/ (- n -1 y))))
+    1))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; generators and co-routines
+
+(define-stream (flatten tree)
+  (cond ((null? tree) stream-null)
+        ((pair? (car tree))
+          (stream-append
+            (flatten (car tree))
+            (flatten (cdr tree))))
+        (else (stream-cons
+                (car tree)
+                (flatten (cdr tree))))))
+
+(define (same-fringe? eql? tree1 tree2)
+  (let loop ((t1 (flatten tree1))
+             (t2 (flatten tree2)))
+    (cond ((and (stream-null? t1)
+                (stream-null? t2)) #t)
+          ((or  (stream-null? t1)
+                (stream-null? t2)) #f)
+          ((not (eql? (stream-car t1)
+                      (stream-car t2))) #f)
+          (else (loop (stream-cdr t1)
+                      (stream-cdr t2))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; persistent queues
+
+(define queue-null
+  (cons stream-null stream-null))
+
+(define (queue-null? x)
+  (and (pair? x) (stream-null (car x))))
+
+(define (queue-check f r)
+  (if (< (stream-length r) (stream-length f))
+      (cons f r)
+      (cons (stream-append f (stream-reverse r))
+            stream-null)))
+
+(define (queue-snoc q x)
+  (queue-check (car q) (stream-cons x (cdr q))))
+
+(define (queue-head q)
+  (if (stream-null? (car q))
+      (error "empty queue: head")
+      (stream-car (car q))))
+
+(define (queue-tail q)
+  (if (stream-null? (car q))
+      (error "empty queue: tail")
+      (queue-check (stream-cdr (car q))
+                   (cdr q))))
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: pbewig@gmail.com, bugs@plt-scheme.org
+Cc: matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        robby@plt-scheme.org, clements@plt-scheme.org, jay@plt-scheme.org,
+        meunier@plt-scheme.org, sowens@plt-scheme.org, kathyg@plt-scheme.org,
+        awick@plt-scheme.org, jacobm@plt-scheme.org, cce@plt-scheme.org,
+        dalev@plt-scheme.org, samth@plt-scheme.org, ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 16:05:05 -0400
+
+ On Sep 24, pbewig@gmail.com wrote:
+ > Reported by Phil Bewig for release: 360
+ > [...]
+ > I am working on a sequel to my SRFI-40 on streams.  The following
+ > program causes a space leak in PLT but not Chez: [...]
+ 
+ That's most likely due to the conservative GC in 360, which is easy to
+ trip with lazy code.  The thing that happens is that you get a very
+ long chain of promises, each one points to the next; all you need is
+ one conservative mistake of the GC which makes it think that some
+ promise is not GCable, and that holds many other promises.
+ 
+ If my guess is correct, then switching to 370 (which defaults to a
+ precise GC) will make the problem go away.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: pbewig@gmail.com, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 14:13:27 -0600
+
+ At Mon, 24 Sep 2007 16:05:05 -0400, Eli Barzilay wrote:
+ > On Sep 24, pbewig@gmail.com wrote:
+ > > Reported by Phil Bewig for release: 360
+ > > [...]
+ > > I am working on a sequel to my SRFI-40 on streams.  The following
+ > > program causes a space leak in PLT but not Chez: [...]
+ > 
+ > That's most likely due to the conservative GC in 360, which is easy to
+ > trip with lazy code. 
+ 
+ No, the example still grows in the latest. I don't immediately the
+ source of the problem, though.
+ 
+ A slightly smaller example is
+ 
+  (stream-ref (stream-filter 
+                (lambda (x) (zero? x))
+                (stream-from 0))
+              1)
+ 
+ If you change the `(zero? x)' to #f, then the program runs in constant
+ space.
+ 
+ Matthew
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: pbewig@gmail.com, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 16:19:39 -0400
+
+ On Sep 24, Matthew Flatt wrote:
+ > At Mon, 24 Sep 2007 16:05:05 -0400, Eli Barzilay wrote:
+ > > On Sep 24, pbewig@gmail.com wrote:
+ > > > Reported by Phil Bewig for release: 360
+ > > > [...]
+ > > > I am working on a sequel to my SRFI-40 on streams.  The following
+ > > > program causes a space leak in PLT but not Chez: [...]
+ > > 
+ > > That's most likely due to the conservative GC in 360, which is easy to
+ > > trip with lazy code. 
+ > 
+ > No, the example still grows in the latest. I don't immediately the
+ > source of the problem, though.
+ 
+ Another possible issue is that he's using srfi-45's delay, and I think
+ that there were some changes to that code that didn't get through to
+ the PLT version.  But this:
+ 
+ > A slightly smaller example is
+ > 
+ >  (stream-ref (stream-filter 
+ >                (lambda (x) (zero? x))
+ >                (stream-from 0))
+ >              1)
+ > 
+ > If you change the `(zero? x)' to #f, then the program runs in
+ > constant space.
+ 
+ sounds like a real problem...
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: pbewig@gmail.com, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 16:29:28 -0400
+
+ On Sep 24, Matthew Flatt wrote:
+ > [...]
+ > A slightly smaller example is
+ > 
+ >  (stream-ref (stream-filter 
+ >                (lambda (x) (zero? x))
+ >                (stream-from 0))
+ >              1)
+ > 
+ > If you change the `(zero? x)' to #f, then the program runs in constant
+ > space.
+ 
+ The same thing happens with lazy:
+ 
+   (define (from n) (cons n (from (add1 n))))
+   (list-ref (filter zero? (from 0)) 1)
+ 
+ takes more and more memory, and using (lambda (x) #f) does not.  This
+ is also fine:
+ 
+   (list-ref (filter zero? (from 1)) 1)
+ 
+ I'd suspect some problem in my `filter', but that doesn't explain how
+ chez runs fine with the above.  (With Phil's code.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: "Phil Bewig" <pbewig@gmail.com>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 16:55:27 -0400
+
+ On Sep 24, Phil Bewig wrote:
+ > With 371, memory consumption (Total Commit Charge) is bouncing
+ > around in a 64MB range, with about half a minute between successive
+ > high points.  I guess the garbage collector hits some limit at that
+ > point.  I'll let you know if I have any other problems.
+ 
+ This is strange.  I definitely see the problem using your original
+ example, and Matthew said that he sees it too.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Jos Koot" <jos.koot@telefonica.net>
+To: <bugs@plt-scheme.org>, "Phil Bewig" <pbewig@gmail.com>,
+        "Eli Barzilay" <eli@barzilay.org>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: 
+Subject: Re: all/8963: Space leak in infinite streams
+Date: Tue, 25 Sep 2007 00:23:46 +0200
+
+ This is a multi-part message in MIME format.
+ 
+ ------=_NextPart_000_0018_01C7FF0A.562F8860
+ Content-Type: text/plain;
+ 	charset="iso-8859-1"
+ Content-Transfer-Encoding: quoted-printable
+ 
+ See also problem 8883.
+ Jos Koot
+ 
+ ((((lambda(x)((((((x x)x)x)x)x)x))
+    (lambda(x)(lambda(y)(x(x y)))))
+   (lambda(x)(write x)x))
+  'greeting)
+ ------=_NextPart_000_0018_01C7FF0A.562F8860
+ Content-Type: text/html;
+ 	charset="iso-8859-1"
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+ <HTML><HEAD>
+ <META http-equiv=3DContent-Type content=3D"text/html; =
+ charset=3Diso-8859-1">
+ <META content=3D"MSHTML 6.00.6000.16525" name=3DGENERATOR>
+ <STYLE></STYLE>
+ </HEAD>
+ <BODY bgColor=3D#ffffff>
+ <DIV><FONT face=3D"Courier New" size=3D2>See also problem =
+ 8883.</FONT></DIV>
+ <DIV><FONT face=3D"Courier New" size=3D2>Jos Koot</FONT></DIV>
+ <DIV><FONT face=3D"Courier New" size=3D2><BR>((((lambda(x)((((((x=20
+ x)x)x)x)x)x))<BR>&nbsp;&nbsp; (lambda(x)(lambda(y)(x(x y)))))<BR>&nbsp;=20
+ (lambda(x)(write x)x))<BR>&nbsp;'greeting)</FONT></DIV></BODY></HTML>
+ 
+ ------=_NextPart_000_0018_01C7FF0A.562F8860--
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: "Jos Koot" <jos.koot@telefonica.net>
+Cc: <bugs@plt-scheme.org>, "Phil Bewig" <pbewig@gmail.com>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>
+Subject: Re: all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 18:36:44 -0400
+
+ On Sep 25, Jos Koot wrote:
+ > See also problem 8883.
+ 
+ You probably mean 8881.
+ 
+ If it's the same problem, then I'll mark it as a duplicate of this
+ one, since this one is more manageable.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Phil Bewig" <pbewig@gmail.com>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 18:40:07 -0500
+
+ ------=_Part_46404_18123249.1190677207570
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ My machine at home is 370.  It exhibits the same behavior as 371 -- memory
+ starts at a low point, increases gradually to about 64MB greater than the
+ low point, then drops again to the low point.  The cycle time is longer,
+ about five minutes, because my machine at home is slower (I didn't realize
+ how much slower).
+ 
+ On both machines, I noticed that the first time the growth occurred, it
+ stopped short of the maximum before recycling to the low point.  I didn't
+ think to note it at work, but at home I noted that the first breakpoint was
+ about 32MB above the low point.  I guess there are multiple levels of
+ garbage, and the first collection kicks in at a lower level than the second.
+ 
+ As Matthew points out, this is a bug.  The memory growth should be zero,
+ because the promise is being mutated, so no memory needs to be allocated.
+ And Chez (the Petite interpreter, version 6.X, I forget exactly, maybe 6.9)
+ works properly, with zero memory growth, so I have some confidence in my
+ code.
+ 
+ Both home and work machines are Windows XP, if that means anything to you.
+ The work machine is patched up to date, the home machine isn't.
+ 
+ Phil
+ 
+ On 9/24/07, Eli Barzilay <eli@barzilay.org> wrote:
+ 
+ > On Sep 24, Phil Bewig wrote:
+ > > With 371, memory consumption (Total Commit Charge) is bouncing
+ > > around in a 64MB range, with about half a minute between successive
+ > > high points.  I guess the garbage collector hits some limit at that
+ > > point.  I'll let you know if I have any other problems.
+ >
+ > This is strange.  I definitely see the problem using your original
+ > example, and Matthew said that he sees it too.
+ >
+ > --
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                  http://www.barzilay.org/                 Maze is Life!
+ >
+ 
+ ------=_Part_46404_18123249.1190677207570
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ <div>My machine at home is 370.&nbsp; It exhibits the same behavior as 371 -- memory starts at a low point, increases gradually to about 64MB greater than the low point, then drops again to the low point.&nbsp; The cycle time is longer, about five minutes, because my machine at home is slower (I didn&#39;t realize how much slower).
+ </div>
+ <div>&nbsp;</div>
+ <div>On both machines, I noticed that the first time the growth occurred, it stopped short of the maximum before recycling to the low point.&nbsp; I didn&#39;t think to note it at work, but at home I noted that the first breakpoint was about 32MB above the low point.&nbsp; I guess there are multiple levels of garbage, and the first collection kicks in at a lower level than the second.
+ </div>
+ <div>&nbsp;</div>
+ <div>As Matthew points out, this is a bug.&nbsp; The memory growth should be zero, because the promise is being mutated, so no memory needs to be allocated.&nbsp; And Chez (the Petite interpreter, version 6.X, I forget exactly, maybe 
+ 6.9) works properly, with zero memory growth, so I have some confidence in my code.</div>
+ <div>&nbsp;</div>
+ <div>Both home and work machines are Windows XP, if that means anything to you.&nbsp; The work machine is patched up to date, the home machine isn&#39;t.</div>
+ <div>&nbsp;</div>
+ <div>Phil</div>
+ <div><span class="gmail_quote"></span>&nbsp;</div>
+ <div><span class="gmail_quote">On 9/24/07, <b class="gmail_sendername">Eli Barzilay</b> &lt;<a href="mailto:eli@barzilay.org">eli@barzilay.org</a>&gt; wrote:</span></div>
+ <blockquote class="gmail_quote" style="PADDING-LEFT: 1ex; MARGIN: 0px 0px 0px 0.8ex; BORDER-LEFT: #ccc 1px solid">On Sep 24, Phil Bewig wrote:<br>&gt; With 371, memory consumption (Total Commit Charge) is bouncing<br>&gt; around in a 64MB range, with about half a minute between successive
+ <br>&gt; high points.&nbsp;&nbsp;I guess the garbage collector hits some limit at that<br>&gt; point.&nbsp;&nbsp;I&#39;ll let you know if I have any other problems.<br><br>This is strange.&nbsp;&nbsp;I definitely see the problem using your original<br>
+ example, and Matthew said that he sees it too.<br><br>--<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ((lambda (x) (x x)) (lambda (x) (x x)))&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Eli Barzilay:<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="http://www.barzilay.org/">http://www.barzilay.org/</a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Maze is Life!
+ <br></blockquote><br>
+ 
+ ------=_Part_46404_18123249.1190677207570--
+From: Eli Barzilay <eli@barzilay.org>
+To: "Phil Bewig" <pbewig@gmail.com>
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 20:51:44 -0400
+
+ On Sep 24, Phil Bewig wrote:
+ > [...]
+ > On both machines, I noticed that the first time the growth occurred,
+ > it stopped short of the maximum before recycling to the low point.
+ > I didn't think to note it at work, but at home I noted that the
+ > first breakpoint was about 32MB above the low point.  I guess there
+ > are multiple levels of garbage, and the first collection kicks in at
+ > a lower level than the second.
+ 
+ Yes, the 3m GC is generational.  The strange thing is that you don't
+ see a problem now, where we do.  ("No problem" since memory does get
+ reclaimed.)
+ 
+ 
+ > As Matthew points out, this is a bug.  The memory growth should be
+ > zero, because the promise is being mutated, so no memory needs to be
+ > allocated.  And Chez (the Petite interpreter, version 6.X, I forget
+ > exactly, maybe 6.9) works properly, with zero memory growth, so I
+ > have some confidence in my code.
+ 
+ I have talked to Matthew earlier, and we both have the same guess:
+ such things can blow up when the language implementation itself holds
+ on to some object.  The likely cause of this is MzScheme holding a
+ reference to some value where Chez's compiler optimzes it away -- or
+ just computes things differently (eg, evaluating arguments in a
+ different order).
+ 
+ (In any case, this is in Matthew's world now...)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: "Phil Bewig" <pbewig@gmail.com>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 21:57:19 -0400
+
+ On Sep 24, Eli Barzilay wrote:
+ > [...]
+ 
+ Matthew -- I found a way to make it run in constant space, "it" being
+ my lazy scheme example of
+ 
+   (define (from n) (cons n (from (add1 n))))
+   (list-ref (filter zero? (from 0)) 1)
+ 
+ The change is something I should have tried before -- I changed my
+ definition of `filter' like this:
+ 
+   (define* (filter pred list)
+     (let ([pred (! pred)])
+       (let loop ([list (! list)])
+         (cond [(null? list) list]
+               [(pair? list)
+                (let ([x (car list)]
+                      [xs (~ (loop (! (cdr (begin0 list (set! list #f))))))])
+                                          ;^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                  (if (!*app pred x) (cons x xs) xs))]
+               [else (error 'filter "not a proper list: ~e" list)]))))
+ 
+ I'm not happy with this change, do you see why this is needed?  (Given
+ that force will set! the promise closue away when it's done.)  Is
+ there a better way to do this, or is there some missing mzscheme-level
+ optimization?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: "Phil Bewig" <pbewig@gmail.com>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Mon, 24 Sep 2007 21:44:20 -0600
+
+ Quoting Eli Barzilay:
+ > The change is something I should have tried before -- I changed my
+ > definition of `filter' like this:
+ > 
+ >   (define* (filter pred list)
+ >     (let ([pred (! pred)])
+ >       (let loop ([list (! list)])
+ >         (cond [(null? list) list]
+ >               [(pair? list)
+ >                (let ([x (car list)]
+ >                      [xs (~ (loop (! (cdr (begin0 list (set! list #f))))))])
+ >                                          ;^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ >                  (if (!*app pred x) (cons x xs) xs))]
+ >               [else (error 'filter "not a proper list: ~e" list)]))))
+ > 
+ > I'm not happy with this change, do you see why this is needed?
+ 
+ Yes --- it's exactly the sort of thing that I was going to look for.
+ 
+ The problem is that the `list' binding stays live until the `filter'
+ procedure either returns or tail-calls, even though the continuation of
+ the `cdr' call doesn't need it. That's the way in which MzScheme isn't
+ "safe for space".
+ 
+ I have occasionally considered fixing this, but it's never caused
+ enough trouble before (as far as I know) to get my attention. I'll move
+ it up on the list.
+ 
+ Matthew
+ 
+From: "Phil Bewig" <pbewig@gmail.com>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: "Eli Barzilay" <eli@barzilay.org>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8963: Space leak in infinite streams
+Date: Tue, 25 Sep 2007 07:32:59 -0500
+
+ ------=_Part_1032_23629203.1190723579447
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ Thanks.  Sometimes these infinite streams make my head spin, and I'm not
+ sure what I'm doing wrong -- or even if I can tell the difference between
+ right and wrong.  I'll look forward to the correction.
+ 
+ I've finished coding on my stream SRFI, but still have some writing to do.
+ I expect to submit it in about a month.  Since the times3 bug was notorious
+ in the discussion list of SRFI-40, I'll mention it again in the new SRFI,
+ which means that a lot of people may all be running into this bug in about a
+ month.
+ 
+ On 9/24/07, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >
+ > Quoting Eli Barzilay:
+ > > The change is something I should have tried before -- I changed my
+ > > definition of `filter' like this:
+ > >
+ > >   (define* (filter pred list)
+ > >     (let ([pred (! pred)])
+ > >       (let loop ([list (! list)])
+ > >         (cond [(null? list) list]
+ > >               [(pair? list)
+ > >                (let ([x (car list)]
+ > >                      [xs (~ (loop (! (cdr (begin0 list (set! list
+ > #f))))))])
+ > >                                          ;^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ > >                  (if (!*app pred x) (cons x xs) xs))]
+ > >               [else (error 'filter "not a proper list: ~e" list)]))))
+ > >
+ > > I'm not happy with this change, do you see why this is needed?
+ >
+ > Yes --- it's exactly the sort of thing that I was going to look for.
+ >
+ > The problem is that the `list' binding stays live until the `filter'
+ > procedure either returns or tail-calls, even though the continuation of
+ > the `cdr' call doesn't need it. That's the way in which MzScheme isn't
+ > "safe for space".
+ >
+ > I have occasionally considered fixing this, but it's never caused
+ > enough trouble before (as far as I know) to get my attention. I'll move
+ > it up on the list.
+ >
+ > Matthew
+ >
+ >
+ 
+ ------=_Part_1032_23629203.1190723579447
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ Thanks.&nbsp; Sometimes these infinite streams make my head spin, and I&#39;m not sure what I&#39;m doing wrong -- or even if I can tell the difference between right and wrong.&nbsp; I&#39;ll look forward to the correction.<br><br>I&#39;ve finished coding on my stream SRFI, but still have some writing to do.&nbsp; I expect to submit it in about a month.&nbsp; Since the times3 bug was notorious in the discussion list of SRFI-40, I&#39;ll mention it again in the new SRFI, which means that a lot of people may all be running into this bug in about a month.
+ <br><br><div><span class="gmail_quote">On 9/24/07, <b class="gmail_sendername">Matthew Flatt</b> &lt;<a href="mailto:mflatt@cs.utah.edu">mflatt@cs.utah.edu</a>&gt; wrote:</span><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">
+ Quoting Eli Barzilay:<br>&gt; The change is something I should have tried before -- I changed my<br>&gt; definition of `filter&#39; like this:<br>&gt;<br>&gt;&nbsp;&nbsp; (define* (filter pred list)<br>&gt;&nbsp;&nbsp;&nbsp;&nbsp; (let ([pred (! pred)])
+ <br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (let loop ([list (! list)])<br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (cond [(null? list) list]<br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [(pair? list)<br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(let ([x (car list)]<br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[xs (~ (loop (! (cdr (begin0 list (set! list #f))))))])
+ <br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;;^^^^^^^^^^^^^^^^^^^^^^^^^^^^<br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(if (!*app pred x) (cons x xs) xs))]<br>&gt;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [else (error &#39;filter &quot;not a proper list: ~e&quot; list)]))))
+ <br>&gt;<br>&gt; I&#39;m not happy with this change, do you see why this is needed?<br><br>Yes --- it&#39;s exactly the sort of thing that I was going to look for.<br><br>The problem is that the `list&#39; binding stays live until the `filter&#39;
+ <br>procedure either returns or tail-calls, even though the continuation of<br>the `cdr&#39; call doesn&#39;t need it. That&#39;s the way in which MzScheme isn&#39;t<br>&quot;safe for space&quot;.<br><br>I have occasionally considered fixing this, but it&#39;s never caused
+ <br>enough trouble before (as far as I know) to get my attention. I&#39;ll move<br>it up on the list.<br><br>Matthew<br><br></blockquote></div><br>
+ 
+ ------=_Part_1032_23629203.1190723579447--
+
+State changed from "open" to "closed" by mflatt at Sat, 09 Feb 2008 15:24:34 -0500
+Reason>>> Fixed in v3.99.0.11
+
+

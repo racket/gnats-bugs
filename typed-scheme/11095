@@ -1,0 +1,136 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Aug 10 14:14:12 2010
+Received: from mail-gy0-f172.google.com (mail-gy0-f172.google.com [209.85.160.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o7AIEAH7002596
+	for <bugs@bugs.plt-scheme.org>; Tue, 10 Aug 2010 14:14:10 -0400
+Message-Id: <201008101814.o7AIE3Eo002587@champlain.ccs.neu.edu>
+Date: Tue, 10 Aug 2010 14:14:03 -0400
+From: sk@cs.brown.edu
+To: bugs@racket-lang.org
+Subject: if-splitting and call/cc considered problematic
+
+>Number:         11095
+>Category:       typed-scheme
+>Synopsis:       if-splitting and call/cc considered problematic
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Aug 10 14:16:01 -0400 2010
+>Closed-Date:    Thu Aug 25 12:38:10 -0400 2011
+>Last-Modified:  Thu Aug 25 12:38:10 -0400 2011
+>Originator:     Shriram Krishnamurthi
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1--2010-08-03(2c77ae5/a)
+>Environment:
+unix "Linux edison 2.6.26-2-686 #1 SMP Wed May 12 21:56:10 UTC 2010 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 239663748
+
+Collections:
+(("/home/sk/.racket/5.0.1/collects" non-existent-path) ("/pro/plt/software/racket/5.0.1/std/collects" ".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax-color" "syntax" "teachpack" "test-box-recovery" "test-en!
+ gine" "tests" "tex2page" "texpict" "trace" "typed-scheme" "typed" "unstable" "version" "waterworld" "web-server" "wxme" "xml" "info-domain"))
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+>Description:
+The program included below has two type errors:
+
+Type Checker: Cannot apply expression of type (U False (String -> String)), since it is not a function type in: (cont caller)
+. Type Checker: Polymorphic function call/cc could not be applied to arguments:
+Argument 1:
+  Expected: ((a -> Nothing) -> b)
+  Given:    ((String -> Nothing) -> String)
+
+Result type:     (U a b)
+Expected result: Nothing
+
+I don't understand why the first error is not resolved by if-splitting.  Isn't this precisely the case if-splitting is supposed to handle?  Simpler forms of this expression DO pass.
+
+I don't understand the second error -- clearly something to do with polymorphic specialization, but I don't see the problem.
+>How-To-Repeat:
+#lang typed/racket
+
+(define make-strgen
+  (lambda: ((gen : ((String -> Nothing) -> Nothing)))
+    (let: ([cont : (U False (String -> String)) false])
+      (lambda ()
+        (call/cc (lambda: ((caller : (String -> String)))
+                   (if cont
+                       (cont caller)
+                       (gen (lambda: ((v : String))
+                              (call/cc (lambda: ((gen-k : (String -> Nothing)))
+                                         (set! cont gen-k)
+                                         (caller v))))))))))))
+
+(define g1 (make-strgen (lambda: ((return : (String -> Nothing)))
+                          (return "a")
+                          (return "b")
+                          (return "c"))))
+
+(define g2 (make-strgen (lambda: ((ret : (String -> Nothing)))
+                          (ret "x")
+                          (ret "y")
+                          (ret "z"))))
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: sk@cs.brown.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11095: if-splitting and call/cc considered 
+	problematic
+Date: Tue, 10 Aug 2010 16:27:08 -0400
+
+ On Tue, Aug 10, 2010 at 2:16 PM,  <sk@cs.brown.edu> wrote:
+ > A new problem report is waiting at
+ > =A0http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11095
+ >
+ > Reported by Shriram Krishnamurthi for release: 5.0.1--2010-08-03(2c77ae5/=
+ a)
+ >
+ > *** Description:
+ > The program included below has two type errors:
+ >
+ > Type Checker: Cannot apply expression of type (U False (String -> String)=
+ ), since it is not a function type in: (cont caller)
+ >
+ > I don't understand why the first error is not resolved by if-splitting. =
+ =A0Isn't this precisely the case if-splitting is supposed to handle? =A0Sim=
+ pler forms of this expression DO pass.
+ 
+ The `cont' variable is mutated, so occurrence typing does not refine
+ the type.  There wouldn't be a problem in this program, of course, but
+ in general an effect system would be needed to allow this.
+ 
+ > I don't understand the second error -- clearly something to do with polym=
+ orphic specialization, but I don't see the problem.
+ > . Type Checker: Polymorphic function call/cc could not be applied to argu=
+ ments:
+ >
+ > Argument 1:
+ >  Expected: ((a -> Nothing) -> b)
+ >  Given:    ((String -> Nothing) -> String)
+ >
+ > Result type:     (U a b)
+ > Expected result: Nothing
+ 
+ The problem is here in the expected result - it should be `Nothing',
+ but you're providing (U a b).  Probably this is just an issue with the
+ type annotation you've provided.
+ 
+ Typed Racket should do more work to make this error message clearer, though=
+ .
+ --=20
+ sam th
+ samth@ccs.neu.edu
+
+Responsible changed from "nobody" to "samth" by ryanc at Wed, 08 Sep 2010 18:05:39 -0400
+Reason>>> responsible
+
+
+
+State changed from "open" to "closed" by samth at Thu, 25 Aug 2011 12:38:10 -0400
+Reason>>> first portion is not a bug, second is duplicate of other
+error message bugs
+

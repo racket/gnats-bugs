@@ -1,0 +1,134 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat May  9 14:26:22 2009
+Received: from qw-out-2122.google.com (qw-out-2122.google.com [74.125.92.24])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n49IQD5D004587
+	for <bugs@bugs.plt-scheme.org>; Sat, 9 May 2009 14:26:13 -0400
+Message-Id: <200905091826.n49IQBnB004580@champlain.ccs.neu.edu>
+Date: Sat, 9 May 2009 14:26:11 -0400
+From: eggert@cs.ucla.edu
+To: bugs@plt-scheme.org
+Subject: sizeof void and void-pointer portability bugs in foreign.c
+
+>Number:         10234
+>Category:       mzscheme
+>Synopsis:       sizeof void and void-pointer portability bugs in foreign.c
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat May 09 14:28:01 -0400 2009
+>Closed-Date:    Sat May 09 15:45:43 -0400 2009
+>Last-Modified:  Sat May 09 19:32:01 -0400 2009
+>Originator:     Paul Eggert
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.5
+>Environment:
+solaris
+>Description:
+Here's a patch to two porting bugs in foreign/foreign.c. These are caught by the Sun C compiler and prevent compilation.  In the first one, the code attempts to compute sizeof(void), which the C Standard prohibits.  In the second, the code silently converts void * to a void function pointer, which the C standard also prohibits.  The Sun C compiler is pickier than GCC on these two issues, and rejects the code.
+
+--- foreign/foreign.c~	2009-03-17 18:23:01.000000000 -0700
++++ foreign/foreign.c	2009-05-09 11:17:03.079582588 -0700
+@@ -1752,8 +1752,8 @@ static Scheme_Object *foreign_compiler_s
+     else scheme_signal_error(MYNAME": cannot qualify 'char");
+     break;
+   case 3: /* void */
+-    if (intsize==0) RETSIZE(void);
+-    else scheme_signal_error(MYNAME": cannot qualify 'char");
++    if (intsize==0 && stars==1) res = sizeof(void *);
++    else scheme_signal_error(MYNAME": bad qualifiers for 'void");
+     break;
+   case 4: /* float */
+     if (intsize==0) RETSIZE(float);
+@@ -2417,7 +2417,7 @@ Scheme_Object *ffi_do_call(void *data, i
+     }
+   }
+   /* Finally, call the function */
+-  ffi_call(cif, (void *)W_OFFSET(c_func, cfoff), p, avalues);
++  ffi_call(cif, (void (*)())W_OFFSET(c_func, cfoff), p, avalues);
+   if (ivals != stack_ivals) free(ivals);
+   ivals = NULL; /* no need now to hold on to this */
+   for (i=0; i<nargs; i++) { avalues[i] = NULL; } /* no need for these refs */
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: eggert@cs.ucla.edu, bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org
+Subject: Re: [plt-bug] all/10234: sizeof void and void-pointer portability bugs in foreign.c
+Date: Sat, 9 May 2009 15:40:54 -0400
+
+ On May  9, eggert@cs.ucla.edu wrote:
+ > Here's a patch to two porting bugs in foreign/foreign.c. These are
+ > caught by the Sun C compiler and prevent compilation.  In the first
+ > one, the code attempts to compute sizeof(void), which the C Standard
+ > prohibits.  In the second, the code silently converts void * to a
+ > void function pointer, which the C standard also prohibits.  The Sun
+ > C compiler is pickier than GCC on these two issues, and rejects the
+ > code.
+ 
+ I applied the two patches (roughly, the first one needed more care).
+ 
+ > --- foreign/foreign.c~	2009-03-17 18:23:01.000000000 -0700
+ > +++ foreign/foreign.c	2009-05-09 11:17:03.079582588 -0700
+ > @@ -1752,8 +1752,8 @@ static Scheme_Object *foreign_compiler_s
+ >      else scheme_signal_error(MYNAME": cannot qualify 'char");
+ >      break;
+ >    case 3: /* void */
+ > -    if (intsize==0) RETSIZE(void);
+ > -    else scheme_signal_error(MYNAME": cannot qualify 'char");
+ > +    if (intsize==0 && stars==1) res = sizeof(void *);
+ > +    else scheme_signal_error(MYNAME": bad qualifiers for 'void");
+ >      break;
+ >    case 4: /* float */
+ >      if (intsize==0) RETSIZE(float);
+ > @@ -2417,7 +2417,7 @@ Scheme_Object *ffi_do_call(void *data, i
+ >      }
+ >    }
+ >    /* Finally, call the function */
+ > -  ffi_call(cif, (void *)W_OFFSET(c_func, cfoff), p, avalues);
+ > +  ffi_call(cif, (void (*)())W_OFFSET(c_func, cfoff), p, avalues);
+ >    if (ivals != stack_ivals) free(ivals);
+ >    ivals = NULL; /* no need now to hold on to this */
+ >    for (i=0; i<nargs; i++) { avalues[i] = NULL; } /* no need for these refs */
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+Responsible changed from "nobody" to "eli" by eli at Sat, 09 May 2009 15:45:43 -0400
+Reason>>> foreign
+
+State changed from "open" to "closed" by eli at Sat, 09 May 2009 15:45:43 -0400
+Reason>>> applied
+
+From: Eli Barzilay <eli@barzilay.org>
+To: eggert@cs.ucla.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10234: sizeof void and void-pointer portability bugs in foreign.c
+Date: Sat, 9 May 2009 19:31:01 -0400
+
+ On May  9, eggert@cs.ucla.edu wrote:
+ > @@ -2417,7 +2417,7 @@ Scheme_Object *ffi_do_call(void *data, i
+ >      }
+ >    }
+ >    /* Finally, call the function */
+ > -  ffi_call(cif, (void *)W_OFFSET(c_func, cfoff), p, avalues);
+ > +  ffi_call(cif, (void (*)())W_OFFSET(c_func, cfoff), p, avalues);
+ >    if (ivals != stack_ivals) free(ivals);
+ >    ivals = NULL; /* no need now to hold on to this */
+ >    for (i=0; i<nargs; i++) { avalues[i] = NULL; } /* no need for these refs */
+ 
+ JFYI, this didn't work out (we have code that transforms the C code
+ for the precise GC), so I changed it to:
+ 
+   typedef void(*VoidFun)();
+   ...
+   ffi_call(cif, (VoidFun)W_OFFSET(c_func, cfoff), p, avalues);
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!

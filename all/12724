@@ -1,0 +1,278 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Apr 23 16:31:42 2012
+Received: from mail-vb0-f44.google.com (mail-vb0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q3NKVbU5028108
+	for <bugs@bugs.plt-scheme.org>; Mon, 23 Apr 2012 16:31:37 -0400
+Message-Id: <201204232031.q3NKVYga028101@champlain.ccs.neu.edu>
+Date: Mon, 23 Apr 2012 16:31:34 -0400
+From: ryanc@racket-lang.org
+To: bugs@racket-lang.org
+Subject: submod ".." path breaks drracket
+
+>Number:         12724
+>Category:       all
+>Synopsis:       submod ".." path breaks drracket
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Apr 23 16:32:01 -0400 2012
+>Closed-Date:    Tue Apr 24 23:28:00 -0400 2012
+>Last-Modified:  Tue Apr 24 23:28:00 -0400 2012
+>Originator:     Ryan Culpepper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.2--2012-04-23(c2c91da/g)
+>Environment:
+unix "Linux thistle 3.0.0-17-generic #30-Ubuntu SMP Thu Mar 8 20:45:39 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 317494008
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/ryan/.racket/5.3.0.2/collects"
+ (non-existent-path))
+("/home/ryan/projects/racket/collects"
+ ("tests" "racklog" "lazy" "mzlib" "data" "texpict" "r5rs" "honu" "schemeunit" "plot" "lang" "parser-tools" "htdp" "version" "icons" "s-exp" "slatex" "eopl" "launcher" "picturing-programs" "mred" "swindle" "frtime" "framework" "net" "drracket" "setup" "macro-debugger" "racket" "help" "syntax-color" "file" "combinator-parser" "meta" "mrlib" ".gitignore" "readline" "tex2page" "at-exp" "plai" "test-box-recovery" "guibuilder" "xrepl" "scriblib" "preprocessor" "syntax" "test-engine" "web-server" "gui-debugger" "planet" "dynext" "stepper" "slideshow" "handin-client" "datalog" "deinprogramm" "errortrace" "algol60" "openssl" "mzcom" "games" "info-domain" "unstable" "string-constants" "compiler" "make" "embedded-gui" "srfi" "html" "scribble" "scheme" "wxme" "sirmail" "handin-server" "typed" "db" "ffi" "config" "redex" "browser" "2htdp" "sgl" "rackunit" "reader" "scribblings" "mzscheme" "raco" "images" "rnrs" "graphics" "hierlist" "profile" "typed-racket" "defaults" "mysterx" "drschem!
+ e" "xml" "trace" "r6rs" "teachpack" "json" "typed-scheme" "repo-time-stamp"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #f ((main) (test))))
+>Description:
+(This is probably two bugs: one related to evaluation and one related to the gui handling.)
+
+A program that contains a submodule path including ".." causes Check Syntax to report an error even when evaluation of the program succeeds. Furthermore, an error raised by "offline" Check Syntax causes the definition window to become permanently inaccessible.
+>How-To-Repeat:
+Enter the following program in the DrRacket definitions window:
+
+#lang racket
+(module X racket
+  (define x 1)
+  (provide x))
+(module Y racket
+  (require (submod ".." X))
+  (define y (add1 x)))
+
+Online Check Syntax will display the following error at the bottom of the frame: 
+
+  standard-module-name-resolver: too many ".."s in submodule path: (submod (quote |expanded module|) ".." X)
+
+Click the Run button. The program runs without errors.
+
+Click the Check Syntax button. DrRacket pops up an error dialog with the same error as before. Dismiss the error dialog.
+
+Click the Run button again. The program runs without errors, but the definition window is blanked, and nothing I've tried has restored it.
+>Fix:
+>Audit-Trail:
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: ryanc@racket-lang.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12724: submod ".." path breaks drracket
+Date: Mon, 23 Apr 2012 15:08:25 -0600
+
+ I think the root cause of the error (or at least something closely 
+ related) might be the following: if an reference is extracted from an 
+ expanded submodule within an expanded module, and if the reference's 
+ binding comes from another submodule reached via "..", then 
+ 'free-identifier=?' raises an error when given that identifier.
+ 
+ Some code to demonstrate:
+ 
+ (define s
+    #'(module A racket
+        (#%plain-module-begin
+         (module X racket
+           (#%plain-module-begin
+            (define-values (x) 1)
+            (#%provide x)))
+         (module Y racket
+           (#%plain-module-begin
+            (#%require (submod "." ".." X))
+            x)))))
+ 
+ (define expanded-s (expand s))
+ 
+ (define x-ref
+    (syntax-case expanded-s (module #%plain-module-begin)
+      [(module _ _
+         (#%plain-module-begin
+          (module . _)
+          (module _ _ (#%plain-module-begin _req x))))
+       #'x]))
+ 
+ (free-identifier=? x-ref x-ref)
+ ;; => standard-module-name-resolver: too many ".."s in submodule path: 
+ (submod (quote |expanded module|) ".." X)
+ 
+ If that's supposed to be a normalized submodule path, then the ".." 
+ shouldn't be there.
+ 
+ Ryan
+ 
+ 
+ On 04/23/2012 02:32 PM, ryanc@racket-lang.org wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12724
+ >
+ > Reported by Ryan Culpepper for release: 5.3.0.2--2012-04-23(c2c91da/g)
+ >
+ > *** Description:
+ > (This is probably two bugs: one related to evaluation and one related to the gui handling.)
+ >
+ > A program that contains a submodule path including ".." causes Check Syntax to report an error even when evaluation of the program succeeds. Furthermore, an error raised by "offline" Check Syntax causes the definition window to become permanently inaccessible.
+ >
+ > *** How to repeat:
+ > Enter the following program in the DrRacket definitions window:
+ >
+ > #lang racket
+ > (module X racket
+ >    (define x 1)
+ >    (provide x))
+ > (module Y racket
+ >    (require (submod ".." X))
+ >    (define y (add1 x)))
+ >
+ > Online Check Syntax will display the following error at the bottom of the frame:
+ >
+ >    standard-module-name-resolver: too many ".."s in submodule path: (submod (quote |expanded module|) ".." X)
+ >
+ > Click the Run button. The program runs without errors.
+ >
+ > Click the Check Syntax button. DrRacket pops up an error dialog with the same error as before. Dismiss the error dialog.
+ >
+ > Click the Run button again. The program runs without errors, but the definition window is blanked, and nothing I've tried has restored it.
+ >
+ > *** Environment:
+ > unix "Linux thistle 3.0.0-17-generic #30-Ubuntu SMP Thu Mar 8 20:45:39 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 317494008
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+ >
+ >
+ > Collections:
+ > ("/home/ryan/.racket/5.3.0.2/collects"
+ >   (non-existent-path))
+ > ("/home/ryan/projects/racket/collects"
+ >   ("tests" "racklog" "lazy" "mzlib" "data" "texpict" "r5rs" "honu" "schemeunit" "plot" "lang" "parser-tools" "htdp" "version" "icons" "s-exp" "slatex" "eopl" "launcher" "picturing-programs" "mred" "swindle" "frtime" "framework" "net" "drracket" "setup" "macro-debugger" "racket" "help" "syntax-color" "file" "combinator-parser" "meta" "mrlib" ".gitignore" "readline" "tex2page" "at-exp" "plai" "test-box-recovery" "guibuilder" "xrepl" "scriblib" "preprocessor" "syntax" "test-engine" "web-server" "gui-debugger" "planet" "dynext" "stepper" "slideshow" "handin-client" "datalog" "deinprogramm" "errortrace" "algol60" "openssl" "mzcom" "games" "info-domain" "unstable" "string-constants" "compiler" "make" "embedded-gui" "srfi" "html" "scribble" "scheme" "wxme" "sirmail" "handin-server" "typed" "db" "ffi" "config" "redex" "browser" "2htdp" "sgl" "rackunit" "reader" "scribblings" "mzscheme" "raco" "images" "rnrs" "graphics" "hierlist" "profile" "typed-racket" "defaults" "mysterx" "drsch
+  em!
+ >   e" "xml" "trace" "r6rs" "teachpack" "json" "typed-scheme" "repo-time-stamp"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #f ((main) (test))))
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: ryanc@racket-lang.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12724: submod ".." path breaks drracket
+Date: Mon, 23 Apr 2012 16:09:04 -0500
+
+ On Mon, Apr 23, 2012 at 3:32 PM,  <ryanc@racket-lang.org> wrote:
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=12724
+ 
+ When I click "check syntax" with the example, I get the stacktrace
+ below, which suggests that free-identifier-mapping-get is what is
+ raising this error. The docs claim that it will not raise an error (if
+ I supply a non-error raising thunk, which I have in this case), so
+ something is going wrong there.
+ 
+ And, just to clarify, when DrRacket raises an error during certain GUI
+ callbacks at times when it is not expecting to raise an error
+ (specifically those where it has called begin-edit-sequence but not
+ yet called end-edit-sequence) then the editor is wedged. That is what
+ has happened in this case.
+ 
+ (Relatedly, it is helpful to include any stacktraces you get when you
+ report these errors, especially "internal errors" like this one).
+ 
+ Robby
+ 
+ standard-module-name-resolver: too many ".."s in submodule path:
+ (submod (quote |expanded module|) ".." X)
+ 
+  === context ===
+ standard-module-name-resolver
+ /Users/robby/git/exp/plt/collects/syntax/private/../../racket/private/map.rkt:113:23:
+ loop
+ /Users/robby/git/exp/plt/collects/syntax/private/boundmap.rkt:32:12:
+ module-identifier-mapping-get
+ /Users/robby/git/exp/plt/collects/drracket/private/syncheck/traversals.rkt:1159:4:
+ add-id
+ /Users/robby/git/exp/plt/collects/racket/private/map.rkt:48:13: for-each
+ /Users/robby/git/exp/plt/collects/racket/private/map.rkt:48:13: for-each
+ /Users/robby/git/exp/plt/collects/racket/private/map.rkt:48:13: for-each
+ /Users/robby/git/exp/plt/collects/drracket/private/syncheck/gui.rkt:1967:24
+ /Users/robby/git/exp/plt/collects/mred/private/wx/common/queue.rkt:445:6
+ /Users/robby/git/exp/plt/collects/mred/private/wx/common/queue.rkt:485:32
+ /Users/robby/git/exp/plt/collects/mred/private/wx/common/queue.rkt:633:3
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: ryanc@racket-lang.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12724: submod ".." path breaks drracket
+Date: Mon, 23 Apr 2012 16:36:37 -0500
+
+ On Mon, Apr 23, 2012 at 4:09 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Mon, Apr 23, 2012 at 3:32 PM,  <ryanc@racket-lang.org> wrote:
+ >> A new problem report is waiting at
+ >>  http://bugs.racket-lang.org/query/?cmd=view&pr=12724
+ 
+ Looks like the error is being raised by free-identifier=? when it
+ compares these two identifiers in the program:
+ 
+ #<syntax:/Users/robby/tmp4.rkt:4:10 x> vs #<syntax:/Users/robby/tmp4.rkt:7:17 x>
+ 
+ Those are the one in the 'provide' in the 'X' module and the one in
+ the argument to add1 in the 'Y' module.
+ 
+ Robby
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: ryanc@racket-lang.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12724: submod ".." path breaks drracket
+Date: Mon, 23 Apr 2012 16:40:31 -0500
+
+ Okay, here's a small program demonstrating the problem. If this is the
+ correct behavior, then probably I'll need a little more help here.
+ 
+ Robby
+ 
+ #lang racket
+ 
+ (define str #<<--
+ #lang racket
+ (module X racket
+  (define x 1)
+  (provide x))
+ (module Y racket
+  (require (submod ".." X))
+  (define y (add1 x)))
+ --
+   )
+ 
+ (define ns (make-base-namespace))
+ (define prt (open-input-string str))
+ (port-count-lines! prt)
+ (define stx (parameterize ([current-namespace ns]
+                            [read-accept-reader #t])
+               (expand (read prt))))
+ (define xs '())
+ (let loop ([stx stx])
+   (syntax-case stx ()
+     [x
+      (eq? 'x (syntax-e #'x))
+      (set! xs (cons #'x xs))]
+     [(a ...)
+      (for-each loop (syntax->list #'(a ...)))]
+     [_ (void)]))
+ 
+ (free-identifier=? (list-ref xs 0)
+                    (list-ref xs 1))
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Tue, 24 Apr 2012 23:28:00 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/9ba663aa77
+State changed from "open" to "closed" by mflatt@racket-lang.org at Tue, 24 Apr 2012 23:28:00 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/9ba663aa77

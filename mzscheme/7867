@@ -1,0 +1,112 @@
+From apache@plt-scheme.org Fri Feb  3 23:31:06 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k144V4ip006846
+	for <bugs@plt-scheme.org>; Fri, 3 Feb 2006 23:31:04 -0500
+Message-Id: <200602040431.k144V44j006844@champlain.ccs.neu.edu>
+Date: Fri, 3 Feb 2006 23:31:04 -0500
+From: ari@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: MzScheme won't compile on GNU/Linux on SPARC
+
+>Number:         7867
+>Category:       mzscheme
+>Synopsis:       MzScheme won't compile on GNU/Linux on SPARC
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Feb 03 23:35:00 -0500 2006
+>Last-Modified:  Thu Feb 23 15:25:44 -0500 2006
+>Originator:     Ari Pollak
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301
+>Environment:
+linux-other
+>Description:
+>How-To-Repeat:
+When compiling MzScheme 301 on a Debian GNU/Linux system on SPARC architecture, I get a compile error:
+
+/build/buildd/drscheme-301/src/lt/libtool --mode=compile gcc -fPIC  -Wall     -I./.. -I./../include -c ./regexp.c -o regexp.lo
+ gcc -fPIC -Wall -I./.. -I./../include -c ./regexp.c  -fPIC -DPIC -o .libs/regexp.o
+In file included from ./regexp.c:1926:
+./../gc2/my_qsort.c: In function 'exchange':
+./../gc2/my_qsort.c:16: error: invalid lvalue in increment
+./../gc2/my_qsort.c:17: error: invalid lvalue in increment
+./../gc2/my_qsort.c:21: error: invalid lvalue in increment
+./../gc2/my_qsort.c:22: error: invalid lvalue in increment
+...
+make[7]: *** [regexp.lo] Error 1
+make[7]: Leaving directory `/build/buildd/drscheme-301/src/mzscheme/src'
+
+This is due to the bad check for Solaris/SunOS at the top of src/mzscheme/gc2. If you change line 2 to "#if defined(sun)" instead, it should theoretically work fine. However, this kind of statement is invalid starting with gcc 4.0, so they should probably be changed.
+>Fix:
+>Audit-Trail:
+From: Ari Pollak <ari@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7867: MzScheme won't compile on GNU/Linux on SPARC
+Date: Fri, 03 Feb 2006 23:41:33 -0500
+
+ Oops, the first sentence of the last paragraph should have read "This is 
+ due to the bad check for Solaris/SunOS at the top of 
+ src/mzscheme/gc2/my_qsort.c."
+From: Paul Eggert <eggert@CS.UCLA.EDU>
+To: bugs@plt-scheme.org, ari@ccs.neu.edu
+Cc: 
+Subject: Re: all/7867: MzScheme won't compile on GNU/Linux on SPARC
+Date: Wed, 15 Feb 2006 16:51:28 -0800
+
+ Here's a fix for PR#7867.  I attempted to followup with a new bug
+ report but don't know if I succeeded.  The basic problem is that the
+ current code uses nonstandard C, which standard C compilers (including
+ Sun's) don't allow.
+ 
+ --- plt/src/mzscheme/gc2/my_qsort.c-bak	2006-01-11 01:15:37.000000000 -0800
+ +++ plt/src/mzscheme/gc2/my_qsort.c	2006-02-15 16:27:27.125006000 -0800
+ @@ -1,25 +1,31 @@
+  
+ -#if defined(sparc) || defined(__sparc) || defined(__sparc__)
+ +#if defined(sun) || defined(__sun) || defined(__sun__)
+  /* Sun's qsort() is broken. */
+  
+  #define MAXSTACK 100
+  
+  static void exchange(void *a, void *b, size_t size) {
+      size_t i;
+ +    int *ai = (int *) a;
+ +    int *bi = (int *) b;
+ +    char *ac;
+ +    char *bc;
+  
+      /******************
+       *  exchange a,b  *
+       ******************/
+  
+      for (i = sizeof(int); i <= size; i += sizeof(int)) {
+ -        int t = *((int *)a);
+ -        *(((int *)a)++) = *((int *)b);
+ -        *(((int *)b)++) = t;
+ +        int t = *ai;
+ +        *ai++ = *bi;
+ +        *bi++ = t;
+      }
+ +    ac = (char *) ai;
+ +    bc = (char *) bi;
+      for (i = i - sizeof(int) + 1; i <= size; i++) {
+ -        char t = *((char *)a);
+ -        *(((char *)a)++) = *((char *)b);
+ -        *(((char *)b)++) = t;
+ +        char t = *ac;
+ +        *ac++ = *bc;
+ +        *bc++ = t;
+      }
+  }
+  
+
+State changed from "open" to "closed" by mflatt at Thu, 23 Feb 2006 15:25:44 -0500
+Reason>>> applied Paul Eggert's patch
+

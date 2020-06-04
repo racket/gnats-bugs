@@ -1,0 +1,1519 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Dec 12 02:12:54 2013
+Received: from mail-oa0-f44.google.com (mail-oa0-f44.google.com [209.85.219.44])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id rBC7CpcY012956
+	for <bugs@bugs.plt-scheme.org>; Thu, 12 Dec 2013 02:12:52 -0500
+Message-Id: <201312120712.rBC7Cm4F012939@winooski.ccs.neu.edu>
+Date: Thu, 12 Dec 2013 02:12:48 -0500
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: TR currying hack showing through
+
+>Number:         14244
+>Category:       typed-scheme
+>Synopsis:       TR currying hack showing through
+>Class:          change-request
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Dec 12 02:16:02 -0500 2013
+>Last-Modified:  Sun Jan 12 23:12:52 -0500 2014
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+windows-7-64
+>Description:
+Given this type:
+
+  (: foo : Number -> Number -> Number)
+
+the following definition works fine:
+
+  (define (foo a)
+    (define n 0)
+    (lambda (b) (+ a b)))
+
+But if it's not using a `lambda', I get a type error that shows that
+I'm missing a type decl. for the returned function:
+
+  (define (foo a)
+    (define n 0)
+    (define (bar b) (+ a b))
+    bar)
+
+Maybe there's some reason for this, like TR being careful with
+possibly mutually recursive definitions, but it still looks like
+there's some special case hack for the first form.  (So marking
+this as a change request).
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Wed, 11 Dec 2013 23:33:37 -0800
+
+ I'm not sure what the issue is.
+ 
+ In the first example we try and type (lambda (b) (+ a b) as (Number ->
+ Number) and so are able to infer that b must be Number.
+ 
+ In the second cane we try to type (letrec-values (((bar) (lambda (b)
+ (+ a b))) bar) as (Number -> Number)). We don't look at the body and
+ try to type each binding's body without any expected type, and cannot
+ type (lambda (b) (+ a b)) because we don't know what b will be (and
+ assuming Any leads to an error).
+ 
+ 
+ 
+ On Wed, Dec 11, 2013 at 11:16 PM,  <eli@barzilay.org> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14244
+ >
+ > Reported by Eli Barzilay for release: HEAD
+ >
+ > *** Description:
+ > Given this type:
+ >
+ >   (: foo : Number -> Number -> Number)
+ >
+ > the following definition works fine:
+ >
+ >   (define (foo a)
+ >     (define n 0)
+ >     (lambda (b) (+ a b)))
+ >
+ > But if it's not using a `lambda', I get a type error that shows that
+ > I'm missing a type decl. for the returned function:
+ >
+ >   (define (foo a)
+ >     (define n 0)
+ >     (define (bar b) (+ a b))
+ >     bar)
+ >
+ > Maybe there's some reason for this, like TR being careful with
+ > possibly mutually recursive definitions, but it still looks like
+ > there's some special case hack for the first form.  (So marking
+ > this as a change request).
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > windows-7-64
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 02:46:24 -0500
+
+ 10 minutes ago, Eric Dobson wrote:
+ > I'm not sure what the issue is.
+ > 
+ > In the first example we try and type (lambda (b) (+ a b) as (Number
+ > -> Number) and so are able to infer that b must be Number.
+ > 
+ > In the second cane we try to type (letrec-values (((bar) (lambda (b)
+ > (+ a b))) bar) as (Number -> Number)). We don't look at the body and
+ > try to type each binding's body without any expected type, and
+ > cannot type (lambda (b) (+ a b)) because we don't know what b will
+ > be (and assuming Any leads to an error).
+ 
+ Well, the issue is that as far as the end programmer goes, both of the
+ sources are equivalent.  I'd switch between them mostly for cosmetical
+ reasons like having a name for the returned function.
+ 
+ But (and that's speaking with no idea what TR is doing for its
+ inference), it sounds like TR should really just try to do inference
+ with `let' (and relatives)--?  Something that would treat `E' in the
+ same way that it treats (let ([x E]) x)?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 08:00:07 -0800
+
+ That is a much more complicated form of inference than TR currently
+ does. You are asking to look at the use of a variable and decide how
+ to type it based on that, which TR currently does not do as it is non
+ local.
+ 
+ We could do a hacky solution and type (let ([x E]) x) specially but it
+ would miss things like (let ([x E]) (begin x)) or (let ([x E]) (let
+ ([y E]) x)). The second is likely close to what would happen with
+ mixed definitions, and thus I think it would be more confusing what
+ the rule is.
+ 
+ On Wed, Dec 11, 2013 at 11:46 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > 10 minutes ago, Eric Dobson wrote:
+ >> I'm not sure what the issue is.
+ >>
+ >> In the first example we try and type (lambda (b) (+ a b) as (Number
+ >> -> Number) and so are able to infer that b must be Number.
+ >>
+ >> In the second cane we try to type (letrec-values (((bar) (lambda (b)
+ >> (+ a b))) bar) as (Number -> Number)). We don't look at the body and
+ >> try to type each binding's body without any expected type, and
+ >> cannot type (lambda (b) (+ a b)) because we don't know what b will
+ >> be (and assuming Any leads to an error).
+ >
+ > Well, the issue is that as far as the end programmer goes, both of the
+ > sources are equivalent.  I'd switch between them mostly for cosmetical
+ > reasons like having a name for the returned function.
+ >
+ > But (and that's speaking with no idea what TR is doing for its
+ > inference), it sounds like TR should really just try to do inference
+ > with `let' (and relatives)--?  Something that would treat `E' in the
+ > same way that it treats (let ([x E]) x)?
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 11:08:07 -0500
+
+ I agree entirely with Eric.
+ 
+ More generally, the heuristic for when you should annotate things goes
+ as follows:
+ 
+ - If you have a `define` of a function, it needs an annotation.
+ - If you have a `lambda` that's being immediatly bound to a variable,
+ it needs an annotation (observe that this implies the previous rule).
+ - If you have a `lambda` that's the argument to a polymorphic
+ function, it needs an annotation.
+ - If you have a mutable variable, it needs an annotation.
+ 
+ There are some times when you can get away with not annotating in
+ these cases, but barring substantial changes to the inference
+ algorithm [1], you should stick to them.
+ 
+ [1] I'd like to do this, because it will make TR substantially easier
+ to use in some cases, but it's not immediately on the horizon.
+ 
+ On Thu, Dec 12, 2013 at 11:00 AM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > That is a much more complicated form of inference than TR currently
+ > does. You are asking to look at the use of a variable and decide how
+ > to type it based on that, which TR currently does not do as it is non
+ > local.
+ >
+ > We could do a hacky solution and type (let ([x E]) x) specially but it
+ > would miss things like (let ([x E]) (begin x)) or (let ([x E]) (let
+ > ([y E]) x)). The second is likely close to what would happen with
+ > mixed definitions, and thus I think it would be more confusing what
+ > the rule is.
+ >
+ > On Wed, Dec 11, 2013 at 11:46 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> 10 minutes ago, Eric Dobson wrote:
+ >>> I'm not sure what the issue is.
+ >>>
+ >>> In the first example we try and type (lambda (b) (+ a b) as (Number
+ >>> -> Number) and so are able to infer that b must be Number.
+ >>>
+ >>> In the second cane we try to type (letrec-values (((bar) (lambda (b)
+ >>> (+ a b))) bar) as (Number -> Number)). We don't look at the body and
+ >>> try to type each binding's body without any expected type, and
+ >>> cannot type (lambda (b) (+ a b)) because we don't know what b will
+ >>> be (and assuming Any leads to an error).
+ >>
+ >> Well, the issue is that as far as the end programmer goes, both of the
+ >> sources are equivalent.  I'd switch between them mostly for cosmetical
+ >> reasons like having a name for the returned function.
+ >>
+ >> But (and that's speaking with no idea what TR is doing for its
+ >> inference), it sounds like TR should really just try to do inference
+ >> with `let' (and relatives)--?  Something that would treat `E' in the
+ >> same way that it treats (let ([x E]) x)?
+ >>
+ >> --
+ >>           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >>                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Eli Barzilay <eli@barzilay.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 11:23:15 -0500
+
+ On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:
+ >> More generally, the heuristic for when you should annotate things goes
+ >> as follows:
+ >>
+ >> - If you have a `define` of a function, it needs an annotation.
+ >> - If you have a `lambda` that's being immediatly bound to a variable,
+ >> it needs an annotation (observe that this implies the previous rule).
+ >> - If you have a `lambda` that's the argument to a polymorphic
+ >> function, it needs an annotation.
+ >> - If you have a mutable variable, it needs an annotation.
+ >
+ > BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ > perhaps some other part of the Guide.
+ 
+ I don't think it belongs in "Caveats" -- it's not a caveat in the
+ sense that the others there are.  It's a design decision, similar to
+ how TR doesn't let you do strong updates to variables.
+ 
+ Sam
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Eli Barzilay <eli@barzilay.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 11:20:32 -0500
+
+ On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:
+ > More generally, the heuristic for when you should annotate things goes
+ > as follows:
+ >
+ > - If you have a `define` of a function, it needs an annotation.
+ > - If you have a `lambda` that's being immediatly bound to a variable,
+ > it needs an annotation (observe that this implies the previous rule).
+ > - If you have a `lambda` that's the argument to a polymorphic
+ > function, it needs an annotation.
+ > - If you have a mutable variable, it needs an annotation.
+ 
+ BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ perhaps some other part of the Guide.
+ 
+ Cheers,
+ Asumu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>, Eli Barzilay <eli@barzilay.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 08:25:54 -0800
+
+ I think Asumu is asking for those 4 'rules of thumb' to be in the
+ guide somewhere. I think that is a good Idea, but also think Caveats
+ is a bad section title for that.
+ 
+ On Thu, Dec 12, 2013 at 8:23 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >> On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:
+ >>> More generally, the heuristic for when you should annotate things goes
+ >>> as follows:
+ >>>
+ >>> - If you have a `define` of a function, it needs an annotation.
+ >>> - If you have a `lambda` that's being immediatly bound to a variable,
+ >>> it needs an annotation (observe that this implies the previous rule).
+ >>> - If you have a `lambda` that's the argument to a polymorphic
+ >>> function, it needs an annotation.
+ >>> - If you have a mutable variable, it needs an annotation.
+ >>
+ >> BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ >> perhaps some other part of the Guide.
+ >
+ > I don't think it belongs in "Caveats" -- it's not a caveat in the
+ > sense that the others there are.  It's a design decision, similar to
+ > how TR doesn't let you do strong updates to variables.
+ >
+ > Sam
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, Eli Barzilay <eli@barzilay.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 10:36:43 -0600
+
+ --001a11c1d19c64567504ed58f39e
+ Content-Type: text/plain; charset=UTF-8
+ 
+ IIUC, when you don't do that, then you get something like "Any" or maybe
+ "Any Any -> Any" if it can easily see the arity. Is that right?
+ 
+ If so, then why not make it a syntax error to not follow these rules, since
+ the Any annotations seem unlikely to be useful in general?
+ 
+ Robby
+ 
+ 
+ 
+ On Thu, Dec 12, 2013 at 10:25 AM, Eric Dobson <eric.n.dobson@gmail.com>wrote:
+ 
+ > I think Asumu is asking for those 4 'rules of thumb' to be in the
+ > guide somewhere. I think that is a good Idea, but also think Caveats
+ > is a bad section title for that.
+ >
+ > On Thu, Dec 12, 2013 at 8:23 AM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ > > On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa <asumu@ccs.neu.edu>
+ > wrote:
+ > >> On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:
+ > >>> More generally, the heuristic for when you should annotate things goes
+ > >>> as follows:
+ > >>>
+ > >>> - If you have a `define` of a function, it needs an annotation.
+ > >>> - If you have a `lambda` that's being immediatly bound to a variable,
+ > >>> it needs an annotation (observe that this implies the previous rule).
+ > >>> - If you have a `lambda` that's the argument to a polymorphic
+ > >>> function, it needs an annotation.
+ > >>> - If you have a mutable variable, it needs an annotation.
+ > >>
+ > >> BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ > >> perhaps some other part of the Guide.
+ > >
+ > > I don't think it belongs in "Caveats" -- it's not a caveat in the
+ > > sense that the others there are.  It's a design decision, similar to
+ > > how TR doesn't let you do strong updates to variables.
+ > >
+ > > Sam
+ >
+ 
+ --001a11c1d19c64567504ed58f39e
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">IIUC, when you don&#39;t do that, then you get something l=
+ ike &quot;Any&quot; or maybe &quot;Any Any -&gt; Any&quot; if it can easily=
+  see the arity. Is that right?<div><br></div><div>If so, then why not make =
+ it a syntax error to not follow these rules, since the Any annotations seem=
+  unlikely to be useful in general?</div>
+ <div><br></div><div>Robby</div><div><br></div></div><div class=3D"gmail_ext=
+ ra"><br><br><div class=3D"gmail_quote">On Thu, Dec 12, 2013 at 10:25 AM, Er=
+ ic Dobson <span dir=3D"ltr">&lt;<a href=3D"mailto:eric.n.dobson@gmail.com" =
+ target=3D"_blank">eric.n.dobson@gmail.com</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">I think Asumu is asking for those 4 &#39;rul=
+ es of thumb&#39; to be in the<br>
+ guide somewhere. I think that is a good Idea, but also think Caveats<br>
+ is a bad section title for that.<br>
+ <div class=3D"HOEnZb"><div class=3D"h5"><br>
+ On Thu, Dec 12, 2013 at 8:23 AM, Sam Tobin-Hochstadt<br>
+ &lt;<a href=3D"mailto:samth@cs.indiana.edu">samth@cs.indiana.edu</a>&gt; wr=
+ ote:<br>
+ &gt; On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa &lt;<a href=3D"mailto=
+ :asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt; On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:<br>
+ &gt;&gt;&gt; More generally, the heuristic for when you should annotate thi=
+ ngs goes<br>
+ &gt;&gt;&gt; as follows:<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; - If you have a `define` of a function, it needs an annotation=
+ .<br>
+ &gt;&gt;&gt; - If you have a `lambda` that&#39;s being immediatly bound to =
+ a variable,<br>
+ &gt;&gt;&gt; it needs an annotation (observe that this implies the previous=
+  rule).<br>
+ &gt;&gt;&gt; - If you have a `lambda` that&#39;s the argument to a polymorp=
+ hic<br>
+ &gt;&gt;&gt; function, it needs an annotation.<br>
+ &gt;&gt;&gt; - If you have a mutable variable, it needs an annotation.<br>
+ &gt;&gt;<br>
+ &gt;&gt; BTW, we could put this in the &quot;Caveats&quot; section of the T=
+ R Guide. Or<br>
+ &gt;&gt; perhaps some other part of the Guide.<br>
+ &gt;<br>
+ &gt; I don&#39;t think it belongs in &quot;Caveats&quot; -- it&#39;s not a =
+ caveat in the<br>
+ &gt; sense that the others there are. =C2=A0It&#39;s a design decision, sim=
+ ilar to<br>
+ &gt; how TR doesn&#39;t let you do strong updates to variables.<br>
+ &gt;<br>
+ &gt; Sam<br>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a11c1d19c64567504ed58f39e--
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 11:54:20 -0500
+
+ On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > IIUC, when you don't do that, then you get something like "Any" or maybe
+ > "Any Any -> Any" if it can easily see the arity. Is that right?
+ 
+ That's right.
+ 
+ > If so, then why not make it a syntax error to not follow these rules, since
+ > the Any annotations seem unlikely to be useful in general?
+ 
+ There are two reasons not to do this. One is that sometimes it's nice
+ to be able to skip the annotation, especially if the variable is not
+ used, as in:
+ 
+    (for-each (lambda _ (displayln "hi")) some-list)
+ 
+ The second reason is that many many bindings are generated by macro
+ expansion, and often they don't have annotations, but don't cause the
+ program to fail to typecheck. Dealing sensibly with macro-generated
+ code is, I think, one of the hardest parts of Typed Racket's design.
+ 
+ Sam
+ 
+ > Robby
+ >
+ >
+ >
+ > On Thu, Dec 12, 2013 at 10:25 AM, Eric Dobson <eric.n.dobson@gmail.com>
+ > wrote:
+ >>
+ >> I think Asumu is asking for those 4 'rules of thumb' to be in the
+ >> guide somewhere. I think that is a good Idea, but also think Caveats
+ >> is a bad section title for that.
+ >>
+ >> On Thu, Dec 12, 2013 at 8:23 AM, Sam Tobin-Hochstadt
+ >> <samth@cs.indiana.edu> wrote:
+ >> > On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa <asumu@ccs.neu.edu>
+ >> > wrote:
+ >> >> On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:
+ >> >>> More generally, the heuristic for when you should annotate things goes
+ >> >>> as follows:
+ >> >>>
+ >> >>> - If you have a `define` of a function, it needs an annotation.
+ >> >>> - If you have a `lambda` that's being immediatly bound to a variable,
+ >> >>> it needs an annotation (observe that this implies the previous rule).
+ >> >>> - If you have a `lambda` that's the argument to a polymorphic
+ >> >>> function, it needs an annotation.
+ >> >>> - If you have a mutable variable, it needs an annotation.
+ >> >>
+ >> >> BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ >> >> perhaps some other part of the Guide.
+ >> >
+ >> > I don't think it belongs in "Caveats" -- it's not a caveat in the
+ >> > sense that the others there are.  It's a design decision, similar to
+ >> > how TR doesn't let you do strong updates to variables.
+ >> >
+ >> > Sam
+ >
+ >
+From: John Clements <clements@brinckerhoff.org>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, Eli Barzilay <eli@barzilay.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 09:52:42 -0800
+
+ On Dec 12, 2013, at 8:25 AM, Eric Dobson wrote:
+ 
+ > I think Asumu is asking for those 4 'rules of thumb' to be in the
+ > guide somewhere. I think that is a good Idea, but also think Caveats
+ > is a bad section title for that.
+ 
+ Big +1 on both of these.
+ 
+ Possible section title:
+ 
+ "Where are annotations required?"
+ 
+ John
+ 
+ > 
+ > On Thu, Dec 12, 2013 at 8:23 AM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ >> On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >>> On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:
+ >>>> More generally, the heuristic for when you should annotate things goes
+ >>>> as follows:
+ >>>> 
+ >>>> - If you have a `define` of a function, it needs an annotation.
+ >>>> - If you have a `lambda` that's being immediatly bound to a variable,
+ >>>> it needs an annotation (observe that this implies the previous rule).
+ >>>> - If you have a `lambda` that's the argument to a polymorphic
+ >>>> function, it needs an annotation.
+ >>>> - If you have a mutable variable, it needs an annotation.
+ >>> 
+ >>> BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ >>> perhaps some other part of the Guide.
+ >> 
+ >> I don't think it belongs in "Caveats" -- it's not a caveat in the
+ >> sense that the others there are.  It's a design decision, similar to
+ >> how TR doesn't let you do strong updates to variables.
+ >> 
+ >> Sam
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 12:30:11 -0600
+
+ --089e01182c7e3938dd04ed5a8940
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu>wrote:
+ 
+ > On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ > > IIUC, when you don't do that, then you get something like "Any" or maybe
+ > > "Any Any -> Any" if it can easily see the arity. Is that right?
+ >
+ > That's right.
+ >
+ > > If so, then why not make it a syntax error to not follow these rules,
+ > since
+ > > the Any annotations seem unlikely to be useful in general?
+ >
+ > There are two reasons not to do this. One is that sometimes it's nice
+ > to be able to skip the annotation, especially if the variable is not
+ > used, as in:
+ >
+ >    (for-each (lambda _ (displayln "hi")) some-list)
+ >
+ >
+ I wouldn't object to a special case that allowed no annotation on variables
+ that aren't referenced.
+ 
+ 
+ > The second reason is that many many bindings are generated by macro
+ > expansion, and often they don't have annotations, but don't cause the
+ > program to fail to typecheck. Dealing sensibly with macro-generated
+ > code is, I think, one of the hardest parts of Typed Racket's design.
+ >
+ >
+ I don't think the second reason is valid, as you can just not require type
+ annotations for macro-inserted binders.
+ 
+ Robby
+ 
+ 
+ > Sam
+ >
+ > > Robby
+ > >
+ > >
+ > >
+ > > On Thu, Dec 12, 2013 at 10:25 AM, Eric Dobson <eric.n.dobson@gmail.com>
+ > > wrote:
+ > >>
+ > >> I think Asumu is asking for those 4 'rules of thumb' to be in the
+ > >> guide somewhere. I think that is a good Idea, but also think Caveats
+ > >> is a bad section title for that.
+ > >>
+ > >> On Thu, Dec 12, 2013 at 8:23 AM, Sam Tobin-Hochstadt
+ > >> <samth@cs.indiana.edu> wrote:
+ > >> > On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa <asumu@ccs.neu.edu>
+ > >> > wrote:
+ > >> >> On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:
+ > >> >>> More generally, the heuristic for when you should annotate things
+ > goes
+ > >> >>> as follows:
+ > >> >>>
+ > >> >>> - If you have a `define` of a function, it needs an annotation.
+ > >> >>> - If you have a `lambda` that's being immediatly bound to a
+ > variable,
+ > >> >>> it needs an annotation (observe that this implies the previous
+ > rule).
+ > >> >>> - If you have a `lambda` that's the argument to a polymorphic
+ > >> >>> function, it needs an annotation.
+ > >> >>> - If you have a mutable variable, it needs an annotation.
+ > >> >>
+ > >> >> BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ > >> >> perhaps some other part of the Guide.
+ > >> >
+ > >> > I don't think it belongs in "Caveats" -- it's not a caveat in the
+ > >> > sense that the others there are.  It's a design decision, similar to
+ > >> > how TR doesn't let you do strong updates to variables.
+ > >> >
+ > >> > Sam
+ > >
+ > >
+ >
+ 
+ --089e01182c7e3938dd04ed5a8940
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt <span dir=3D"=
+ ltr">&lt;<a href=3D"mailto:samth@cs.indiana.edu" target=3D"_blank">samth@cs=
+ .indiana.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div class=3D"im">On Thu, Dec 12, 2013 at 11=
+ :36 AM, Robby Findler<br>
+ &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.=
+ edu</a>&gt; wrote:<br>
+ &gt; IIUC, when you don&#39;t do that, then you get something like &quot;An=
+ y&quot; or maybe<br>
+ &gt; &quot;Any Any -&gt; Any&quot; if it can easily see the arity. Is that =
+ right?<br>
+ <br>
+ </div>That&#39;s right.<br>
+ <div class=3D"im"><br>
+ &gt; If so, then why not make it a syntax error to not follow these rules, =
+ since<br>
+ &gt; the Any annotations seem unlikely to be useful in general?<br>
+ <br>
+ </div>There are two reasons not to do this. One is that sometimes it&#39;s =
+ nice<br>
+ to be able to skip the annotation, especially if the variable is not<br>
+ used, as in:<br>
+ <br>
+ =C2=A0 =C2=A0(for-each (lambda _ (displayln &quot;hi&quot;)) some-list)<br>
+ <br></blockquote><div><br></div><div>I wouldn&#39;t object to a special cas=
+ e that allowed no annotation on variables that aren&#39;t referenced.</div>=
+ <div>=C2=A0</div><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8=
+ ex;border-left:1px #ccc solid;padding-left:1ex">
+ 
+ The second reason is that many many bindings are generated by macro<br>
+ expansion, and often they don&#39;t have annotations, but don&#39;t cause t=
+ he<br>
+ program to fail to typecheck. Dealing sensibly with macro-generated<br>
+ code is, I think, one of the hardest parts of Typed Racket&#39;s design.<br=
+ >
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br></font></span></blockquo=
+ te><div><br></div><div>I don&#39;t think the second reason is valid, as you=
+  can just not require type annotations for macro-inserted binders.</div><di=
+ v>
+ <br></div><div>Robby</div><div>=C2=A0</div><blockquote class=3D"gmail_quote=
+ " style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><=
+ span class=3D"HOEnZb"><font color=3D"#888888">
+ Sam<br>
+ </font></span><div class=3D"HOEnZb"><div class=3D"h5"><br>
+ &gt; Robby<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On Thu, Dec 12, 2013 at 10:25 AM, Eric Dobson &lt;<a href=3D"mailto:er=
+ ic.n.dobson@gmail.com">eric.n.dobson@gmail.com</a>&gt;<br>
+ &gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; I think Asumu is asking for those 4 &#39;rules of thumb&#39; to be=
+  in the<br>
+ &gt;&gt; guide somewhere. I think that is a good Idea, but also think Cavea=
+ ts<br>
+ &gt;&gt; is a bad section title for that.<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Thu, Dec 12, 2013 at 8:23 AM, Sam Tobin-Hochstadt<br>
+ &gt;&gt; &lt;<a href=3D"mailto:samth@cs.indiana.edu">samth@cs.indiana.edu</=
+ a>&gt; wrote:<br>
+ &gt;&gt; &gt; On Thu, Dec 12, 2013 at 11:20 AM, Asumu Takikawa &lt;<a href=
+ =3D"mailto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt;<br>
+ &gt;&gt; &gt; wrote:<br>
+ &gt;&gt; &gt;&gt; On 2013-12-12 11:08:07 -0500, Sam Tobin-Hochstadt wrote:<=
+ br>
+ &gt;&gt; &gt;&gt;&gt; More generally, the heuristic for when you should ann=
+ otate things goes<br>
+ &gt;&gt; &gt;&gt;&gt; as follows:<br>
+ &gt;&gt; &gt;&gt;&gt;<br>
+ &gt;&gt; &gt;&gt;&gt; - If you have a `define` of a function, it needs an a=
+ nnotation.<br>
+ &gt;&gt; &gt;&gt;&gt; - If you have a `lambda` that&#39;s being immediatly =
+ bound to a variable,<br>
+ &gt;&gt; &gt;&gt;&gt; it needs an annotation (observe that this implies the=
+  previous rule).<br>
+ &gt;&gt; &gt;&gt;&gt; - If you have a `lambda` that&#39;s the argument to a=
+  polymorphic<br>
+ &gt;&gt; &gt;&gt;&gt; function, it needs an annotation.<br>
+ &gt;&gt; &gt;&gt;&gt; - If you have a mutable variable, it needs an annotat=
+ ion.<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; BTW, we could put this in the &quot;Caveats&quot; section=
+  of the TR Guide. Or<br>
+ &gt;&gt; &gt;&gt; perhaps some other part of the Guide.<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; I don&#39;t think it belongs in &quot;Caveats&quot; -- it&#39=
+ ;s not a caveat in the<br>
+ &gt;&gt; &gt; sense that the others there are. =C2=A0It&#39;s a design deci=
+ sion, similar to<br>
+ &gt;&gt; &gt; how TR doesn&#39;t let you do strong updates to variables.<br=
+ >
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; Sam<br>
+ &gt;<br>
+ &gt;<br>
+ </div></div></blockquote></div><br></div></div>
+ 
+ --089e01182c7e3938dd04ed5a8940--
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 13:41:25 -0500
+
+ On Thu, Dec 12, 2013 at 1:30 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ >
+ >
+ >
+ > On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ > wrote:
+ >>
+ >> On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >> > IIUC, when you don't do that, then you get something like "Any" or maybe
+ >> > "Any Any -> Any" if it can easily see the arity. Is that right?
+ >>
+ >> That's right.
+ >>
+ >> > If so, then why not make it a syntax error to not follow these rules,
+ >> > since
+ >> > the Any annotations seem unlikely to be useful in general?
+ >>
+ >> There are two reasons not to do this. One is that sometimes it's nice
+ >> to be able to skip the annotation, especially if the variable is not
+ >> used, as in:
+ >>
+ >>    (for-each (lambda _ (displayln "hi")) some-list)
+ >>
+ >
+ > I wouldn't object to a special case that allowed no annotation on variables
+ > that aren't referenced.
+ 
+ Sure, but then what about (lambda (x) (prinf "x: ~a\n" x)) ?  Also
+ works fine with the type `Any`.
+ 
+ >> The second reason is that many many bindings are generated by macro
+ >> expansion, and often they don't have annotations, but don't cause the
+ >> program to fail to typecheck. Dealing sensibly with macro-generated
+ >> code is, I think, one of the hardest parts of Typed Racket's design.
+ >>
+ >
+ > I don't think the second reason is valid, as you can just not require type
+ > annotations for macro-inserted binders.
+ 
+ What does 'macro-inserted' mean, though? I don't think a semantics
+ that changes based on `syntax-original?` is a good idea, especially
+ since that isn't something that Racket programmers normally have to
+ worry about.
+ 
+ Sam
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 12:57:14 -0600
+
+ --047d7b2ee6d9ef5fec04ed5ae9a0
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Thu, Dec 12, 2013 at 12:41 PM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu>wrote:
+ 
+ > On Thu, Dec 12, 2013 at 1:30 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ > >
+ > >
+ > >
+ > > On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt <
+ > samth@cs.indiana.edu>
+ > > wrote:
+ > >>
+ > >> On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler
+ > >> <robby@eecs.northwestern.edu> wrote:
+ > >> > IIUC, when you don't do that, then you get something like "Any" or
+ > maybe
+ > >> > "Any Any -> Any" if it can easily see the arity. Is that right?
+ > >>
+ > >> That's right.
+ > >>
+ > >> > If so, then why not make it a syntax error to not follow these rules,
+ > >> > since
+ > >> > the Any annotations seem unlikely to be useful in general?
+ > >>
+ > >> There are two reasons not to do this. One is that sometimes it's nice
+ > >> to be able to skip the annotation, especially if the variable is not
+ > >> used, as in:
+ > >>
+ > >>    (for-each (lambda _ (displayln "hi")) some-list)
+ > >>
+ > >
+ > > I wouldn't object to a special case that allowed no annotation on
+ > variables
+ > > that aren't referenced.
+ >
+ > Sure, but then what about (lambda (x) (prinf "x: ~a\n" x)) ?  Also
+ > works fine with the type `Any`.
+ >
+ >
+ Personally, I don't mind putting an annotation there.
+ 
+ This is, however, more like a third reason-- you're essentially asserting
+ that Any is a useful annotation in a non-trivial number of cases, and you
+ certainly have more TR programming experience than I do, but for me the
+ annoyance of the bad error messages when I forget an annotation is worse
+ than the annoyance of inserting the occasional "Any" annotation (mostly
+ because I have yet to even want that annotation once).
+ 
+ 
+ 
+ > >> The second reason is that many many bindings are generated by macro
+ > >> expansion, and often they don't have annotations, but don't cause the
+ > >> program to fail to typecheck. Dealing sensibly with macro-generated
+ > >> code is, I think, one of the hardest parts of Typed Racket's design.
+ > >>
+ > >
+ > > I don't think the second reason is valid, as you can just not require
+ > type
+ > > annotations for macro-inserted binders.
+ >
+ > What does 'macro-inserted' mean, though? I don't think a semantics
+ > that changes based on `syntax-original?` is a good idea, especially
+ > since that isn't something that Racket programmers normally have to
+ > worry about.
+ >
+ >
+ This seems like a "small matter of programming" for you to figure out how
+ to do "The Right Thing", perhaps leading to an improvement to our macro
+ system. But I don't think it is right to explain it the way you did.
+ 
+ Robby
+ 
+ --047d7b2ee6d9ef5fec04ed5ae9a0
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Thu, Dec 12, 2013 at 12:41 PM, Sam Tobin-Hochstadt <span dir=3D"=
+ ltr">&lt;<a href=3D"mailto:samth@cs.indiana.edu" target=3D"_blank">samth@cs=
+ .indiana.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div class=3D"im">On Thu, Dec 12, 2013 at 1:=
+ 30 PM, Robby Findler<br>
+ &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.=
+ edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt &lt;<a href=3D"m=
+ ailto:samth@cs.indiana.edu">samth@cs.indiana.edu</a>&gt;<br>
+ &gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler<br>
+ &gt;&gt; &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.nort=
+ hwestern.edu</a>&gt; wrote:<br>
+ &gt;&gt; &gt; IIUC, when you don&#39;t do that, then you get something like=
+  &quot;Any&quot; or maybe<br>
+ &gt;&gt; &gt; &quot;Any Any -&gt; Any&quot; if it can easily see the arity.=
+  Is that right?<br>
+ &gt;&gt;<br>
+ &gt;&gt; That&#39;s right.<br>
+ &gt;&gt;<br>
+ &gt;&gt; &gt; If so, then why not make it a syntax error to not follow thes=
+ e rules,<br>
+ &gt;&gt; &gt; since<br>
+ &gt;&gt; &gt; the Any annotations seem unlikely to be useful in general?<br=
+ >
+ &gt;&gt;<br>
+ &gt;&gt; There are two reasons not to do this. One is that sometimes it&#39=
+ ;s nice<br>
+ &gt;&gt; to be able to skip the annotation, especially if the variable is n=
+ ot<br>
+ &gt;&gt; used, as in:<br>
+ &gt;&gt;<br>
+ &gt;&gt; =C2=A0 =C2=A0(for-each (lambda _ (displayln &quot;hi&quot;)) some-=
+ list)<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ &gt; I wouldn&#39;t object to a special case that allowed no annotation on =
+ variables<br>
+ &gt; that aren&#39;t referenced.<br>
+ <br>
+ </div>Sure, but then what about (lambda (x) (prinf &quot;x: ~a\n&quot; x)) =
+ ? =C2=A0Also<br>
+ works fine with the type `Any`.<br>
+ <div class=3D"im"><br></div></blockquote><div><br></div><div>Personally, I =
+ don&#39;t mind putting an annotation there.=C2=A0</div><div><br></div><div>=
+ This is, however, more like a third reason-- you&#39;re essentially asserti=
+ ng that Any is a useful annotation in a non-trivial number of cases, and yo=
+ u certainly have more TR programming experience than I do, but for me the a=
+ nnoyance of the bad error messages when I forget an annotation is worse tha=
+ n the annoyance of inserting the occasional &quot;Any&quot; annotation (mos=
+ tly because I have yet to even want that annotation once).</div>
+ <div><br></div><div>=C2=A0</div><blockquote class=3D"gmail_quote" style=3D"=
+ margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><div class=
+ =3D"im">
+ &gt;&gt; The second reason is that many many bindings are generated by macr=
+ o<br>
+ &gt;&gt; expansion, and often they don&#39;t have annotations, but don&#39;=
+ t cause the<br>
+ &gt;&gt; program to fail to typecheck. Dealing sensibly with macro-generate=
+ d<br>
+ &gt;&gt; code is, I think, one of the hardest parts of Typed Racket&#39;s d=
+ esign.<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ &gt; I don&#39;t think the second reason is valid, as you can just not requ=
+ ire type<br>
+ &gt; annotations for macro-inserted binders.<br>
+ <br>
+ </div>What does &#39;macro-inserted&#39; mean, though? I don&#39;t think a =
+ semantics<br>
+ that changes based on `syntax-original?` is a good idea, especially<br>
+ since that isn&#39;t something that Racket programmers normally have to<br>
+ worry about.<br><br></blockquote><div><br></div><div>This seems like a &quo=
+ t;small matter of programming&quot; for you to figure out how to do &quot;T=
+ he Right Thing&quot;, perhaps leading to an improvement to our macro system=
+ . But I don&#39;t think it is right to explain it the way you did.</div>
+ <div><br></div><div>Robby</div></div></div></div>
+ 
+ --047d7b2ee6d9ef5fec04ed5ae9a0--
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 14:13:35 -0500
+
+ On Thu, Dec 12, 2013 at 1:57 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ >
+ >
+ >
+ > On Thu, Dec 12, 2013 at 12:41 PM, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ > wrote:
+ >>
+ >> On Thu, Dec 12, 2013 at 1:30 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >> >
+ >> >
+ >> >
+ >> > On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt
+ >> > <samth@cs.indiana.edu>
+ >> > wrote:
+ >> >>
+ >> >> On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler
+ >> >> <robby@eecs.northwestern.edu> wrote:
+ >> >> > IIUC, when you don't do that, then you get something like "Any" or
+ >> >> > maybe
+ >> >> > "Any Any -> Any" if it can easily see the arity. Is that right?
+ >> >>
+ >> >> That's right.
+ >> >>
+ >> >> > If so, then why not make it a syntax error to not follow these rules,
+ >> >> > since
+ >> >> > the Any annotations seem unlikely to be useful in general?
+ >> >>
+ >> >> There are two reasons not to do this. One is that sometimes it's nice
+ >> >> to be able to skip the annotation, especially if the variable is not
+ >> >> used, as in:
+ >> >>
+ >> >>    (for-each (lambda _ (displayln "hi")) some-list)
+ >> >>
+ >> >
+ >> > I wouldn't object to a special case that allowed no annotation on
+ >> > variables
+ >> > that aren't referenced.
+ >>
+ >> Sure, but then what about (lambda (x) (prinf "x: ~a\n" x)) ?  Also
+ >> works fine with the type `Any`.
+ >>
+ >
+ > Personally, I don't mind putting an annotation there.
+ >
+ > This is, however, more like a third reason-- you're essentially asserting
+ > that Any is a useful annotation in a non-trivial number of cases, and you
+ > certainly have more TR programming experience than I do, but for me the
+ > annoyance of the bad error messages when I forget an annotation is worse
+ > than the annoyance of inserting the occasional "Any" annotation (mostly
+ > because I have yet to even want that annotation once).
+ 
+ I think we can definitely do better with the error message here.
+ 
+ I do also believe that Any turns out to be useful more often than
+ you'd think.  As a suggestive indication about this, it's used on
+ about 1 in 6 lines in the base type environment.
+ 
+ >> >> The second reason is that many many bindings are generated by macro
+ >> >> expansion, and often they don't have annotations, but don't cause the
+ >> >> program to fail to typecheck. Dealing sensibly with macro-generated
+ >> >> code is, I think, one of the hardest parts of Typed Racket's design.
+ >> >>
+ >> >
+ >> > I don't think the second reason is valid, as you can just not require
+ >> > type
+ >> > annotations for macro-inserted binders.
+ >>
+ >> What does 'macro-inserted' mean, though? I don't think a semantics
+ >> that changes based on `syntax-original?` is a good idea, especially
+ >> since that isn't something that Racket programmers normally have to
+ >> worry about.
+ >
+ > This seems like a "small matter of programming" for you to figure out how to
+ > do "The Right Thing", perhaps leading to an improvement to our macro system.
+ > But I don't think it is right to explain it the way you did.
+ 
+ I'm not sure exactly what you mean.  But more broadly, I think I
+ disagree with what you're suggesting. I don't want Typed Racket (or
+ Racket) programmers to have to think about whether something came from
+ a macro or whether they wrote it directly, because I think places
+ where that matters make it harder to abstract over things with macros.
+ This kind of information is great for improving error messages, but I
+ wouldn't want macro abstraction to change the semantics of the
+ program.
+ 
+ Sam
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 13:16:00 -0600
+
+ --001a1133096410749804ed5b2d07
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Okay. Makes sense.
+ 
+ Robby
+ 
+ 
+ On Thu, Dec 12, 2013 at 1:13 PM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu>wrote:
+ 
+ > On Thu, Dec 12, 2013 at 1:57 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ > >
+ > >
+ > >
+ > > On Thu, Dec 12, 2013 at 12:41 PM, Sam Tobin-Hochstadt <
+ > samth@cs.indiana.edu>
+ > > wrote:
+ > >>
+ > >> On Thu, Dec 12, 2013 at 1:30 PM, Robby Findler
+ > >> <robby@eecs.northwestern.edu> wrote:
+ > >> >
+ > >> >
+ > >> >
+ > >> > On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt
+ > >> > <samth@cs.indiana.edu>
+ > >> > wrote:
+ > >> >>
+ > >> >> On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler
+ > >> >> <robby@eecs.northwestern.edu> wrote:
+ > >> >> > IIUC, when you don't do that, then you get something like "Any" or
+ > >> >> > maybe
+ > >> >> > "Any Any -> Any" if it can easily see the arity. Is that right?
+ > >> >>
+ > >> >> That's right.
+ > >> >>
+ > >> >> > If so, then why not make it a syntax error to not follow these
+ > rules,
+ > >> >> > since
+ > >> >> > the Any annotations seem unlikely to be useful in general?
+ > >> >>
+ > >> >> There are two reasons not to do this. One is that sometimes it's nice
+ > >> >> to be able to skip the annotation, especially if the variable is not
+ > >> >> used, as in:
+ > >> >>
+ > >> >>    (for-each (lambda _ (displayln "hi")) some-list)
+ > >> >>
+ > >> >
+ > >> > I wouldn't object to a special case that allowed no annotation on
+ > >> > variables
+ > >> > that aren't referenced.
+ > >>
+ > >> Sure, but then what about (lambda (x) (prinf "x: ~a\n" x)) ?  Also
+ > >> works fine with the type `Any`.
+ > >>
+ > >
+ > > Personally, I don't mind putting an annotation there.
+ > >
+ > > This is, however, more like a third reason-- you're essentially asserting
+ > > that Any is a useful annotation in a non-trivial number of cases, and you
+ > > certainly have more TR programming experience than I do, but for me the
+ > > annoyance of the bad error messages when I forget an annotation is worse
+ > > than the annoyance of inserting the occasional "Any" annotation (mostly
+ > > because I have yet to even want that annotation once).
+ >
+ > I think we can definitely do better with the error message here.
+ >
+ > I do also believe that Any turns out to be useful more often than
+ > you'd think.  As a suggestive indication about this, it's used on
+ > about 1 in 6 lines in the base type environment.
+ >
+ > >> >> The second reason is that many many bindings are generated by macro
+ > >> >> expansion, and often they don't have annotations, but don't cause the
+ > >> >> program to fail to typecheck. Dealing sensibly with macro-generated
+ > >> >> code is, I think, one of the hardest parts of Typed Racket's design.
+ > >> >>
+ > >> >
+ > >> > I don't think the second reason is valid, as you can just not require
+ > >> > type
+ > >> > annotations for macro-inserted binders.
+ > >>
+ > >> What does 'macro-inserted' mean, though? I don't think a semantics
+ > >> that changes based on `syntax-original?` is a good idea, especially
+ > >> since that isn't something that Racket programmers normally have to
+ > >> worry about.
+ > >
+ > > This seems like a "small matter of programming" for you to figure out
+ > how to
+ > > do "The Right Thing", perhaps leading to an improvement to our macro
+ > system.
+ > > But I don't think it is right to explain it the way you did.
+ >
+ > I'm not sure exactly what you mean.  But more broadly, I think I
+ > disagree with what you're suggesting. I don't want Typed Racket (or
+ > Racket) programmers to have to think about whether something came from
+ > a macro or whether they wrote it directly, because I think places
+ > where that matters make it harder to abstract over things with macros.
+ > This kind of information is great for improving error messages, but I
+ > wouldn't want macro abstraction to change the semantics of the
+ > program.
+ >
+ > Sam
+ >
+ 
+ --001a1133096410749804ed5b2d07
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Okay. Makes sense.<div><br></div><div>Robby</div></div><di=
+ v class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Thu, Dec 12, =
+ 2013 at 1:13 PM, Sam Tobin-Hochstadt <span dir=3D"ltr">&lt;<a href=3D"mailt=
+ o:samth@cs.indiana.edu" target=3D"_blank">samth@cs.indiana.edu</a>&gt;</spa=
+ n> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">On Thu, Dec 12, 2013 at 1:57 PM, Robby Findl=
+ er<br>
+ <div><div class=3D"h5">&lt;<a href=3D"mailto:robby@eecs.northwestern.edu">r=
+ obby@eecs.northwestern.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On Thu, Dec 12, 2013 at 12:41 PM, Sam Tobin-Hochstadt &lt;<a href=3D"m=
+ ailto:samth@cs.indiana.edu">samth@cs.indiana.edu</a>&gt;<br>
+ &gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Thu, Dec 12, 2013 at 1:30 PM, Robby Findler<br>
+ &gt;&gt; &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.nort=
+ hwestern.edu</a>&gt; wrote:<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; On Thu, Dec 12, 2013 at 10:54 AM, Sam Tobin-Hochstadt<br>
+ &gt;&gt; &gt; &lt;<a href=3D"mailto:samth@cs.indiana.edu">samth@cs.indiana.=
+ edu</a>&gt;<br>
+ &gt;&gt; &gt; wrote:<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; On Thu, Dec 12, 2013 at 11:36 AM, Robby Findler<br>
+ &gt;&gt; &gt;&gt; &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@=
+ eecs.northwestern.edu</a>&gt; wrote:<br>
+ &gt;&gt; &gt;&gt; &gt; IIUC, when you don&#39;t do that, then you get somet=
+ hing like &quot;Any&quot; or<br>
+ &gt;&gt; &gt;&gt; &gt; maybe<br>
+ &gt;&gt; &gt;&gt; &gt; &quot;Any Any -&gt; Any&quot; if it can easily see t=
+ he arity. Is that right?<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; That&#39;s right.<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; &gt; If so, then why not make it a syntax error to not fo=
+ llow these rules,<br>
+ &gt;&gt; &gt;&gt; &gt; since<br>
+ &gt;&gt; &gt;&gt; &gt; the Any annotations seem unlikely to be useful in ge=
+ neral?<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; There are two reasons not to do this. One is that sometim=
+ es it&#39;s nice<br>
+ &gt;&gt; &gt;&gt; to be able to skip the annotation, especially if the vari=
+ able is not<br>
+ &gt;&gt; &gt;&gt; used, as in:<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; =C2=A0 =C2=A0(for-each (lambda _ (displayln &quot;hi&quot=
+ ;)) some-list)<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; I wouldn&#39;t object to a special case that allowed no annot=
+ ation on<br>
+ &gt;&gt; &gt; variables<br>
+ &gt;&gt; &gt; that aren&#39;t referenced.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Sure, but then what about (lambda (x) (prinf &quot;x: ~a\n&quot; x=
+ )) ? =C2=A0Also<br>
+ &gt;&gt; works fine with the type `Any`.<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ &gt; Personally, I don&#39;t mind putting an annotation there.<br>
+ &gt;<br>
+ &gt; This is, however, more like a third reason-- you&#39;re essentially as=
+ serting<br>
+ &gt; that Any is a useful annotation in a non-trivial number of cases, and =
+ you<br>
+ &gt; certainly have more TR programming experience than I do, but for me th=
+ e<br>
+ &gt; annoyance of the bad error messages when I forget an annotation is wor=
+ se<br>
+ &gt; than the annoyance of inserting the occasional &quot;Any&quot; annotat=
+ ion (mostly<br>
+ &gt; because I have yet to even want that annotation once).<br>
+ <br>
+ </div></div>I think we can definitely do better with the error message here=
+ .<br>
+ <br>
+ I do also believe that Any turns out to be useful more often than<br>
+ you&#39;d think. =C2=A0As a suggestive indication about this, it&#39;s used=
+  on<br>
+ about 1 in 6 lines in the base type environment.<br>
+ <div class=3D"im"><br>
+ &gt;&gt; &gt;&gt; The second reason is that many many bindings are generate=
+ d by macro<br>
+ &gt;&gt; &gt;&gt; expansion, and often they don&#39;t have annotations, but=
+  don&#39;t cause the<br>
+ &gt;&gt; &gt;&gt; program to fail to typecheck. Dealing sensibly with macro=
+ -generated<br>
+ &gt;&gt; &gt;&gt; code is, I think, one of the hardest parts of Typed Racke=
+ t&#39;s design.<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; I don&#39;t think the second reason is valid, as you can just=
+  not require<br>
+ &gt;&gt; &gt; type<br>
+ &gt;&gt; &gt; annotations for macro-inserted binders.<br>
+ &gt;&gt;<br>
+ &gt;&gt; What does &#39;macro-inserted&#39; mean, though? I don&#39;t think=
+  a semantics<br>
+ &gt;&gt; that changes based on `syntax-original?` is a good idea, especiall=
+ y<br>
+ &gt;&gt; since that isn&#39;t something that Racket programmers normally ha=
+ ve to<br>
+ &gt;&gt; worry about.<br>
+ &gt;<br>
+ &gt; This seems like a &quot;small matter of programming&quot; for you to f=
+ igure out how to<br>
+ &gt; do &quot;The Right Thing&quot;, perhaps leading to an improvement to o=
+ ur macro system.<br>
+ &gt; But I don&#39;t think it is right to explain it the way you did.<br>
+ <br>
+ </div>I&#39;m not sure exactly what you mean. =C2=A0But more broadly, I thi=
+ nk I<br>
+ disagree with what you&#39;re suggesting. I don&#39;t want Typed Racket (or=
+ <br>
+ Racket) programmers to have to think about whether something came from<br>
+ a macro or whether they wrote it directly, because I think places<br>
+ where that matters make it harder to abstract over things with macros.<br>
+ This kind of information is great for improving error messages, but I<br>
+ wouldn&#39;t want macro abstraction to change the semantics of the<br>
+ program.<br>
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br>
+ Sam<br>
+ </font></span></blockquote></div><br></div>
+ 
+ --001a1133096410749804ed5b2d07--
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 14:34:28 -0500
+
+ Three hours ago, Eric Dobson wrote:
+ > That is a much more complicated form of inference than TR currently
+ > does.  You are asking to look at the use of a variable and decide
+ > how to type it based on that, which TR currently does not do as it
+ > is non local.
+ 
+ OK.  What I thought you meant earlier is that it is possible to do
+ this, ie,
+ 
+     (: foo : ... -> T)
+ 
+ tells TR that the result should be T, and therefore the final `let'
+ form should have that type, and if it's (let ([x E]) x) then its final
+ form should have the same, and therefore E should have it.  If this is
+ what you consider non-local and cannot be done, then I misunderstood.
+ 
+ 
+ > We could do a hacky solution and type (let ([x E]) x) specially but
+ > it would miss things like (let ([x E]) (begin x)) or (let ([x E])
+ > (let ([y E]) x)). The second is likely close to what would happen
+ > with mixed definitions, and thus I think it would be more confusing
+ > what the rule is.
+ 
+ Yeah, I would like all of these to work too.  And yes, I see the
+ difficulty of doing so -- the bad result (which is really the essence
+ of my original complaint) is that TR fails to be similar to R "only
+ with types" since there's many transformations that are considered
+ simple code refactoring in R (to the point of implementing them as
+ keyboard macros) but in TR they can imply more work...
+ 
+ 
+ Three hours ago, Sam Tobin-Hochstadt wrote:
+ > 
+ > More generally, the heuristic for when you should annotate things
+ > goes as follows:
+ > 
+ > - If you have a `define` of a function, it needs an annotation.
+ > - If you have a `lambda` that's being immediatly bound to a variable,
+ > it needs an annotation (observe that this implies the previous rule).
+ > - If you have a `lambda` that's the argument to a polymorphic
+ > function, it needs an annotation.
+ > - If you have a mutable variable, it needs an annotation.
+ 
+ ... and the result of this is that it's very hard for me to remember
+ such rules, since they distinguish expressions that I usually consider
+ equivalent.
+ 
+ (Again, this is from a user POV.)
+ 
+ 
+ > [1] I'd like to do this, because it will make TR substantially
+ > easier to use in some cases, but it's not immediately on the
+ > horizon.
+ 
+ +273 for any improvements to inference, especially with these kind of
+ things.
+ 
+ 
+ Three hours ago, Asumu Takikawa wrote:
+ > 
+ > BTW, we could put this in the "Caveats" section of the TR Guide. Or
+ > perhaps some other part of the Guide.
+ 
+ +1, regardless of the section name.  But TBH it's unlikely that I'd
+ view that -- and if I did, the implication of the above is that I'm
+ likely to forget it.
+ 
+ 
+ 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ > 
+ > I do also believe that Any turns out to be useful more often than
+ > you'd think.  [...]
+ 
+ +1.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>,
+        Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Thu, 12 Dec 2013 14:44:49 -0500
+
+ On Thu, Dec 12, 2013 at 2:34 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >
+ > Three hours ago, Sam Tobin-Hochstadt wrote:
+ >>
+ >> More generally, the heuristic for when you should annotate things
+ >> goes as follows:
+ >>
+ >> - If you have a `define` of a function, it needs an annotation.
+ >> - If you have a `lambda` that's being immediatly bound to a variable,
+ >> it needs an annotation (observe that this implies the previous rule).
+ >> - If you have a `lambda` that's the argument to a polymorphic
+ >> function, it needs an annotation.
+ >> - If you have a mutable variable, it needs an annotation.
+ >
+ > ... and the result of this is that it's very hard for me to remember
+ > such rules, since they distinguish expressions that I usually consider
+ > equivalent.
+ >
+ > (Again, this is from a user POV.)
+ 
+ Unfortunately, this is a fundamental feature of type systems --
+ they're reasoning about your program _syntactically_, and thus it's
+ easy to construct _semantically_ equivalent programs, one of which
+ type checks and one of which doesn't, regardless of what type system
+ you use.
+ 
+ I think it's somewhat easier to see this fact in Typed Racket than in,
+ say, SML, because a language like SML makes it "hard to think"
+ programs that work but don't type check, whereas it's really easy in
+ TR. But the issue is always there.
+ 
+ Sam
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14244: TR currying hack showing through
+Date: Tue, 17 Dec 2013 14:10:01 +0100
+
+ This reasoning suggests ANF rules might apply here. -- Matthias
+ 
+ 
+ 
+ On Dec 12, 2013, at 5:00 PM, Eric Dobson wrote:
+ 
+ > That is a much more complicated form of inference than TR currently
+ > does. You are asking to look at the use of a variable and decide how
+ > to type it based on that, which TR currently does not do as it is non
+ > local.
+ > 
+ > We could do a hacky solution and type (let ([x E]) x) specially but it
+ > would miss things like (let ([x E]) (begin x)) or (let ([x E]) (let
+ > ([y E]) x)). The second is likely close to what would happen with
+ > mixed definitions, and thus I think it would be more confusing what
+ > the rule is.
+ > 
+ > On Wed, Dec 11, 2013 at 11:46 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> 10 minutes ago, Eric Dobson wrote:
+ >>> I'm not sure what the issue is.
+ >>> 
+ >>> In the first example we try and type (lambda (b) (+ a b) as (Number
+ >>> -> Number) and so are able to infer that b must be Number.
+ >>> 
+ >>> In the second cane we try to type (letrec-values (((bar) (lambda (b)
+ >>> (+ a b))) bar) as (Number -> Number)). We don't look at the body and
+ >>> try to type each binding's body without any expected type, and
+ >>> cannot type (lambda (b) (+ a b)) because we don't know what b will
+ >>> be (and assuming Any leads to an error).
+ >> 
+ >> Well, the issue is that as far as the end programmer goes, both of the
+ >> sources are equivalent.  I'd switch between them mostly for cosmetical
+ >> reasons like having a name for the returned function.
+ >> 
+ >> But (and that's speaking with no idea what TR is doing for its
+ >> inference), it sounds like TR should really just try to do inference
+ >> with `let' (and relatives)--?  Something that would treat `E' in the
+ >> same way that it treats (let ([x E]) x)?
+ >> 
+ >> --
+ >>          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >>                    http://barzilay.org/                   Maze is Life!
+ 
+
+
+----------
+A commit by asumu@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/d202f415d9
+  | Add "when to add type annotations?" to TR Guide
+  | 
+  | Based on a discussion from PR 14244
+

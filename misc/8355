@@ -1,0 +1,94 @@
+From apache@plt-scheme.org Mon Oct 30 16:44:59 2006
+Received: from py-out-1112.google.com (py-out-1112.google.com [64.233.166.176])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k9ULirOa001379
+	for <bugs@bugs.plt-scheme.org>; Mon, 30 Oct 2006 16:44:53 -0500
+Message-Id: <200610302144.k9ULiqWB001373@champlain.ccs.neu.edu>
+Date: Mon, 30 Oct 2006 16:44:52 -0500
+From: dvanhorn@cs.brandeis.edu
+To: bugs@plt-scheme.org
+Subject: SRFI 40 strict when it should be lazy
+
+>Number:         8355
+>Category:       misc
+>Synopsis:       SRFI 40 strict when it should be lazy
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Oct 30 16:45:01 -0500 2006
+>Last-Modified:  Fri Sep 16 09:54:51 -0400 2011
+>Originator:     David Van Horn
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        350
+>Environment:
+macosx "Darwin dyn-129-64-200-121.wireless-bg.brandeis.edu 8.7.1 Darwin Kernel Version 8.7.1: Wed Jun  7 16:19:56 PDT 2006; root:xnu-792.9.72.obj~2/RELEASE_I386 i386 i386" (i386-macosx) (get-display-depth) = 32
+Docs Installed:
+(("/Applications/PLT Scheme v350/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Collections:
+(("/Users/dvanhorn/Library/PLT Scheme/350/collects" ".DS_Store" "closure-calculus" "multi-return-calculus") ("/Applications/PLT Scheme v350/collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "DrScheme.init" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "setup" "sgl" "slatex" "slib" "slib3a3.zip" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tex2page" "texpict" "trace" "version" "web-server" "xml"))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+There is a fairly serious bug in the PLT implementation of 
+SRFI 40 (it exists in the SRFI reference implementation, too).
+
+The following examples demonstrate the problem:
+
+                                              ; Correct result:
+(stream-null? (stream-cons (1) stream-null))  ; #f
+(stream-pair? (stream-cons (1) stream-null))  ; #t
+(stream-cdr   (stream-cons (1) stream-null))  ; stream
+(stream-null? (stream-cdr (stream-cons (1) stream-null)))
+                                              ; #t
+(stream-car (stream-cons (1) stream-null))    ; error, (1)
+(stream-cons #t #f)                           ; error, #f not a stream
+
+I believe the following will fix it.  Change:
+
+  ;; STREAM-CONS object stream -- primitive constructor of streams
+  (define-syntax stream-cons
+    (syntax-rules ()
+      ((_ obj strm)
+       (make-stream (srfi-40:delay (cons obj strm))))))
+  
+  ;; STREAM-CAR stream -- first element of stream
+  (define (stream-car strm)
+    (unless (stream? strm)
+      (raise-type-error 'stream-car "stream" strm))
+    (let ((pair (srfi-40:force (stream-promise strm))))
+      (if (null? pair)
+          (raise-type-error 'stream-car "stream-pair" strm)
+          (car pair))))
+
+To:
+
+  ;; STREAM-CONS object stream -- primitive constructor of streams
+  (define-syntax stream-cons
+    (syntax-rules ()
+      ((_ obj strm)
+       (begin
+         (unless (stream? strm)
+           (raise-type-error 'stream-cons "stream" strm))
+         (srfi-40:eager (cons (delay obj) strm))))))
+  
+  ;; STREAM-CAR stream -- first element of stream
+  (define (stream-car strm)
+    (unless (stream? strm)
+      (raise-type-error 'stream-car "stream" strm))
+    (let ((pair (srfi-40:force (stream-promise strm))))
+      (if (null? pair)
+          (raise-type-error 'stream-car "stream-pair" strm)
+          (force (car pair)))))
+>How-To-Repeat:
+(require (lib "40.ss" "srfi"))
+(stream-cons (1) stream-null)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "eli" by samth at Fri, 16 Sep 2011 09:54:51 -0400
+Reason>>> laziness
+

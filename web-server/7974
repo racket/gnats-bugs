@@ -1,0 +1,190 @@
+From apache@plt-scheme.org Mon Mar 20 15:33:21 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k2KKXJZ4006023
+	for <bugs@plt-scheme.org>; Mon, 20 Mar 2006 15:33:19 -0500
+Message-Id: <200603202033.k2KKXJfA006021@champlain.ccs.neu.edu>
+Date: Mon, 20 Mar 2006 15:33:19 -0500
+From: qha@lysator.liu.se
+To: bugs@plt-scheme.org
+Subject: read-name+value ignores (current-alist-separator-mode)
+
+>Number:         7974
+>Category:       web-server
+>Synopsis:       read-name+value ignores (current-alist-separator-mode)
+>Class:          sw-bug
+>Responsible:    jay
+>Notify-List:    robby@plt-scheme.org,mflatt@plt-scheme.org
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Mar 20 15:35:00 -0500 2006
+>Closed-Date:    Mon Mar 16 14:45:40 -0400 2009
+>Last-Modified:  Mon Mar 16 14:45:40 -0400 2009
+>Originator:     Ulrik Haugen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301
+>Environment:
+linux-other
+>Description:
+read-name+value in collects/net/cgi-unit.ss ignores the value of (current-alist-separator-mode) defined in collects/net/uri-codec-unit.ss
+
+If requiring uri-codec.ss in cgi-unit.ss is ok you might want to apply the following patch:
+
+--- cgi-unit.ss	2006/03/20 18:55:51	1.1
++++ cgi-unit.ss	2006/03/20 20:12:33
+@@ -1,7 +1,8 @@
+ 
+ (module cgi-unit mzscheme
+   (require (lib "unitsig.ss")
+-	   (lib "etc.ss"))
++           (lib "etc.ss")
++           "uri-codec.ss")
+ 
+   (require "cgi-sig.ss")
+ 
+@@ -135,23 +136,36 @@
+ 	(printf "Content-type: text/html~a~n~a~n" #\return #\return))
+       
+       ;; read-until-char :
+-      ;; iport x char -> list (char) x bool
+-      ;; -- operates on the default input port; the second value indicates
+-      ;; whether reading stopped because an EOF was hit (as opposed to the
+-      ;; delimiter being seen); the delimiter is not part of the result
++      ;; iport x (char -> bool) -> list (char) x bool
++
++      ;; -- operates on the supplied input port; the second value
++      ;; indicates whether reading stopped because an EOF was hit (as
++      ;; opposed to a delimiter being seen); the delimiter is not part
++      ;; of the result
+       
+       (define read-until-char
+-	(lambda (ip delimiter)
++        (lambda (request-ip delimiter?)
+ 	  (let loop ((chars '()))
+-	    (let ((c (read-char ip)))
++            (let ((c (read-char request-ip)))
+ 	      (cond
+ 	       ((eof-object? c)
+ 		(values (reverse chars) #t))
+-	       ((char=? c delimiter)
++               ((delimiter? c)
+ 		(values (reverse chars) #f))
+ 	       (else
+ 		(loop (cons c chars))))))))
+ 
++      ;; delimiter->predicate :
++      ;; symbol -> (char -> bool)
++
++      ;; returns a predicates to pass to read-until-char
++      (define (delimiter->predicate delimiter)
++        (case delimiter
++          ((eq) (lambda (c) (char=? c #\=)))
++          ((amp) (lambda (c) (char=? c #\&)))
++          ((semi) (lambda (c) (char=? c #\;)))
++          ((amp-or-semi) (lambda (c) (or (char=? c #\&) (char=? c #\;))))))
++
+       ;; read-name+value :
+       ;; iport -> (symbol + bool) x (string + bool) x bool
+ 
+@@ -161,16 +175,19 @@
+       ;; true or false depending on whether the EOF has been reached.  The
+       ;; strings are processed to remove the CGI spec "escape"s.
+ 
+-      ;; This code is _slightly_ lax: it allows an input to end in `&'.  It's
+-      ;; not clear this is legal by the CGI spec, which suggests that the last
+-      ;; value binding must end in an EOF.  It doesn't look like this matters.
+-      ;; It would also introduce needless modality and reduce flexibility.
++      ;; This code is _slightly_ lax: it allows an input to end in
++      ;; `whatever delimiter is indicated by
++      ;; (current-alist-separator-mode)'. It's not clear this is legal
++      ;; by the CGI spec, which suggests that the last value binding
++      ;; must end in an EOF. It doesn't look like this matters. It
++      ;; would also introduce needless modality and reduce
++      ;; flexibility.
+ 
+       (define read-name+value
+ 	(lambda (ip)
+ 	  (let-values 
+-	      (((name eof?)
+-		(read-until-char ip #\=)))
++              [((name eof?)
++                (read-until-char ip (delimiter->predicate 'eq)))]
+ 	    (cond
+ 	     ((and eof? (null? name))
+ 	      (values #f #f #t))
+@@ -180,8 +197,10 @@
+ 		     (string-append
+ 		      "No binding for `" (list->string name) "' field."))))
+ 	     (else
+-	      (let-values (((value eof?)
+-			    (read-until-char ip #\&)))
++              (let-values
++                  [((value eof?)
++                    (read-until-char ip (delimiter->predicate
++                                         (current-alist-separator-mode))))]
+ 		(values (string->symbol (query-chars->string name))
+ 			(query-chars->string value)
+ 			eof?)))))))
+>How-To-Repeat:
+(require (lib "cgi.ss" "net")
+         (lib "uri-codec.ss" "net"))
+
+(define-syntax test-result
+  (syntax-rules ()
+                [(test-result expression expected)
+                 (let ([result expression])
+                   (if (equal? result expected)
+                       (display (format "Ok: `~a' evaluated to `~a'.\n"
+                                        'expression expected))
+                     (display (format
+                               "Error: `~a' evaluated to `~a', expected `~a'.\n"
+                               'expression result expected))))]))
+
+(putenv "REQUEST_METHOD" "GET")
+
+(test-result (begin
+              (current-alist-separator-mode 'amp-or-semi)
+              (putenv "QUERY_STRING" "key1=value1&key2=value2;key3=value3")
+              (get-bindings))
+             '((key1 . "value1")
+               (key2 . "value2")
+               (key3 . "value3")))
+
+(test-result (begin
+              (current-alist-separator-mode 'amp)
+              (putenv "QUERY_STRING" "key1=value1&key2=value2")
+              (get-bindings))
+             '((key1 . "value1")
+               (key2 . "value2")))
+
+(test-result (begin
+              (current-alist-separator-mode 'amp)
+              (putenv "QUERY_STRING" "key1=value1;key2=value2")
+              (get-bindings))
+             '((key1 . "value1;key2=value2")))
+
+(test-result (begin
+              (current-alist-separator-mode 'semi)
+              (putenv "QUERY_STRING" "key1=value1;key2=value2")
+              (get-bindings))
+             '((key1 . "value1")
+               (key2 . "value2")))
+
+(test-result (begin
+              (current-alist-separator-mode 'semi)
+              (putenv "QUERY_STRING" "key1=value1&key2=value2")
+              (get-bindings))
+             '((key1 . "value1&key2=value2")))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "jay" by eli at Wed, 24 May 2006 14:33:24 -0400
+Reason>>> Marked as "web-server" just because it's related, but maybe
+someone else deals with the cgi stuff.  CCing Robby and Matthew.
+
+
+State changed from "open" to "closed" by jay at Mon, 16 Mar 2009 14:45:40 -0400
+Reason>>> Fixed in SVN
+

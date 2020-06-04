@@ -1,0 +1,116 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Nov 24 03:34:31 2013
+Received: from mail-oa0-f46.google.com (mail-oa0-f46.google.com [209.85.219.46])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id rAO8YT3x001996
+	for <bugs@bugs.plt-scheme.org>; Sun, 24 Nov 2013 03:34:29 -0500
+Message-Id: <201311240834.rAO8YRLL001989@winooski.ccs.neu.edu>
+Date: Sun, 24 Nov 2013 03:34:27 -0500
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: segfault at head
+
+>Number:         14195
+>Category:       all
+>Synopsis:       segfault at head
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Nov 24 03:36:01 -0500 2013
+>Closed-Date:    Sun Nov 24 10:28:25 -0500 2013
+>Last-Modified:  Sun Nov 24 10:28:25 -0500 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+The following program reliably segfaults for me.
+
+Steps to reproduce. Run program, and hit enter to trigger a compile. It crashes right after waiting for change the second time.
+
+OS = OSX.
+>How-To-Repeat:
+#lang racket
+(require setup/setup)
+
+(define (better-fs-evt path)
+  (define base-evt (filesystem-change-evt path))
+  (guard-evt
+    (lambda ()
+      (wrap-evt base-evt
+        (lambda (_)
+          (filesystem-change-evt-cancel base-evt)
+          (set! base-evt (filesystem-change-evt path))
+          path)))))
+
+
+
+(define fs-evt
+  (apply choice-evt
+    (fold-files
+      (lambda (path type seed)
+        (if (equal? type 'file)
+            (cons (better-fs-evt path) seed)
+            seed))
+      null
+      (expand-user-path "~/proj/racket/plt/pkgs/typed-racket-pkgs"))))
+
+(define compile-evt
+  (choice-evt
+    fs-evt
+    (read-line-evt (current-input-port) 'any)))
+
+(struct coallesced-evt (thread evt))
+
+(define (coallesce-evt evt)
+  (define found-result #f)
+  (define cancel-sema (make-semaphore))
+  (define runner
+    (thread 
+      (lambda ()
+        (let loop ()
+          (define res (sync evt cancel-sema))
+          (unless (equal? res cancel-sema)
+            (when (not found-result)
+              (set! found-result (box res)))
+            (loop))))))
+  (guard-evt
+    (λ ()
+       (semaphore-post cancel-sema)
+       (sync runner)
+       (if found-result
+           (wrap-evt always-evt (λ (_) (unbox found-result)))
+           evt))))
+
+(void (system "stty -echo"))
+(with-handlers ([exn:break? (lambda (exn) (displayln "Ending loop."))])
+  (let loop ((evt compile-evt))
+    (displayln "Waiting for change.")
+    (sync evt)
+    (displayln "Starting compile 1.")
+    (define next-evt (coallesce-evt compile-evt))
+    (displayln "Starting compile.")
+    (with-handlers ([exn:break? (lambda (exn) (displayln "Cancelling compile."))])
+      (setup #:collections '(("typed-racket") ("tests" "typed-racket") ("typed" "racket"))
+             #:make-docs? #f
+             #:jobs 8))
+    (loop next-evt)))
+(void (system "stty echo"))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sun, 24 Nov 2013 10:28:25 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/90388d1549
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sun, 24 Nov 2013 10:28:25 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/90388d1549
+  | fix handling of choice evt returned by a guard evt
+  | 
+  | Closes PR 14195
+  | 
+  | Merge to v6.0
+

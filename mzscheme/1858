@@ -1,0 +1,496 @@
+From latendre@cs.rice.edu  Tue Feb 13 19:38:51 2001
+Received: from localhost (nunavut.cs.rice.edu [128.42.3.177])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id TAA14211
+	for <plt-gnats>; Tue, 13 Feb 2001 19:38:51 -0600 (CST)
+Message-Id: <200102140138.TAA14211@cs.rice.edu>
+Date: Tue, 13 Feb 2001 19:38:51 -0600 (CST)
+From: latendre@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: Unexpected quasiquote implementation.
+
+>Number:         1858
+>Category:       mzscheme
+>Synopsis:       Unexpected quasiquote implementation.
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Feb 13 20:45:01 -0500 2001
+>Closed-Date:    Fri Dec 02 15:26:57 -0500 2011
+>Last-Modified:  Fri Dec 02 15:26:57 -0500 2011
+>Originator:     Mario Latendresse
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        102
+>Environment:
+unix (i386-linux) (get-display-depth) = 16
+Tools: ("syncheck" "project-manager")
+Docs Installed:
+("help" "mzscheme" "r5rs" "icons" "drscheme" "teachpack" "misclib" "mred" "beginning" "intermediate" "advanced")
+Collections:
+(("/home/latendre/soft/plt/collects" ("browser" "afm" "compiler" "drscheme" "graphics" "stepper" "hierlist" "icons" "make" "mzlib" "mred" "games" "mzscheme" "net" "help" "zodiac" "userspce" "dynext" "launcher" "drscheme-jr" "errortrace" "framework" "slibinit" "xml" "htdp" "setup" "defaults" "guserspce" "doc")))
+>Description:
+I expected `(a ,x b) to be strictly equivalent
+to (list 'a x 'b). But this is not the case in MzScheme.
+(The same behavior exists in ChezScheme, but not in Gambit).
+
+The actual implementation of MzScheme does something like 
+     (begin
+       (set! rest '(b))
+       (set! r (append (list 'a x) rest)))
+
+The problem is that '(b) is a constant and any change through
+set-car! will modified it. Shouldn't the implementation
+had done (list 'a x 'b) instead?
+
+(Indeed, I can see a problem with that since '(a b c)
+will no longer be equivalent to `(a b c), since
+'(a b c) and (list 'a 'b 'c) are not strictly the same. The
+later creates new cells but not the former. This is where set-car! 
+shows a different behavior)
+
+In any case, I think it is better to define `(a b c) strictly
+equivalent to (list 'a 'b 'c), so that indeed `(a b c) is not equivalent
+to '(a b c), giving more expressive power for the quasiquote.
+
+I cannot infer the exact equivalence from the R5Rs report. I guess
+this an undefined behavior.
+
+Mario
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: John Clements <clements@cs.rice.edu>
+To: plt-gnats@cs.rice.edu, latendre@cs.rice.edu
+Cc: plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Tue, 13 Feb 2001 20:59:15 -0600
+
+ I also see the bug, but it took me quite some time to understand this 
+ report.  Forgive me for saying so, but a single concrete example in 
+ the "how-to-repeat" section would have made this bug report a lot 
+ clearer.  If I understand you correctly, this expression illustrates 
+ the problem:
+ 
+ (define (maker)
+    `(1 2 3))
+ 
+ (set-car! (maker) 14)
+ 
+ (maker)
+ 
+ => (14 2 3)
+ 
+ I agree that this is a very undesirable property; it seems to break 
+ all sorts of nice static properties.  This suggests to me that 
+ quasiquote creates its cons cells at reader time, rather than at 
+ runtime, presumably as an optimization.
+ 
+ john
+
+From: Mario Latendresse <latendre@cs.rice.edu>
+To: clements@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu, plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Tue, 13 Feb 2001 21:29:08 -0600
+
+ > (define (maker)
+ >    `(1 2 3))
+ > 
+ > (set-car! (maker) 14)
+ > 
+ > (maker)
+ > 
+ > => (14 2 3)
+ > 
+ > I agree that this is a very undesirable property; it seems to break 
+ > all sorts of nice static properties.  This suggests to me that 
+ > quasiquote creates its cons cells at reader time, rather than at 
+ > runtime, presumably as an optimization.
+ 
+ This is one of the problem. 
+ 
+ But yet, there is a further problem that is quite unexpected when you
+ use the unquote.
+ 
+ If you do
+ 
+ (define x 2)
+ (define (maker)
+    `(1 ,x 3))
+ 
+ (set-car! (maker) 14)
+ 
+ When you execute (maker) you actually get (1 2 3) not (14 2 3) as
+ before. The value 14 is lost since a new cell is constructed for the
+ first (and second) element, but not the third. This is because
+ quasiquote seems to use a mix of list construction and
+ constants. Probably once the tail of the list is only constants, it
+ builds a list constant there and no longer creates cons cells.
+ 
+ So a list constructed by quasiquote cannot be modified by set-car! and
+ set-cdr! with a predictable result. The construction technique is
+ actually unknown.
+ 
+ Mario 
+ 
+ P.s. Sorry for not filling out the `how-to-repeat' section. I felt
+ that the code in the explanation could be executed as is.
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Mario Latendresse <latendre@cs.rice.edu>, clements@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu, plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 06:59:22 -0600
+
+ I have complained about this bug in the past -- the response was 
+ "tough, that's how it works". I suspect the answer remains the same.
+ 
+ Robby
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: latendre@cs.rice.edu, clements@cs.rice.edu, plt-gnats@cs.rice.edu,
+        plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 08:17:47 -0600 (CST)
+
+ Scheme used to be free to implement quasiquote with read-time or run-time
+ cons cells, and I have encountered behavior such as this one in Scheme 84 
+ before (yes, that's as in 16 years ago). If R5RS hasn't specified anything, 
+ Matthew's implementation is correct by default, though I agree that the 
+ behavior is unusual and counter-intuitive. 
+ 
+ -- Matthias
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: John Clements <clements@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu, latendre@cs.rice.edu, plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 06:45:20 -0800
+
+ Quoting John Clements:
+ > (define (maker)
+ >    `(1 2 3))
+ > 
+ > (set-car! (maker) 14)
+ > 
+ > (maker)
+ > 
+ > => (14 2 3)
+ 
+ With all the other changes in 200, it's probably time to make read-time
+ values immutable:
+ 
+  > (set-car! '(1 2 3) 3)
+  set-car!: expects type <mutable-pair> as 1st argument, given: 
+  (1 2 3); other arguments were: 3
+ 
+ [This change won't affect `read' itself. The `syntax->datum' function,
+ which is used by the `quote' compiler, will produce immutable values.]
+ 
+ Quoting Mario Latendresse:
+ > If you do
+ > 
+ > (define x 2)
+ > (define (maker)
+ >    `(1 ,x 3))
+ > 
+ > (set-car! (maker) 14)
+ > 
+ > When you execute (maker) you actually get (1 2 3) not (14 2 3) as
+ > before.
+ 
+ We can change `quasiquote' so that the result is always immutable, and
+ the above expression produces an error. An expanded `quasiquote'
+ expression will use `cons-immutable', `append-immutable',
+ `list->immutable-vector', and `box-immutable' to construct the result.
+ (None of those functions exist, yet, but they can be added easily.)
+ 
+ 
+ I'm opposed to having `quasiquote' construct all fresh cons cells,
+ since it would be a waste of allocation effort 99.9% of the time. We
+ might, at minimum, fix the docs to clarify that `quasiquote' creates
+ only as many cons cells as necessary. But now that we have immutable
+ cons cells, vectors, and boxes, the solution above is probably the best
+ one.
+ 
+ Matthew
+ 
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: mflatt@cs.utah.edu
+Cc: clements@cs.rice.edu, plt-gnats@cs.rice.edu, latendre@cs.rice.edu,
+        plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 08:55:14 -0600 (CST)
+
+ go immutable! 
+
+From: Dorai Sitaram <ds26@gte.com>
+To: mflatt@cs.utah.edu (Matthew Flatt)
+Cc: clements@cs.rice.edu (John Clements), plt-gnats@cs.rice.edu,
+        latendre@cs.rice.edu, plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 10:08:28 -0500 (EST)
+
+ > With all the other changes in 200, it's probably time to make read-time
+ > values immutable:
+ > 
+ >  > (set-car! '(1 2 3) 3)
+ >  set-car!: expects type <mutable-pair> as 1st argument, given: 
+ >  (1 2 3); other arguments were: 3
+ > 
+ > [This change won't affect `read' itself. The `syntax->datum' function,
+ > which is used by the `quote' compiler, will produce immutable values.]
+ > 
+ > Quoting Mario Latendresse:
+ > > If you do
+ > > 
+ > > (define x 2)
+ > > (define (maker)
+ > >    `(1 ,x 3))
+ > > 
+ > > (set-car! (maker) 14)
+ > > 
+ > > When you execute (maker) you actually get (1 2 3) not (14 2 3) as
+ > > before.
+ > 
+ > We can change `quasiquote' so that the result is always immutable, and
+ > the above expression produces an error. An expanded `quasiquote'
+ > expression will use `cons-immutable', `append-immutable',
+ > `list->immutable-vector', and `box-immutable' to construct the result.
+ > (None of those functions exist, yet, but they can be added easily.)
+ 
+ I think it would be a mistake to make quasiquote
+ creations immutable.  In the case of simply quoted (')
+ structures, the syntactic pain of using explicit
+ construction in order to produce a mutable
+ structure is not much.
+ 
+ In the case of quasiquote however, the syntactic
+ advantage of using a template over using explicit
+ construction is considerable (and indeed the raison
+ d'etre of quasiquote).  This even if the result is
+ intended to be mutable.  To force people into
+ using explicit construction simply because they want
+ the result to be mutable voids the main goal of
+ quasiquote. 
+ 
+ I think the current situation of keeping quoted
+ structure as constant possible but open to
+ mutability is not only traditional but good
+ compromise.   
+ 
+ --d 
+ 
+ > 
+ > 
+ > I'm opposed to having `quasiquote' construct all fresh cons cells,
+ > since it would be a waste of allocation effort 99.9% of the time. We
+ > might, at minimum, fix the docs to clarify that `quasiquote' creates
+ > only as many cons cells as necessary. But now that we have immutable
+ > cons cells, vectors, and boxes, the solution above is probably the best
+ > one.
+ > 
+ > Matthew
+ > 
+ > 
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: John Clements <clements@cs.rice.edu>, plt-gnats@cs.rice.edu,
+        latendre@cs.rice.edu, plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 09:10:28 -0600
+
+ I think that making quasiquote's result immutable would be a huge 
+ mistake. Talk about hard to detect, random backwards incompatible 
+ changes.
+ 
+ At 6:45 AM -0800 2/14/01, Matthew Flatt wrote:
+ >I'm opposed to having `quasiquote' construct all fresh cons cells,
+ >since it would be a waste of allocation effort 99.9% of the time. We
+ >might, at minimum, fix the docs to clarify that `quasiquote' creates
+ >only as many cons cells as necessary. But now that we have immutable
+ >cons cells, vectors, and boxes, the solution above is probably the best
+ >one.
+ 
+ I can (and should and, in fact, have) always use quote if I wanted 
+ the allocation to happen when the value is read. As it is, I have to 
+ abandon quasiquote in some situations when I want fresh allocation, 
+ unless I write something stupid like this:
+ 
+    `(1 2 ,3)
+ 
+ ;; --
+ 
+ It remains amazing to me that you want these two expressions:
+ 
+    `(1 2 ,3)  and  `(1 2 3)
+ 
+ to have different behavior.
+ 
+ [of course, if we fixed this foolish design choice, that would bring 
+ us that much closer to a perfect snowball (which in turn obviously 
+ leads to a chump slap by someone else's slightly less perfect 
+ snowball -- clearly to be avoided at all costs). If that's why you 
+ doing this, by all means I agree. Lets keep the broken version]
+ 
+ Robby
+
+From: Mario Latendresse <latendre@cs.rice.edu>
+To: mflatt@cs.utah.edu, robby@cs.rice.edu, clements@cs.rice.edu,
+        plt-gnats@cs.rice.edu, plt-design@cs.rice.edu
+Cc:  Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 13:43:23 -0600
+
+ I would also prefer the quasiquote to be mutable and performs fresh
+ allocation of cons cells for the spine of the list. It appears natural
+ to me as I always perceived quasiquote as a concise use of the list
+ primitive.
+ 
+ That is for (define r `(,x 1 (2 3) 4)) it would be equivalent to 
+ (list x '(2 3) 4).  That would be the same for vector.
+ 
+ Should the sublist (2 3) allocates new cons cells?
+ 
+ R5RS states that '(2 3) and `(2 3) are equivalent. It would means that
+ '(2 3) would also creates new cons cells. But I don't think this is
+ what most people expect, and the implementations I know do not do
+ that. So it would bring '(2 3) and `(2 3) as non equivalent. I think
+ this is nice, since it provides in a short syntax different behaviors
+ easily explainable by the semantic equivalence of quasiquote using the
+ primitive list. You would always have a simple semantic stating that
+ quote does not build new cons cell, but that quasiquote always do.
+ 
+ By the way, the R5RS is rather silent about new cons cell for both
+ forms, but it describes the use of unquote in a manner that suggests
+ fresh allocation. It says, and I quote (no pun intended)
+ 
+    ``If a comma appears within the <qq template>, however, the
+      expression following the comma is evaluated ("unquoted") and
+      its result is inserted into the structure instead of the comma
+      and the expression.''
+ 
+ The verb ``inserted'' gives an impression of construction.
+ 
+ Indeed the possibility to build an immutable list or vector is a
+ useful approach too, unavailable in R5RS. But is this not already
+ available for list in MzScheme through the function
+ pair->immutable-pair?
+ 
+ Mario
+ 
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: latendre@cs.rice.edu
+Cc: mflatt@cs.utah.edu, robby@cs.rice.edu, clements@cs.rice.edu,
+        plt-gnats@cs.rice.edu, plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Wed, 14 Feb 2001 18:10:28 -0600 (CST)
+
+    Date: Wed, 14 Feb 2001 13:43:23 -0600
+    X-Authentication-Warning: nunavut.cs.rice.edu: latendre set sender to latendre@nunavut.cs.rice.edu using -f
+    From: Mario Latendresse <latendre@cs.rice.edu>
+ 
+ 
+    I would also prefer the quasiquote to be mutable and performs fresh
+    allocation of cons cells for the spine of the list. It appears natural
+    to me as I always perceived quasiquote as a concise use of the list
+    primitive.
+ 
+    That is for (define r `(,x 1 (2 3) 4)) it would be equivalent to 
+    (list x '(2 3) 4).  That would be the same for vector.
+ 
+    Should the sublist (2 3) allocates new cons cells?
+ 
+    R5RS states that '(2 3) and `(2 3) are equivalent. It would means that
+    '(2 3) would also creates new cons cells. But I don't think this is
+    what most people expect, and the implementations I know do not do
+    that. So it would bring '(2 3) and `(2 3) as non equivalent. I think
+    this is nice, since it provides in a short syntax different behaviors
+    easily explainable by the semantic equivalence of quasiquote using the
+    primitive list. You would always have a simple semantic stating that
+    quote does not build new cons cell, but that quasiquote always do.
+ 
+    By the way, the R5RS is rather silent about new cons cell for both
+    forms, but it describes the use of unquote in a manner that suggests
+    fresh allocation. It says, and I quote (no pun intended)
+ 
+       ``If a comma appears within the <qq template>, however, the
+ 	expression following the comma is evaluated ("unquoted") and
+ 	its result is inserted into the structure instead of the comma
+ 	and the expression.''
+ 
+    The verb ``inserted'' gives an impression of construction.
+ 
+ I wouldn't pay too much attention to the choice of verb. Most verbs are
+ imperative, because they were used to describe concrete actions. But 
+ programming has to do with abstractions and the verbs clash with this. 
+ 
+ -- Matthias
+ 
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: mflatt@cs.utah.edu
+Cc: plt-gnats@cs.rice.edu, plt-design@cs.rice.edu
+Subject: Re: all/1858: Unexpected quasiquote implementation.
+Date: Thu, 1 Mar 2001 09:22:35 -0600
+
+ I would like to re-raise another point about the different between 
+ quasiquote and quote that was in Mario's original message but seems 
+ to have gotten lost in the further discussion.
+ 
+ Mario points out that this code:
+ 
+    (define (f z) `(x ,z x))
+    (set-car! (f 1) 'y)
+    (set-car! (cddr (f 1)) 'y)
+    (f 1)
+ 
+ produces
+ 
+    (list 'x 1 'y)
+ 
+ not
+ 
+    (list 'y 1 'y)
+ 
+ or
+ 
+    (list 'x 1 'x)
+ 
+ This is strange since both car positions were assigned to, in the 
+ original quasi-constant, but only one of the assignments survives (I 
+ bet if I put another pair of parens around the first `x', assignments 
+ to that new position would survive....)
+ 
+ This seems to be quite strange behavior for anyone who cares about 
+ assigning to these constants. Does anyone find this to be the 
+ preferred behavior?
+ 
+ Robby
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Mar 19 19:12:33 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-suspended
+State-Changed-By: mflatt
+State-Changed-When: Mon Mar 19 19:12:37 2001
+State-Changed-Why:
+
+
+State changed from "suspended" to "closed" by samth at Fri, 02 Dec 2011 15:26:57 -0500
+Reason>>> immutable pairs
+
+>Unformatted:

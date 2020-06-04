@@ -1,0 +1,374 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Mar 17 02:02:12 2013
+Received: from mail-ob0-f174.google.com (mail-ob0-f174.google.com [209.85.214.174])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r2H6295H021130
+	for <bugs@bugs.plt-scheme.org>; Sun, 17 Mar 2013 02:02:09 -0400
+Message-Id: <201303170602.r2H627UI021125@champlain.ccs.neu.edu>
+Date: Sun, 17 Mar 2013 02:02:07 -0400
+From: emina@eecs.berkeley.edu
+To: bugs@racket-lang.org
+Subject: syntax property copying bug
+
+>Number:         13615
+>Category:       all
+>Synopsis:       syntax property copying bug
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Mar 17 02:04:01 -0400 2013
+>Closed-Date:    Sun Mar 17 08:31:48 -0400 2013
+>Last-Modified:  Sun Mar 17 08:31:48 -0400 2013
+>Originator:     Emina Torlak
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.1
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+>Description:
+The code below demonstrates the problem.  Essentially, each macro is setting a syntax property 'prop on its output form to that of its parent (input) form.  If the parent's 'prop is #f, then the child's property is set to an empty list.  So, when the code below executes, the final form should have '() for its 'prop value.  But it gets '(()) instead.  
+
+The bug needs at least 3 expansions to show up.  Calling just (rule), for example, works fine.
+
+#lang racket
+
+(define-for-syntax (syntax-prop stx parent)
+  (let* ([prop (or (syntax-property parent 'prop) '())]
+         [out (syntax-property stx 'prop prop)])
+    (printf "* stx: ~a, parent: ~a, prop: ~a, out: ~a\n" stx parent prop out)
+    out))
+
+(define-syntax (app stx)
+  (syntax-case stx ()
+    [(app)  (let ([out (syntax-prop #'(rule) stx)])
+              (printf " APP ~a; out ~a\n" stx out)
+              out)]))
+
+(define-syntax (rule stx)
+  (syntax-case stx ()
+    [(rule) (let ([out (syntax-prop #'(tiny) stx)])
+              (printf " RULE ~a; out ~a\n" stx out)
+              out)]))
+
+(define-syntax (tiny stx)
+  (syntax-case stx ()
+    [(tiny) (let ([out (syntax-prop #'11 stx)])
+              (printf " TINY ~a; out ~a\n" stx out)
+              out)]))
+
+(app)
+>How-To-Repeat:
+Please see the description of the problem.
+>Fix:
+>Audit-Trail:
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: emina@eecs.berkeley.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13615: syntax property copying bug
+Date: Sun, 17 Mar 2013 04:36:46 -0400
+
+ This is not a bug. The macro expander merges the syntax properties of a 
+ macro use onto the macro transformer's result. See the docs here, 
+ starting with the third paragraph:
+ 
+ http://docs.racket-lang.org/reference/stxprops.html
+ 
+ In your example, the syntax property on entry to tiny is '(()) = (cons 
+ '() '()), which is the result of merging the property on the use of rule 
+ with the expansion of rule.
+ 
+ Here's another macro that illustrates the merging:
+ 
+  > (define-syntax (prop stx)
+      (syntax-case stx ()
+        [(_ n)
+         (let ([n (syntax-e #'n)])
+           (printf "n = ~s, incoming prop = ~s\n"
+                   n (syntax-property stx 'prop))
+           (if (zero? n)
+               #'(quote done)
+               (syntax-property #`(prop #,(sub1 n)) 'prop n)))]))
+ 
+  > (prop 5)
+ n = 5, incoming prop = #f
+ n = 4, incoming prop = 5
+ n = 3, incoming prop = (4 . 5)
+ n = 2, incoming prop = (3 4 . 5)
+ n = 1, incoming prop = (2 3 4 . 5)
+ n = 0, incoming prop = (1 2 3 4 . 5)
+ 'done
+ 
+ Ryan
+ 
+ 
+ 
+ On 03/17/2013 02:04 AM, emina@eecs.berkeley.edu wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=13615
+ >
+ > Reported by Emina Torlak for release: 5.3.1
+ >
+ > *** Description:
+ > The code below demonstrates the problem.  Essentially, each macro is setting a syntax property 'prop on its output form to that of its parent (input) form.  If the parent's 'prop is #f, then the child's property is set to an empty list.  So, when the code below executes, the final form should have '() for its 'prop value.  But it gets '(()) instead.
+ >
+ > The bug needs at least 3 expansions to show up.  Calling just (rule), for example, works fine.
+ >
+ > #lang racket
+ >
+ > (define-for-syntax (syntax-prop stx parent)
+ >    (let* ([prop (or (syntax-property parent 'prop) '())]
+ >           [out (syntax-property stx 'prop prop)])
+ >      (printf "* stx: ~a, parent: ~a, prop: ~a, out: ~a\n" stx parent prop out)
+ >      out))
+ >
+ > (define-syntax (app stx)
+ >    (syntax-case stx ()
+ >      [(app)  (let ([out (syntax-prop #'(rule) stx)])
+ >                (printf " APP ~a; out ~a\n" stx out)
+ >                out)]))
+ >
+ > (define-syntax (rule stx)
+ >    (syntax-case stx ()
+ >      [(rule) (let ([out (syntax-prop #'(tiny) stx)])
+ >                (printf " RULE ~a; out ~a\n" stx out)
+ >                out)]))
+ >
+ > (define-syntax (tiny stx)
+ >    (syntax-case stx ()
+ >      [(tiny) (let ([out (syntax-prop #'11 stx)])
+ >                (printf " TINY ~a; out ~a\n" stx out)
+ >                out)]))
+ >
+ > (app)
+ >
+ > *** How to repeat:
+ > Please see the description of the problem.
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+ >
+ 
+From: Emina Torlak <emina@eecs.berkeley.edu>
+To: Ryan Culpepper <ryan@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13615: syntax property copying bug
+Date: Sun, 17 Mar 2013 01:55:38 -0700
+
+ --047d7b343f60494a0e04d81b09de
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Ah, yes, I see.  Thanks!
+ 
+ On Sun, Mar 17, 2013 at 1:36 AM, Ryan Culpepper <ryan@cs.utah.edu> wrote:
+ 
+ > This is not a bug. The macro expander merges the syntax properties of a
+ > macro use onto the macro transformer's result. See the docs here, starting
+ > with the third paragraph:
+ >
+ > http://docs.racket-lang.org/**reference/stxprops.html<http://docs.racket-lang.org/reference/stxprops.html>
+ >
+ > In your example, the syntax property on entry to tiny is '(()) = (cons '()
+ > '()), which is the result of merging the property on the use of rule with
+ > the expansion of rule.
+ >
+ > Here's another macro that illustrates the merging:
+ >
+ > > (define-syntax (prop stx)
+ >     (syntax-case stx ()
+ >       [(_ n)
+ >        (let ([n (syntax-e #'n)])
+ >          (printf "n = ~s, incoming prop = ~s\n"
+ >                  n (syntax-property stx 'prop))
+ >          (if (zero? n)
+ >              #'(quote done)
+ >              (syntax-property #`(prop #,(sub1 n)) 'prop n)))]))
+ >
+ > > (prop 5)
+ > n = 5, incoming prop = #f
+ > n = 4, incoming prop = 5
+ > n = 3, incoming prop = (4 . 5)
+ > n = 2, incoming prop = (3 4 . 5)
+ > n = 1, incoming prop = (2 3 4 . 5)
+ > n = 0, incoming prop = (1 2 3 4 . 5)
+ > 'done
+ >
+ > Ryan
+ >
+ >
+ >
+ > On 03/17/2013 02:04 AM, emina@eecs.berkeley.edu wrote:
+ >
+ >> A new problem report is waiting at
+ >>    http://bugs.racket-lang.org/**query/?cmd=view&pr=13615<http://bugs.racket-lang.org/query/?cmd=view&pr=13615>
+ >>
+ >> Reported by Emina Torlak for release: 5.3.1
+ >>
+ >> *** Description:
+ >> The code below demonstrates the problem.  Essentially, each macro is
+ >> setting a syntax property 'prop on its output form to that of its parent
+ >> (input) form.  If the parent's 'prop is #f, then the child's property is
+ >> set to an empty list.  So, when the code below executes, the final form
+ >> should have '() for its 'prop value.  But it gets '(()) instead.
+ >>
+ >> The bug needs at least 3 expansions to show up.  Calling just (rule), for
+ >> example, works fine.
+ >>
+ >> #lang racket
+ >>
+ >> (define-for-syntax (syntax-prop stx parent)
+ >>    (let* ([prop (or (syntax-property parent 'prop) '())]
+ >>           [out (syntax-property stx 'prop prop)])
+ >>      (printf "* stx: ~a, parent: ~a, prop: ~a, out: ~a\n" stx parent prop
+ >> out)
+ >>      out))
+ >>
+ >> (define-syntax (app stx)
+ >>    (syntax-case stx ()
+ >>      [(app)  (let ([out (syntax-prop #'(rule) stx)])
+ >>                (printf " APP ~a; out ~a\n" stx out)
+ >>                out)]))
+ >>
+ >> (define-syntax (rule stx)
+ >>    (syntax-case stx ()
+ >>      [(rule) (let ([out (syntax-prop #'(tiny) stx)])
+ >>                (printf " RULE ~a; out ~a\n" stx out)
+ >>                out)]))
+ >>
+ >> (define-syntax (tiny stx)
+ >>    (syntax-case stx ()
+ >>      [(tiny) (let ([out (syntax-prop #'11 stx)])
+ >>                (printf " TINY ~a; out ~a\n" stx out)
+ >>                out)]))
+ >>
+ >> (app)
+ >>
+ >> *** How to repeat:
+ >> Please see the description of the problem.
+ >>
+ >> *** Environment:
+ >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5)
+ >> AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+ >>
+ >>
+ >
+ 
+ --047d7b343f60494a0e04d81b09de
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Ah, yes, I see. =A0Thanks!<br><br><div class=3D"gmail_quote">On Sun, Mar 17=
+ , 2013 at 1:36 AM, Ryan Culpepper <span dir=3D"ltr">&lt;<a href=3D"mailto:r=
+ yan@cs.utah.edu" target=3D"_blank">ryan@cs.utah.edu</a>&gt;</span> wrote:<b=
+ r><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:=
+ 1px #ccc solid;padding-left:1ex">
+ This is not a bug. The macro expander merges the syntax properties of a mac=
+ ro use onto the macro transformer&#39;s result. See the docs here, starting=
+  with the third paragraph:<br>
+ <br>
+ <a href=3D"http://docs.racket-lang.org/reference/stxprops.html" target=3D"_=
+ blank">http://docs.racket-lang.org/<u></u>reference/stxprops.html</a><br>
+ <br>
+ In your example, the syntax property on entry to tiny is &#39;(()) =3D (con=
+ s &#39;() &#39;()), which is the result of merging the property on the use =
+ of rule with the expansion of rule.<br>
+ <br>
+ Here&#39;s another macro that illustrates the merging:<br>
+ <br>
+ &gt; (define-syntax (prop stx)<br>
+ =A0 =A0 (syntax-case stx ()<br>
+ =A0 =A0 =A0 [(_ n)<br>
+ =A0 =A0 =A0 =A0(let ([n (syntax-e #&#39;n)])<br>
+ =A0 =A0 =A0 =A0 =A0(printf &quot;n =3D ~s, incoming prop =3D ~s\n&quot;<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0n (syntax-property stx &#39;prop))<br>
+ =A0 =A0 =A0 =A0 =A0(if (zero? n)<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0#&#39;(quote done)<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0(syntax-property #`(prop #,(sub1 n)) &#39;prop n=
+ )))]))<br>
+ <br>
+ &gt; (prop 5)<br>
+ n =3D 5, incoming prop =3D #f<br>
+ n =3D 4, incoming prop =3D 5<br>
+ n =3D 3, incoming prop =3D (4 . 5)<br>
+ n =3D 2, incoming prop =3D (3 4 . 5)<br>
+ n =3D 1, incoming prop =3D (2 3 4 . 5)<br>
+ n =3D 0, incoming prop =3D (1 2 3 4 . 5)<br>
+ &#39;done<br>
+ <br>
+ Ryan<br>
+ <br>
+ <br>
+ <br>
+ On 03/17/2013 02:04 AM, <a href=3D"mailto:emina@eecs.berkeley.edu" target=
+ =3D"_blank">emina@eecs.berkeley.edu</a> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">
+ A new problem report is waiting at<br>
+ =A0 =A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 615" target=3D"_blank">http://bugs.racket-lang.org/<u></u>query/?cmd=3Dview=
+ &amp;pr=3D13615</a><br>
+ <br>
+ Reported by Emina Torlak for release: 5.3.1<br>
+ <br>
+ *** Description:<br>
+ The code below demonstrates the problem. =A0Essentially, each macro is sett=
+ ing a syntax property &#39;prop on its output form to that of its parent (i=
+ nput) form. =A0If the parent&#39;s &#39;prop is #f, then the child&#39;s pr=
+ operty is set to an empty list. =A0So, when the code below executes, the fi=
+ nal form should have &#39;() for its &#39;prop value. =A0But it gets &#39;(=
+ ()) instead.<br>
+ 
+ <br>
+ The bug needs at least 3 expansions to show up. =A0Calling just (rule), for=
+  example, works fine.<br>
+ <br>
+ #lang racket<br>
+ <br>
+ (define-for-syntax (syntax-prop stx parent)<br>
+ =A0 =A0(let* ([prop (or (syntax-property parent &#39;prop) &#39;())]<br>
+ =A0 =A0 =A0 =A0 =A0 [out (syntax-property stx &#39;prop prop)])<br>
+ =A0 =A0 =A0(printf &quot;* stx: ~a, parent: ~a, prop: ~a, out: ~a\n&quot; s=
+ tx parent prop out)<br>
+ =A0 =A0 =A0out))<br>
+ <br>
+ (define-syntax (app stx)<br>
+ =A0 =A0(syntax-case stx ()<br>
+ =A0 =A0 =A0[(app) =A0(let ([out (syntax-prop #&#39;(rule) stx)])<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0(printf &quot; APP ~a; out ~a\n&quot; stx ou=
+ t)<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0out)]))<br>
+ <br>
+ (define-syntax (rule stx)<br>
+ =A0 =A0(syntax-case stx ()<br>
+ =A0 =A0 =A0[(rule) (let ([out (syntax-prop #&#39;(tiny) stx)])<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0(printf &quot; RULE ~a; out ~a\n&quot; stx o=
+ ut)<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0out)]))<br>
+ <br>
+ (define-syntax (tiny stx)<br>
+ =A0 =A0(syntax-case stx ()<br>
+ =A0 =A0 =A0[(tiny) (let ([out (syntax-prop #&#39;11 stx)])<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0(printf &quot; TINY ~a; out ~a\n&quot; stx o=
+ ut)<br>
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0out)]))<br>
+ <br>
+ (app)<br>
+ <br>
+ *** How to repeat:<br>
+ Please see the description of the problem.<br>
+ <br>
+ *** Environment:<br>
+ MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/536.2=
+ 6.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14<br>
+ <br>
+ </blockquote>
+ <br>
+ </blockquote></div><br>
+ 
+ --047d7b343f60494a0e04d81b09de--
+
+State changed from "open" to "closed" by samth at Sun, 17 Mar 2013 08:31:48 -0400
+Reason>>> .
+

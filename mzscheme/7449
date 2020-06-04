@@ -1,0 +1,859 @@
+From apache@plt-scheme.org Thu Jun 16 18:45:44 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j5GMje8N007580
+	for <bugs@plt-scheme.org>; Thu, 16 Jun 2005 18:45:40 -0400
+Message-Id: <200506162245.j5GMjddC007578@champlain.ccs.neu.edu>
+Date: Thu, 16 Jun 2005 18:45:39 -0400
+From: ryanc@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: quoted pairs are not immutable
+
+>Number:         7449
+>Category:       mzscheme
+>Synopsis:       quoted pairs are not immutable
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jun 16 18:50:00 -0400 2005
+>Closed-Date:    Mon Jan 17 17:38:15 -0500 2011
+>Last-Modified:  Mon Jan 17 17:38:15 -0500 2011
+>Originator:     Ryan Culpepper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.106
+>Environment:
+windows-xp
+>Description:
+Quoted pairs are not immutable. Furthermore, mutation of pairs is visible across different phases.
+>How-To-Repeat:
+The following code demonstrates that quoted pairs are mutable:
+
+(define (f) '(okay))
+(define (g) (car (f)) ;; seems like it should be constant function 'okay
+(g) ;; => 'okay
+(set-car! (f) 'boo!)
+(g) ;; => 'boo!
+
+The next bit of code demonstrates that this mutation is visible across phase boundaries:
+
+(module m mzscheme
+  (provide f g)
+  (define (f) '(okay))
+  (define (g) (car (f))))
+(module irrelevant...or-not? mzscheme
+  (require-for-syntax m)
+  (let-syntax ([x (lambda (stx) (set-car! (f) 'boo!) #'#f)])
+    (x)))
+(module m3 mzscheme
+  (require m)
+  (display (g)) (newline))
+(require m3) ; => 'boo!
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: gnats@brinckerhoff.org, <matthias@ccs.neu.edu>,
+        Jay McCarthy <jay@kenyamountain.com>, <dskippy@ccs.neu.edu>,
+        <kathyg@cs.utah.edu>, <meunier@ccs.neu.edu>, <goldberg@cs.utah.edu>,
+        <eli@barzilay.org>, <bugs@plt-scheme.org>, <sowens@cs.utah.edu>,
+        <jacobm@cs.uchicago.edu>, <robby@cs.uchicago.edu>, <awick@cs.utah.edu>,
+        <ryanc@ccs.neu.edu>, <cce@ccs.neu.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>,
+        Shriram Krishnamurthi <sk@cs.brown.edu>, <nobody@plt-scheme.org>
+Cc: 
+Subject: Re: all/7449: quoted pairs are not
+ immutable&Body=%3Fcmd%3Dview%2520audit-trail%26database%3Ddefault%26pr%3D7449
+Date: Wed, 19 Oct 2005 19:02:00 -0700 (PDT)
+
+ Hi Ryan,
+ 
+ I've traced the error to somewhere deep within mzscheme/src/stxobj.c.  If
+ I make the following change:
+ 
+ 
+ dyoo@shoebox ~/local/plt/src/mzscheme $ svn diff src/stxobj.c
+ Index: src/stxobj.c
+ ===================================================================
+ --- src/stxobj.c	(revision 1106)
+ +++ src/stxobj.c	(working copy)
+ @@ -3603,7 +3603,7 @@
+ 
+        a = syntax_to_datum_inner(SCHEME_CAR(v), ht, with_marks, rns);
+ 
+ -      p = CONS(a, scheme_null);
+ +      p = ICONS(a, scheme_null);
+ 
+        if (last)
+  	SCHEME_CDR(last) = p;
+ 
+ 
+ then this does appear to almost fix the problem with immutable pairs being
+ broken in mzscheme.
+ 
+ ;;;;;;
+ > (immutable? '(1 . 2))
+ #t
+ > (immutable? (cons 1  2))
+ #f
+ > (immutable? '(hello world this is a test))
+ #t
+ > (immutable? (list 'hello 'world 'this 'is 'a 'test))
+ #f
+ > (immutable? ())
+ #f
+ > (immutable? '())
+ #f
+ ;;;;;;
+ 
+ I'm assuming that the last two cases need to be fixed.
+ 
+ I also have to admit that I don't exactly understand completely yet how
+ syntax_to_datum_inner works: I hesitate to change all the CONS calls in
+ there to ICONS without understanding if there's a good reason for it.
+ Are syntax objects ever supposed to use mutable cons cells?
+ 
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: gnats@brinckerhoff.org, <matthias@ccs.neu.edu>,
+        Jay McCarthy <jay@kenyamountain.com>, <dskippy@ccs.neu.edu>,
+        <kathyg@cs.utah.edu>, <meunier@ccs.neu.edu>, <goldberg@cs.utah.edu>,
+        <eli@barzilay.org>, <bugs@plt-scheme.org>, <sowens@cs.utah.edu>,
+        <jacobm@cs.uchicago.edu>, <robby@cs.uchicago.edu>, <awick@cs.utah.edu>,
+        <ryanc@ccs.neu.edu>, <cce@ccs.neu.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>,
+        Shriram Krishnamurthi <sk@cs.brown.edu>, <nobody@plt-scheme.org>
+Cc: 
+Subject: Re: all/7449: quoted pairs are not
+ immutable&Body=%3Fcmd%3Dview%2520audit-trail%26database%3Ddefault%26pr%3D7449
+Date: Wed, 19 Oct 2005 20:28:38 -0700 (PDT)
+
+ Ok, I've made some more changes so that we ask if each datum is immutable
+ during the syntax unwrapping.
+ 
+ Here's an updated diff of stxobj.c:
+ 
+ Index: ../../../src/mzscheme/src/stxobj.c
+ ===================================================================
+ --- ../../../src/mzscheme/src/stxobj.c	(revision 1106)
+ +++ ../../../src/mzscheme/src/stxobj.c	(working copy)
+ @@ -3602,8 +3602,10 @@
+        cnt++;
+ 
+        a = syntax_to_datum_inner(SCHEME_CAR(v), ht, with_marks, rns);
+ -
+        p = CONS(a, scheme_null);
+ +
+ +      if (SCHEME_IMMUTABLEP(v))
+ +	SCHEME_SET_IMMUTABLE(p);
+ 
+        if (last)
+  	SCHEME_CDR(last) = p;
+ @@ -3628,18 +3630,24 @@
+ 
+      result = first;
+    } else if (SCHEME_BOXP(v)) {
+ -    v = syntax_to_datum_inner(SCHEME_BOX_VAL(v), ht, with_marks, rns);
+ -    result = scheme_box(v);
+ +    result = scheme_box(syntax_to_datum_inner
+ +			(SCHEME_BOX_VAL(v), ht, with_marks, rns));
+ +    if (SCHEME_IMMUTABLEP(v))
+ +	SCHEME_SET_IMMUTABLE(result);
+    } else if (SCHEME_VECTORP(v)) {
+      int size = SCHEME_VEC_SIZE(v), i;
+      Scheme_Object *r, *a;
+ 
+ +
+      r = scheme_make_vector(size, NULL);
+ 
+      for (i = 0; i < size; i++) {
+        a = syntax_to_datum_inner(SCHEME_VEC_ELS(v)[i], ht, with_marks,
+ rns);
+        SCHEME_VEC_ELS(r)[i] = a;
+      }
+ +
+ +    if (SCHEME_IMMUTABLEP(v))
+ +      SCHEME_SET_IMMUTABLE(r);
+ 
+      result = r;
+  #ifdef STX_DEBUG
+ 
+ 
+ 
+ I'm also trying to see if I can get the test cases in the
+ collects/tests/mzscheme framework to work out ok.  I've had to make the
+ following changes to collects/tests/mzscheme/basic.ss, since some of the
+ tests had assumed earlier that list constants were mutable:
+ 
+ 
+ [dyoo@shoebox mzscheme]$ svn diff
+ Index: basic.ss
+ ===================================================================
+ --- basic.ss    (revision 1110)
+ +++ basic.ss    (working copy)
+ @@ -162,7 +162,7 @@
+  (set-cdr! x x)
+  (err/rt-test (length x))
+ 
+ -(define l '(1 2 3))
+ +(define l (list 1 2 3))
+  (set-cdr! l 5)
+  (test '(1 . 5) 'set-cdr! l)
+  (set-car! l 0)
+ @@ -202,19 +202,25 @@
+  (test '(1 . 2) append '(1) 2)
+  (err/rt-test (append '(1 2 . 3) 1))
+  (err/rt-test (append '(1 2 3) 1 '(4 5 6)))
+ -(test '(x y) append! '(x) '(y))
+ -(test '(a b c d) append! '(a) '(b c d))
+ -(test '(a (b) (c)) append! '(a (b)) '((c)))
+ +(test '(x y) append! (list 'x) '(y))
+ +(test '(a b c d) append! (list 'a) '(b c d))
+ +(test '(a (b) (c)) append! (list 'a '(b)) '((c)))
+  (test '() append!)
+ -(test '(a b c . d) append! '(a b) '(c . d))
+ +(test '(a b c . d) append! (list 'a 'b) '(c . d))
+  (test 'a append! '() 'a)
+  (test 1 append! 1)
+  (err/rt-test (append! '(1 2 . 3) 1))
+  (err/rt-test (append! '(1 2 3) 1 '(4 5 6)))
+  (err/rt-test (append! (cons-immutable 1 null) '(4 5 6)))
+ 
+ -(define l '(1 2))
+ -(define l2 '(3 4 . 7))
+ +(let ((f (lambda () (list 'not-a-constant-list)))
+ +      (g (lambda () '(constant-list))))
+ +  (set-car! (f) 3)
+ +  (err/rt-test (set-car! (g) 3)))
+ +
+ +
+ +(define l (list 1 2))
+ +(define l2 (cons 3 (cons 4 7)))
+  (define l3 (append l l2))
+  (test '(1 2 3 4 . 7) 'append l3)
+  (set-car! l2 5)
+ @@ -223,8 +229,8 @@
+  (test '(0 2 5 4 . 7) 'append l3)
+  (test '(1 2) 'append l)
+ 
+ -(let* ([l '(1 2)]
+ -       [l2 '(3 4 . 7)]
+ +(let* ([l (list 1 2)]
+ +       [l2 (cons 3 (cons 4  7))]
+         [l3 (append! l l2)])
+    (test '(1 2 3 4 . 7) 'append! l3)
+    (set-car! l2 5)
+ @@ -239,10 +245,10 @@
+  (err/rt-test (reverse 1))
+  (err/rt-test (reverse '(1 . 1)))
+ 
+ -(define l '(a b c))
+ +(define l (list 'a 'b 'c))
+  (test '(c b a) reverse! l)
+  (test '(a) 'reverse! l)
+ -(test '((e (f)) d (b c) a) reverse! '(a (b c) d (e (f))))
+ +(test '((e (f)) d (b c) a) reverse! (list 'a '(b c) 'd '(e (f))))
+  (arity-test reverse! 1 1)
+  (err/rt-test (reverse! 1))
+  (err/rt-test (reverse! '(1 . 1)))
+ [dyoo@shoebox mzscheme]$ svn diff
+ Index: basic.ss
+ ===================================================================
+ --- basic.ss    (revision 1110)
+ +++ basic.ss    (working copy)
+ @@ -162,7 +162,7 @@
+  (set-cdr! x x)
+  (err/rt-test (length x))
+ 
+ -(define l '(1 2 3))
+ +(define l (list 1 2 3))
+  (set-cdr! l 5)
+  (test '(1 . 5) 'set-cdr! l)
+  (set-car! l 0)
+ @@ -202,19 +202,25 @@
+  (test '(1 . 2) append '(1) 2)
+  (err/rt-test (append '(1 2 . 3) 1))
+  (err/rt-test (append '(1 2 3) 1 '(4 5 6)))
+ -(test '(x y) append! '(x) '(y))
+ -(test '(a b c d) append! '(a) '(b c d))
+ -(test '(a (b) (c)) append! '(a (b)) '((c)))
+ +(test '(x y) append! (list 'x) '(y))
+ +(test '(a b c d) append! (list 'a) '(b c d))
+ +(test '(a (b) (c)) append! (list 'a '(b)) '((c)))
+  (test '() append!)
+ -(test '(a b c . d) append! '(a b) '(c . d))
+ +(test '(a b c . d) append! (list 'a 'b) '(c . d))
+  (test 'a append! '() 'a)
+  (test 1 append! 1)
+  (err/rt-test (append! '(1 2 . 3) 1))
+  (err/rt-test (append! '(1 2 3) 1 '(4 5 6)))
+  (err/rt-test (append! (cons-immutable 1 null) '(4 5 6)))
+ 
+ -(define l '(1 2))
+ -(define l2 '(3 4 . 7))
+ +(let ((f (lambda () (list 'not-a-constant-list)))
+ +      (g (lambda () '(constant-list))))
+ +  (set-car! (f) 3)
+ +  (err/rt-test (set-car! (g) 3)))
+ +
+ +
+ +(define l (list 1 2))
+ +(define l2 (cons 3 (cons 4 7)))
+  (define l3 (append l l2))
+  (test '(1 2 3 4 . 7) 'append l3)
+  (set-car! l2 5)
+ @@ -223,8 +229,8 @@
+  (test '(0 2 5 4 . 7) 'append l3)
+  (test '(1 2) 'append l)
+ 
+ -(let* ([l '(1 2)]
+ -       [l2 '(3 4 . 7)]
+ +(let* ([l (list 1 2)]
+ +       [l2 (cons 3 (cons 4  7))]
+         [l3 (append! l l2)])
+    (test '(1 2 3 4 . 7) 'append! l3)
+    (set-car! l2 5)
+ @@ -239,10 +245,10 @@
+  (err/rt-test (reverse 1))
+  (err/rt-test (reverse '(1 . 1)))
+ 
+ -(define l '(a b c))
+ +(define l (list 'a 'b 'c))
+  (test '(c b a) reverse! l)
+  (test '(a) 'reverse! l)
+ -(test '((e (f)) d (b c) a) reverse! '(a (b c) d (e (f))))
+ +(test '((e (f)) d (b c) a) reverse! (list 'a '(b c) 'd '(e (f))))
+  (arity-test reverse! 1 1)
+  (err/rt-test (reverse! 1))
+  (err/rt-test (reverse! '(1 . 1)))
+ 
+ 
+ 
+ With those changes, running the mzscheme test suite on (load "mz.ss")
+ appears to raise a lot of warnings on match-test because of legitimate
+ problems calling set-car! on immutable constants.  I can take a look at
+ that when I have time.
+ 
+ 
+ I hope the patch looks ok!
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+Cc: gnats@brinckerhoff.org, matthias@ccs.neu.edu,
+        Jay McCarthy <jay@kenyamountain.com>, dskippy@ccs.neu.edu,
+        kathyg@cs.utah.edu, meunier@ccs.neu.edu, goldberg@cs.utah.edu,
+        eli@barzilay.org, bugs@plt-scheme.org, sowens@cs.utah.edu,
+        jacobm@cs.uchicago.edu, robby@cs.uchicago.edu, awick@cs.utah.edu,
+        ryanc@ccs.neu.edu, cce@ccs.neu.edu,
+        Shriram Krishnamurthi <sk@cs.brown.edu>, nobody@plt-scheme.org
+Subject: Re: all/7449: quoted pairs are not
+ immutable&Body=%3Fcmd%3Dview%2520audit-trail%26database%3Ddefault%26pr%3D7449
+Date: Thu, 20 Oct 2005 06:52:11 -0700
+
+ Thanks, Danny, but allowing quoted pairs to be mutable is a design
+ choice in MzScheme, not a bug. (That's why the current tests check the
+ specific behavior. :)
+ 
+ I can see that changing `syntax-object->datum' would make pairs
+ immutable most of the time, but I think there must be a few other
+ places in the code that will need to change (e.g., mzc) to make quoted
+ pairs consistently immutable. More importantly, some code built with
+ MzScheme will need to change if MzScheme's behavior changes.
+ 
+ It's that last reason that we didn't switch in the past. I expect that
+ we'll revisit this particular design decision for v400. For now,
+ though, it's intended that quoted pairs are mutable.
+ 
+ Matthew
+ 
+ At Wed, 19 Oct 2005 20:28:38 -0700 (PDT), Danny Yoo wrote:
+ > 
+ > Ok, I've made some more changes so that we ask if each datum is immutable
+ > during the syntax unwrapping.
+ > 
+ > Here's an updated diff of stxobj.c:
+ > 
+ > Index: ../../../src/mzscheme/src/stxobj.c
+ > ===================================================================
+ > --- ../../../src/mzscheme/src/stxobj.c	(revision 1106)
+ > +++ ../../../src/mzscheme/src/stxobj.c	(working copy)
+ > @@ -3602,8 +3602,10 @@
+ >        cnt++;
+ > 
+ >        a = syntax_to_datum_inner(SCHEME_CAR(v), ht, with_marks, rns);
+ > -
+ >        p = CONS(a, scheme_null);
+ > +
+ > +      if (SCHEME_IMMUTABLEP(v))
+ > +	SCHEME_SET_IMMUTABLE(p);
+ > 
+ >        if (last)
+ >  	SCHEME_CDR(last) = p;
+ > @@ -3628,18 +3630,24 @@
+ > 
+ >      result = first;
+ >    } else if (SCHEME_BOXP(v)) {
+ > -    v = syntax_to_datum_inner(SCHEME_BOX_VAL(v), ht, with_marks, rns);
+ > -    result = scheme_box(v);
+ > +    result = scheme_box(syntax_to_datum_inner
+ > +			(SCHEME_BOX_VAL(v), ht, with_marks, rns));
+ > +    if (SCHEME_IMMUTABLEP(v))
+ > +	SCHEME_SET_IMMUTABLE(result);
+ >    } else if (SCHEME_VECTORP(v)) {
+ >      int size = SCHEME_VEC_SIZE(v), i;
+ >      Scheme_Object *r, *a;
+ > 
+ > +
+ >      r = scheme_make_vector(size, NULL);
+ > 
+ >      for (i = 0; i < size; i++) {
+ >        a = syntax_to_datum_inner(SCHEME_VEC_ELS(v)[i], ht, with_marks,
+ > rns);
+ >        SCHEME_VEC_ELS(r)[i] = a;
+ >      }
+ > +
+ > +    if (SCHEME_IMMUTABLEP(v))
+ > +      SCHEME_SET_IMMUTABLE(r);
+ > 
+ >      result = r;
+ >  #ifdef STX_DEBUG
+ > 
+ > 
+ > 
+ > I'm also trying to see if I can get the test cases in the
+ > collects/tests/mzscheme framework to work out ok.  I've had to make the
+ > following changes to collects/tests/mzscheme/basic.ss, since some of the
+ > tests had assumed earlier that list constants were mutable:
+ > 
+ > 
+ > [dyoo@shoebox mzscheme]$ svn diff
+ > Index: basic.ss
+ > ===================================================================
+ > --- basic.ss    (revision 1110)
+ > +++ basic.ss    (working copy)
+ > @@ -162,7 +162,7 @@
+ >  (set-cdr! x x)
+ >  (err/rt-test (length x))
+ > 
+ > -(define l '(1 2 3))
+ > +(define l (list 1 2 3))
+ >  (set-cdr! l 5)
+ >  (test '(1 . 5) 'set-cdr! l)
+ >  (set-car! l 0)
+ > @@ -202,19 +202,25 @@
+ >  (test '(1 . 2) append '(1) 2)
+ >  (err/rt-test (append '(1 2 . 3) 1))
+ >  (err/rt-test (append '(1 2 3) 1 '(4 5 6)))
+ > -(test '(x y) append! '(x) '(y))
+ > -(test '(a b c d) append! '(a) '(b c d))
+ > -(test '(a (b) (c)) append! '(a (b)) '((c)))
+ > +(test '(x y) append! (list 'x) '(y))
+ > +(test '(a b c d) append! (list 'a) '(b c d))
+ > +(test '(a (b) (c)) append! (list 'a '(b)) '((c)))
+ >  (test '() append!)
+ > -(test '(a b c . d) append! '(a b) '(c . d))
+ > +(test '(a b c . d) append! (list 'a 'b) '(c . d))
+ >  (test 'a append! '() 'a)
+ >  (test 1 append! 1)
+ >  (err/rt-test (append! '(1 2 . 3) 1))
+ >  (err/rt-test (append! '(1 2 3) 1 '(4 5 6)))
+ >  (err/rt-test (append! (cons-immutable 1 null) '(4 5 6)))
+ > 
+ > -(define l '(1 2))
+ > -(define l2 '(3 4 . 7))
+ > +(let ((f (lambda () (list 'not-a-constant-list)))
+ > +      (g (lambda () '(constant-list))))
+ > +  (set-car! (f) 3)
+ > +  (err/rt-test (set-car! (g) 3)))
+ > +
+ > +
+ > +(define l (list 1 2))
+ > +(define l2 (cons 3 (cons 4 7)))
+ >  (define l3 (append l l2))
+ >  (test '(1 2 3 4 . 7) 'append l3)
+ >  (set-car! l2 5)
+ > @@ -223,8 +229,8 @@
+ >  (test '(0 2 5 4 . 7) 'append l3)
+ >  (test '(1 2) 'append l)
+ > 
+ > -(let* ([l '(1 2)]
+ > -       [l2 '(3 4 . 7)]
+ > +(let* ([l (list 1 2)]
+ > +       [l2 (cons 3 (cons 4  7))]
+ >         [l3 (append! l l2)])
+ >    (test '(1 2 3 4 . 7) 'append! l3)
+ >    (set-car! l2 5)
+ > @@ -239,10 +245,10 @@
+ >  (err/rt-test (reverse 1))
+ >  (err/rt-test (reverse '(1 . 1)))
+ > 
+ > -(define l '(a b c))
+ > +(define l (list 'a 'b 'c))
+ >  (test '(c b a) reverse! l)
+ >  (test '(a) 'reverse! l)
+ > -(test '((e (f)) d (b c) a) reverse! '(a (b c) d (e (f))))
+ > +(test '((e (f)) d (b c) a) reverse! (list 'a '(b c) 'd '(e (f))))
+ >  (arity-test reverse! 1 1)
+ >  (err/rt-test (reverse! 1))
+ >  (err/rt-test (reverse! '(1 . 1)))
+ > [dyoo@shoebox mzscheme]$ svn diff
+ > Index: basic.ss
+ > ===================================================================
+ > --- basic.ss    (revision 1110)
+ > +++ basic.ss    (working copy)
+ > @@ -162,7 +162,7 @@
+ >  (set-cdr! x x)
+ >  (err/rt-test (length x))
+ > 
+ > -(define l '(1 2 3))
+ > +(define l (list 1 2 3))
+ >  (set-cdr! l 5)
+ >  (test '(1 . 5) 'set-cdr! l)
+ >  (set-car! l 0)
+ > @@ -202,19 +202,25 @@
+ >  (test '(1 . 2) append '(1) 2)
+ >  (err/rt-test (append '(1 2 . 3) 1))
+ >  (err/rt-test (append '(1 2 3) 1 '(4 5 6)))
+ > -(test '(x y) append! '(x) '(y))
+ > -(test '(a b c d) append! '(a) '(b c d))
+ > -(test '(a (b) (c)) append! '(a (b)) '((c)))
+ > +(test '(x y) append! (list 'x) '(y))
+ > +(test '(a b c d) append! (list 'a) '(b c d))
+ > +(test '(a (b) (c)) append! (list 'a '(b)) '((c)))
+ >  (test '() append!)
+ > -(test '(a b c . d) append! '(a b) '(c . d))
+ > +(test '(a b c . d) append! (list 'a 'b) '(c . d))
+ >  (test 'a append! '() 'a)
+ >  (test 1 append! 1)
+ >  (err/rt-test (append! '(1 2 . 3) 1))
+ >  (err/rt-test (append! '(1 2 3) 1 '(4 5 6)))
+ >  (err/rt-test (append! (cons-immutable 1 null) '(4 5 6)))
+ > 
+ > -(define l '(1 2))
+ > -(define l2 '(3 4 . 7))
+ > +(let ((f (lambda () (list 'not-a-constant-list)))
+ > +      (g (lambda () '(constant-list))))
+ > +  (set-car! (f) 3)
+ > +  (err/rt-test (set-car! (g) 3)))
+ > +
+ > +
+ > +(define l (list 1 2))
+ > +(define l2 (cons 3 (cons 4 7)))
+ >  (define l3 (append l l2))
+ >  (test '(1 2 3 4 . 7) 'append l3)
+ >  (set-car! l2 5)
+ > @@ -223,8 +229,8 @@
+ >  (test '(0 2 5 4 . 7) 'append l3)
+ >  (test '(1 2) 'append l)
+ > 
+ > -(let* ([l '(1 2)]
+ > -       [l2 '(3 4 . 7)]
+ > +(let* ([l (list 1 2)]
+ > +       [l2 (cons 3 (cons 4  7))]
+ >         [l3 (append! l l2)])
+ >    (test '(1 2 3 4 . 7) 'append! l3)
+ >    (set-car! l2 5)
+ > @@ -239,10 +245,10 @@
+ >  (err/rt-test (reverse 1))
+ >  (err/rt-test (reverse '(1 . 1)))
+ > 
+ > -(define l '(a b c))
+ > +(define l (list 'a 'b 'c))
+ >  (test '(c b a) reverse! l)
+ >  (test '(a) 'reverse! l)
+ > -(test '((e (f)) d (b c) a) reverse! '(a (b c) d (e (f))))
+ > +(test '((e (f)) d (b c) a) reverse! (list 'a '(b c) 'd '(e (f))))
+ >  (arity-test reverse! 1 1)
+ >  (err/rt-test (reverse! 1))
+ >  (err/rt-test (reverse! '(1 . 1)))
+ > 
+ > 
+ > 
+ > With those changes, running the mzscheme test suite on (load "mz.ss")
+ > appears to raise a lot of warnings on match-test because of legitimate
+ > problems calling set-car! on immutable constants.  I can take a look at
+ > that when I have time.
+ > 
+ > 
+ > I hope the patch looks ok!
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>, gnats@brinckerhoff.org,
+        matthias@ccs.neu.edu, Jay McCarthy <jay@kenyamountain.com>,
+        dskippy@ccs.neu.edu, kathyg@cs.utah.edu, meunier@ccs.neu.edu,
+        goldberg@cs.utah.edu, eli@barzilay.org, bugs@plt-scheme.org,
+        sowens@cs.utah.edu, jacobm@cs.uchicago.edu, robby@cs.uchicago.edu,
+        awick@cs.utah.edu, cce@ccs.neu.edu,
+        Shriram Krishnamurthi <sk@cs.brown.edu>, nobody@plt-scheme.org
+Subject: Re: all/7449: quoted pairs are not
+	immutable&Body=%3Fcmd%3Dview%2520audit-trail%26database%3Ddefault%26pr%3D7449
+Date: Thu, 20 Oct 2005 15:19:32 -0400
+
+ Back to my original bug report, is it intentional that mutations in one
+ phase are visible in other phases, though?
+ 
+ Ryan
+ 
+ On Thu, 2005-10-20 at 06:52 -0700, Matthew Flatt wrote:
+ > Thanks, Danny, but allowing quoted pairs to be mutable is a design
+ > choice in MzScheme, not a bug. (That's why the current tests check the
+ > specific behavior. :)
+ > 
+ > I can see that changing `syntax-object->datum' would make pairs
+ > immutable most of the time, but I think there must be a few other
+ > places in the code that will need to change (e.g., mzc) to make quoted
+ > pairs consistently immutable. More importantly, some code built with
+ > MzScheme will need to change if MzScheme's behavior changes.
+ > 
+ > It's that last reason that we didn't switch in the past. I expect that
+ > we'll revisit this particular design decision for v400. For now,
+ > though, it's intended that quoted pairs are mutable.
+ > 
+ > Matthew
+ > 
+ > At Wed, 19 Oct 2005 20:28:38 -0700 (PDT), Danny Yoo wrote:
+ > > 
+ > > Ok, I've made some more changes so that we ask if each datum is immutable
+ > > during the syntax unwrapping.
+ > > 
+ > > Here's an updated diff of stxobj.c:
+ > > 
+ > > Index: ../../../src/mzscheme/src/stxobj.c
+ > > ===================================================================
+ > > --- ../../../src/mzscheme/src/stxobj.c	(revision 1106)
+ > > +++ ../../../src/mzscheme/src/stxobj.c	(working copy)
+ > > @@ -3602,8 +3602,10 @@
+ > >        cnt++;
+ > > 
+ > >        a = syntax_to_datum_inner(SCHEME_CAR(v), ht, with_marks, rns);
+ > > -
+ > >        p = CONS(a, scheme_null);
+ > > +
+ > > +      if (SCHEME_IMMUTABLEP(v))
+ > > +	SCHEME_SET_IMMUTABLE(p);
+ > > 
+ > >        if (last)
+ > >  	SCHEME_CDR(last) = p;
+ > > @@ -3628,18 +3630,24 @@
+ > > 
+ > >      result = first;
+ > >    } else if (SCHEME_BOXP(v)) {
+ > > -    v = syntax_to_datum_inner(SCHEME_BOX_VAL(v), ht, with_marks, rns);
+ > > -    result = scheme_box(v);
+ > > +    result = scheme_box(syntax_to_datum_inner
+ > > +			(SCHEME_BOX_VAL(v), ht, with_marks, rns));
+ > > +    if (SCHEME_IMMUTABLEP(v))
+ > > +	SCHEME_SET_IMMUTABLE(result);
+ > >    } else if (SCHEME_VECTORP(v)) {
+ > >      int size = SCHEME_VEC_SIZE(v), i;
+ > >      Scheme_Object *r, *a;
+ > > 
+ > > +
+ > >      r = scheme_make_vector(size, NULL);
+ > > 
+ > >      for (i = 0; i < size; i++) {
+ > >        a = syntax_to_datum_inner(SCHEME_VEC_ELS(v)[i], ht, with_marks,
+ > > rns);
+ > >        SCHEME_VEC_ELS(r)[i] = a;
+ > >      }
+ > > +
+ > > +    if (SCHEME_IMMUTABLEP(v))
+ > > +      SCHEME_SET_IMMUTABLE(r);
+ > > 
+ > >      result = r;
+ > >  #ifdef STX_DEBUG
+ > > 
+ > > 
+ > > 
+ > > I'm also trying to see if I can get the test cases in the
+ > > collects/tests/mzscheme framework to work out ok.  I've had to make the
+ > > following changes to collects/tests/mzscheme/basic.ss, since some of the
+ > > tests had assumed earlier that list constants were mutable:
+ > > 
+ > > 
+ > > [dyoo@shoebox mzscheme]$ svn diff
+ > > Index: basic.ss
+ > > ===================================================================
+ > > --- basic.ss    (revision 1110)
+ > > +++ basic.ss    (working copy)
+ > > @@ -162,7 +162,7 @@
+ > >  (set-cdr! x x)
+ > >  (err/rt-test (length x))
+ > > 
+ > > -(define l '(1 2 3))
+ > > +(define l (list 1 2 3))
+ > >  (set-cdr! l 5)
+ > >  (test '(1 . 5) 'set-cdr! l)
+ > >  (set-car! l 0)
+ > > @@ -202,19 +202,25 @@
+ > >  (test '(1 . 2) append '(1) 2)
+ > >  (err/rt-test (append '(1 2 . 3) 1))
+ > >  (err/rt-test (append '(1 2 3) 1 '(4 5 6)))
+ > > -(test '(x y) append! '(x) '(y))
+ > > -(test '(a b c d) append! '(a) '(b c d))
+ > > -(test '(a (b) (c)) append! '(a (b)) '((c)))
+ > > +(test '(x y) append! (list 'x) '(y))
+ > > +(test '(a b c d) append! (list 'a) '(b c d))
+ > > +(test '(a (b) (c)) append! (list 'a '(b)) '((c)))
+ > >  (test '() append!)
+ > > -(test '(a b c . d) append! '(a b) '(c . d))
+ > > +(test '(a b c . d) append! (list 'a 'b) '(c . d))
+ > >  (test 'a append! '() 'a)
+ > >  (test 1 append! 1)
+ > >  (err/rt-test (append! '(1 2 . 3) 1))
+ > >  (err/rt-test (append! '(1 2 3) 1 '(4 5 6)))
+ > >  (err/rt-test (append! (cons-immutable 1 null) '(4 5 6)))
+ > > 
+ > > -(define l '(1 2))
+ > > -(define l2 '(3 4 . 7))
+ > > +(let ((f (lambda () (list 'not-a-constant-list)))
+ > > +      (g (lambda () '(constant-list))))
+ > > +  (set-car! (f) 3)
+ > > +  (err/rt-test (set-car! (g) 3)))
+ > > +
+ > > +
+ > > +(define l (list 1 2))
+ > > +(define l2 (cons 3 (cons 4 7)))
+ > >  (define l3 (append l l2))
+ > >  (test '(1 2 3 4 . 7) 'append l3)
+ > >  (set-car! l2 5)
+ > > @@ -223,8 +229,8 @@
+ > >  (test '(0 2 5 4 . 7) 'append l3)
+ > >  (test '(1 2) 'append l)
+ > > 
+ > > -(let* ([l '(1 2)]
+ > > -       [l2 '(3 4 . 7)]
+ > > +(let* ([l (list 1 2)]
+ > > +       [l2 (cons 3 (cons 4  7))]
+ > >         [l3 (append! l l2)])
+ > >    (test '(1 2 3 4 . 7) 'append! l3)
+ > >    (set-car! l2 5)
+ > > @@ -239,10 +245,10 @@
+ > >  (err/rt-test (reverse 1))
+ > >  (err/rt-test (reverse '(1 . 1)))
+ > > 
+ > > -(define l '(a b c))
+ > > +(define l (list 'a 'b 'c))
+ > >  (test '(c b a) reverse! l)
+ > >  (test '(a) 'reverse! l)
+ > > -(test '((e (f)) d (b c) a) reverse! '(a (b c) d (e (f))))
+ > > +(test '((e (f)) d (b c) a) reverse! (list 'a '(b c) 'd '(e (f))))
+ > >  (arity-test reverse! 1 1)
+ > >  (err/rt-test (reverse! 1))
+ > >  (err/rt-test (reverse! '(1 . 1)))
+ > > [dyoo@shoebox mzscheme]$ svn diff
+ > > Index: basic.ss
+ > > ===================================================================
+ > > --- basic.ss    (revision 1110)
+ > > +++ basic.ss    (working copy)
+ > > @@ -162,7 +162,7 @@
+ > >  (set-cdr! x x)
+ > >  (err/rt-test (length x))
+ > > 
+ > > -(define l '(1 2 3))
+ > > +(define l (list 1 2 3))
+ > >  (set-cdr! l 5)
+ > >  (test '(1 . 5) 'set-cdr! l)
+ > >  (set-car! l 0)
+ > > @@ -202,19 +202,25 @@
+ > >  (test '(1 . 2) append '(1) 2)
+ > >  (err/rt-test (append '(1 2 . 3) 1))
+ > >  (err/rt-test (append '(1 2 3) 1 '(4 5 6)))
+ > > -(test '(x y) append! '(x) '(y))
+ > > -(test '(a b c d) append! '(a) '(b c d))
+ > > -(test '(a (b) (c)) append! '(a (b)) '((c)))
+ > > +(test '(x y) append! (list 'x) '(y))
+ > > +(test '(a b c d) append! (list 'a) '(b c d))
+ > > +(test '(a (b) (c)) append! (list 'a '(b)) '((c)))
+ > >  (test '() append!)
+ > > -(test '(a b c . d) append! '(a b) '(c . d))
+ > > +(test '(a b c . d) append! (list 'a 'b) '(c . d))
+ > >  (test 'a append! '() 'a)
+ > >  (test 1 append! 1)
+ > >  (err/rt-test (append! '(1 2 . 3) 1))
+ > >  (err/rt-test (append! '(1 2 3) 1 '(4 5 6)))
+ > >  (err/rt-test (append! (cons-immutable 1 null) '(4 5 6)))
+ > > 
+ > > -(define l '(1 2))
+ > > -(define l2 '(3 4 . 7))
+ > > +(let ((f (lambda () (list 'not-a-constant-list)))
+ > > +      (g (lambda () '(constant-list))))
+ > > +  (set-car! (f) 3)
+ > > +  (err/rt-test (set-car! (g) 3)))
+ > > +
+ > > +
+ > > +(define l (list 1 2))
+ > > +(define l2 (cons 3 (cons 4 7)))
+ > >  (define l3 (append l l2))
+ > >  (test '(1 2 3 4 . 7) 'append l3)
+ > >  (set-car! l2 5)
+ > > @@ -223,8 +229,8 @@
+ > >  (test '(0 2 5 4 . 7) 'append l3)
+ > >  (test '(1 2) 'append l)
+ > > 
+ > > -(let* ([l '(1 2)]
+ > > -       [l2 '(3 4 . 7)]
+ > > +(let* ([l (list 1 2)]
+ > > +       [l2 (cons 3 (cons 4  7))]
+ > >         [l3 (append! l l2)])
+ > >    (test '(1 2 3 4 . 7) 'append! l3)
+ > >    (set-car! l2 5)
+ > > @@ -239,10 +245,10 @@
+ > >  (err/rt-test (reverse 1))
+ > >  (err/rt-test (reverse '(1 . 1)))
+ > > 
+ > > -(define l '(a b c))
+ > > +(define l (list 'a 'b 'c))
+ > >  (test '(c b a) reverse! l)
+ > >  (test '(a) 'reverse! l)
+ > > -(test '((e (f)) d (b c) a) reverse! '(a (b c) d (e (f))))
+ > > +(test '((e (f)) d (b c) a) reverse! (list 'a '(b c) 'd '(e (f))))
+ > >  (arity-test reverse! 1 1)
+ > >  (err/rt-test (reverse! 1))
+ > >  (err/rt-test (reverse! '(1 . 1)))
+ > > 
+ > > 
+ > > 
+ > > With those changes, running the mzscheme test suite on (load "mz.ss")
+ > > appears to raise a lot of warnings on match-test because of legitimate
+ > > problems calling set-car! on immutable constants.  I can take a look at
+ > > that when I have time.
+ > > 
+ > > 
+ > > I hope the patch looks ok!
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>, gnats@brinckerhoff.org,
+        matthias@ccs.neu.edu, Jay McCarthy <jay@kenyamountain.com>,
+        dskippy@ccs.neu.edu, kathyg@cs.utah.edu, meunier@ccs.neu.edu,
+        goldberg@cs.utah.edu, eli@barzilay.org, bugs@plt-scheme.org,
+        sowens@cs.utah.edu, jacobm@cs.uchicago.edu, robby@cs.uchicago.edu,
+        awick@cs.utah.edu, cce@ccs.neu.edu,
+        Shriram Krishnamurthi <sk@cs.brown.edu>, nobody@plt-scheme.org
+Subject: Re: all/7449: quoted pairs are not
+	immutable&Body=%3Fcmd%3Dview%2520audit-trail%26database%3Ddefault%26pr%3D7449
+Date: Thu, 20 Oct 2005 13:33:16 -0700
+
+ At Thu, 20 Oct 2005 15:19:32 -0400, Ryan Culpepper wrote:
+ > Back to my original bug report, is it intentional that mutations in one
+ > phase are visible in other phases, though?
+ 
+ That's one of the bad side-effects of the current design. I think the
+ only solution is to change the design.
+ 
+ Matthew
+ 
+
+
+State changed from "open" to "closed" by eli at Mon, 17 Jan 2011 17:38:15 -0500
+Reason>>> closed as "obsolete" with respect to v5.0.99.6 and later; 
+either the bug
+is long-since fixed, the relevant code doesn't exist 
+anymore, the
+relevant platform hasn't been supported recently, or a new 
+bug report is
+needed if the problem really isn't fixed and someone 
+actually cares
+

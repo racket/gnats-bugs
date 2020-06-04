@@ -1,0 +1,162 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Feb  5 15:30:03 2013
+Received: from mail-ob0-f173.google.com (mail-ob0-f173.google.com [209.85.214.173])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r15KTvRO013826
+	for <bugs@bugs.plt-scheme.org>; Tue, 5 Feb 2013 15:29:58 -0500
+Message-Id: <201302052029.r15KTtYX013821@champlain.ccs.neu.edu>
+Date: Tue, 5 Feb 2013 15:29:55 -0500
+From: krgermane@gmail.com
+To: bugs@racket-lang.org
+Subject: racket segfaults when invoking continuation
+
+>Number:         13494
+>Category:       all
+>Synopsis:       racket segfaults when invoking continuation
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Feb 05 15:32:01 -0500 2013
+>Closed-Date:    Tue Feb 12 16:27:03 -0500 2013
+>Last-Modified:  Tue Feb 12 16:27:03 -0500 2013
+>Originator:     Kimball Germane
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/536.26.17 (KHTML, like Gecko) Version/6.0.2 Safari/536.26.17
+>Description:
+In a tiny threading library, racket segfaults when invoking a continuation. In contrast, DrRacket exhibits the expected behavior.
+>How-To-Repeat:
+Run the following code in DrRacket and in racket to see the discrepancy. As an aside: if the continuation is not aborted in the main body, the final displayln is not evaluated in DrRacket while racket reports an attempt to cross a continuation barrier.
+
+#lang racket/base
+(require racket/list
+         racket/match)
+
+(define metak empty)
+
+(define (thread t)
+  (suspend
+   (λ ()
+     (abort-current-continuation
+      (default-continuation-prompt-tag)
+      (λ ()
+        (resume (t)))))))
+
+(define (suspend proc . args)
+  (let/cc k
+    (set! metak (cons k metak))
+    (apply proc args)))
+
+(define (resume [v (void)])
+  (if (empty? metak)
+      v
+      (match-let ([(cons k rest-metak) metak])
+        (set! metak rest-metak)
+        (k v))))
+
+(abort-current-continuation
+ (default-continuation-prompt-tag)
+ (λ ()
+   (begin
+     (thread
+      (λ ()
+        (displayln "in thunk")))
+     (displayln "must have resumed"))))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: krgermane@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13494: racket segfaults when invoking continuation
+Date: Tue, 12 Feb 2013 14:16:39 -0700
+
+ This is a problem with aborting to the initial prompt (whose handling
+ of aborts was changed relatively recently).
+ 
+ You can avoid the bug by starting your computation under a fresh
+ prompt (and this avoiding the initial prompt), like this:
+ 
+  (call-with-continuation-prompt
+   (lambda ()
+     (abort-current-continuation
+      (default-continuation-prompt-tag)
+      (lambda ()
+        (begin
+          (thread
+           (lambda ()
+             (displayln "in thunk")))
+          (displayln "must have resumed"))))))
+ 
+ Thanks for the report!
+ 
+ At Tue, 5 Feb 2013 15:32:01 -0500, krgermane@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13494
+ > 
+ > Reported by Kimball Germane for release: 5.3.2
+ > 
+ > *** Description:
+ > In a tiny threading library, racket segfaults when invoking a continuation. In 
+ > contrast, DrRacket exhibits the expected behavior.
+ > 
+ > *** How to repeat:
+ > Run the following code in DrRacket and in racket to see the discrepancy. As an 
+ > aside: if the continuation is not aborted in the main body, the final displayln 
+ > is not evaluated in DrRacket while racket reports an attempt to cross a 
+ > continuation barrier.
+ > 
+ > #lang racket/base
+ > (require racket/list
+ >          racket/match)
+ > 
+ > (define metak empty)
+ > 
+ > (define (thread t)
+ >   (suspend
+ >    (Î» ()
+ >      (abort-current-continuation
+ >       (default-continuation-prompt-tag)
+ >       (Î» ()
+ >         (resume (t)))))))
+ > 
+ > (define (suspend proc . args)
+ >   (let/cc k
+ >     (set! metak (cons k metak))
+ >     (apply proc args)))
+ > 
+ > (define (resume [v (void)])
+ >   (if (empty? metak)
+ >       v
+ >       (match-let ([(cons k rest-metak) metak])
+ >         (set! metak rest-metak)
+ >         (k v))))
+ > 
+ > (abort-current-continuation
+ >  (default-continuation-prompt-tag)
+ >  (Î» ()
+ >    (begin
+ >      (thread
+ >       (Î» ()
+ >         (displayln "in thunk")))
+ >      (displayln "must have resumed"))))
+ > 
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/536.26.17 
+ > (KHTML, like Gecko) Version/6.0.2 Safari/536.26.17
+ 
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Tue, 12 Feb 2013 16:27:03 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7f5b295308
+State changed from "open" to "closed" by mflatt@racket-lang.org at Tue, 12 Feb 2013 16:27:03 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7f5b295308
+  | fix problem with the initial continuation prompt
+  | 
+  | (Got it wrong in 2f7d4b5e.)
+  | 
+  | Closes PR 13494
+

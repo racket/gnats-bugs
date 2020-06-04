@@ -1,0 +1,68 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Oct 21 20:56:17 2011
+Received: from mail-yw0-f44.google.com (mail-yw0-f44.google.com [209.85.213.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p9M0uBl1006056
+	for <bugs@bugs.plt-scheme.org>; Fri, 21 Oct 2011 20:56:11 -0400
+Message-Id: <201110220056.p9M0u7qf006036@champlain.ccs.neu.edu>
+Date: Fri, 21 Oct 2011 20:56:07 -0400
+From: cce@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: syntax-local-make-delta-introducer transfers too many marks
+
+>Number:         12310
+>Category:       mzscheme
+>Synopsis:       syntax-local-make-delta-introducer transfers too many marks
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Oct 21 21:00:01 -0400 2011
+>Last-Modified:  Sun Nov 20 14:40:40 -0500 2011
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.0.1
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10.6; rv:5.0.1) Gecko/20100101 Firefox/5.0.1
+>Description:
+The result of syntax-local-make-delta-introducer is supposed to transfer the marks that differ between the given identifier and its binding in the current environment.  The program below gives an example where syntax-local-make-delta-introducer actually transfers marks present in the identifier's current binding as well.
+>How-To-Repeat:
+#lang racket/base
+(require
+  (for-syntax
+    racket/base
+    racket/syntax))
+
+(define-syntax (macro stx)
+  (define ctx (syntax-local-make-definition-context))
+  (define ectx (list (gensym)))
+  (define (in-context stx)
+    (cadr
+      (syntax->list
+        (local-expand #`(quote #,stx) ectx (list #'quote) ctx))))
+  (define id0 (datum->syntax #f 'dummy))
+  (define mark (make-syntax-introducer))
+  (define id1 (mark id0))
+  (syntax-local-bind-syntaxes (list id1) #'#false ctx)
+  (define bound0 (in-context id0))
+  (define bound1 (in-context id1))
+  (define delta:0->1
+    (syntax-local-eval
+      #`((quote
+           #,(lambda ()
+               (syntax-local-make-delta-introducer bound1))))
+      ctx))
+  (define bound1/reconstructed
+    (in-context (delta:0->1 id0)))
+  (when (free-identifier=? id1 bound1)
+    (error 'macro "internal definition context bindings ignored"))
+  (when (free-identifier=? bound0 bound1)
+    (error 'macro "binding reproduced w/o significant marks"))
+  (when (free-identifier=? bound1 bound1/reconstructed)
+    (error 'macro "delta introducer included significant marks"))
+  #'(begin))
+
+(macro)
+>Fix:

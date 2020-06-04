@@ -1,0 +1,980 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon May 31 21:37:52 2010
+Received: from mail-yw0-f198.google.com (mail-yw0-f198.google.com [209.85.211.198])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o511boXH007435
+	for <bugs@bugs.plt-scheme.org>; Mon, 31 May 2010 21:37:50 -0400
+Message-Id: <201006010137.o511bmLp007427@champlain.ccs.neu.edu>
+Date: Mon, 31 May 2010 21:37:48 -0400
+From: endobson@cs.brown.edu
+To: bugs@plt-scheme.org
+Subject: TypedRacket module violates generated contract
+
+>Number:         10946
+>Category:       typed-scheme
+>Synopsis:       TypedRacket module violates generated contract
+>Class:          sw-bug
+>Responsible:    sstrickl
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon May 31 21:40:01 -0400 2010
+>Closed-Date:    Tue Jun 01 12:24:26 -0400 2010
+>Last-Modified:  Tue Jun 01 16:36:01 -0400 2010
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.90.0.1
+>Environment:
+macosx "Darwin eric-dobsons-macbook.local 10.3.0 Darwin Kernel Version 10.3.0: Fri Feb 26 11:58:09 PST 2010; root:xnu-1504.3.12~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 247621568
+
+Collections:
+(("/Users/eric/Library/Racket/4.90.0.1/collects" non-existent-path) ("/Applications/Racket v4.90.0.1/collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml"!
+ ))
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug/profile) (default) #() "#lang scheme\n" #f))
+>Description:
+Somehow the generated contract has two higher-order contracts that match in an or/c.
+
+/Users/eric/tmp/test.ss:5.9: 
+  (file /Users/eric/tmp/test.ss)
+ broke the contract (parametric/c (elem5) ...) on out-id; two of the clauses in the or/c might both match: (recursive-contract rec9) and a:singleton, given (a:singleton #<elem5>)
+>How-To-Repeat:
+Run test2.ss.
+
+test.ss:
+
+#lang typed/racket
+
+;(require racket)
+
+(provide a:list-helper)
+
+
+
+(define-type (Append-List+ elem)
+  (U (a:singleton elem)
+     (a:join elem)))
+
+(define-struct: (elem) a:join
+ ((left : (Append-List+ elem))
+  (right : (Append-List+ elem))) #:transparent)
+
+
+
+(define-struct: (elem) a:singleton
+ ((elem : elem)) #:transparent)
+
+
+
+
+
+
+(: a:list-helper (All (elem) ((Pair elem (Listof elem)) -> (Append-List+ elem))))
+(define (a:list-helper elems)
+  (cond
+   ((empty? (cdr elems)) (make-a:singleton (car elems)))
+   (else (make-a:join (make-a:singleton (car elems))
+                      (a:list-helper (cdr elems))))))
+
+
+test2.ss:
+#!/usr/bin/env racket
+#lang racket
+
+(require "test.ss")
+
+(a:list-helper (list 1 2))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "samth" by samth at Tue, 01 Jun 2010 09:23:59 -0400
+Reason>>> ts
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: endobson@cs.brown.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated contract
+Date: Tue, 1 Jun 2010 11:52:03 -0400
+
+ 1. exporting a polymorphically typed function from typed/racket to  
+ racket shouldn't work. Sam?
+ 
+ 2. just in case nobody has shown you racket/load:
+ 
+ #lang racket/load
+ 
+ 
+ (module test typed/racket
+ 
+    (provide a:list-helper)
+ 
+    (define-type (Append-List+ elem) (U (a:singleton elem) (a:join  
+ elem)))
+ 
+    (define-struct: (elem) a:join
+      ((left : (Append-List+ elem)) (right : (Append-List+ elem)))
+      #:transparent)
+ 
+    (define-struct: (elem) a:singleton
+      ((elem : elem)) #:transparent)
+ 
+    (: a:list-helper (All (elem) ((Pair elem (Listof elem)) -> (Append- 
+ List+ elem))))
+    (define (a:list-helper elems)
+      (cond
+        ((empty? (cdr elems)) (make-a:singleton (car elems)))
+        (else (make-a:join (make-a:singleton (car elems))
+                           (a:list-helper (cdr elems))))))
+    )
+ 
+ (module test2 racket
+    (require 'test)
+    (a:list-helper (list 1 2)))
+ 
+ (require 'test2)
+ 
+ 
+ 
+ 
+ On May 31, 2010, at 9:40 PM, endobson@cs.brown.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=10946
+ >
+ > Reported by Eric Dobson for release: 4.90.0.1
+ >
+ > *** Description:
+ > Somehow the generated contract has two higher-order contracts that  
+ > match in an or/c.
+ >
+ > /Users/eric/tmp/test.ss:5.9:
+ >  (file /Users/eric/tmp/test.ss)
+ > broke the contract (parametric/c (elem5) ...) on out-id; two of the  
+ > clauses in the or/c might both match: (recursive-contract rec9) and  
+ > a:singleton, given (a:singleton #<elem5>)
+ >
+ > *** How to repeat:
+ > Run test2.ss.
+ >
+ > test.ss:
+ >
+ > #lang typed/racket
+ >
+ > ;(require racket)
+ >
+ > (provide a:list-helper)
+ >
+ >
+ >
+ > (define-type (Append-List+ elem)
+ >  (U (a:singleton elem)
+ >     (a:join elem)))
+ >
+ > (define-struct: (elem) a:join
+ > ((left : (Append-List+ elem))
+ >  (right : (Append-List+ elem))) #:transparent)
+ >
+ >
+ >
+ > (define-struct: (elem) a:singleton
+ > ((elem : elem)) #:transparent)
+ >
+ >
+ >
+ >
+ >
+ >
+ > (: a:list-helper (All (elem) ((Pair elem (Listof elem)) -> (Append- 
+ > List+ elem))))
+ > (define (a:list-helper elems)
+ >  (cond
+ >   ((empty? (cdr elems)) (make-a:singleton (car elems)))
+ >   (else (make-a:join (make-a:singleton (car elems))
+ >                      (a:list-helper (cdr elems))))))
+ >
+ >
+ > test2.ss:
+ > #!/usr/bin/env racket
+ > #lang racket
+ >
+ > (require "test.ss")
+ >
+ > (a:list-helper (list 1 2))
+ >
+ > *** Environment:
+ > macosx "Darwin eric-dobsons-macbook.local 10.3.0 Darwin Kernel  
+ > Version 10.3.0: Fri Feb 26 11:58:09 PST 2010; root:xnu-1504.3.12~1/ 
+ > RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 247621568
+ >
+ > Collections:
+ > (("/Users/eric/Library/Racket/4.90.0.1/collects" non-existent-path)  
+ > ("/Applications/Racket v4.90.0.1/collects" "2htdp" "afm" "algol60"  
+ > "at-exp" "browser" "combinator-parser" "compiler" "config"  
+ > "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded- 
+ > gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games"  
+ > "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons"  
+ > "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make"  
+ > "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl"  
+ > "parser-tools" "plai" "planet" "plot" "preprocessor" "profile"  
+ > "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader"  
+ > "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble"  
+ > "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi"  
+ > "stepper" "string-constants" "swindle" "syntax" "syntax-color"  
+ > "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict"  
+ > "trace" "typed" "typed-scheme" "unstable" "version" "web-server"  
+ > "wxme" "xml"!
+ > ))
+ > Computer Language: (("Determine language from source") (#(#t print  
+ > mixed-fraction-e #f #t debug/profile) (default) #() "#lang scheme\n"  
+ > #f))
+ >
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: endobson@cs.brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 12:01:14 -0400
+
+ On Tue, Jun 1, 2010 at 11:52 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > 1. exporting a polymorphically typed function from typed/racket to racket
+ > shouldn't work. Sam?
+ 
+ No, such exports should work.  The problem here is that the contract
+ system doesn't certain combinations of recursive contract with other
+ contracts in `or/c'.  Stevie and I are investigating.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: endobson@cs.brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 12:08:06 -0400
+
+ So what's the semantics of such a type in the untyped world?
+ 
+ 
+ 
+ On Jun 1, 2010, at 12:01 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Tue, Jun 1, 2010 at 11:52 AM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >>
+ >> 1. exporting a polymorphically typed function from typed/racket to  
+ >> racket
+ >> shouldn't work. Sam?
+ >
+ > No, such exports should work.  The problem here is that the contract
+ > system doesn't certain combinations of recursive contract with other
+ > contracts in `or/c'.  Stevie and I are investigating.
+ > -- 
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: endobson@cs.brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 12:14:09 -0400
+
+ On Tue, Jun 1, 2010 at 12:08 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > So what's the semantics of such a type in the untyped world?
+ 
+ Polymorphic types use the runtime sealing technique that's been widely
+ discussed in the literature recently.  Thanks to Carl for implementing
+ it for me.
+ 
+ This bug will hopefully be fixed in git in the very near future,
+ thanks to Stevie.
+ 
+ Aren't colleagues wonderful?
+ 
+ > On Jun 1, 2010, at 12:01 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> On Tue, Jun 1, 2010 at 11:52 AM, Matthias Felleisen
+ >> <matthias@ccs.neu.edu> wrote:
+ >>>
+ >>> 1. exporting a polymorphically typed function from typed/racket to rack=
+ et
+ >>> shouldn't work. Sam?
+ >>
+ >> No, such exports should work. =A0The problem here is that the contract
+ >> system doesn't certain combinations of recursive contract with other
+ >> contracts in `or/c'. =A0Stevie and I are investigating.
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ >
+ >
+ 
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+Responsible changed from "samth" to "sstrickl" by sstrickl@racket-lang.org at Tue, 01 Jun 2010 12:24:26 -0400
+Reason>>> A commit by sstrickl@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/40089cce15
+State changed from "open" to "closed" by sstrickl@racket-lang.org at Tue, 01 Jun 2010 12:24:26 -0400
+Reason>>> A commit by sstrickl@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/40089cce15
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: endobson@cs.brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 12:26:01 -0400
+
+ We had discussed this alternatively and we had agreed that this is  
+ totally inappropriate given the purpose of Typed Scheme. Why do you go  
+ ahead and use these things anyway? It changes the semantics of  
+ existing Scheme code.
+ 
+ 
+ 
+ On Jun 1, 2010, at 12:14 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Tue, Jun 1, 2010 at 12:08 PM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >>
+ >> So what's the semantics of such a type in the untyped world?
+ >
+ > Polymorphic types use the runtime sealing technique that's been widely
+ > discussed in the literature recently.  Thanks to Carl for implementing
+ > it for me.
+ >
+ > This bug will hopefully be fixed in git in the very near future,
+ > thanks to Stevie.
+ >
+ > Aren't colleagues wonderful?
+ >
+ >> On Jun 1, 2010, at 12:01 PM, Sam Tobin-Hochstadt wrote:
+ >>
+ >>> On Tue, Jun 1, 2010 at 11:52 AM, Matthias Felleisen
+ >>> <matthias@ccs.neu.edu> wrote:
+ >>>>
+ >>>> 1. exporting a polymorphically typed function from typed/racket  
+ >>>> to racket
+ >>>> shouldn't work. Sam?
+ >>>
+ >>> No, such exports should work.  The problem here is that the contract
+ >>> system doesn't certain combinations of recursive contract with other
+ >>> contracts in `or/c'.  Stevie and I are investigating.
+ >>> --
+ >>> sam th
+ >>> samth@ccs.neu.edu
+ >>
+ >>
+ >
+ >
+ >
+ > -- 
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson@cs.brown.edu,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 11:30:16 -0500
+
+ While we're complaining, why isn't the contract system's
+ implementation sufficient? (the exists things).
+ 
+ Robby
+ 
+ On Tue, Jun 1, 2010 at 11:26 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > We had discussed this alternatively and we had agreed that this is totall=
+ y
+ > inappropriate given the purpose of Typed Scheme. Why do you go ahead and =
+ use
+ > these things anyway? It changes the semantics of existing Scheme code.
+ >
+ >
+ >
+ > On Jun 1, 2010, at 12:14 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> On Tue, Jun 1, 2010 at 12:08 PM, Matthias Felleisen
+ >> <matthias@ccs.neu.edu> wrote:
+ >>>
+ >>> So what's the semantics of such a type in the untyped world?
+ >>
+ >> Polymorphic types use the runtime sealing technique that's been widely
+ >> discussed in the literature recently. =C2=A0Thanks to Carl for implement=
+ ing
+ >> it for me.
+ >>
+ >> This bug will hopefully be fixed in git in the very near future,
+ >> thanks to Stevie.
+ >>
+ >> Aren't colleagues wonderful?
+ >>
+ >>> On Jun 1, 2010, at 12:01 PM, Sam Tobin-Hochstadt wrote:
+ >>>
+ >>>> On Tue, Jun 1, 2010 at 11:52 AM, Matthias Felleisen
+ >>>> <matthias@ccs.neu.edu> wrote:
+ >>>>>
+ >>>>> 1. exporting a polymorphically typed function from typed/racket to
+ >>>>> racket
+ >>>>> shouldn't work. Sam?
+ >>>>
+ >>>> No, such exports should work. =C2=A0The problem here is that the contr=
+ act
+ >>>> system doesn't certain combinations of recursive contract with other
+ >>>> contracts in `or/c'. =C2=A0Stevie and I are investigating.
+ >>>> --
+ >>>> sam th
+ >>>> samth@ccs.neu.edu
+ >>>
+ >>>
+ >>
+ >>
+ >>
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ >
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson@cs.brown.edu,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 11:33:48 -0500
+
+ Yes, I know. This was a "since you were going to use it, why
+ reimplement?" question.
+ 
+ On Tue, Jun 1, 2010 at 11:32 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > I'll quote myself again:
+ >
+ >
+ > On Jun 1, 2010, at 12:30 PM, Robby Findler wrote:
+ >
+ >>> It changes the semantics of existing Scheme code.
+ >
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson@cs.brown.edu,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 12:32:26 -0400
+
+ I'll quote myself again:
+ 
+ 
+ On Jun 1, 2010, at 12:30 PM, Robby Findler wrote:
+ 
+ >> It changes the semantics of existing Scheme code.
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson <endobson@cs.brown.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 12:03:32 -0500
+
+ I have another answer here, to the larger question. I'm just speaking
+ for myself here, wrt to the contract system, but there are already
+ several places where we do not have the property you want below,
+ notably eq?, but also because of untrusted procedures. (I think that
+ there was even one more beyond these that I'm forgetting about now?).
+ 
+ So, I added #:exists and the lower-level construct so that we could
+ experiment with them and see if, perhaps, we were wrong about this
+ property (or, perhaps if we weren't wrong, we would have the
+ experience to back it up).
+ 
+ Robby
+ 
+ On Tue, Jun 1, 2010 at 11:32 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > I'll quote myself again:
+ >
+ >
+ > On Jun 1, 2010, at 12:30 PM, Robby Findler wrote:
+ >
+ >>> It changes the semantics of existing Scheme code.
+ >
+ >
+
+----------
+A commit by samth@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/0e3c2b71cc
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson <endobson@cs.brown.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 13:36:37 -0400
+
+ How does Typed change the behavior of existing code in other places?
+ 
+ 
+ 
+ 
+ On Jun 1, 2010, at 1:03 PM, Robby Findler wrote:
+ 
+ > I have another answer here, to the larger question. I'm just speaking
+ > for myself here, wrt to the contract system, but there are already
+ > several places where we do not have the property you want below,
+ > notably eq?, but also because of untrusted procedures. (I think that
+ > there was even one more beyond these that I'm forgetting about now?).
+ >
+ > So, I added #:exists and the lower-level construct so that we could
+ > experiment with them and see if, perhaps, we were wrong about this
+ > property (or, perhaps if we weren't wrong, we would have the
+ > experience to back it up).
+ >
+ > Robby
+ >
+ > On Tue, Jun 1, 2010 at 11:32 AM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >>
+ >> I'll quote myself again:
+ >>
+ >>
+ >> On Jun 1, 2010, at 12:30 PM, Robby Findler wrote:
+ >>
+ >>>> It changes the semantics of existing Scheme code.
+ >>
+ >>
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 13:46:29 -0400
+
+ On Tue, Jun 1, 2010 at 1:36 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >
+ > How does Typed change the behavior of existing code in other places?
+ 
+ #lang racket/load
+ 
+ (module m racket
+   (provide f g)
+   (define (f x) (add1 x))
+   (define g f))
+ 
+ (module n racket
+   (require 'm)
+   (eq? f g))
+ 
+ (module n* typed/racket
+   (require/typed 'm
+                  [f (Number -> Number)]
+                  [g (Number -> Number)])
+   (eq? f g))
+ 
+ (require 'n 'n*)
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 13:51:03 -0400
+
+ That's just a contract problem lifted up:
+ 
+ #lang racket/load
+ 
+ (module m racket
+   (provide f g)
+   (define (f x) (add1 x))
+   (define g f))
+ 
+ (module n racket
+   (require 'm)
+   (eq? f g))
+ 
+ (module k racket
+    (require 'm)
+    (provide/contract
+     [f (-> number? number?)]
+     [g (-> number? number?)]))
+ 
+ (module silly racket
+    (require 'k)
+    (eq? f g))
+ 
+ (require 'silly)
+ 
+ 
+ 
+ 
+ On Jun 1, 2010, at 1:46 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > #lang racket/load
+ >
+ > (module m racket
+ >  (provide f g)
+ >  (define (f x) (add1 x))
+ >  (define g f))
+ >
+ > (module n racket
+ >  (require 'm)
+ >  (eq? f g))
+ >
+ > (module n* typed/racket
+ >  (require/typed 'm
+ >                 [f (Number -> Number)]
+ >                 [g (Number -> Number)])
+ >  (eq? f g))
+ >
+ > (require 'n 'n*)
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 13:53:02 -0400
+
+ And the best part is that eq? on function ptrs or objects is damn rare.
+ This will not be true for polymorphic types. The changes will be  
+ pervasive. 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 14:08:26 -0400
+
+ On Tue, Jun 1, 2010 at 1:53 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >
+ > And the best part is that eq? on function ptrs or objects is damn rare.
+ > This will not be true for polymorphic types. The changes will be pervasive.
+ 
+ But this will be true for `eq?' on vectors with contracts that use
+ chaperones.  Or for polymorphic structures.
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 14:16:12 -0400
+
+ On Jun 1, 2010, at 2:08 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Tue, Jun 1, 2010 at 1:53 PM, Matthias Felleisen <matthias@ccs.neu.edu 
+ > > wrote:
+ >>
+ >> And the best part is that eq? on function ptrs or objects is damn  
+ >> rare.
+ >> This will not be true for polymorphic types. The changes will be  
+ >> pervasive.
+ >
+ > But this will be true for `eq?' on vectors with contracts that use
+ > chaperones.
+ 
+ Check for eq? on vectors in our implementation. Or eq? on anything  
+ besides basic things.
+ 
+ Then check for predicates. And realize that the use of predicates is  
+ the ___entire___ basis of occurrence type checking. And silently  
+ failing predicates are the core evil then.
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson <endobson@cs.brown.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 14:08:43 -0500
+
+ What are the precise rules of the game? Take an untyped program, add
+ types, and then get a different answer? If any wrapper is inserted
+ around some function as it passes thru the typed code, then it seems
+ like eq? will let me detect that.
+ 
+ As for the predicates thing, I'm not up on the language that
+ predicates can have and whether or not arbitrary code can show up in a
+ type. But do you trust the syntax information that is bound to an
+ identifier that it actually comes from a define-struct when it looks
+ like it does?
+ 
+ Robby
+ 
+ On Tue, Jun 1, 2010 at 12:36 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > How does Typed change the behavior of existing code in other places?
+ >
+ >
+ >
+ >
+ > On Jun 1, 2010, at 1:03 PM, Robby Findler wrote:
+ >
+ >> I have another answer here, to the larger question. I'm just speaking
+ >> for myself here, wrt to the contract system, but there are already
+ >> several places where we do not have the property you want below,
+ >> notably eq?, but also because of untrusted procedures. (I think that
+ >> there was even one more beyond these that I'm forgetting about now?).
+ >>
+ >> So, I added #:exists and the lower-level construct so that we could
+ >> experiment with them and see if, perhaps, we were wrong about this
+ >> property (or, perhaps if we weren't wrong, we would have the
+ >> experience to back it up).
+ >>
+ >> Robby
+ >>
+ >> On Tue, Jun 1, 2010 at 11:32 AM, Matthias Felleisen
+ >> <matthias@ccs.neu.edu> wrote:
+ >>>
+ >>> I'll quote myself again:
+ >>>
+ >>>
+ >>> On Jun 1, 2010, at 12:30 PM, Robby Findler wrote:
+ >>>
+ >>>>> It changes the semantics of existing Scheme code.
+ >>>
+ >>>
+ >
+ >
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 15:13:27 -0400
+
+ On Tue, Jun 1, 2010 at 3:08 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ >
+ > As for the predicates thing, I'm not up on the language that
+ > predicates can have and whether or not arbitrary code can show up in a
+ > type. But do you trust the syntax information that is bound to an
+ > identifier that it actually comes from a define-struct when it looks
+ > like it does?
+ 
+ No, only the expansion is examined, not the static info.
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson <endobson@cs.brown.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 15:18:13 -0400
+
+ On Jun 1, 2010, at 3:08 PM, Robby Findler wrote:
+ 
+ > What are the precise rules of the game? Take an untyped program, add
+ > types, and then get a different answer?
+ 
+ 
+ Not programs.
+ 
+ Take an untyped module. Add types. The observable semantics of the
+ module does not change. 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson <endobson@cs.brown.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 15:21:45 -0400
+
+ On Jun 1, 2010, at 3:20 PM, Robby Findler wrote:
+ 
+ > So I think my eq? example would be made to work. I can try to send you
+ > real code if you disagree.
+ 
+ 
+ Due to contracts, yes. See my response to Sam on the -bugs version of  
+ this thread. 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson <endobson@cs.brown.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 14:20:04 -0500
+
+ On Tue, Jun 1, 2010 at 2:18 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >
+ > On Jun 1, 2010, at 3:08 PM, Robby Findler wrote:
+ >
+ >> What are the precise rules of the game? Take an untyped program, add
+ >> types, and then get a different answer?
+ >
+ >
+ > Not programs.
+ >
+ > Take an untyped module. Add types. The observable semantics of the
+ > module does not change.
+ 
+ I'm not quite sure how that's different, but probably this is just a
+ communication problem, not an understanding problem.
+ 
+ So I think my eq? example would be made to work. I can try to send you
+ real code if you disagree.
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 14:44:29 -0500
+
+ Oh yes. Don't know how I missed that.
+ 
+ But the forall thing is "just" contracts too, right?
+ 
+ Robby
+ 
+ On Tuesday, June 1, 2010, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >
+ > On Jun 1, 2010, at 3:20 PM, Robby Findler wrote:
+ >
+ >
+ > So I think my eq? example would be made to work. I can try to send you
+ > real code if you disagree.
+ >
+ >
+ >
+ > Due to contracts, yes. See my response to Sam on the -bugs version of this thread.
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, endobson <endobson@cs.brown.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated  contract
+Date: Tue, 1 Jun 2010 16:03:00 -0400
+
+ On Jun 1, 2010, at 3:44 PM, Robby Findler wrote:
+ 
+ > Oh yes. Don't know how I missed that.
+ >
+ > But the forall thing is "just" contracts too, right?
+ 
+ That's irrelevant. The relevant part is the para on predicates.
+ 
+ 
+ >
+ > Robby
+ >
+ > On Tuesday, June 1, 2010, Matthias Felleisen <matthias@ccs.neu.edu>  
+ > wrote:
+ >>
+ >> On Jun 1, 2010, at 3:20 PM, Robby Findler wrote:
+ >>
+ >>
+ >> So I think my eq? example would be made to work. I can try to send  
+ >> you
+ >> real code if you disagree.
+ >>
+ >>
+ >>
+ >> Due to contracts, yes. See my response to Sam on the -bugs version  
+ >> of this thread.
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        endobson <endobson@cs.brown.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [plt-bug] all/10946: TypedRacket module violates generated 
+	contract
+Date: Tue, 1 Jun 2010 15:34:53 -0500
+
+ Ah. Indeed.
+ 
+ On Tuesday, June 1, 2010, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >
+ > On Jun 1, 2010, at 3:44 PM, Robby Findler wrote:
+ >
+ >
+ > Oh yes. Don't know how I missed that.
+ >
+ > But the forall thing is "just" contracts too, right?
+ >
+ >
+ > That's irrelevant. The relevant part is the para on predicates.
+ >
+ >
+ >
+ >
+ > Robby
+ >
+ > On Tuesday, June 1, 2010, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >
+ >
+ > On Jun 1, 2010, at 3:20 PM, Robby Findler wrote:
+ >
+ >
+ > So I think my eq? example would be made to work. I can try to send you
+ > real code if you disagree.
+ >
+ >
+ >
+ > Due to contracts, yes. See my response to Sam on the -bugs version of this thread.
+ >
+ >
+ >

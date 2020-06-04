@@ -1,0 +1,158 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Nov 22 02:56:55 2012
+Received: from mail-ia0-f172.google.com (mail-ia0-f172.google.com [209.85.210.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id qAM7uqL7020874
+	for <bugs@bugs.plt-scheme.org>; Thu, 22 Nov 2012 02:56:52 -0500
+Message-Id: <201211220756.qAM7unkN020868@champlain.ccs.neu.edu>
+Date: Thu, 22 Nov 2012 02:56:49 -0500
+From: tobias.hammer@dlr.de
+To: bugs@racket-lang.org
+Subject: place-channels and ffi segfault
+
+>Number:         13282
+>Category:       all
+>Synopsis:       place-channels and ffi segfault
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Nov 22 03:00:01 -0500 2012
+>Closed-Date:    Fri Nov 23 10:20:13 -0500 2012
+>Last-Modified:  Fri Nov 23 10:20:13 -0500 2012
+>Originator:     Tobias Hammer
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.1
+>Environment:
+unix "Linux thoosa 2.6.32.59-0.7-pae #1 SMP 2012-07-13 15:50:56 +0200 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 179671196
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/hamm_to/.racket/5.3.1/collects"
+ (non-existent-path))
+("/volume/USERSTORE/hamm_to/local-install/racket/collects"
+ ("syntax" "planet" "errortrace" "xml" "scribblings" "file" "htdp" "s-exp" "schemeunit" "eopl" "slatex" "syntax-color" "hierlist" "deinprogramm" "make" "gui-debugger" "picturing-programs" "unstable" "slideshow" "compatibility" "info-domain" "openssl" "version" "parser-tools" "r6rs" "defaults" "rnrs" "future-visualizer" "scriblib" "dynext" "r5rs" "rackunit" "string-constants" "lazy" "launcher" "readline" "mysterx" "mrlib" "browser" "mzcom" "typed-racket" "lang" "embedded-gui" "framework" "at-exp" "graphics" "mred" "datalog" "games" "compiler" "profile" "web-server" "icons" "frtime" "teachpack" "raco" "images" "wxme" "typed-scheme" "json" "trace" "texpict" "ffi" "db" "algol60" "racket" "setup" "scribble" "plot" "drracket" "drscheme" "typed" "scheme" "racklog" "data" "html" "xrepl" "stepper" "srfi" "mzscheme" "macro-debugger" "net" "test-engine" "config" "sgl" "mzlib" "help" "swindle" "plai" "reader" "redex" "2htdp" "preprocessor"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+The attached code segfaults on 5.3.1.
+
+Maybe related:
+The docs for places state that cpointers may be sent over place-channels but i wasn't able to get a #t from place-message-allowed? for any kind of cpointer.
+>How-To-Repeat:
+#lang racket/base
+
+(require racket/place ffi/unsafe)
+
+(define-cstruct _S ([a _int]))
+(define s (malloc _S 'raw))
+
+(place-message-allowed? s)
+>Fix:
+>Audit-Trail:
+From: Kevin Tew <tewk@cs.utah.edu>
+To: tobias.hammer@dlr.de, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org,
+        Matthew Flatt <mflatt@cs.utah.edu>
+Subject: Re: [racket-bug] all/13282: place-channels and ffi segfault
+Date: Thu, 22 Nov 2012 03:38:12 -0700
+
+ I think this is the right fix.
+ 
+ Matthew, does this seem reasonable to you?
+ 
+ 
+ Kevin
+ 
+ 
+ 
+ diff --git a/src/racket/src/place.c b/src/racket/src/place.c
+ index d4f5046..fa8b952 100644
+ --- a/src/racket/src/place.c
+ +++ b/src/racket/src/place.c
+ @@ -1393,14 +1393,21 @@ static Scheme_Object 
+ *shallow_types_copy(Scheme_Object *so, Scheme_Hash_Table *h
+             o->type = scheme_cpointer_type;
+             SCHEME_CPTR_FLAGS(o) |= 0x1;
+             SCHEME_CPTR_VAL(o) = SCHEME_CPTR_VAL(so);
+ -          o2 = shallow_types_copy(SCHEME_CPTR_TYPE(so), NULL, 
+ fd_accumulators, delayed_errno, mode,
+ -                                  can_raise_exn, master_chain, 
+ invalid_object);
+ +          if (SCHEME_CPTR_TYPE(so)) {
+ +            o2 = shallow_types_copy(SCHEME_CPTR_TYPE(so), NULL, 
+ fd_accumulators, delayed_errno, mode,
+ +                                    can_raise_exn, master_chain, 
+ invalid_object);
+ +          }
+ +          else {
+ +            o2 = SCHEME_CPTR_TYPE(so);
+ +          }
+             SCHEME_CPTR_TYPE(o) = o2;
+ 
+             new_so = o;
+           } else {
+ -          (void)shallow_types_copy(SCHEME_CPTR_TYPE(so), NULL, 
+ fd_accumulators, delayed_errno, mode,
+ -                                   can_raise_exn, master_chain, 
+ invalid_object);
+ +          if (SCHEME_CPTR_TYPE(so)) {
+ +            (void)shallow_types_copy(SCHEME_CPTR_TYPE(so), NULL, 
+ fd_accumulators, delayed_errno, mode,
+ +                                     can_raise_exn, master_chain, 
+ invalid_object);
+ +          }
+           }
+         }
+         else {
+ 
+ On 11/22/2012 01:00 AM, tobias.hammer@dlr.de wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=13282
+ >
+ > Reported by Tobias Hammer for release: 5.3.1
+ >
+ > *** Description:
+ > The attached code segfaults on 5.3.1.
+ >
+ > Maybe related:
+ > The docs for places state that cpointers may be sent over place-channels but i wasn't able to get a #t from place-message-allowed? for any kind of cpointer.
+ >
+ > *** How to repeat:
+ > #lang racket/base
+ >
+ > (require racket/place ffi/unsafe)
+ >
+ > (define-cstruct _S ([a _int]))
+ > (define s (malloc _S 'raw))
+ >
+ > (place-message-allowed? s)
+ >
+ > *** Environment:
+ > unix "Linux thoosa 2.6.32.59-0.7-pae #1 SMP 2012-07-13 15:50:56 +0200 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 179671196
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+ >
+ >
+ > Collections:
+ > ("/home/hamm_to/.racket/5.3.1/collects"
+ >   (non-existent-path))
+ > ("/volume/USERSTORE/hamm_to/local-install/racket/collects"
+ >   ("syntax" "planet" "errortrace" "xml" "scribblings" "file" "htdp" "s-exp" "schemeunit" "eopl" "slatex" "syntax-color" "hierlist" "deinprogramm" "make" "gui-debugger" "picturing-programs" "unstable" "slideshow" "compatibility" "info-domain" "openssl" "version" "parser-tools" "r6rs" "defaults" "rnrs" "future-visualizer" "scriblib" "dynext" "r5rs" "rackunit" "string-constants" "lazy" "launcher" "readline" "mysterx" "mrlib" "browser" "mzcom" "typed-racket" "lang" "embedded-gui" "framework" "at-exp" "graphics" "mred" "datalog" "games" "compiler" "profile" "web-server" "icons" "frtime" "teachpack" "raco" "images" "wxme" "typed-scheme" "json" "trace" "texpict" "ffi" "db" "algol60" "racket" "setup" "scribble" "plot" "drracket" "drscheme" "typed" "scheme" "racklog" "data" "html" "xrepl" "stepper" "srfi" "mzscheme" "macro-debugger" "net" "test-engine" "config" "sgl" "mzlib" "help" "swindle" "plai" "reader" "redex" "2htdp" "preprocessor"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t ((main) (test))))
+ 
+ 
+ 
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 23 Nov 2012 10:20:13 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/961f5e40bf
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 23 Nov 2012 10:20:13 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/961f5e40bf

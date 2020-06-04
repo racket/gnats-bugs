@@ -1,0 +1,189 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Mar 28 03:09:39 2007
+Received: from an-out-0708.google.com (an-out-0708.google.com [209.85.132.249])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l2S79cWF008061
+	for <bugs@bugs.plt-scheme.org>; Wed, 28 Mar 2007 03:09:38 -0400
+Message-Id: <200703280709.l2S79atM008056@champlain.ccs.neu.edu>
+Date: Wed, 28 Mar 2007 03:09:36 -0400
+From: ryanc@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: module lifted declarations and begin-for-syntax
+
+>Number:         8586
+>Category:       mzscheme
+>Synopsis:       module lifted declarations and begin-for-syntax
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Mar 28 03:10:02 -0400 2007
+>Last-Modified:  Fri May 04 03:14:05 -0400 2007
+>Originator:     Ryan Culpepper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.8-svn26mar2007
+>Environment:
+unix "Linux artichoke 2.6.17-11-generic #2 SMP Thu Feb 1 19:52:28 UTC 2007 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/home/ryan/projects/plt-svn/trunk/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 121065820
+
+Collections:
+(("/home/ryan/.plt-scheme/369.8/collects" non-existent-path) ("/home/ryan/projects/plt-svn/trunk/collects" "afm" "ffi" "net" "sgl" "xml" ".svn" "eopl" "help" "htdp" "html" "lang" "lazy" "make" "r5rs" "r6rs" "mred" "plot" "srfi" "wxme" "framework" "teachpack" "handin-client" "mzscheme" "games" "icons" "htdch" "mrlib" "mzcom" "mzlib" "graphics" "profj" "setup" "tests" "trace" "xelda" "combinator-parser" "waterworld" "preprocessor" "sirmail" "skipper" "handin-server" "tex2page" "texpict" "profjWizard" "stepper" "scribble" "web-server" "config" "compiler" "swindle" "dynext" "hierlist" "macro-debugger" "frtime" "defaults" "guibuilder" "drscheme" "syntax-color" "mrflow" "srpersist" "mztake" "planet" "mysterx" "errortrace" "slatex" "syntax" "version" "algol60" "honu-module" "parser-tools" "openssl" "embedded-gui" "slideshow" "repos-time-stamp" "info-domain" "readline" "launcher" "string-constants" "browser"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+Lifting a 'begin-for-syntax' form using 'syntax-local-lift-module-end-declaration' causes compilation of a module to diverge. It seems that the lifted declarations are expanded in a 'module-begin context rather than a 'module context. The 'begin-for-syntax' macro reacts to a 'module-begin context by wrapping itself in a 'begin' form, which gets spliced back into the module, ad infinitum.
+>How-To-Repeat:
+The following program fails to compile:
+
+(module util mzscheme
+  (provide at-module-end)
+  ;; like 'begin-lifted' in (lib etc.ss) but for declarations
+  (define-syntax (at-module-end stx)
+    (syntax-case stx ()
+      [(_ decl ...)
+       (begin (for-each syntax-local-lift-module-end-declaration
+                        (syntax->list #'(decl ...)))
+              (if (eq? (syntax-local-context) 'expression)
+                  #'(void)
+                  #'(begin)))])))
+
+(module diverges mzscheme
+  (require util)
+  (#%expression
+   (at-module-end
+    (begin-for-syntax (display "here!\n")))))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: ryanc@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8586: module lifted declarations and begin-for-syntax
+Date: Mon, 9 Apr 2007 04:43:12 +0800
+
+ If you try to run the module
+ 
+  (module d mzscheme
+    (foo g)
+    (define-syntax foo
+      (syntax-rules ()
+        [(_ id) (define id 5)]))
+    (printf "~s\n" g))
+ 
+ you get an "unbound identifier" error. The reason is that `(foo g)' is
+ categorized as an expression before the macro `foo' is discovered. If
+ you try just
+ 
+  (module d mzscheme
+    (foo g)
+    (define-syntax foo
+      (syntax-rules ()
+        [(_ id) (define id 5)])))
+ 
+ then there's no error; `(foo g)' successfully compiles as a definition.
+ 
+ The reason for this behavior is:
+ 
+  * There are two passes: one to detect all definitions, which is how
+    identifiers get bound, and another to expand all expressions.
+ 
+  * There's no constraint on the second part to ensure that everything
+    categorized as an expression stays an expression.
+ 
+ I think the right improvement is to force everything that is determined
+ to be an expression in the first pass into an expression context for
+ the second pass.
+ 
+ This change would fix the PR bug, but by making the PR's use of
+ `syntax-local-lift-module-end-declaration' always fail: a
+ `begin-for-syntax' form isn't an expression.
+ 
+ A more liberal improvement to the `module' expander would allow forms
+ that do not bind to appear inthe second phase. If we want to include
+ `begin-for-syntax', we'd allow `(define-values-for-syntaxes () ....)',
+ and I guess we'd also allow `(define-syntaxes () ....)',
+ `(define-values () ....)', and so on.
+ 
+ I'd rather allow just expressions. Is it useful to pass a
+ `begin-in-syntax' form to `syntax-local-lift-module-end-declaration'
+ while expanding expressions?
+ 
+ Matthew
+ 
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8586: module lifted declarations and
+	begin-for-syntax
+Date: Sun, 08 Apr 2007 18:14:35 -0400
+
+ On Mon, 2007-04-09 at 04:43 +0800, Matthew Flatt wrote:
+ > If you try to run the module
+ > 
+ >  (module d mzscheme
+ >    (foo g)
+ >    (define-syntax foo
+ >      (syntax-rules ()
+ >        [(_ id) (define id 5)]))
+ >    (printf "~s\n" g))
+ > 
+ > you get an "unbound identifier" error. The reason is that `(foo g)' is
+ > categorized as an expression before the macro `foo' is discovered. If
+ > you try just
+ > 
+ >  (module d mzscheme
+ >    (foo g)
+ >    (define-syntax foo
+ >      (syntax-rules ()
+ >        [(_ id) (define id 5)])))
+ > 
+ > then there's no error; `(foo g)' successfully compiles as a definition.
+ > 
+ > The reason for this behavior is:
+ > 
+ >  * There are two passes: one to detect all definitions, which is how
+ >    identifiers get bound, and another to expand all expressions.
+ > 
+ >  * There's no constraint on the second part to ensure that everything
+ >    categorized as an expression stays an expression.
+ > 
+ > I think the right improvement is to force everything that is determined
+ > to be an expression in the first pass into an expression context for
+ > the second pass.
+ 
+ I agree.
+ 
+ > This change would fix the PR bug, but by making the PR's use of
+ > `syntax-local-lift-module-end-declaration' always fail: a
+ > `begin-for-syntax' form isn't an expression.
+ 
+ As a side note, the real problem with the original code was that the
+ lifted declaration was inexplicably expanded in a 'module-begin'
+ context. The proposed change would fix this problem and others as well.
+ 
+ > A more liberal improvement to the `module' expander would allow forms
+ > that do not bind to appear inthe second phase. If we want to include
+ > `begin-for-syntax', we'd allow `(define-values-for-syntaxes () ....)',
+ > and I guess we'd also allow `(define-syntaxes () ....)',
+ > `(define-values () ....)', and so on.
+ > 
+ > I'd rather allow just expressions. Is it useful to pass a
+ > `begin-in-syntax' form to `syntax-local-lift-module-end-declaration'
+ > while expanding expressions?
+ 
+ The end I was trying to achieve was to have a persistent compile-time
+ side effect that didn't affect the current module, but only modules that
+ required it. Since then I've found other ways to do it.
+ 
+ I think it would be fair to only allow expressions to be lifted in the
+ second pass. Actually, it might be reasonable to prohibit using
+ 'syntax-local-lift-module-end-declaration' in the second pass entirely.
+ 
+ Ryan
+ 
+ 
+

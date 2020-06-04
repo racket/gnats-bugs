@@ -1,0 +1,126 @@
+From apache@plt-scheme.org Wed Mar 15 08:39:25 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k2FDdIY1016221
+	for <bugs@plt-scheme.org>; Wed, 15 Mar 2006 08:39:18 -0500
+Message-Id: <200603151339.k2FDdIin016219@champlain.ccs.neu.edu>
+Date: Wed, 15 Mar 2006 08:39:18 -0500
+From: la@iki.fi
+To: bugs@plt-scheme.org
+Subject: Ellipses and unsyntax-splicing alter syntax structure
+
+>Number:         7962
+>Category:       mzscheme
+>Synopsis:       Ellipses and unsyntax-splicing alter syntax structure
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Mar 15 08:40:00 -0500 2006
+>Last-Modified:  Thu Mar 16 00:47:24 -0500 2006
+>Originator:     Lauri Alanko
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301.8
+>Environment:
+linux-other
+>Description:
+Syntax objects distinguish between (a b) and (a . (b)). However, ... and #,@ hide this distinction:
+
+> (syntax-e #`(1 2 #,@#'(3 4) 5 6))
+(#<syntax::14> #<syntax::16> #<syntax::24> #<syntax::26> . #<syntax>)
+
+> (syntax-e #`(1 2 #,@#'(3 4) . (5 6)))
+(#<syntax::48> #<syntax::50> #<syntax::58> #<syntax::60> . #<syntax::65>)
+
+I would have expected the first example to have returned a list of six syntax objects, but now there's no way to distinguish between the two.
+Properly, ellipses and unsyntax-splicing should _splice_ the contents of a list into the surrounding syntax list.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: la@iki.fi, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7962: Ellipses and unsyntax-splicing alter syntax structure
+Date: Wed, 15 Mar 2006 08:59:09 -0500
+
+ At Wed, 15 Mar 2006 08:40:08 -0500, la@iki.fi wrote:
+ > Syntax objects distinguish between (a b) and (a . (b)). 
+ 
+ I think this distinction is sensible and potentially useful at the read
+ level.
+ 
+ At the level of parsed (i.e., expanded) expressions, however, I think
+ it's hopeless. Other macros will act like `quasisyntax', or sometimes
+ the opposite change:
+ 
+  ;; This isn't a macro, but you get the idea...
+  > (syntax-e (syntax-case #'(1 . (2 3)) () [(a ...) #'(a ...)]))
+  (#<syntax:repl-2:1:26> #<syntax:repl-2:1:31> #<syntax:repl-2:1:33>)
+ 
+ 
+ Matthew
+ 
+From: Lauri Alanko <la@iki.fi>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7962: Ellipses and unsyntax-splicing alter syntax structure
+Date: Wed, 15 Mar 2006 17:02:45 +0200
+
+ On Wed, Mar 15, 2006 at 08:59:09AM -0500, Matthew Flatt wrote:
+ >  ;; This isn't a macro, but you get the idea...
+ >  > (syntax-e (syntax-case #'(1 . (2 3)) () [(a ...) #'(a ...)]))
+ >  (#<syntax:repl-2:1:26> #<syntax:repl-2:1:31> #<syntax:repl-2:1:33>)
+ 
+ I don't think this is a problem. By giving a pattern (a ...) you're
+ explicitly saying that the expression should be considered as a list and
+ hence should be flattened as if syntax->list were called. Due to this
+ flattening ellipsis patterns cannot be used when the tail distinction is
+ significant, but this is a minor bother, as one can always analyze the
+ syntax objects directly.
+ 
+ The background for this is a syntax extension that I'm experimenting
+ with:
+ 
+ (f a b c)   --> (f a b c)
+ (f a b . c) --> (apply f a b c)
+ (: a b c)   --> (list a b c)
+ (: a b . c) --> (list* a b c)
+ 
+ This works just fine when used in ordinary code, but now these cannot be
+ generated from syntax transformers that use ellipses or
+ unsyntax-splicing at non-tail positions. I don't see why this couldn't
+ work, provided just that splicing and ellipses really do splice instead
+ of consing, and that all macros that produce these tail-distinguishing
+ forms be mindful of the distinction.
+ 
+ Hm, after looking at the syntax expander code (and seeing that it's
+ beyond a mortal's frail mind), I now noted that even unsyntax doesn't
+ work properly:
+ 
+ > (syntax-e #`(1 2 3 #,#'4 5 6))
+ (#<syntax::213> #<syntax::215> #<syntax::217> #<syntax::223> . #<syntax::212>)
+ 
+ To my mind, this undermines the usefulness of syntax pairs. What's the
+ use of the distinction if I cannot trust that it is preserved in syntax
+ transformations?
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Lauri Alanko <la@iki.fi>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7962: Ellipses and unsyntax-splicing alter syntax structure
+Date: Wed, 15 Mar 2006 08:08:33 -0700
+
+ At Wed, 15 Mar 2006 17:02:45 +0200, Lauri Alanko wrote:
+ > To my mind, this undermines the usefulness of syntax pairs. What's the
+ > use of the distinction if I cannot trust that it is preserved in syntax
+ > transformations?
+ 
+ I think the distinction may be useful at the read level, but I'm not
+ certain. In any case, I don't think the distinction can work well
+ enough to be useful at the level of parsed expressions.
+ 
+ Matthew
+ 
+

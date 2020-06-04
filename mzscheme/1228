@@ -1,0 +1,195 @@
+From nobody@cs.rice.edu  Tue Oct 19 14:08:00 1999
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id OAA05021
+	for <plt-gnats@cs.rice.edu>; Tue, 19 Oct 1999 14:08:00 -0500 (CDT)
+Message-Id: <199910191907.OAA16902@web.cs.rice.edu>
+Date: Tue, 19 Oct 1999 14:07:59 -0500 (CDT)
+From: blake@florida-software.com
+Reply-To: blake@florida-software.com
+To: plt-gnats@cs.rice.edu
+Subject: Can't create macro to simulate 53 classes 
+
+>Number:         1228
+>Category:       mzscheme
+>Synopsis:       Can't create macro to simulate 53 classes
+>Class:          support
+>Responsible:    steck
+>Severity:       critical
+>Priority:       high
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Oct 19 15:15:02 -0400 1999
+>Last-Modified:  Mon May 05 14:54:55 -0400 2008
+>Originator:     Blake McBride
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        100
+>Environment:
+MS Windows NT
+>Description:
+We have several hundred programs that define classes using the 53 syntax.
+Version 100 of MzScheme makes a couple of modifications which are simple to
+fix but a problem when you have hundreds of programs using the old syntax.
+I tried to create a macro which would correct this but am not having any luck.  I can't seem to figure out how to fix the macro.  The following code
+explifies the problem.
+
+The old class macro allowed a superclass of null.  Now object% is required.
+In this example MyClass1 and MyClass2 should be identicle except that
+one uses my macro.  The macro (iclass) doesn't seem to work although
+if I replace the define-macro with a define the output of iclass seems
+to be correct.
+
+I'd sure appreciate some help.
+
+>How-To-Repeat:
+(define-macro iclass
+  (lambda (sc . args)
+    `(class ,(if (null? sc) object% sc)
+	     ,@args
+	     (sequence (super-init)))))
+
+
+(define MyClass1 
+  (class object% ()
+	 (private 
+	  (iVal null))
+	 (public 
+	  (pVal null))
+	 (sequence (super-init))))
+
+
+(define MyClass2
+  (iclass null ()
+	 (private 
+	  (iVal null))
+	 (public 
+	  (pVal null))))
+
+
+>Fix:
+>Audit-Trail:
+From: John Clements <clements@cs.rice.edu>
+To: blake@florida-software.com, plt-gnats@cs.rice.edu
+Cc: mflatt, shriram, ptg, steck, matthias
+Subject: Re: all/1228: Can't create macro to simulate 53 classes
+Date: Tue, 19 Oct 1999 14:28:31 -0500
+
+ At 2:07 PM -0500 10/19/99, blake@florida-software.com wrote:
+ >We have several hundred programs that define classes using the 53 syntax.
+ >Version 100 of MzScheme makes a couple of modifications which are simple to
+ >fix but a problem when you have hundreds of programs using the old syntax.
+ >I tried to create a macro which would correct this but am not having any
+ >luck.  I can't seem to figure out how to fix the macro.  The following code
+ >explifies the problem.
+ >
+ >The old class macro allowed a superclass of null.  Now object% is required.
+ >In this example MyClass1 and MyClass2 should be identicle except that
+ >one uses my macro.  The macro (iclass) doesn't seem to work although
+ >if I replace the define-macro with a define the output of iclass seems
+ >to be correct.
+ >
+ >I'd sure appreciate some help.
+ >
+ >>How-To-Repeat:
+ >
+ >(define-macro iclass
+ >  (lambda (sc . args)
+ >    `(class ,(if (null? sc) object% sc)
+ >	     ,@args
+ >	     (sequence (super-init)))))
+ >
+ >
+ >(define MyClass1
+ >  (class object% ()
+ >	 (private
+ >	  (iVal null))
+ >	 (public
+ >	  (pVal null))
+ >	 (sequence (super-init))))
+ >
+ >
+ >(define MyClass2
+ >  (iclass null ()
+ >	 (private
+ >	  (iVal null))
+ >	 (public
+ >	  (pVal null))))
+ 
+ In your iclass macro, you're testing the first element for equality with
+ null, using null?.  This fails, because the first argument is not null;
+ rather, it's the *symbol* null. This is because macro expansion takes place
+ at elaboration time.  Therefore, the symbol 'null' is not yet evaluated to
+ yield the null value.
+ 
+ For a simple fix, replace
+ 
+ ,(if (null? sc) object% sc)
+ 
+ with
+ 
+ ,(if (eq? 'null sc) 'object% sc)
+ 
+ Hope this helps,
+ 
+ john clements
+ 
+ PS: it appears to me that you were also missing a quote in front of
+ 'object%, as shown in my example fix.
+ 
+ 
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: blake@florida-software.com
+Cc: plt-gnats@cs.rice.edu, clements@cs.rice.edu
+Subject: Re: all/1228: Can't create macro to simulate 53 classes
+Date: Tue, 19 Oct 1999 16:15:43 -0500
+
+ Even better than John Clement's suggestion, let me reccommend that you actually evaluate the first position in the class expression before checking for
+ null, rather than checking for the _syntax_ "null".  You should really be checking to see if the first position _evaluates_ to null. Here is what I
+ mean:
+ 
+ (define-macro iclass
+   (lambda (sc . args)
+     (let ([super (gensym "iclass:super")])
+       `(let ([,super ,sc])
+   (class (if (null? ,super) object% ,super)
+       ,@args
+     (sequence (super-init)))))))
+ 
+ 
+ (define MyClass1
+   (class object% ()
+          (private
+           (iVal null))
+          (public
+           (pVal null))
+          (sequence (super-init))))
+ 
+ 
+ (define MyClass2
+   (iclass null ()
+          (private
+           (iVal null))
+          (public
+           (pVal null))))
+ 
+ (define MyClass3
+   (iclass '() ()
+          (private
+           (iVal null))
+          (public
+           (pVal null))))
+ 
+ Hope that helps!
+ 
+ Robby
+
+State-Changed-From-To: open-closed
+State-Changed-By: steck
+State-Changed-When: Thu Oct 21 13:11:46 1999
+State-Changed-Why:
+Looks like we've given enough feedback.
+ 
+>Unformatted:

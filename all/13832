@@ -1,0 +1,118 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jun  6 15:23:25 2013
+Received: from mail-ob0-f173.google.com (mail-ob0-f173.google.com [209.85.214.173])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r56JNLdi019563
+	for <bugs@bugs.plt-scheme.org>; Thu, 6 Jun 2013 15:23:21 -0400
+Message-Id: <201306061923.r56JNIq0019557@champlain.ccs.neu.edu>
+Date: Thu, 6 Jun 2013 15:23:18 -0400
+From: egnartsms@gmail.com
+To: bugs@racket-lang.org
+Subject: Crash when accessing SRFI-25 array from multiple futures.
+
+>Number:         13832
+>Category:       all
+>Synopsis:       Crash when accessing SRFI-25 array from multiple futures.
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jun 06 15:24:01 -0400 2013
+>Closed-Date:    Mon Aug 26 23:00:39 -0400 2013
+>Last-Modified:  Mon Aug 26 23:00:39 -0400 2013
+>Originator:     Sergey Mozgovoy
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4
+>Environment:
+unix "Linux serhii-dell 3.2.0-45-generic #70-Ubuntu SMP Wed May 29 20:12:06 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 244675760
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.4):
+ [none]
+
+
+
+Collections:
+("/home/serhii/.racket/5.3.4/collects"
+ (non-existent-path))
+("/home/serhii/lib/racket/collects"
+ ("future-visualizer" "deinprogramm" "r6rs" "typed" "at-exp" "errortrace" "typed-scheme" "version" "typed-racket" "drracket" "html" "parser-tools" "pkg" "reader" "lang" "mzscheme" "games" "net" "ffi" "slideshow" "mysterx" "gui-debugger" "xml" "mred" "data" "scriblib" "srfi" "eopl" "db" "help" "string-constants" "slatex" "trace" "graphics" "compatibility" "embedded-gui" "plai" "mrlib" "datalog" "info-domain" "sgl" "swindle" "racket" "math" "schemeunit" "stepper" "make" "htdp" "picturing-programs" "teachpack" "mzlib" "preprocessor" "drscheme" "plot" "web-server" "raco" "2htdp" "icons" "config" "rnrs" "framework" "rackunit" "test-engine" "images" "setup" "dynext" "racklog" "wxme" "redex" "defaults" "macro-debugger" "readline" "algol60" "json" "profile" "hierlist" "launcher" "scribble" "compiler" "browser" "s-exp" "syntax-color" "r5rs" "texpict" "scribblings" "planet" "syntax" "xrepl" "file" "mzcom" "scheme" "unstable" "openssl" "tests" "frtime" "lazy"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket/base\n" #t #t ((main) (test))))
+>Description:
+A simple program which multiplies 2 matrices by creating a separate future for each element of the product.
+That is, each future wraps a procedure that computes the sum of pairwise product of 1 row of the first matrix and 1 column of the second matrix.
+
+Got either a crash with "SIGSEGV MAPERR si_code 1 fault on addr 0x2" output on console, or an exception with the message "not an index object" showing "(array-ref m1 r x)" at the top of the error trace.
+>How-To-Repeat:
+#lang racket/base
+#lang racket/base
+
+(require srfi/25
+         (only-in racket/vector vector-copy)
+         racket/future)
+
+(define-syntax-rule (while test body ...)
+  (let rec ()
+    (if test
+        (begin (begin body ...)
+               (rec))
+        #f)))
+
+;; m1 :: [s1 x s2], m2 :: [s2 x s3], m3 :: [s1 x s3]
+(define-values (s1 s2 s3)
+  (values 100 200 200))
+
+(define-values (m1 m2 m3)
+  (values (make-array (shape 0 s1 0 s2) 3.0)
+          (make-array (shape 0 s2 0 s3) 5.0)
+          (make-array (shape 0 s1 0 s3) 0.0)))
+
+
+(define (matrix-mult m1 m2 mres
+                     [s1 (array-start m1 0)] [e1 (array-end m1 0)]
+                     [s2 (array-start m2 1)] [e2 (array-end m2 1)])
+  (define common-dim (cons (array-start m1 1)
+                           (array-end   m1 1)))
+  
+  (define (mult-1 r c)
+    (for/fold ([sum 0.0])
+      ([x (in-range (car common-dim) (cdr common-dim))])
+      (+ sum (* (array-ref m1 r x)
+                (array-ref m2 x c)))))
+  
+  (define futures (make-array (shape s1 e1 s2 e2)))
+  
+  (for* ([r (in-range s1 e1)]
+         [c (in-range s2 e2)])
+    (array-set! futures r c (future (lambda () (mult-1 r c)))))
+  
+  (for* ([r (in-range s1 e1)]
+         [c (in-range s2 e2)])
+    (array-set! mres r c (touch (array-ref futures r c))))
+  )
+
+;; (matrix-mult m1 m2 m3)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Mon, 26 Aug 2013 23:00:39 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/392a8219ae
+State changed from "open" to "closed" by mflatt@racket-lang.org at Mon, 26 Aug 2013 23:00:39 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/392a8219ae
+  | futures: fix rest-arg list creation
+  | 
+  | Also, make rest-arg list creation safe for futures (and slightly
+  | faster in general).
+  | 
+  | Closes PR 13832
+

@@ -1,0 +1,1401 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Aug 15 02:05:58 2009
+Received: from mail-yw0-f187.google.com (mail-yw0-f187.google.com [209.85.211.187])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n7F65qRu031657
+	for <bugs@bugs.plt-scheme.org>; Sat, 15 Aug 2009 02:05:52 -0400
+Message-Id: <200908150605.n7F65n7a031650@champlain.ccs.neu.edu>
+Date: Sat, 15 Aug 2009 02:05:49 -0400
+From: dbrown@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Redex: feature request: -->/many or values for dynamic nondeterminism
+
+>Number:         10405
+>Category:       redex
+>Synopsis:       Redex: feature request: -->/many or values for dynamic nondeterminism
+>Class:          change-request
+>Responsible:    clklein
+>Severity:       non-critical
+>Priority:       medium
+>State:          analyzed
+>Confidential:   no
+>Arrival-Date:   Sat Aug 15 02:08:01 -0400 2009
+>Closed-Date:    
+>Last-Modified:  Wed Mar 30 13:00:24 -0400 2011
+>Originator:     Daniel Brown
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.1
+>Environment:
+macosx "Darwin dan-2.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 86481192
+
+Collections:
+(("/Users/danb/Library/PLT Scheme/4.2.1/collects" non-existent-path) ("/Applications/PLT Scheme v4.2.1/collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+Currently, all nondeterminism in redex is static: a term steps in multiple ways only if there are multiple reduction rules whose patterns match the term. It would be useful if redex also allowed me to specify nondeterminism dynamically, so that within one reduction rule I could specify multiple ways for a term to reduce.
+
+I'm in a situation where I want to step index an existing reduction relation:
+
+       A rr B
+ -------------------
+  (A,n) rr/ix (B,n+1)
+
+The 'with' form doesn't help here since I'm assuming rr is already defined. Instead, I think I'll jump into scheme and use apply-reduction-relation:
+
+  (define rr/ix
+    (reduction-relation lang/ix
+      [--> (A n) (B ,(+ 1 (term n)))
+           (where B ,(apply-reduction-relation rr (term A)))]))
+
+But this doesn't type since apply-reduction-relation returns a list of B's... what would we do with a list of B's? We want to say that (A n) steps to (B ,(+ 1 (term n))) for every B in that list, but within one reduction rule we have no way to specify that A steps to multiple terms. We have no direct way to preserve the nondeterminism of rr into rr/ix.
+
+A minor change could relax this restriction: supply a way for one rule to specify multiple reductions. I can think of two interfaces for this. Either provide an arrow -->/many that expects a list of resulting terms on the right:
+
+  (define rr/ix
+    (reduction-relation lang/ix
+      [-->/many (A n) ((B ,(+ 1 (term n))) ...)
+                (where (B ...) ,(apply-reduction-relation rr (term A)))]))
+
+Or stick with one arrow and specify nondeterminism with values:
+
+  (define rr/ix
+    (reduction-relation lang/ix
+      [--> (A n) ,(apply values
+                    (map (curryr list (+ 1 (term n)))
+                         (apply-reduction-relation rr (term A))))]))
+
+The -->/many arrow looks easier to use, but the values method might come in handy as well. Maybe it would be useful to provide both.
+
+ Dan
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Daniel Brown <dbrown@ccs.neu.edu>
+To: bugs@plt-scheme.org, dbrown@ccs.neu.edu
+Cc: 
+Subject: Re: all/10405: Redex: feature request: -->/many or values for dynamic 
+	nondeterminism
+Date: Sat, 15 Aug 2009 02:35:18 -0400
+
+ >  (define rr/ix
+ >    (reduction-relation lang/ix
+ >      [--> (A n) ,(apply values
+ >                    (map (curryr list (+ 1 (term n)))
+ >                         (apply-reduction-relation rr (term A))))]))
+ 
+ More simply:
+ 
+   (define rr/ix
+     (reduction-relation lang/ix
+       [--> (A n) ,(apply values (term ((B ,(+ 1 (term n))) ...)))
+            (where (B ...) ,(apply-reduction-relation rr (term A)))]))
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: dbrown@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Sat, 15 Aug 2009 07:07:57 -0500
+
+ I'm hesitant to provide that particular fix because I don't think I
+ really want to support that long term.
+ 
+ I'm not quite seeing why you don't use 'with', tho. Do you want to
+ have both reduction relations around for use at different times?
+ 
+ Why not just define your own variant on apply-reduction-relation that
+ numbers the terms?
+ 
+ Or, if you want to use this with traces, define your own printer that
+ numbers the terms? (In your printer, you have access to the whole
+ graph, so you can count things.)
+ 
+ Robby
+ 
+ On Sat, Aug 15, 2009 at 1:08 AM, <dbrown@ccs.neu.edu> wrote:
+ > A new problem report is waiting at
+ > =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10405
+ >
+ > Reported by Daniel Brown for release: 4.2.1
+ >
+ > *** Description:
+ > Currently, all nondeterminism in redex is static: a term steps in multipl=
+ e ways only if there are multiple reduction rules whose patterns match the =
+ term. It would be useful if redex also allowed me to specify nondeterminism=
+  dynamically, so that within one reduction rule I could specify multiple wa=
+ ys for a term to reduce.
+ >
+ > I'm in a situation where I want to step index an existing reduction relat=
+ ion:
+ >
+ > =C2=A0 =C2=A0 =C2=A0 A rr B
+ > =C2=A0-------------------
+ > =C2=A0(A,n) rr/ix (B,n+1)
+ >
+ > The 'with' form doesn't help here since I'm assuming rr is already define=
+ d. Instead, I think I'll jump into scheme and use apply-reduction-relation:
+ >
+ > =C2=A0(define rr/ix
+ > =C2=A0 =C2=A0(reduction-relation lang/ix
+ > =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ 1 (term n)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where B ,(apply-reduction-relation rr=
+  (term A)))]))
+ >
+ > But this doesn't type since apply-reduction-relation returns a list of B'=
+ s... what would we do with a list of B's? We want to say that (A n) steps t=
+ o (B ,(+ 1 (term n))) for every B in that list, but within one reduction ru=
+ le we have no way to specify that A steps to multiple terms. We have no dir=
+ ect way to preserve the nondeterminism of rr into rr/ix.
+ >
+ > A minor change could relax this restriction: supply a way for one rule to=
+  specify multiple reductions. I can think of two interfaces for this. Eithe=
+ r provide an arrow -->/many that expects a list of resulting terms on the r=
+ ight:
+ >
+ > =C2=A0(define rr/ix
+ > =C2=A0 =C2=A0(reduction-relation lang/ix
+ > =C2=A0 =C2=A0 =C2=A0[-->/many (A n) ((B ,(+ 1 (term n))) ...)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(where (B ...) ,(a=
+ pply-reduction-relation rr (term A)))]))
+ >
+ > Or stick with one arrow and specify nondeterminism with values:
+ >
+ > =C2=A0(define rr/ix
+ > =C2=A0 =C2=A0(reduction-relation lang/ix
+ > =C2=A0 =C2=A0 =C2=A0[--> (A n) ,(apply values
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(map=
+  (curryr list (+ 1 (term n)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 (apply-reduction-relation rr (term A))))]))
+ >
+ > The -->/many arrow looks easier to use, but the values method might come =
+ in handy as well. Maybe it would be useful to provide both.
+ >
+ > =C2=A0Dan
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > macosx "Darwin dan-2.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 =
+ 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-maco=
+ sx/3m) (get-display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 86481192
+ >
+ > Collections:
+ > (("/Users/danb/Library/PLT Scheme/4.2.1/collects" non-existent-path) ("/A=
+ pplications/PLT Scheme v4.2.1/collects" "2htdp" "afm" "algol60" "at-exp" "b=
+ rowser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "=
+ drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framewo=
+ rk" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "h=
+ tdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger"=
+  "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl"=
+  "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6=
+ rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "sc=
+ riblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constan=
+ ts" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-reco=
+ very" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "ve=
+ rsion" "web-server" "wxme" "xml"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) =
+ (default) #() "#lang scheme\n" #t))
+ >
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values  for dynamic nondeterminism
+Date: Sat, 15 Aug 2009 10:49:51 -0400
+
+ Background:
+ 
+ Dan Brown is a PRL student with a strong theory/Haskell/ML preference  
+ by background. His advisor is Riccardo and they are working on  
+ stochastic models of FooBar and such stuff. He was rather reluctant  
+ to take the REDEX course from me, thinking he knew all this stuff. I  
+ paired him up with a guy who loves hacking Scheme and doesn't  
+ understand theory -- and by the end Dan actually enjoyed hacking Redex.
+ 
+ For his end-of-semester project, Dan brought Redex to his  
+ probabilistic reasoning stuff and demoed how to understand the  
+ probabilistic analysis of functions such as quicksort via Redex  
+ graphs. To this end he had to work around Redex's language and escape  
+ to Scheme -- but in what he considers an ugly manner. (He basically  
+ uses Redex the way you did in Chicago's introductory course but  
+ applied to probabilistic algorithms.)
+ 
+ I encouraged him to write a single-author pearl for JFP on Redex as a  
+ DSL for explaining the behavior of such analyses. He started two  
+ weeks ago on this topic (after wrapping up his summer research).
+ 
+ ---------------------------------
+ The goal is advertising for Redex.
+ ---------------------------------
+ 
+ So in your dealings with Dan, try to accommodate him somehow or help  
+ him out with the best possible workaround. (redex is an embedded DSL  
+ and perhaps escaping to the host to do things is the right thing.)
+ 
+ Could step-indexing and probabilistic animations be an application  
+ area where Redex shines? Dan and I brain stormed which other systems  
+ he could use and he himself came up with arguments why Redex looks  
+ like his best bet.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ On Aug 15, 2009, at 8:07 AM, Robby Findler wrote:
+ 
+ > I'm hesitant to provide that particular fix because I don't think I
+ > really want to support that long term.
+ >
+ > I'm not quite seeing why you don't use 'with', tho. Do you want to
+ > have both reduction relations around for use at different times?
+ >
+ > Why not just define your own variant on apply-reduction-relation that
+ > numbers the terms?
+ >
+ > Or, if you want to use this with traces, define your own printer that
+ > numbers the terms? (In your printer, you have access to the whole
+ > graph, so you can count things.)
+ >
+ > Robby
+ >
+ > On Sat, Aug 15, 2009 at 1:08 AM, <dbrown@ccs.neu.edu> wrote:
+ >> A new problem report is waiting at
+ >>  http://bugs.plt-scheme.org/query/?cmd=view&pr=10405
+ >>
+ >> Reported by Daniel Brown for release: 4.2.1
+ >>
+ >> *** Description:
+ >> Currently, all nondeterminism in redex is static: a term steps in  
+ >> multiple ways only if there are multiple reduction rules whose  
+ >> patterns match the term. It would be useful if redex also allowed  
+ >> me to specify nondeterminism dynamically, so that within one  
+ >> reduction rule I could specify multiple ways for a term to reduce.
+ >>
+ >> I'm in a situation where I want to step index an existing  
+ >> reduction relation:
+ >>
+ >>       A rr B
+ >>  -------------------
+ >>  (A,n) rr/ix (B,n+1)
+ >>
+ >> The 'with' form doesn't help here since I'm assuming rr is already  
+ >> defined. Instead, I think I'll jump into scheme and use apply- 
+ >> reduction-relation:
+ >>
+ >>  (define rr/ix
+ >>    (reduction-relation lang/ix
+ >>      [--> (A n) (B ,(+ 1 (term n)))
+ >>           (where B ,(apply-reduction-relation rr (term A)))]))
+ >>
+ >> But this doesn't type since apply-reduction-relation returns a  
+ >> list of B's... what would we do with a list of B's? We want to say  
+ >> that (A n) steps to (B ,(+ 1 (term n))) for every B in that list,  
+ >> but within one reduction rule we have no way to specify that A  
+ >> steps to multiple terms. We have no direct way to preserve the  
+ >> nondeterminism of rr into rr/ix.
+ >>
+ >> A minor change could relax this restriction: supply a way for one  
+ >> rule to specify multiple reductions. I can think of two interfaces  
+ >> for this. Either provide an arrow -->/many that expects a list of  
+ >> resulting terms on the right:
+ >>
+ >>  (define rr/ix
+ >>    (reduction-relation lang/ix
+ >>      [-->/many (A n) ((B ,(+ 1 (term n))) ...)
+ >>                (where (B ...) ,(apply-reduction-relation rr (term  
+ >> A)))]))
+ >>
+ >> Or stick with one arrow and specify nondeterminism with values:
+ >>
+ >>  (define rr/ix
+ >>    (reduction-relation lang/ix
+ >>      [--> (A n) ,(apply values
+ >>                    (map (curryr list (+ 1 (term n)))
+ >>                         (apply-reduction-relation rr (term A))))]))
+ >>
+ >> The -->/many arrow looks easier to use, but the values method  
+ >> might come in handy as well. Maybe it would be useful to provide  
+ >> both.
+ >>
+ >>  Dan
+ >>
+ >> *** How to repeat:
+ >>
+ >>
+ >> *** Environment:
+ >> macosx "Darwin dan-2.local 9.7.0 Darwin Kernel Version 9.7.0: Tue  
+ >> Mar 31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386  
+ >> i386" (i386-macosx/3m) (get-display-depth) = 32
+ >> Human Language: english
+ >> (current-memory-use) 86481192
+ >>
+ >> Collections:
+ >> (("/Users/danb/Library/PLT Scheme/4.2.1/collects" non-existent- 
+ >> path) ("/Applications/PLT Scheme v4.2.1/collects" "2htdp" "afm"  
+ >> "algol60" "at-exp" "browser" "combinator-parser" "compiler"  
+ >> "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded- 
+ >> gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games"  
+ >> "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html"  
+ >> "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger"  
+ >> "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net"  
+ >> "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile"  
+ >> "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme"  
+ >> "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex"  
+ >> "slideshow" "srfi" "stepper" "string-constants" "stxclass"  
+ >> "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery"  
+ >> "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme"  
+ >> "version" "web-server" "wxme" "xml"))
+ >> Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t  
+ >> debug) (default) #() "#lang scheme\n" #t))
+ >>
+ >>
+ 
+From: Daniel Brown <dbrown@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Mon, 17 Aug 2009 15:30:24 -0400
+
+ On Sat, Aug 15, 2009 at 08:07, Robby Findler<robby@eecs.northwestern.edu> w=
+ rote:
+ > I'm hesitant to provide that particular fix because I don't think I
+ > really want to support that long term.
+ 
+ > I'm not quite seeing why you don't use 'with', tho. Do you want to
+ > have both reduction relations around for use at different times?
+ 
+ I have a handful of reduction relations that I want to extend in the
+ same way, so using 'with' amounts to a copy-and-paste solution: copy
+ the original definition, replace --> with r, and add a few 'with'
+ clauses that define a new --> in terms of r.
+ 
+ > Why not just define your own variant on apply-reduction-relation that
+ > numbers the terms?
+ >
+ > Or, if you want to use this with traces, define your own printer that
+ > numbers the terms? (In your printer, you have access to the whole
+ > graph, so you can count things.)
+ 
+ These two ideas solve a problem that is vaguely opposite of what I'm
+ trying to do. I want to separate terms in the reduction graph based on
+ how "deep" they are in the reduction graph, so I'm adding a step index
+ to every term so that two terms unify only if they have the same step
+ index. Since the numeric value of the step index isn't interesting, I
+ then define a printer that hides it. The end result is a reduction
+ graph (DAG) stratified by depth. In contrast, these two ideas leave
+ the term identities unchanged and provide access, visually or
+ otherwise, to a step index.
+ 
+ Stepping back, what I'm trying to do is render the behavior of a
+ probability distribution over terms (just discrete distributions with
+ finite support). A handy way to think of probabilistic reduction
+ systems as deterministic systems that evolve distributions to
+ distributions. If the system ever reaches a distribution supported
+ entirely by values, then it has normalized everywhere and you can ask
+ for the probability of various final results. At intermediate states
+ in the computation, a distribution will be partially supported by
+ expressions that haven't finished evaluating yet and will only give
+ lower bounds on the probabilities of values.
+ 
+ To visualize reductions between distributions, I render all the terms
+ supporting each distribution and the individual reductions between
+ them, and I color the terms within a distribution to roughly visualize
+ the relative probabilities. Here's a reduction graph of quicksort with
+ randomly chosen pivots:
+   http://www.ccs.neu.edu/home/dbrown/misc/quicksort-06.pdf
+ Step indexing is the mechanism I'm using to prevent terms in different
+ distributions from unifying in the graph.
+ 
+ Going back to something you said above=E2=80=94'with' is actually very clos=
+ e
+ to solving my problem, at least superficially:
+ 
+   (define rr/ix
+     (reduction-relation lang/ix
+       with
+       [--> (A n) (B ,(+ (term n)))
+            (rr A B)]))
+ 
+ If I could specify the reduction (rr A B) in terms of an existing
+ reduction relation rr instead of an arrow-var defined immediately
+ above, then this would actually be a pretty good interface for
+ defining new reduction relations from old ones.
+ 
+  Dan
+ 
+ > On Sat, Aug 15, 2009 at 1:08 AM, <dbrown@ccs.neu.edu> wrote:
+ >> A new problem report is waiting at
+ >>  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10405
+ >>
+ >> Reported by Daniel Brown for release: 4.2.1
+ >>
+ >> *** Description:
+ >> Currently, all nondeterminism in redex is static: a term steps in multip=
+ le ways only if there are multiple reduction rules whose patterns match the=
+  term. It would be useful if redex also allowed me to specify nondeterminis=
+ m dynamically, so that within one reduction rule I could specify multiple w=
+ ays for a term to reduce.
+ >>
+ >> I'm in a situation where I want to step index an existing reduction rela=
+ tion:
+ >>
+ >>       A rr B
+ >>  -------------------
+ >>  (A,n) rr/ix (B,n+1)
+ >>
+ >> The 'with' form doesn't help here since I'm assuming rr is already defin=
+ ed. Instead, I think I'll jump into scheme and use apply-reduction-relation=
+ :
+ >>
+ >>  (define rr/ix
+ >>    (reduction-relation lang/ix
+ >>      [--> (A n) (B ,(+ 1 (term n)))
+ >>           (where B ,(apply-reduction-relation rr (term A)))]))
+ >>
+ >> But this doesn't type since apply-reduction-relation returns a list of B=
+ 's... what would we do with a list of B's? We want to say that (A n) steps =
+ to (B ,(+ 1 (term n))) for every B in that list, but within one reduction r=
+ ule we have no way to specify that A steps to multiple terms. We have no di=
+ rect way to preserve the nondeterminism of rr into rr/ix.
+ >>
+ >> A minor change could relax this restriction: supply a way for one rule t=
+ o specify multiple reductions. I can think of two interfaces for this. Eith=
+ er provide an arrow -->/many that expects a list of resulting terms on the =
+ right:
+ >>
+ >>  (define rr/ix
+ >>    (reduction-relation lang/ix
+ >>      [-->/many (A n) ((B ,(+ 1 (term n))) ...)
+ >>                (where (B ...) ,(apply-reduction-relation rr (term A)))])=
+ )
+ >>
+ >> Or stick with one arrow and specify nondeterminism with values:
+ >>
+ >>  (define rr/ix
+ >>    (reduction-relation lang/ix
+ >>      [--> (A n) ,(apply values
+ >>                    (map (curryr list (+ 1 (term n)))
+ >>                         (apply-reduction-relation rr (term A))))]))
+ >>
+ >> The -->/many arrow looks easier to use, but the values method might come=
+  in handy as well. Maybe it would be useful to provide both.
+ >>
+ >>  Dan
+ >>
+ >> *** How to repeat:
+ >>
+ >>
+ >> *** Environment:
+ >> macosx "Darwin dan-2.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31=
+  22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-mac=
+ osx/3m) (get-display-depth) =3D 32
+ >> Human Language: english
+ >> (current-memory-use) 86481192
+ >>
+ >> Collections:
+ >> (("/Users/danb/Library/PLT Scheme/4.2.1/collects" non-existent-path) ("/=
+ Applications/PLT Scheme v4.2.1/collects" "2htdp" "afm" "algol60" "at-exp" "=
+ browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" =
+ "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framew=
+ ork" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "=
+ htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger=
+ " "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl=
+ " "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r=
+ 6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "s=
+ criblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-consta=
+ nts" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-rec=
+ overy" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "v=
+ ersion" "web-server" "wxme" "xml"))
+ >> Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug)=
+  (default) #() "#lang scheme\n" #t))
+ >>
+ >>
+ >
+From: Daniel Brown <dbrown@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Mon, 17 Aug 2009 15:40:20 -0400
+
+ On Mon, Aug 17, 2009 at 15:30, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ > Here's a reduction graph of quicksort with randomly chosen pivots:
+ > =C2=A0http://www.ccs.neu.edu/home/dbrown/misc/quicksort-06.pdf
+ 
+ I should have pointed out that this is quicksort instrumented with the
+ number of swaps performed, so the final results represent runtime and
+ the coloring illustrates that worst-case runtimes are unlikely.
+ 
+ Well, the six-element example is too small to clearly show that you're
+ more likely to get a small cost than a big one... it shows up much
+ better in larger examples:
+   http://www.ccs.neu.edu/home/dbrown/misc/quicksort-09.pdf (6.8M)
+   http://www.ccs.neu.edu/home/dbrown/misc/quicksort-10.pdf (24M)
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Daniel Brown <dbrown@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Mon, 17 Aug 2009 15:27:33 -0500
+
+ Very nice!
+ 
+ Robby
+ 
+ On Mon, Aug 17, 2009 at 2:40 PM, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ > On Mon, Aug 17, 2009 at 15:30, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ >> Here's a reduction graph of quicksort with randomly chosen pivots:
+ >> =C2=A0http://www.ccs.neu.edu/home/dbrown/misc/quicksort-06.pdf
+ >
+ > I should have pointed out that this is quicksort instrumented with the
+ > number of swaps performed, so the final results represent runtime and
+ > the coloring illustrates that worst-case runtimes are unlikely.
+ >
+ > Well, the six-element example is too small to clearly show that you're
+ > more likely to get a small cost than a big one... it shows up much
+ > better in larger examples:
+ > =C2=A0http://www.ccs.neu.edu/home/dbrown/misc/quicksort-09.pdf (6.8M)
+ > =C2=A0http://www.ccs.neu.edu/home/dbrown/misc/quicksort-10.pdf (24M)
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Daniel Brown <dbrown@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Mon, 17 Aug 2009 15:25:35 -0500
+
+ On Mon, Aug 17, 2009 at 2:30 PM, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ > On Sat, Aug 15, 2009 at 08:07, Robby Findler<robby@eecs.northwestern.edu>=
+  wrote:
+ >> I'm hesitant to provide that particular fix because I don't think I
+ >> really want to support that long term.
+ >
+ >> I'm not quite seeing why you don't use 'with', tho. Do you want to
+ >> have both reduction relations around for use at different times?
+ >
+ > I have a handful of reduction relations that I want to extend in the
+ > same way, so using 'with' amounts to a copy-and-paste solution: copy
+ > the original definition, replace --> with r, and add a few 'with'
+ > clauses that define a new --> in terms of r.
+ 
+ This is something that I really only have two answers for:
+ 
+ a) I'm sorry, that's just too bad ;).
+ 
+ b) use a macro.
+ 
+ Ordinarily, these two answers would be an inexcusable answer to a
+ client of one's software (and, in some sense, they are for Redex too).
+ The reason I still am trying to stick by them here is that Redex is
+ intended to mimic the way that you would want to write down these
+ reduction systems for presentation in a formal paper (one that was
+ specifying all of the behavior).
+ 
+ So: the real way to attack me here (if you'll forgive my metaphor)
+ would be to say "in a paper I would just say X and a) everyone would
+ understand, and b) it would capture the essence of what is going on
+ here".
+ 
+ So .... any chance you can tell me that? Taht's the kind of thing I'd
+ like to be extending Redex with. And support for probabilistic
+ reduction systems is something that sounds quite cool, I might add.
+ 
+ >> Why not just define your own variant on apply-reduction-relation that
+ >> numbers the terms?
+ >>
+ >> Or, if you want to use this with traces, define your own printer that
+ >> numbers the terms? (In your printer, you have access to the whole
+ >> graph, so you can count things.)
+ >
+ > These two ideas solve a problem that is vaguely opposite of what I'm
+ > trying to do. I want to separate terms in the reduction graph based on
+ > how "deep" they are in the reduction graph, so I'm adding a step index
+ > to every term so that two terms unify only if they have the same step
+ > index. Since the numeric value of the step index isn't interesting, I
+ > then define a printer that hides it. The end result is a reduction
+ > graph (DAG) stratified by depth. In contrast, these two ideas leave
+ > the term identities unchanged and provide access, visually or
+ > otherwise, to a step index.
+ >
+ > Stepping back, what I'm trying to do is render the behavior of a
+ > probability distribution over terms (just discrete distributions with
+ > finite support). A handy way to think of probabilistic reduction
+ > systems as deterministic systems that evolve distributions to
+ > distributions. If the system ever reaches a distribution supported
+ > entirely by values, then it has normalized everywhere and you can ask
+ > for the probability of various final results. At intermediate states
+ > in the computation, a distribution will be partially supported by
+ > expressions that haven't finished evaluating yet and will only give
+ > lower bounds on the probabilities of values.
+ 
+ OH, I see. That helps me understand, thanks.
+ 
+ > To visualize reductions between distributions, I render all the terms
+ > supporting each distribution and the individual reductions between
+ > them, and I color the terms within a distribution to roughly visualize
+ > the relative probabilities. Here's a reduction graph of quicksort with
+ > randomly chosen pivots:
+ > =C2=A0http://www.ccs.neu.edu/home/dbrown/misc/quicksort-06.pdf
+ > Step indexing is the mechanism I'm using to prevent terms in different
+ > distributions from unifying in the graph.
+ >
+ > Going back to something you said above=E2=80=94'with' is actually very cl=
+ ose
+ > to solving my problem, at least superficially:
+ >
+ > =C2=A0(define rr/ix
+ > =C2=A0 =C2=A0(reduction-relation lang/ix
+ > =C2=A0 =C2=A0 =C2=A0with
+ > =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ (term n)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (rr A B)]))
+ >
+ > If I could specify the reduction (rr A B) in terms of an existing
+ > reduction relation rr instead of an arrow-var defined immediately
+ > above, then this would actually be a pretty good interface for
+ > defining new reduction relations from old ones.
+ 
+ I suppose I could add this. Perhaps the right interface would be a way
+ to inject a Scheme function in as a reduction relation and that Scheme
+ function could be implemented in terms of apply-reduction-relation.
+ 
+ Robby
+ 
+ > =C2=A0Dan
+ >
+ >> On Sat, Aug 15, 2009 at 1:08 AM, <dbrown@ccs.neu.edu> wrote:
+ >>> A new problem report is waiting at
+ >>> =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10405
+ >>>
+ >>> Reported by Daniel Brown for release: 4.2.1
+ >>>
+ >>> *** Description:
+ >>> Currently, all nondeterminism in redex is static: a term steps in multi=
+ ple ways only if there are multiple reduction rules whose patterns match th=
+ e term. It would be useful if redex also allowed me to specify nondetermini=
+ sm dynamically, so that within one reduction rule I could specify multiple =
+ ways for a term to reduce.
+ >>>
+ >>> I'm in a situation where I want to step index an existing reduction rel=
+ ation:
+ >>>
+ >>> =C2=A0 =C2=A0 =C2=A0 A rr B
+ >>> =C2=A0-------------------
+ >>> =C2=A0(A,n) rr/ix (B,n+1)
+ >>>
+ >>> The 'with' form doesn't help here since I'm assuming rr is already defi=
+ ned. Instead, I think I'll jump into scheme and use apply-reduction-relatio=
+ n:
+ >>>
+ >>> =C2=A0(define rr/ix
+ >>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>> =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ 1 (term n)))
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where B ,(apply-reduction-relation =
+ rr (term A)))]))
+ >>>
+ >>> But this doesn't type since apply-reduction-relation returns a list of =
+ B's... what would we do with a list of B's? We want to say that (A n) steps=
+  to (B ,(+ 1 (term n))) for every B in that list, but within one reduction =
+ rule we have no way to specify that A steps to multiple terms. We have no d=
+ irect way to preserve the nondeterminism of rr into rr/ix.
+ >>>
+ >>> A minor change could relax this restriction: supply a way for one rule =
+ to specify multiple reductions. I can think of two interfaces for this. Eit=
+ her provide an arrow -->/many that expects a list of resulting terms on the=
+  right:
+ >>>
+ >>> =C2=A0(define rr/ix
+ >>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>> =C2=A0 =C2=A0 =C2=A0[-->/many (A n) ((B ,(+ 1 (term n))) ...)
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(where (B ...) ,=
+ (apply-reduction-relation rr (term A)))]))
+ >>>
+ >>> Or stick with one arrow and specify nondeterminism with values:
+ >>>
+ >>> =C2=A0(define rr/ix
+ >>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>> =C2=A0 =C2=A0 =C2=A0[--> (A n) ,(apply values
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(m=
+ ap (curryr list (+ 1 (term n)))
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (apply-reduction-relation rr (term A))))]))
+ >>>
+ >>> The -->/many arrow looks easier to use, but the values method might com=
+ e in handy as well. Maybe it would be useful to provide both.
+ >>>
+ >>> =C2=A0Dan
+ >>>
+ >>> *** How to repeat:
+ >>>
+ >>>
+ >>> *** Environment:
+ >>> macosx "Darwin dan-2.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 3=
+ 1 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-ma=
+ cosx/3m) (get-display-depth) =3D 32
+ >>> Human Language: english
+ >>> (current-memory-use) 86481192
+ >>>
+ >>> Collections:
+ >>> (("/Users/danb/Library/PLT Scheme/4.2.1/collects" non-existent-path) ("=
+ /Applications/PLT Scheme v4.2.1/collects" "2htdp" "afm" "algol60" "at-exp" =
+ "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm"=
+  "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "frame=
+ work" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" =
+ "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugge=
+ r" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openss=
+ l" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "=
+ r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "=
+ scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-const=
+ ants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-re=
+ covery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "=
+ version" "web-server" "wxme" "xml"))
+ >>> Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug=
+ ) (default) #() "#lang scheme\n" #t))
+ >>>
+ >>>
+ >>
+ >
+From: Daniel Brown <dbrown@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Mon, 17 Aug 2009 18:23:27 -0400
+
+ On Mon, Aug 17, 2009 at 16:25, Robby Findler<robby@eecs.northwestern.edu> w=
+ rote:
+ > On Mon, Aug 17, 2009 at 2:30 PM, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ >> On Sat, Aug 15, 2009 at 08:07, Robby Findler<robby@eecs.northwestern.edu=
+ > wrote:
+ >>> I'm hesitant to provide that particular fix because I don't think I
+ >>> really want to support that long term.
+ >>
+ >>> I'm not quite seeing why you don't use 'with', tho. Do you want to
+ >>> have both reduction relations around for use at different times?
+ >>
+ >> I have a handful of reduction relations that I want to extend in the
+ >> same way, so using 'with' amounts to a copy-and-paste solution: copy
+ >> the original definition, replace --> with r, and add a few 'with'
+ >> clauses that define a new --> in terms of r.
+ >
+ > This is something that I really only have two answers for:
+ >
+ > a) I'm sorry, that's just too bad ;).
+ >
+ > b) use a macro.
+ 
+ I have a macro, but it's a little too convoluted for comfort... Here's
+ an overview:
+ 
+ Using apply-reduction-relation, we can deterministically step (A n) to
+ the list ((B n+1) ...) where (B ...) is the list of terms A steps to.
+ We can then nondeterministically step the lists ((B m) ...) to any of
+ their elements (B_i m). The resulting reduction graph is close to the
+ step-indexed graph we want, but it has the pesky intermediate nodes
+ with the ((B m) ...) lists that we can't hide with a pretty printer.
+ 
+ If we're a little more clever we can modify this idea to create a
+ reduction graph isomorphic to the step-indexed one. Instead of
+ stepping (A n) to ((B n+1) ...), start off with a single term ((A n)
+ (B n+1) ...) in the first place, and nondeterministically step it to
+ some ((B_i n+1) (C n+2) ...) where (C ...) is the list of terms B
+ steps to. So the trick is to carry one step of lookahead along with
+ each term so that we can describe the nondeterminism in terms of
+ ambiguous redex patterns.
+ 
+ > Ordinarily, these two answers would be an inexcusable answer to a
+ > client of one's software (and, in some sense, they are for Redex too).
+ > The reason I still am trying to stick by them here is that Redex is
+ > intended to mimic the way that you would want to write down these
+ > reduction systems for presentation in a formal paper (one that was
+ > specifying all of the behavior).
+ >
+ > So: the real way to attack me here (if you'll forgive my metaphor)
+ > would be to say "in a paper I would just say X and a) everyone would
+ > understand, and b) it would capture the essence of what is going on
+ > here".
+ >
+ > So .... any chance you can tell me that? Taht's the kind of thing I'd
+ > like to be extending Redex with. And support for probabilistic
+ > reduction systems is something that sounds quite cool, I might add.
+ 
+ That's fair. In a paper I'd just say, "Let (A,n) =3D=3D> (B,n+1) when A -->=
+  B", or
+ 
+        A --> B
+   -------------------
+   (A,n) =3D=3D> (B,n+1)
+ 
+ Everyone of course understands conditional statements, and it clearly
+ conveys that =3D=3D> should behave like --> except with a step counter.
+ 
+ The modified 'with' form that we're discussing below actually gets quite cl=
+ ose:
+ 
+   (define rr/ix
+     (reduction-relation lang/ix
+       with
+       [--> (A n) (B ,(+ 1 (term n)))
+            (rr A B)]))
+ 
+ >>> Why not just define your own variant on apply-reduction-relation that
+ >>> numbers the terms?
+ >>>
+ >>> Or, if you want to use this with traces, define your own printer that
+ >>> numbers the terms? (In your printer, you have access to the whole
+ >>> graph, so you can count things.)
+ >>
+ >> These two ideas solve a problem that is vaguely opposite of what I'm
+ >> trying to do. I want to separate terms in the reduction graph based on
+ >> how "deep" they are in the reduction graph, so I'm adding a step index
+ >> to every term so that two terms unify only if they have the same step
+ >> index. Since the numeric value of the step index isn't interesting, I
+ >> then define a printer that hides it. The end result is a reduction
+ >> graph (DAG) stratified by depth. In contrast, these two ideas leave
+ >> the term identities unchanged and provide access, visually or
+ >> otherwise, to a step index.
+ >>
+ >> Stepping back, what I'm trying to do is render the behavior of a
+ >> probability distribution over terms (just discrete distributions with
+ >> finite support). A handy way to think of probabilistic reduction
+ >> systems as deterministic systems that evolve distributions to
+ >> distributions. If the system ever reaches a distribution supported
+ >> entirely by values, then it has normalized everywhere and you can ask
+ >> for the probability of various final results. At intermediate states
+ >> in the computation, a distribution will be partially supported by
+ >> expressions that haven't finished evaluating yet and will only give
+ >> lower bounds on the probabilities of values.
+ >
+ > OH, I see. That helps me understand, thanks.
+ >
+ >> To visualize reductions between distributions, I render all the terms
+ >> supporting each distribution and the individual reductions between
+ >> them, and I color the terms within a distribution to roughly visualize
+ >> the relative probabilities. Here's a reduction graph of quicksort with
+ >> randomly chosen pivots:
+ >> =C2=A0http://www.ccs.neu.edu/home/dbrown/misc/quicksort-06.pdf
+ >> Step indexing is the mechanism I'm using to prevent terms in different
+ >> distributions from unifying in the graph.
+ >>
+ >> Going back to something you said above=E2=80=94'with' is actually very c=
+ lose
+ >> to solving my problem, at least superficially:
+ >>
+ >> =C2=A0(define rr/ix
+ >> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >> =C2=A0 =C2=A0 =C2=A0with
+ >> =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ (term n)))
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (rr A B)]))
+ >>
+ >> If I could specify the reduction (rr A B) in terms of an existing
+ >> reduction relation rr instead of an arrow-var defined immediately
+ >> above, then this would actually be a pretty good interface for
+ >> defining new reduction relations from old ones.
+ >
+ > I suppose I could add this. Perhaps the right interface would be a way
+ > to inject a Scheme function in as a reduction relation and that Scheme
+ > function could be implemented in terms of apply-reduction-relation.
+ 
+ If you like that solution then I'm all for it. I'd only suggest that
+ you include a shorthand for applying reduction relations so we could
+ say the above instead of the more cumbersome
+ 
+   (define rr/ix
+     (reduction-relation lang/ix
+       with
+       [--> (A n) (B ,(+ 1 (term n)))
+            (,(curry apply-reduction-relation rr) A B)]))
+ 
+ Writing (curry apply-reduction-relation rr) isn't terrible, but the
+ pattern of defining one relation in terms of another seems useful
+ enough to warrant a shorthand.
+ 
+  Dan
+ 
+ >>> On Sat, Aug 15, 2009 at 1:08 AM, <dbrown@ccs.neu.edu> wrote:
+ >>>> A new problem report is waiting at
+ >>>> =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10405
+ >>>>
+ >>>> Reported by Daniel Brown for release: 4.2.1
+ >>>>
+ >>>> *** Description:
+ >>>> Currently, all nondeterminism in redex is static: a term steps in mult=
+ iple ways only if there are multiple reduction rules whose patterns match t=
+ he term. It would be useful if redex also allowed me to specify nondetermin=
+ ism dynamically, so that within one reduction rule I could specify multiple=
+  ways for a term to reduce.
+ >>>>
+ >>>> I'm in a situation where I want to step index an existing reduction re=
+ lation:
+ >>>>
+ >>>> =C2=A0 =C2=A0 =C2=A0 A rr B
+ >>>> =C2=A0-------------------
+ >>>> =C2=A0(A,n) rr/ix (B,n+1)
+ >>>>
+ >>>> The 'with' form doesn't help here since I'm assuming rr is already def=
+ ined. Instead, I think I'll jump into scheme and use apply-reduction-relati=
+ on:
+ >>>>
+ >>>> =C2=A0(define rr/ix
+ >>>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>>> =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ 1 (term n)))
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where B ,(apply-reduction-relation=
+  rr (term A)))]))
+ >>>>
+ >>>> But this doesn't type since apply-reduction-relation returns a list of=
+  B's... what would we do with a list of B's? We want to say that (A n) step=
+ s to (B ,(+ 1 (term n))) for every B in that list, but within one reduction=
+  rule we have no way to specify that A steps to multiple terms. We have no =
+ direct way to preserve the nondeterminism of rr into rr/ix.
+ >>>>
+ >>>> A minor change could relax this restriction: supply a way for one rule=
+  to specify multiple reductions. I can think of two interfaces for this. Ei=
+ ther provide an arrow -->/many that expects a list of resulting terms on th=
+ e right:
+ >>>>
+ >>>> =C2=A0(define rr/ix
+ >>>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>>> =C2=A0 =C2=A0 =C2=A0[-->/many (A n) ((B ,(+ 1 (term n))) ...)
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(where (B ...) =
+ ,(apply-reduction-relation rr (term A)))]))
+ >>>>
+ >>>> Or stick with one arrow and specify nondeterminism with values:
+ >>>>
+ >>>> =C2=A0(define rr/ix
+ >>>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>>> =C2=A0 =C2=A0 =C2=A0[--> (A n) ,(apply values
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(=
+ map (curryr list (+ 1 (term n)))
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (apply-reduction-relation rr (term A))))]))
+ >>>>
+ >>>> The -->/many arrow looks easier to use, but the values method might co=
+ me in handy as well. Maybe it would be useful to provide both.
+ >>>>
+ >>>> =C2=A0Dan
+ >>>>
+ >>>> *** How to repeat:
+ >>>>
+ >>>>
+ >>>> *** Environment:
+ >>>> macosx "Darwin dan-2.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar =
+ 31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-m=
+ acosx/3m) (get-display-depth) =3D 32
+ >>>> Human Language: english
+ >>>> (current-memory-use) 86481192
+ >>>>
+ >>>> Collections:
+ >>>> (("/Users/danb/Library/PLT Scheme/4.2.1/collects" non-existent-path) (=
+ "/Applications/PLT Scheme v4.2.1/collects" "2htdp" "afm" "algol60" "at-exp"=
+  "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm=
+ " "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "fram=
+ ework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch"=
+  "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugg=
+ er" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "opens=
+ sl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" =
+ "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" =
+ "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-cons=
+ tants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-r=
+ ecovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" =
+ "version" "web-server" "wxme" "xml"))
+ >>>> Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debu=
+ g) (default) #() "#lang scheme\n" #t))
+ >>>>
+ >>>>
+ >>>
+ >>
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Daniel Brown <dbrown@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Mon, 17 Aug 2009 21:47:53 -0500
+
+ On Mon, Aug 17, 2009 at 5:23 PM, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ > On Mon, Aug 17, 2009 at 16:25, Robby Findler<robby@eecs.northwestern.edu>=
+  wrote:
+ >> On Mon, Aug 17, 2009 at 2:30 PM, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ >>> On Sat, Aug 15, 2009 at 08:07, Robby Findler<robby@eecs.northwestern.ed=
+ u> wrote:
+ >>>> I'm hesitant to provide that particular fix because I don't think I
+ >>>> really want to support that long term.
+ >>>
+ >>>> I'm not quite seeing why you don't use 'with', tho. Do you want to
+ >>>> have both reduction relations around for use at different times?
+ >>>
+ >>> I have a handful of reduction relations that I want to extend in the
+ >>> same way, so using 'with' amounts to a copy-and-paste solution: copy
+ >>> the original definition, replace --> with r, and add a few 'with'
+ >>> clauses that define a new --> in terms of r.
+ >>
+ >> This is something that I really only have two answers for:
+ >>
+ >> a) I'm sorry, that's just too bad ;).
+ >>
+ >> b) use a macro.
+ >
+ > I have a macro, but it's a little too convoluted for comfort... Here's
+ > an overview:
+ >
+ > Using apply-reduction-relation, we can deterministically step (A n) to
+ > the list ((B n+1) ...) where (B ...) is the list of terms A steps to.
+ > We can then nondeterministically step the lists ((B m) ...) to any of
+ > their elements (B_i m). The resulting reduction graph is close to the
+ > step-indexed graph we want, but it has the pesky intermediate nodes
+ > with the ((B m) ...) lists that we can't hide with a pretty printer.
+ >
+ > If we're a little more clever we can modify this idea to create a
+ > reduction graph isomorphic to the step-indexed one. Instead of
+ > stepping (A n) to ((B n+1) ...), start off with a single term ((A n)
+ > (B n+1) ...) in the first place, and nondeterministically step it to
+ > some ((B_i n+1) (C n+2) ...) where (C ...) is the list of terms B
+ > steps to. So the trick is to carry one step of lookahead along with
+ > each term so that we can describe the nondeterminism in terms of
+ > ambiguous redex patterns.
+ 
+ Oh, I meant something like this:
+ 
+ (define-syntax-rule (red/n lang stuff ...) (red lang stuff with [(~~>
+ a b) (--> (a number) (b ,(+ (term number) 1))]))
+ 
+ (I didn't test that macro, tho.)
+ 
+ The idea is that you write your reduction rule definitions with ~~> in
+ a red/n macro.
+ 
+ >> Ordinarily, these two answers would be an inexcusable answer to a
+ >> client of one's software (and, in some sense, they are for Redex too).
+ >> The reason I still am trying to stick by them here is that Redex is
+ >> intended to mimic the way that you would want to write down these
+ >> reduction systems for presentation in a formal paper (one that was
+ >> specifying all of the behavior).
+ >>
+ >> So: the real way to attack me here (if you'll forgive my metaphor)
+ >> would be to say "in a paper I would just say X and a) everyone would
+ >> understand, and b) it would capture the essence of what is going on
+ >> here".
+ >>
+ >> So .... any chance you can tell me that? Taht's the kind of thing I'd
+ >> like to be extending Redex with. And support for probabilistic
+ >> reduction systems is something that sounds quite cool, I might add.
+ >
+ > That's fair. In a paper I'd just say, "Let (A,n) =3D=3D> (B,n+1) when A -=
+ -> B", or
+ >
+ > =C2=A0 =C2=A0 =C2=A0 A --> B
+ > =C2=A0-------------------
+ > =C2=A0(A,n) =3D=3D> (B,n+1)
+ >
+ > Everyone of course understands conditional statements, and it clearly
+ > conveys that =3D=3D> should behave like --> except with a step counter.
+ 
+ Of course, you're right. My lame excuse for not having reduction
+ relations defined in terms of each other was that I imagined people
+ writing big-step semantics and wanting to visualize the trees. But
+ maybe it is time to just do this without being able to visualize the
+ entire derivation tree, but just the reduction relation steps.
+ 
+ > The modified 'with' form that we're discussing below actually gets quite =
+ close:
+ >
+ > =C2=A0(define rr/ix
+ > =C2=A0 =C2=A0(reduction-relation lang/ix
+ > =C2=A0 =C2=A0 =C2=A0with
+ > =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ 1 (term n)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (rr A B)]))
+ >
+ >>>> Why not just define your own variant on apply-reduction-relation that
+ >>>> numbers the terms?
+ >>>>
+ >>>> Or, if you want to use this with traces, define your own printer that
+ >>>> numbers the terms? (In your printer, you have access to the whole
+ >>>> graph, so you can count things.)
+ >>>
+ >>> These two ideas solve a problem that is vaguely opposite of what I'm
+ >>> trying to do. I want to separate terms in the reduction graph based on
+ >>> how "deep" they are in the reduction graph, so I'm adding a step index
+ >>> to every term so that two terms unify only if they have the same step
+ >>> index. Since the numeric value of the step index isn't interesting, I
+ >>> then define a printer that hides it. The end result is a reduction
+ >>> graph (DAG) stratified by depth. In contrast, these two ideas leave
+ >>> the term identities unchanged and provide access, visually or
+ >>> otherwise, to a step index.
+ >>>
+ >>> Stepping back, what I'm trying to do is render the behavior of a
+ >>> probability distribution over terms (just discrete distributions with
+ >>> finite support). A handy way to think of probabilistic reduction
+ >>> systems as deterministic systems that evolve distributions to
+ >>> distributions. If the system ever reaches a distribution supported
+ >>> entirely by values, then it has normalized everywhere and you can ask
+ >>> for the probability of various final results. At intermediate states
+ >>> in the computation, a distribution will be partially supported by
+ >>> expressions that haven't finished evaluating yet and will only give
+ >>> lower bounds on the probabilities of values.
+ >>
+ >> OH, I see. That helps me understand, thanks.
+ >>
+ >>> To visualize reductions between distributions, I render all the terms
+ >>> supporting each distribution and the individual reductions between
+ >>> them, and I color the terms within a distribution to roughly visualize
+ >>> the relative probabilities. Here's a reduction graph of quicksort with
+ >>> randomly chosen pivots:
+ >>> =C2=A0http://www.ccs.neu.edu/home/dbrown/misc/quicksort-06.pdf
+ >>> Step indexing is the mechanism I'm using to prevent terms in different
+ >>> distributions from unifying in the graph.
+ >>>
+ >>> Going back to something you said above=E2=80=94'with' is actually very =
+ close
+ >>> to solving my problem, at least superficially:
+ >>>
+ >>> =C2=A0(define rr/ix
+ >>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>> =C2=A0 =C2=A0 =C2=A0with
+ >>> =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ (term n)))
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (rr A B)]))
+ >>>
+ >>> If I could specify the reduction (rr A B) in terms of an existing
+ >>> reduction relation rr instead of an arrow-var defined immediately
+ >>> above, then this would actually be a pretty good interface for
+ >>> defining new reduction relations from old ones.
+ >>
+ >> I suppose I could add this. Perhaps the right interface would be a way
+ >> to inject a Scheme function in as a reduction relation and that Scheme
+ >> function could be implemented in terms of apply-reduction-relation.
+ >
+ > If you like that solution then I'm all for it. I'd only suggest that
+ > you include a shorthand for applying reduction relations so we could
+ > say the above instead of the more cumbersome
+ >
+ > =C2=A0(define rr/ix
+ > =C2=A0 =C2=A0(reduction-relation lang/ix
+ > =C2=A0 =C2=A0 =C2=A0with
+ > =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ 1 (term n)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (,(curry apply-reduction-relation rr) =
+ A B)]))
+ >
+ > Writing (curry apply-reduction-relation rr) isn't terrible, but the
+ > pattern of defining one relation in terms of another seems useful
+ > enough to warrant a shorthand.
+ >
+ > =C2=A0Dan
+ >
+ >>>> On Sat, Aug 15, 2009 at 1:08 AM, <dbrown@ccs.neu.edu> wrote:
+ >>>>> A new problem report is waiting at
+ >>>>> =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10405
+ >>>>>
+ >>>>> Reported by Daniel Brown for release: 4.2.1
+ >>>>>
+ >>>>> *** Description:
+ >>>>> Currently, all nondeterminism in redex is static: a term steps in mul=
+ tiple ways only if there are multiple reduction rules whose patterns match =
+ the term. It would be useful if redex also allowed me to specify nondetermi=
+ nism dynamically, so that within one reduction rule I could specify multipl=
+ e ways for a term to reduce.
+ >>>>>
+ >>>>> I'm in a situation where I want to step index an existing reduction r=
+ elation:
+ >>>>>
+ >>>>> =C2=A0 =C2=A0 =C2=A0 A rr B
+ >>>>> =C2=A0-------------------
+ >>>>> =C2=A0(A,n) rr/ix (B,n+1)
+ >>>>>
+ >>>>> The 'with' form doesn't help here since I'm assuming rr is already de=
+ fined. Instead, I think I'll jump into scheme and use apply-reduction-relat=
+ ion:
+ >>>>>
+ >>>>> =C2=A0(define rr/ix
+ >>>>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>>>> =C2=A0 =C2=A0 =C2=A0[--> (A n) (B ,(+ 1 (term n)))
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where B ,(apply-reduction-relatio=
+ n rr (term A)))]))
+ >>>>>
+ >>>>> But this doesn't type since apply-reduction-relation returns a list o=
+ f B's... what would we do with a list of B's? We want to say that (A n) ste=
+ ps to (B ,(+ 1 (term n))) for every B in that list, but within one reductio=
+ n rule we have no way to specify that A steps to multiple terms. We have no=
+  direct way to preserve the nondeterminism of rr into rr/ix.
+ >>>>>
+ >>>>> A minor change could relax this restriction: supply a way for one rul=
+ e to specify multiple reductions. I can think of two interfaces for this. E=
+ ither provide an arrow -->/many that expects a list of resulting terms on t=
+ he right:
+ >>>>>
+ >>>>> =C2=A0(define rr/ix
+ >>>>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>>>> =C2=A0 =C2=A0 =C2=A0[-->/many (A n) ((B ,(+ 1 (term n))) ...)
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(where (B ...)=
+  ,(apply-reduction-relation rr (term A)))]))
+ >>>>>
+ >>>>> Or stick with one arrow and specify nondeterminism with values:
+ >>>>>
+ >>>>> =C2=A0(define rr/ix
+ >>>>> =C2=A0 =C2=A0(reduction-relation lang/ix
+ >>>>> =C2=A0 =C2=A0 =C2=A0[--> (A n) ,(apply values
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+ (map (curryr list (+ 1 (term n)))
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 (apply-reduction-relation rr (term A))))]))
+ >>>>>
+ >>>>> The -->/many arrow looks easier to use, but the values method might c=
+ ome in handy as well. Maybe it would be useful to provide both.
+ >>>>>
+ >>>>> =C2=A0Dan
+ >>>>>
+ >>>>> *** How to repeat:
+ >>>>>
+ >>>>>
+ >>>>> *** Environment:
+ >>>>> macosx "Darwin dan-2.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar=
+  31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-=
+ macosx/3m) (get-display-depth) =3D 32
+ >>>>> Human Language: english
+ >>>>> (current-memory-use) 86481192
+ >>>>>
+ >>>>> Collections:
+ >>>>> (("/Users/danb/Library/PLT Scheme/4.2.1/collects" non-existent-path) =
+ ("/Applications/PLT Scheme v4.2.1/collects" "2htdp" "afm" "algol60" "at-exp=
+ " "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogram=
+ m" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "fra=
+ mework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch=
+ " "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debug=
+ ger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "open=
+ ssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs"=
+  "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings"=
+  "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-con=
+ stants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-=
+ recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme"=
+  "version" "web-server" "wxme" "xml"))
+ >>>>> Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t deb=
+ ug) (default) #() "#lang scheme\n" #t))
+ >>>>>
+ >>>>>
+ >>>>
+ >>>
+ >>
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Daniel Brown <dbrown@ccs.neu.edu>, bugs@plt-scheme.org,
+        nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values  for dynamic nondeterminism
+Date: Tue, 18 Aug 2009 10:39:21 -0400
+
+ On Aug 17, 2009, at 10:47 PM, Robby Findler wrote:
+ 
+ > My excuse for not having reduction
+ > relations defined in terms of each other was that I imagined people
+ > writing big-step semantics and wanting to visualize the trees. But
+ > maybe it is time to just do this without being able to visualize the
+ > entire derivation tree, but just the reduction relation steps.
+ 
+ It's worth an experiment! 
+From: Daniel Brown <dbrown@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values 
+	for dynamic nondeterminism
+Date: Wed, 19 Aug 2009 14:03:41 -0400
+
+ On Mon, Aug 17, 2009 at 22:47, Robby Findler<robby@eecs.northwestern.edu> wrote:
+ > On Mon, Aug 17, 2009 at 5:23 PM, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ >> On Mon, Aug 17, 2009 at 16:25, Robby Findler<robby@eecs.northwestern.edu> wrote:
+ >>> On Mon, Aug 17, 2009 at 2:30 PM, Daniel Brown<dbrown@ccs.neu.edu> wrote:
+ >>>> On Sat, Aug 15, 2009 at 08:07, Robby Findler<robby@eecs.northwestern.edu> wrote:
+ >>>>> I'm hesitant to provide that particular fix because I don't think I
+ >>>>> really want to support that long term.
+ >>>>
+ >>>>> I'm not quite seeing why you don't use 'with', tho. Do you want to
+ >>>>> have both reduction relations around for use at different times?
+ >>>>
+ >>>> I have a handful of reduction relations that I want to extend in the
+ >>>> same way, so using 'with' amounts to a copy-and-paste solution: copy
+ >>>> the original definition, replace --> with r, and add a few 'with'
+ >>>> clauses that define a new --> in terms of r.
+ >>>
+ >>> This is something that I really only have two answers for:
+ >>>
+ >>> a) I'm sorry, that's just too bad ;).
+ >>>
+ >>> b) use a macro.
+ >>
+ >> I have a macro, but it's a little too convoluted for comfort... Here's
+ >> an overview:
+ >>
+ >> Using apply-reduction-relation, we can deterministically step (A n) to
+ >> the list ((B n+1) ...) where (B ...) is the list of terms A steps to.
+ >> We can then nondeterministically step the lists ((B m) ...) to any of
+ >> their elements (B_i m). The resulting reduction graph is close to the
+ >> step-indexed graph we want, but it has the pesky intermediate nodes
+ >> with the ((B m) ...) lists that we can't hide with a pretty printer.
+ >>
+ >> If we're a little more clever we can modify this idea to create a
+ >> reduction graph isomorphic to the step-indexed one. Instead of
+ >> stepping (A n) to ((B n+1) ...), start off with a single term ((A n)
+ >> (B n+1) ...) in the first place, and nondeterministically step it to
+ >> some ((B_i n+1) (C n+2) ...) where (C ...) is the list of terms B
+ >> steps to. So the trick is to carry one step of lookahead along with
+ >> each term so that we can describe the nondeterminism in terms of
+ >> ambiguous redex patterns.
+ >
+ > Oh, I meant something like this:
+ >
+ > (define-syntax-rule (red/n lang stuff ...) (red lang stuff with [(~~>
+ > a b) (--> (a number) (b ,(+ (term number) 1))]))
+ >
+ > (I didn't test that macro, tho.)
+ >
+ > The idea is that you write your reduction rule definitions with ~~> in
+ > a red/n macro.
+ 
+ Yeah, that works to define a step-indexed relation from scratch, but
+ to extend a relation that's already defined we need some way to define
+ relations in terms of existing relations, as we've been discussing.
+ 
+  Dan
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Daniel Brown <dbrown@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10405: Redex: feature request: -->/many or values  for dynamic nondeterminism
+Date: Wed, 19 Aug 2009 14:23:04 -0400
+
+ On Aug 19, 2009, at 2:03 PM, Daniel Brown wrote:
+ 
+ >
+ > Yeah, that works to define a step-indexed relation from scratch, but
+ > to extend a relation that's already defined we need some way to define
+ > relations in terms of existing relations, as we've been discussing.
+ 
+ 
+ Dan it might be worth sitting down with Robby on Sunday when he'll be  
+ here for Mitch Fest (not Monday). 
+
+
+State changed from "open" to "analyzed" by clklein at Wed, 30 Mar 2011 13:00:24 -0400
+Reason>>> As discussed in the audit trail, we need more general
+support for defining one relation in terms of another.
+

@@ -1,0 +1,191 @@
+From apache@plt-scheme.org Sun Sep 11 20:25:24 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j8C0PIZS012005
+	for <bugs@plt-scheme.org>; Sun, 11 Sep 2005 20:25:18 -0400
+Message-Id: <200509120025.j8C0PI0l012003@champlain.ccs.neu.edu>
+Date: Sun, 11 Sep 2005 20:25:18 -0400
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: Premature closing of output socket can lead to resource leak in web-server
+
+>Number:         7578
+>Category:       bogus
+>Synopsis:       Premature closing of output socket can lead to resource leak in web-server
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Sep 11 20:30:01 -0400 2005
+>Last-Modified:  Tue Sep 13 19:31:00 -0400 2005
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299
+>Environment:
+unknown-platform
+>Description:
+According to r5rs, call-with-input-file doesn't necessarily close off the input-port if control escapes out abruptly:
+
+http://download.plt-scheme.org/doc/299.400/html/r5rs/r5rs-Z-H-9.html#%25_idx_610
+
+Under the conservative garbage collector, it's possible for such unclosed file sockets to stay uncollected, even when under control of the connection-custodian, because the GC isn't precise.
+
+The following patch to response.ss helps reduce that problem by making sure to close the port:
+
+
+mumak:~/local/plt/collects/web-server dyoo$ svn diff
+svn diff
+Index: response.ss
+===================================================================
+--- response.ss	(revision 809)
++++ response.ss	(working copy)
+@@ -192,7 +192,11 @@
+       (adjust-connection-timeout! conn (file-size file-path))
+       (with-handlers ([void (lambda (e) (network-error 'output-file (exn-message e)))])
+         (call-with-input-file file-path
+-          (lambda (i-port) (copy-port i-port (connection-o-port conn)))))))
++          (lambda (i-port)
++            (with-handlers ([void (lambda (e)
++                                    (close-input-port i-port)
++                                    (raise e))])
++              (copy-port i-port (connection-o-port conn))))))))
+   
+   ;; **************************************************
+   ;; output-response/method: connection response/full symbol -> void
+
+
+
+This patch isn't that useful for a web server running under mzscheme3m, but it is more significant under mzscheme.  Handling the error here is important because it's very common for web clients to abruptly close the outport pipe.
+
+
+Hope this helps!
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: dyoo@hkn.eecs.berkeley.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@barzilay.org, matthias@ccs.neu.edu,
+        sk@cs.brown.edu, robby@cs.uchicago.edu, gnats@brinckerhoff.org,
+        jay@kenyamountain.com, meunier@ccs.neu.edu, sowens@cs.utah.edu,
+        kathyg@cs.utah.edu, awick@cs.utah.edu, goldberg@cs.utah.edu,
+        dskippy@ccs.neu.edu, jacobm@cs.uchicago.edu, cce@ccs.neu.edu
+Subject: Re: all/7578: Premature closing of output socket can lead to resource leak in web-server
+Date: Sun, 11 Sep 2005 18:34:52 -0600
+
+ At Sun, 11 Sep 2005 20:30:03 -0400, dyoo@hkn.eecs.berkeley.edu wrote:
+ > Under the conservative garbage collector, it's possible for such
+ > unclosed file sockets to stay uncollected, even when under control of
+ > the connection- custodian, because the GC isn't precise.
+ 
+ I'm not sure I have all the context, but a custodian's control is not
+ limited by the precision of GC. Shutting down the socket's custodian
+ will reliably close the socket.
+ 
+ Matthew
+ 
+From: Jay McCarthy <jay@kenyamountain.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>, bugs@plt-scheme.org
+Subject: Re: all/7578: Premature closing of output socket can lead to resource leak in web-server
+Date: Sun, 11 Sep 2005 20:58:24 -0400
+
+ And I claim that the port is allocated in the connection's custodian.  
+ Which is shutdown by any errors caught higher up.
+ 
+ Jay
+ 
+ ----
+ Jay McCarthy <jay@kenyamountain.com>
+ http://jay.makeoutcity.com
+ 
+ On Sep 11, 2005, at 8:34 PM, Matthew Flatt wrote:
+ 
+ > At Sun, 11 Sep 2005 20:30:03 -0400, dyoo@hkn.eecs.berkeley.edu wrote:
+ >
+ >> Under the conservative garbage collector, it's possible for such
+ >> unclosed file sockets to stay uncollected, even when under control of
+ >> the connection- custodian, because the GC isn't precise.
+ >>
+ >
+ > I'm not sure I have all the context, but a custodian's control is not
+ > limited by the precision of GC. Shutting down the socket's custodian
+ > will reliably close the socket.
+ >
+ > Matthew
+ >
+ >
+ 
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: Jay McCarthy <jay@kenyamountain.com>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, <bugs@plt-scheme.org>
+Subject: Re: all/7578: Premature closing of output socket can lead to resource
+ leak in web-server
+Date: Sun, 11 Sep 2005 21:45:59 -0700 (PDT)
+
+ [Danny]
+ > >> Under the conservative garbage collector, it's possible for such
+ > >> unclosed file sockets to stay uncollected, even when under control of
+ > >> the connection- custodian, because the GC isn't precise.
+ 
+ [Matthew]
+ > > I'm not sure I have all the context, but a custodian's control is not
+ > > limited by the precision of GC. Shutting down the socket's custodian
+ > > will reliably close the socket.
+ 
+ [Jay]
+ > And I claim that the port is allocated in the connection's custodian.
+ > Which is shutdown by any errors caught higher up.
+ 
+ Hmmm... ok, I will test this again then and try to duplicate the problem.
+ I apologize if the error report is spurious!  In one of my previous
+ informal tests a few days ago, I thought that I saw some resource leakage
+ on one of my tests, but I might have been misattributing or misreading the
+ situation...
+ 
+ 
+ Ok, I've traced the problem.  Sorry, my bad: false alarm.  I had forgotten
+ that I customized web-server-unit.ss and explicitely disabled the call to
+ kill-connection! in the web-server-unit exception handler:
+ 
+ 
+ mumak:~/local/plt/collects/web-server dyoo$ svn diff web-server-unit.ss
+ svn diff web-server-unit.ss
+ Index: web-server-unit.ss
+ ===================================================================
+ --- web-server-unit.ss	(revision 809)
+ +++ web-server-unit.ss	(working copy)
+ @@ -113,8 +113,10 @@
+                                         ip op (current-custodian) #f)])
+               (with-handlers ([exn:fail:network?
+                                (lambda (e)
+ +                                (close-output-port (connection-o-port
+ conn))
+ +                                (close-input-port (connection-i-port
+ conn))
+                                  (set-connection-close?! conn #t)
+ -                                (kill-connection! conn)
+ +                                ;;(kill-connection! conn)
+                                  (raise e))])
+                 (serve-connection conn))))))
+ 
+ 
+ But the reason I made this customization was because kill-connection!
+ reduces to custodian-shutdown-all.  This made the rest of the exception
+ handler here useless, since that thread died before we could reach the
+ last '(raise e)' expression.  So I was never seeing the expected output
+ from the current-error-handler.  So that's a bug, but my "fix" was worse,
+ I guesss.  *grin*
+ 
+ My apologies again!
+ 
+
+State changed from "open" to "closed" by jay at Mon, 12 Sep 2005 06:30:19 -0400
+Reason>>> Only an issue on Danny's machine due to changes.
+
+
+Responsible changed from "nobody" to "jay" by eli at Tue, 13 Sep 2005 19:31:00 -0400
+Reason>>> .
+

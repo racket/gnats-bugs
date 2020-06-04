@@ -1,0 +1,696 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jul 19 19:08:57 2016
+Received: from mail-io0-f180.google.com (mail-io0-f180.google.com [209.85.223.180])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u6JN8sJH013749
+	for <bugs@bugs.plt-scheme.org>; Tue, 19 Jul 2016 19:08:55 -0400
+Message-Id: <201607192308.u6JN8pLB013713@winooski.ccs.neu.edu>
+Date: Tue, 19 Jul 2016 19:08:51 -0400
+From: peterfaiman@gmail.com
+To: bugs@racket-lang.org
+Subject: equal? returns incorrect result inside a future
+
+>Number:         15331
+>Category:       all
+>Synopsis:       equal? returns incorrect result inside a future
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Jul 19 19:12:02 -0400 2016
+>Last-Modified:  Wed Jul 20 20:00:01 -0400 2016
+>Originator:     peter
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.5
+>Environment:
+mac-i386-osx
+>Description:
+Using equal? to compare identical strings is returning false, when run from inside a future.
+
+I've reproduced with racket and DrRacket, on OS X with Racket 6.5, and Ubuntu 16.04 with Racket 6.3.
+>How-To-Repeat:
+(for/async ([s (in-list '("a" "b" "c"))])
+  (displayln s)
+  (displayln (equal? s "b")))
+
+This should say "b" equals "b", but often it says it doesn't.
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: peterfaiman@gmail.com, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Tue, 19 Jul 2016 18:49:26 -0500
+
+ I'm not seeing this on either the 64 bit or 32 bit versions of racket,
+ downloaded from the website (on mac os x). I get the following output
+ (tried many times, always the same):
+ 
+ a
+ #f
+ b
+ #t
+ c
+ #f
+ 
+ 
+ Robby
+ 
+ On Tue, Jul 19, 2016 at 6:12 PM,  <peterfaiman@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15331
+ >
+ > Reported by peter for release: 6.5
+ >
+ > *** Description:
+ > Using equal? to compare identical strings is returning false, when run from inside a future.
+ >
+ > I've reproduced with racket and DrRacket, on OS X with Racket 6.5, and Ubuntu 16.04 with Racket 6.3.
+ >
+ > *** How to repeat:
+ > (for/async ([s (in-list '("a" "b" "c"))])
+ >   (displayln s)
+ >   (displayln (equal? s "b")))
+ >
+ > This should say "b" equals "b", but often it says it doesn't.
+ >
+ > *** Environment:
+ > mac-i386-osx
+ >
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: peterfaiman@gmail.com, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a
+ future
+Date: Tue, 19 Jul 2016 20:13:32 -0400
+
+ On 2016-07-19 18:49:26 -0500, Robby Findler wrote:
+ > I'm not seeing this on either the 64 bit or 32 bit versions of racket,
+ > downloaded from the website (on mac os x). I get the following output
+ > (tried many times, always the same):
+ 
+ I think I was able to reproduce this on Linux. This seems to
+ consistently print "b\n#f" for the second printout:
+ 
+ taskset 0x01 racket -e "(for/async ([s (in-list '(\"a\" \"b\" \"c\"))]) (displayln s) (displayln (equal? s \"b\"))) (for/async ([s (in-list '(\"a\" \"b\" \"c\"))]) (displayln s) (displayln (equal? s \"b\")))"
+ 
+ Or if you just run "taskset 0x01 racket" and try that expression in
+ the REPL a few times it does the same.
+ 
+ Peter, is the machine you are running this on a single core machine?
+ 
+ Cheers,
+ Asumu
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>, peterfaiman@gmail.com,
+        bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a
+ future
+Date: Tue, 19 Jul 2016 20:23:22 -0400
+
+ I get the behavior described in the bug report if I delete the first 
+ displayln, which I would have expected to cause the future to block 
+ until the main thread touched it.
+ 
+    > (for/async ([s (in-list '("a" "b" "c"))])
+        (displayln (equal? s "b")))
+    #f
+    #f
+    #f
+ 
+ Or better:
+ 
+    > (for/async ([s (in-list '("a" "b" "c"))])
+        (printf "~s => ~s\n" s (equal? s "b")))
+    "a" => #f
+    "b" => #f
+    "c" => #f
+ 
+ (Racket 6.4 on x86-64)
+ 
+ Ryan
+ 
+ 
+ On 07/19/2016 07:49 PM, Robby Findler wrote:
+ > I'm not seeing this on either the 64 bit or 32 bit versions of racket,
+ > downloaded from the website (on mac os x). I get the following output
+ > (tried many times, always the same):
+ >
+ > a
+ > #f
+ > b
+ > #t
+ > c
+ > #f
+ >
+ >
+ > Robby
+ >
+ > On Tue, Jul 19, 2016 at 6:12 PM,  <peterfaiman@gmail.com> wrote:
+ >> A new problem report is waiting at
+ >>    http://bugs.racket-lang.org/query/?cmd=view&pr=15331
+ >>
+ >> Reported by peter for release: 6.5
+ >>
+ >> *** Description:
+ >> Using equal? to compare identical strings is returning false, when run from inside a future.
+ >>
+ >> I've reproduced with racket and DrRacket, on OS X with Racket 6.5, and Ubuntu 16.04 with Racket 6.3.
+ >>
+ >> *** How to repeat:
+ >> (for/async ([s (in-list '("a" "b" "c"))])
+ >>    (displayln s)
+ >>    (displayln (equal? s "b")))
+ >>
+ >> This should say "b" equals "b", but often it says it doesn't.
+ >>
+ >> *** Environment:
+ >> mac-i386-osx
+ >>
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: peterfaiman@gmail.com, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Tue, 19 Jul 2016 19:33:19 -0500
+
+ Ah, yes. I see that too. And it appears to go back to v5.2 (was that
+ the first one with futures?) using this program:
+ 
+ #lang racket
+ (for-each
+  touch
+  (for/list ([s (in-list '("a" "b" "c"))])
+    (future (λ () (displayln (equal? s "b"))))))
+ 
+ Robby
+ 
+From: Peter Faiman <peterfaiman@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Tue, 19 Jul 2016 19:23:07 -0700
+
+ It seems to be an issue specifically with equal?, since displayln etc correctly displays the value. Further, eq? / eqv? seem to consistently return true (I assume since my example uses string constants). It's _specifically_ equal? that shows up false.
+ 
+ Weirder yet, the result is eventually correct, for example:
+ 
+ (for/async ([s (in-list '("a" "b" "c"))])
+   (displayln s)
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b"))
+   (displayln (equal? s "b")))
+ 
+ Displays things like:
+ 
+ ...
+ b
+ #f
+ #f
+ #f
+ #f
+ #f
+ #f
+ #f
+ #f
+ #t
+ #t
+ #t
+ #t
+ ...
+ 
+ Peter
+ 
+ > 
+ > Ah, yes. I see that too. And it appears to go back to v5.2 (was that
+ > the first one with futures?) using this program:
+ > 
+ > #lang racket
+ > (for-each
+ > touch
+ > (for/list ([s (in-list '("a" "b" "c"))])
+ >   (future (λ () (displayln (equal? s "b"))))))
+ > 
+ > Robby
+ 
+ 
+From: Peter Faiman <peterfaiman@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Tue, 19 Jul 2016 19:25:12 -0700
+
+ Both machines I tested on were multi core. First my laptop, late 2013 macbook pro, 4 cores. Then a Linux server with 40 cores / 2 sockets.
+ 
+ Peter
+ 
+ > On Jul 19, 2016, at 17:13, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > 
+ > On 2016-07-19 18:49:26 -0500, Robby Findler wrote:
+ >> I'm not seeing this on either the 64 bit or 32 bit versions of racket,
+ >> downloaded from the website (on mac os x). I get the following output
+ >> (tried many times, always the same):
+ > 
+ > I think I was able to reproduce this on Linux. This seems to
+ > consistently print "b\n#f" for the second printout:
+ > 
+ > taskset 0x01 racket -e "(for/async ([s (in-list '(\"a\" \"b\" \"c\"))]) (displayln s) (displayln (equal? s \"b\"))) (for/async ([s (in-list '(\"a\" \"b\" \"c\"))]) (displayln s) (displayln (equal? s \"b\")))"
+ > 
+ > Or if you just run "taskset 0x01 racket" and try that expression in
+ > the REPL a few times it does the same.
+ > 
+ > Peter, is the machine you are running this on a single core machine?
+ > 
+ > Cheers,
+ > Asumu
+ 
+ 
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, peterfaiman@gmail.com,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Tue, 19 Jul 2016 22:32:27 -0400
+
+ A little more investigation with Robby's test program shows that this
+ was introduced between 5.1.1 and 5.1.2, which is the release that
+ introduced places to Racket.
+ 
+ Sam
+ 
+ On Tue, Jul 19, 2016 at 8:33 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Ah, yes. I see that too. And it appears to go back to v5.2 (was that
+ > the first one with futures?) using this program:
+ >
+ > #lang racket
+ > (for-each
+ >  touch
+ >  (for/list ([s (in-list '("a" "b" "c"))])
+ >    (future (λ () (displayln (equal? s "b"))))))
+ >
+ > Robby
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: peterfaiman@gmail.com
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Wed, 20 Jul 2016 09:29:29 +0200
+
+ The problem is that `equal?` is not handled correctly as a
+ future-blocking operation. Specifically, the `equal?` implementation
+ within the VM returns its result represented as an integer (0 or non-0)
+ instead of as #t or #f, and that doesn't always work for an operation
+ that can block a future. As a consequence, the result of `equal?` gets
+ lost.
+ 
+ I've pushed a repair as 7318b1fd34.
+ 
+ Thanks for the report!
+ 
+ At Tue, 19 Jul 2016 22:32:27 -0400, Sam Tobin-Hochstadt wrote:
+ > A little more investigation with Robby's test program shows that this
+ > was introduced between 5.1.1 and 5.1.2, which is the release that
+ > introduced places to Racket.
+ > 
+ > Sam
+ > 
+ > On Tue, Jul 19, 2016 at 8:33 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ > > Ah, yes. I see that too. And it appears to go back to v5.2 (was that
+ > > the first one with futures?) using this program:
+ > >
+ > > #lang racket
+ > > (for-each
+ > >  touch
+ > >  (for/list ([s (in-list '("a" "b" "c"))])
+ > >    (future (λ () (displayln (equal? s "b"))))))
+ > >
+ > > Robby
+ 
+From: Vincent St-Amour <stamourv@eecs.northwestern.edu>
+To: peterfaiman@gmail.com
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Wed, 20 Jul 2016 14:53:58 -0500
+
+ Peter,
+ 
+ We're currently putting the finishing touches on Racket 6.6.
+ 
+ It would be possible to include this fix into the upcoming release, but
+ it would be more straightforward to leave it for Racket 6.7.
+ 
+ Of course, the fix will be available in nightly builds starting
+ tomorrow, so you can easily use a fixed version sooner than 6.7 (which
+ should be released in the fall).
+ 
+ So my question for you is: Are you ok with using nightly builds until
+ 6.7, or would it be better for you to include this fix in Racket 6.6?
+ 
+ Thanks!
+ 
+ Vincent
+ 
+ 
+ 
+ On Wed, 20 Jul 2016 02:29:29 -0500,
+ Matthew Flatt wrote:
+ > 
+ > The problem is that `equal?` is not handled correctly as a
+ > future-blocking operation. Specifically, the `equal?` implementation
+ > within the VM returns its result represented as an integer (0 or non-0)
+ > instead of as #t or #f, and that doesn't always work for an operation
+ > that can block a future. As a consequence, the result of `equal?` gets
+ > lost.
+ > 
+ > I've pushed a repair as 7318b1fd34.
+ > 
+ > Thanks for the report!
+ > 
+ > At Tue, 19 Jul 2016 22:32:27 -0400, Sam Tobin-Hochstadt wrote:
+ > > A little more investigation with Robby's test program shows that this
+ > > was introduced between 5.1.1 and 5.1.2, which is the release that
+ > > introduced places to Racket.
+ > > 
+ > > Sam
+ > > 
+ > > On Tue, Jul 19, 2016 at 8:33 PM, Robby Findler
+ > > <robby@eecs.northwestern.edu> wrote:
+ > > > Ah, yes. I see that too. And it appears to go back to v5.2 (was that
+ > > > the first one with futures?) using this program:
+ > > >
+ > > > #lang racket
+ > > > (for-each
+ > > >  touch
+ > > >  (for/list ([s (in-list '("a" "b" "c"))])
+ > > >    (future (� () (displayln (equal? s "b"))))))
+ > > >
+ > > > Robby
+ 
+From: Peter Faiman <peterfaiman@gmail.com>
+To: Vincent St-Amour <stamourv@eecs.northwestern.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Wed, 20 Jul 2016 13:51:23 -0700
+
+ I have already have cherry-picked the fix onto 6.5 (with printfs removed) and deployed that build. So, you can tell that I consider this bug severe based on the action I've taken. Do what you think is best, if the patch doesn't go in to 6.6 I'll just make another patch build. :)
+ 
+ Peter
+ 
+ > On Jul 20, 2016, at 12:53, Vincent St-Amour <stamourv@eecs.northwestern.edu> wrote:
+ > 
+ > Peter,
+ > 
+ > We're currently putting the finishing touches on Racket 6.6.
+ > 
+ > It would be possible to include this fix into the upcoming release, but
+ > it would be more straightforward to leave it for Racket 6.7.
+ > 
+ > Of course, the fix will be available in nightly builds starting
+ > tomorrow, so you can easily use a fixed version sooner than 6.7 (which
+ > should be released in the fall).
+ > 
+ > So my question for you is: Are you ok with using nightly builds until
+ > 6.7, or would it be better for you to include this fix in Racket 6.6?
+ > 
+ > Thanks!
+ > 
+ > Vincent
+ > 
+ > 
+ > 
+ > On Wed, 20 Jul 2016 02:29:29 -0500,
+ > Matthew Flatt wrote:
+ >> 
+ >> The problem is that `equal?` is not handled correctly as a
+ >> future-blocking operation. Specifically, the `equal?` implementation
+ >> within the VM returns its result represented as an integer (0 or non-0)
+ >> instead of as #t or #f, and that doesn't always work for an operation
+ >> that can block a future. As a consequence, the result of `equal?` gets
+ >> lost.
+ >> 
+ >> I've pushed a repair as 7318b1fd34.
+ >> 
+ >> Thanks for the report!
+ >> 
+ >> At Tue, 19 Jul 2016 22:32:27 -0400, Sam Tobin-Hochstadt wrote:
+ >>> A little more investigation with Robby's test program shows that this
+ >>> was introduced between 5.1.1 and 5.1.2, which is the release that
+ >>> introduced places to Racket.
+ >>> 
+ >>> Sam
+ >>> 
+ >>> On Tue, Jul 19, 2016 at 8:33 PM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>> Ah, yes. I see that too. And it appears to go back to v5.2 (was that
+ >>>> the first one with futures?) using this program:
+ >>>> 
+ >>>> #lang racket
+ >>>> (for-each
+ >>>> touch
+ >>>> (for/list ([s (in-list '("a" "b" "c"))])
+ >>>>   (future (λ () (displayln (equal? s "b"))))))
+ >>>> 
+ >>>> Robby
+ 
+ 
+From: "John Clements" <clements@brinckerhoff.org>
+To: "Peter Faiman" <peterfaiman@gmail.com>
+Cc: "Vincent St-Amour" <stamourv@eecs.northwestern.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Robby Findler" <robby@eecs.northwestern.edu>,
+        "Ryan Culpepper" <ryanc@ccs.neu.edu>,
+        "Sam Tobin-Hochstadt" <samth@cs.indiana.edu>,
+        "bugs" <bugs@racket-lang.org>, "nobody" <nobody@racket-lang.org>,
+        "bug-notification" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result
+ inside a future
+Date: Wed, 20 Jul 2016 17:30:49 -0400
+
+ 
+ > On Jul 20, 2016, at 1:51 PM, Peter Faiman <peterfaiman@gmail.com> wrote:
+ > 
+ > I have already have cherry-picked the fix onto 6.5 (with printfs removed) and deployed that build. So, you can tell that I consider this bug severe based on the action I've taken. Do what you think is best, if the patch doesn't go in to 6.6 I'll just make another patch build. :)
+ 
+ Wouldn’t a nightly build (these will have the fix) be preferable to a patched 6.5?
+ 
+ John
+ 
+ 
+ 
+ 
+From: Peter Faiman <peterfaiman@gmail.com>
+To: John Clements <clements@brinckerhoff.org>
+Cc: Vincent St-Amour <stamourv@eecs.northwestern.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Wed, 20 Jul 2016 14:38:29 -0700
+
+ Yeah, but it might include other bugs that haven't been fixed yet for the release. For example, the two debug printfs in the patch fixing this bug. I removed them myself for my build, and emailed Matthew about them. He removed one of them, and just now removed the other.
+ 
+ In short, It's easier to personally audit the one patch I really care about than everything else on master since 6.5.
+ 
+ Peter
+ 
+ > On Jul 20, 2016, at 14:30, John Clements <clements@brinckerhoff.org> wrote:
+ > 
+ > 
+ >> On Jul 20, 2016, at 1:51 PM, Peter Faiman <peterfaiman@gmail.com> wrote:
+ >> 
+ >> I have already have cherry-picked the fix onto 6.5 (with printfs removed) and deployed that build. So, you can tell that I consider this bug severe based on the action I've taken. Do what you think is best, if the patch doesn't go in to 6.6 I'll just make another patch build. :)
+ > 
+ > Wouldn’t a nightly build (these will have the fix) be preferable to a patched 6.5?
+ > 
+ > John
+ > 
+ > 
+ > 
+ 
+ 
+From: "John Clements" <clements@brinckerhoff.org>
+To: "Peter Faiman" <peterfaiman@gmail.com>
+Cc: "Vincent St-Amour" <stamourv@eecs.northwestern.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Robby Findler" <robby@eecs.northwestern.edu>,
+        "Ryan Culpepper" <ryanc@ccs.neu.edu>,
+        "Sam Tobin-Hochstadt" <samth@cs.indiana.edu>,
+        "bugs" <bugs@racket-lang.org>, "nobody" <nobody@racket-lang.org>,
+        "bug-notification" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result
+ inside a future
+Date: Wed, 20 Jul 2016 17:50:43 -0400
+
+ 
+ > On Jul 20, 2016, at 2:38 PM, Peter Faiman <peterfaiman@gmail.com> wrote:
+ > 
+ > Yeah, but it might include other bugs that haven't been fixed yet for the release. For example, the two debug printfs in the patch fixing this bug. I removed them myself for my build, and emailed Matthew about them. He removed one of them, and just now removed the other.
+ > 
+ > In short, It's easier to personally audit the one patch I really care about than everything else on master since 6.5.
+ 
+ Hmm… if you trust the release process, you might at least consider applying the patches to 6.*6* rather than to 6.5, unless you’re planning to use 6.5 forever…
+ 
+ John
+ 
+ 
+ 
+ 
+From: Vincent St-Amour <stamourv@eecs.northwestern.edu>
+To: "John Clements" <clements@brinckerhoff.org>
+Cc: "Peter Faiman" <peterfaiman@gmail.com>,
+        "Vincent St-Amour" <stamourv@eecs.northwestern.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Robby Findler" <robby@eecs.northwestern.edu>,
+        "Ryan Culpepper" <ryanc@ccs.neu.edu>,
+        "Sam Tobin-Hochstadt" <samth@cs.indiana.edu>,
+        "bugs" <bugs@racket-lang.org>, "nobody" <nobody@racket-lang.org>,
+        "bug-notification" <bug-notification@racket-lang.org>,
+        "'John Clements' via bug-notification" <bug-notification@plt-scheme.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Wed, 20 Jul 2016 16:51:58 -0500
+
+ On Wed, 20 Jul 2016 16:50:43 -0500,
+ 'John Clements' via bug-notification wrote:
+ > 
+ > 
+ > > On Jul 20, 2016, at 2:38 PM, Peter Faiman <peterfaiman@gmail.com> wrote:
+ > > 
+ > > Yeah, but it might include other bugs that haven't been fixed yet for the release. For example, the two debug printfs in the patch fixing this bug. I removed them myself for my build, and emailed Matthew about them. He removed one of them, and just now removed the other.
+ > > 
+ > > In short, It's easier to personally audit the one patch I really care about than everything else on master since 6.5.
+ > 
+ > Hmm$B!D(B if you trust the release process, you might at least consider applying the patches to 6.*6* rather than to 6.5, unless you$B!G(Bre planning to use 6.5 forever$B!D(B
+ 
+ I believe that's what Peter said he would do.
+ 
+ Vincent
+From: Vincent St-Amour <stamourv@eecs.northwestern.edu>
+To: Peter Faiman <peterfaiman@gmail.com>
+Cc: Vincent St-Amour <stamourv@eecs.northwestern.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15331: equal? returns incorrect result inside a future
+Date: Wed, 20 Jul 2016 19:00:50 -0500
+
+ Peter,
+ 
+ Thanks for your input.
+ 
+ We've decided to include the fix in 6.6, so you should be able to use
+ Racket 6.6 as is, when it comes out.
+ 
+ Thanks again for the report!
+ 
+ Vincent
+ 
+ 
+ 
+ On Wed, 20 Jul 2016 15:51:23 -0500,
+ Peter Faiman wrote:
+ > 
+ > I have already have cherry-picked the fix onto 6.5 (with printfs removed) and deployed that build. So, you can tell that I consider this bug severe based on the action I've taken. Do what you think is best, if the patch doesn't go in to 6.6 I'll just make another patch build. :)
+ > 
+ > Peter
+ > 
+ > > On Jul 20, 2016, at 12:53, Vincent St-Amour <stamourv@eecs.northwestern.edu> wrote:
+ > > 
+ > > Peter,
+ > > 
+ > > We're currently putting the finishing touches on Racket 6.6.
+ > > 
+ > > It would be possible to include this fix into the upcoming release, but
+ > > it would be more straightforward to leave it for Racket 6.7.
+ > > 
+ > > Of course, the fix will be available in nightly builds starting
+ > > tomorrow, so you can easily use a fixed version sooner than 6.7 (which
+ > > should be released in the fall).
+ > > 
+ > > So my question for you is: Are you ok with using nightly builds until
+ > > 6.7, or would it be better for you to include this fix in Racket 6.6?
+ > > 
+ > > Thanks!
+ > > 
+ > > Vincent
+ > > 
+ > > 
+ > > 
+ > > On Wed, 20 Jul 2016 02:29:29 -0500,
+ > > Matthew Flatt wrote:
+ > >> 
+ > >> The problem is that `equal?` is not handled correctly as a
+ > >> future-blocking operation. Specifically, the `equal?` implementation
+ > >> within the VM returns its result represented as an integer (0 or non-0)
+ > >> instead of as #t or #f, and that doesn't always work for an operation
+ > >> that can block a future. As a consequence, the result of `equal?` gets
+ > >> lost.
+ > >> 
+ > >> I've pushed a repair as 7318b1fd34.
+ > >> 
+ > >> Thanks for the report!
+ > >> 
+ > >> At Tue, 19 Jul 2016 22:32:27 -0400, Sam Tobin-Hochstadt wrote:
+ > >>> A little more investigation with Robby's test program shows that this
+ > >>> was introduced between 5.1.1 and 5.1.2, which is the release that
+ > >>> introduced places to Racket.
+ > >>> 
+ > >>> Sam
+ > >>> 
+ > >>> On Tue, Jul 19, 2016 at 8:33 PM, Robby Findler
+ > >>> <robby@eecs.northwestern.edu> wrote:
+ > >>>> Ah, yes. I see that too. And it appears to go back to v5.2 (was that
+ > >>>> the first one with futures?) using this program:
+ > >>>> 
+ > >>>> #lang racket
+ > >>>> (for-each
+ > >>>> touch
+ > >>>> (for/list ([s (in-list '("a" "b" "c"))])
+ > >>>>   (future (� () (displayln (equal? s "b"))))))
+ > >>>> 
+ > >>>> Robby
+ 

@@ -1,0 +1,133 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Apr  4 19:17:41 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q34NHcd7017421
+	for <bugs@bugs.plt-scheme.org>; Wed, 4 Apr 2012 19:17:38 -0400
+Message-Id: <201204042317.q34NHYOx017413@champlain.ccs.neu.edu>
+Date: Wed, 4 Apr 2012 19:17:34 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: Weird interaction between Typed hash-set and for/fold
+
+>Number:         12678
+>Category:       typed-scheme
+>Synopsis:       Weird interaction between Typed hash-set and for/fold
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Apr 04 19:20:01 -0400 2012
+>Closed-Date:    Mon Jan 28 16:06:11 -0500 2013
+>Last-Modified:  Mon Jan 28 16:06:11 -0500 2013
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.900.2--2012-04-04(a984f68/g)
+>Environment:
+unix "Linux schroder 2.6.38-13-generic #57-Ubuntu SMP Mon Mar 5 18:29:54 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 472421096
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/neil/.racket/5.2.900.2/collects"
+ (non-existent-path))
+("/home/neil/plt/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "trace" "profile" "data" "sirmail" "json" "parser-tools" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "guibuilder" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "plot" "datalog" "sgl" "htdp" "setup" "lang" "raco" "gui-debugger" "framework" "web-serv!
+ er" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+Using the result of hash-set in a for/fold: seems to coerce the return type to (HashTable Integer Integer) no matter what the annotated or inferred types are.
+
+It seems this error causes for/hash: to fail as well.
+>How-To-Repeat:
+Run the following program:
+
+#lang typed/racket
+
+(define: memo : (HashTable Natural String)  (make-immutable-hash empty))
+(define strs '("Hello" "Goodbye"))
+
+(for/fold: : (HashTable Natural String)
+    ([memo : (HashTable Natural String)  (make-immutable-hash empty)])
+    ([i : Natural  (in-naturals)] [str : String  (in-list strs)])
+  (hash-set memo i str))
+
+
+Get this error:
+
+Type Checker: Expected (HashTable Nonnegative-Integer String), but got (HashTable Integer Integer) in: (for/fold: : (HashTable Natural String) ((memo : (HashTable Natural String) (make-immutable-hash empty))) ((i : Natural (in-naturals)) (str : String (in-list strs))) (ann memo Void) (hash-set memo i str))
+
+
+Manually instantiating the type variables has no effect: TR still insists that hash-set returns a (HashTable Integer Integer).
+
+Workaround is to use a named-let loop.
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/12678: Weird interaction between Typed hash-set
+ and for/fold
+Date: Wed, 04 Apr 2012 17:33:18 -0600
+
+ On 04/04/2012 05:20 PM, bugs@racket-lang.org wrote:
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/12678'.
+ > You can check on the status of your problem report at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12678
+ >
+ > If you wish to provide further information regarding this problem
+ > you can do so as a reply to this message.  (But please make sure
+ > that your mailer replies to both "bugs" and "bug-notification".)
+ 
+ After more experiments, it seems to be related to this weirdness:
+ 
+  > (make-immutable-hash empty)
+ - : (HashTable Integer Integer)
+ '#hash()
+ 
+ Where do the Integer instantiations come from?
+ 
+ If it helps, I've managed to get TR to complain when I don't explicitly 
+ instantiate the type variables for `make-immutable-hash', leading to 
+ code that looks like this:
+ 
+ (let: loop : (values Natural (HashTable Natural A))
+    ([memo : (HashTable Natural A)
+           ((inst make-immutable-hash Natural A) empty)]
+     [i : Natural  0]
+     [xs : (Listof A)  xs])
+    ...)
+ 
+ It won't type-check without using `inst'; TR thinks the return type from 
+ `make-immutable-hash' is (HashTable Integer Integer). IIRC, an earlier 
+ version of the loop that returned only one value didn't have that problem.
+ 
+ An example of a wrongly failing for/hash: is
+ 
+ (for/hash: : (HashTable Integer String) ([i : Integer  (in-range 3)])
+    (values i "Hello"))
+ 
+ The error message is
+ 
+ Type Checker: Polymorphic function hash-set could not be applied to 
+ arguments:
+ Argument 1:
+    Expected: (HashTable a b)
+    Given:    (HashTable Integer Integer)
+ ...
+ 
+ Neil ⊥
+
+State changed from "open" to "closed" by samth@racket-lang.org at Mon, 28 Jan 2013 16:06:11 -0500
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/3c02bb1abb
+  | Type check with expected type when checking recursive loops.
+  | 
+  | Closes PR12678.
+

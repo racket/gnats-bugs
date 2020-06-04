@@ -1,0 +1,678 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Mar 29 07:58:16 2011
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p2TBwAXf000502
+	for <bugs@bugs.plt-scheme.org>; Tue, 29 Mar 2011 07:58:10 -0400
+Message-Id: <201103291157.p2TBvHrc000486@champlain.ccs.neu.edu>
+Date: Tue, 29 Mar 2011 07:57:17 -0400
+From: klang@wpi.edu
+To: bugs@racket-lang.org
+Subject: ellipsis in interactions window
+
+>Number:         11824
+>Category:       htdp
+>Synopsis:       ellipsis in interactions window
+>Class:          not-a-bug
+>Responsible:    matthias
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Mar 29 08:00:01 -0400 2011
+>Closed-Date:    Wed Apr 06 08:51:57 -0400 2011
+>Last-Modified:  Wed Apr 06 08:51:57 -0400 2011
+>Originator:     Karen Lang
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.2
+>Environment:
+windows "Windows NT 6.1 (Build 7600)" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 124476792
+
+Collections:
+(("C:\\Users\\klang\\AppData\\Roaming\\Racket\\5.0.2\\collects" "installed-teachpacks") ("C:\\Program Files (x86)\\Racket\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstab!
+ le" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced Student") (#(#t constructor repeating-decimal #t #t none) #f ()))
+>Description:
+When running code in this file, structures appear in ellipsis form. For example, the given code (sorry, long file) executes big-bang and output shows (make-world ...) in the interactions window rather than showing the internal values of the world structure. Run in v5.0.1 and v.5.0.2, using advanced student language.
+
+
+
+
+; Requires
+(require racket/private/base)
+(require 2htdp/universe)
+
+(require racket/gui/base)
+;(require "rsound/main.rkt")
+(require 2htdp/image)
+
+; a world is a struct
+; (make-world alob number number)
+(define-struct world (blocks elapsed))
+
+; a block is a struct
+; (make-block list-of-tiles string number image)
+(define-struct block (tiles rotation x y))
+
+; a tile is a struct
+; (make-tile posn symbol)
+(define-struct tile (pos color))
+(define SCORE 0)
+
+; definitions
+;(define TILES (list . . . . . . .))
+(define TILES (list (rectangle 32 32 "solid" "red")
+                    (rectangle 32 32 "solid" "blue")
+                    (rectangle 32 32 "solid" "yellow")
+                    (rectangle 32 32 "solid" "orange")
+                    (rectangle 32 32 "solid" "purple")
+                    (rectangle 32 32 "solid" "aqua")
+                    (rectangle 32 32 "solid" "green")))
+
+(define TILE_SIZE 32)
+(define SPEED 0.5)
+(define CANVAS (empty-scene 320 480))
+
+(define (make-tiles alop color)
+  (cond [(empty? alop) empty]
+        [else (cons (make-tile (first alop) color) (make-tiles (rest alop) color))]))
+
+(define BLOCKS (list (list (make-posn 0 0) (make-posn 0 -1) (make-posn 0 1) (make-posn 0 2)) ;I-block
+                     (list (make-posn 0 0) (make-posn 0 -1) (make-posn 0 1) (make-posn -1 1)) ;J-block
+                     (list (make-posn 0 0) (make-posn 0 -1) (make-posn 0 1) (make-posn 1 1)) ;L-block
+                     (list (make-posn 0 0) (make-posn 0 1) (make-posn 1 0) (make-posn 1 1)) ;O-block
+                     (list (make-posn 0 0) (make-posn 1 0) (make-posn 0 1) (make-posn -1 1)) ;S-block
+                     (list (make-posn 0 0) (make-posn 0 1) (make-posn 1 1) (make-posn -1 1)) ;T-block
+                     (list (make-posn 0 0) (make-posn -1 0) (make-posn 0 1) (make-posn 1 1)))) ;Z-block
+
+(define (random-color n)
+    (list-ref TILES n))
+
+(define (translate ablock x y)
+  (make-block (block-tiles ablock);(translate-tiles (block-tiles ablock) x y)
+              (block-rotation ablock)
+              (+ (block-x ablock) x)
+              (+ (block-y ablock) y)))
+
+(define (translate-block ablock)
+  (make-block (translate-tiles (block-tiles ablock) (block-x ablock) (block-y ablock))
+              (block-rotation ablock)
+              (block-x ablock)
+              (block-y ablock)))
+
+(define (translate-tiles tiles x y)
+  (cond [(cons? tiles) (cons (make-tile (make-posn (+ x (posn-x (tile-pos (first tiles)))) (+ y (posn-y (tile-pos (first tiles))))) (tile-color (first tiles))) (translate-tiles (rest tiles) x y))]
+        [else empty]))
+
+(define (get-tiles alob)
+  (cond [(cons? alob) (append (block-tiles (first alob)) (get-tiles (rest alob)))]
+        [else empty]))
+
+(define (render-tiles alot)
+  (cond [(cons? alot) (place-image (tile-color (first alot)) (+ (* 0.5 TILE_SIZE) (* TILE_SIZE (posn-x (tile-pos (first alot))))) (+ (* 0.5 TILE_SIZE) (* TILE_SIZE (posn-y (tile-pos (first alot))))) (render-tiles (rest alot)))]
+        [else CANVAS]))
+
+;(render-tiles(get-tiles BLOCKS))
+
+(define (remove-row blocks num)
+  (cond [(cons? blocks)
+         (cons (translate (make-block (remove-row-tiles (get-tiles (transform-blocks (list (first blocks)))) num)
+                                      (block-rotation (first blocks))
+                                      (block-x (first blocks))
+                                      (block-y (first blocks)))
+                          (- (block-x (first blocks)))
+                          (- (block-y (first blocks))))
+               (remove-row (rest blocks) num))]
+        [else blocks]))
+
+(define (remove-row-tiles tiles num)
+  (cond [(cons? tiles)
+         (cond [(< (posn-y (tile-pos (first tiles))) num)
+                (cons (make-tile
+                       (make-posn (posn-x (tile-pos (first tiles)))
+                                  (+ 1 (posn-y (tile-pos (first tiles)))))
+                       (tile-color (first tiles)))
+                      (remove-row-tiles (rest tiles) num))]
+               [(> (posn-y (tile-pos (first tiles))) num)
+                (cons (first tiles) (remove-row-tiles (rest tiles) num))]
+               [else (remove-row-tiles (rest tiles) num)])]
+        [else empty]))
+
+;check-rows: world number -> list-of-numbers
+;takes in a world and a number and checks if the row of the inputted number is completely filled with tiles, and recurses to the next lowest row.
+(define (check-rows blocks index)
+  (cond [(< index 15)
+         (if (= (- (length (get-tiles blocks)) (length (remove* (list index) (get-y-values (get-tiles (transform-blocks blocks)))))) 10)
+             ;index
+             (if (void? (set! SCORE (add1 SCORE))) (check-rows (remove-row blocks index) (+ 1 index)) (error "WAAHH!"))
+             (check-rows blocks (+ 1 index)))]
+        [else blocks]))
+
+(define (get-y-values tiles)
+  (cond [(cons? tiles)
+         (cons (posn-y (tile-pos (first tiles))) (get-y-values (rest tiles)))]
+        [else empty]))
+
+;give-block: world -> world
+;takes in a world and outputs a world with an updated list of blocks which has one more block of random color, shape, and y coordinate
+(define (give-block x)
+  (make-block (make-tiles (list-ref BLOCKS (random 7)) (random-color (random 7)))
+              0
+              (+ (random 7) 2) -2))
+
+;in-bounds?: list-of-tiles -> boolean
+;given a list-of-tiles, returns true if all of the tiles are within the game boundary, else false
+(define (in-bounds? tiles)
+  (cond [(cons? tiles)
+         (if (and (< -1 (posn-x (tile-pos (first tiles))) 10)
+                  (< ; 0
+ (posn-y (tile-pos (first tiles))) 15))
+             (in-bounds? (rest tiles))
+             false)]
+        [else true]))
+
+;block-free?: block list-of-blocks -> boolean
+;given a block and a list of blocks, returns true if the block doesn't collide
+;with any blocks in the list or the game boundary, else returns false (meaning it does collide).
+(define (block-free? ablock blocks)
+  (and (= (length (remove* (get-tiles (transform-blocks (list ablock))) (get-tiles (transform-blocks blocks))
+                           (lambda (tile1 tile2)
+                             (and (= (posn-x (tile-pos tile1)) (posn-x (tile-pos tile2)))
+                                  (= (posn-y (tile-pos tile1)) (posn-y (tile-pos tile2)))))))
+          (length (get-tiles blocks)))
+       (in-bounds? (get-tiles (transform-blocks (list ablock))))))
+
+; example call to the block-free? function
+;(block-free?
+; (translate (make-block (make-tiles LBLOCK 'red) 0 true) 5 5)
+; (list (make-block (make-tiles LBLOCK 'red) 0 false)))
+
+;update-blocks: list-of-blocks -> list-of-blocks
+;given a list-of-blocks, returns an updated list with each of the blocks'
+;positions updated.
+(define (update-blocks ablock blocks)
+  (append (if (block-free? (translate ablock 0 1) blocks)
+              (list (translate ablock 0 1))
+              (list (give-block 0) ablock))
+          (check-rows blocks 0)))
+
+;update-world: world -> world
+;given a world, returns an updated version of that world with the blocks, score,
+;and elapsed time updated.
+(define (update-world aworld)
+  (make-world (if (= (modulo (world-elapsed aworld) (* 28 SPEED)) 0)
+                  (update-blocks (first (world-blocks aworld)) (rest (world-blocks aworld)))
+                  (world-blocks aworld))
+              (+ (world-elapsed aworld) 1)))
+
+(define (get-bottom ablock blocks)
+  (cond [(block-free? (translate ablock 0 1) blocks)
+         (get-bottom (translate ablock 0 1) blocks)]
+        [else ablock]))
+
+(define (rotate-block ablock)
+  (make-block (rotate-tiles (block-tiles ablock) (* (/ pi 180) (block-rotation ablock)))
+              (block-rotation ablock)
+              (block-x ablock)
+              (block-y ablock)))
+   
+(define (rotate-tiles tiles rad)
+  (cond [(cons? tiles)
+         (cons (make-tile (make-posn
+                           (inexact->exact (floor (+ (- (* (posn-x (tile-pos (first tiles))) (cos rad))
+                                                        (* (posn-y (tile-pos (first tiles))) (sin rad))) 0.5)))
+                           (inexact->exact (floor (+ (+ (* (posn-x (tile-pos (first tiles))) (sin rad))
+                                                        (* (posn-y (tile-pos (first tiles))) (cos rad))) 0.5))))
+                          (tile-color (first tiles)))
+               (rotate-tiles (rest tiles) rad))]
+        [else empty]))
+
+(define (move-block aworld a-key)
+  (make-world
+   (cond
+     [(key=? a-key "left") (if (block-free? (translate (first (world-blocks aworld)) -1 0) (rest (world-blocks aworld)))
+                               (cons (translate (first (world-blocks aworld)) -1 0) (rest (world-blocks aworld)))
+                               (world-blocks aworld))]
+     [(key=? a-key "right") (if (block-free? (translate (first (world-blocks aworld)) 1 0) (rest (world-blocks aworld)))
+                                (cons (translate (first (world-blocks aworld)) 1 0) (rest (world-blocks aworld)))
+                                (world-blocks aworld))]
+     [(key=? a-key " ") (if (block-free? (translate (first (world-blocks aworld)) 0 1) (rest (world-blocks aworld)))
+                                (cons (translate (first (world-blocks aworld)) 0 1) (rest (world-blocks aworld)))
+                                (world-blocks aworld))]
+     [(key=? a-key "down") (cons (get-bottom (first (world-blocks aworld)) (rest (world-blocks aworld)))
+                                 (rest (world-blocks aworld)))]
+     [(key=? a-key "up") (if (block-free? (make-block (block-tiles (first (world-blocks aworld)))
+                                                      (modulo (+ (block-rotation (first (world-blocks aworld))) 90) 360)
+                                                      (block-x (first (world-blocks aworld)))
+                                                      (block-y (first (world-blocks aworld))))
+                                          (rest (world-blocks aworld)))
+                             (cons (make-block (block-tiles (first (world-blocks aworld)))
+                                               (modulo (+ (block-rotation (first (world-blocks aworld))) 90) 360)
+                                               (block-x (first (world-blocks aworld)))
+                                               (block-y (first (world-blocks aworld))))
+                                   (rest (world-blocks aworld)))
+                             (world-blocks aworld))]
+     [else (world-blocks aworld)])
+   (world-elapsed aworld)))
+
+;game-over?: world -> boolean
+;given a world, returns true if the game is over (blocks reach top of screen),
+;else returns false
+(define (game-over? aworld)
+  (if ; (and (void? (printf "~v " (world-blocks aworld)))
+ (< (length (world-blocks aworld)) 2); )
+
+      false
+      (game-over-tiles? (get-tiles (transform-blocks (list (first (rest (world-blocks aworld)))))))))
+
+(define (game-over-tiles? tiles)
+  (cond [(cons? tiles)
+         (if (<= (posn-y (tile-pos (first tiles))) 0)
+             true
+             (game-over-tiles? (rest tiles)))]
+        [else false]))
+
+;render-world: world -> image
+;given a world, renders each of the tiles in that world onto a blank canvas.
+(define (render-world aworld)
+  (render-tiles (get-tiles (transform-blocks (world-blocks aworld)))))
+
+(define (transform-blocks blocks)
+  (cond [(cons? blocks)
+         (cons (translate-block (rotate-block (first blocks)))
+               (transform-blocks (rest blocks)))]
+        [else empty]))
+
+(define (last-scene aworld)
+  (place-image (text (number->string SCORE) 36 "red") 100 100 CANVAS))
+
+;make a test game!
+;(define THEMESONG (rsound-read "tetris3.wav"))
+;(rsound-play THEMESONG)
+;(rsound-loop THEMESONG)
+(big-bang (make-world (list (give-block 0)) 0)
+          (on-tick update-world)
+          (stop-when game-over? last-scene)
+          (on-draw render-world)
+          (on-key move-block))
+;(stop-playing)
+>How-To-Repeat:
+Using code above, run using advanced student language. Tetris game opens in window. Close the game window. Interactions window shows (make-world...) 
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: klang@wpi.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11824: ellipsis in interactions window
+Date: Tue, 29 Mar 2011 08:33:46 -0400
+
+ On Tue, Mar 29, 2011 at 8:00 AM,  <klang@wpi.edu> wrote:
+ >
+ > ; Requires
+ > (require racket/private/base)
+ 
+ This is the problem.  This program:
+ 
+ (require racket/private/base)
+ (define-struct a (x))
+ (make-a 1)
+ 
+ demonstrates the same behavior.
+ 
+ Why did your student add a require of `racket/private/base'?
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: klang@wpi.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11824: ellipsis in interactions window
+Date: Tue, 29 Mar 2011 07:37:08 -0500
+
+ On Tue, Mar 29, 2011 at 7:00 AM,  <klang@wpi.edu> wrote:
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=11824
+ >
+ 
+ Ah, the essence is this:
+ 
+ (require racket/private/base)
+ (define-struct tile (pos color))
+ (make-tile 1 2)
+ 
+ And the best I can say is "Don't require that file." In general,
+ private files are not supposed to be used outside of the collections
+ and, even worse, this file provides way mroe than you want, including
+ a binding for define-struct that takes over the teaching languages one
+ and has this bad behavior.
+ 
+ I see that you're requiring it for, at least remove* and void?. Maybe
+ remove* should be added to Beginning Student, but the program should
+ be rewritten to avoid void?.
+ 
+ Robby
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: klang@wpi.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11824: ellipsis in interactions window
+Date: Tue, 29 Mar 2011 08:53:41 -0400
+
+ No check expects? Give the student an F. -- Matthias
+ 
+ 
+ 
+ 
+ 
+ On Mar 29, 2011, at 8:00 AM, klang@wpi.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=11824
+ > 
+ > Reported by Karen Lang for release: 5.0.2
+ > 
+ > *** Description:
+ > When running code in this file, structures appear in ellipsis form. For example, the given code (sorry, long file) executes big-bang and output shows (make-world ...) in the interactions window rather than showing the internal values of the world structure. Run in v5.0.1 and v.5.0.2, using advanced student language.
+ > 
+ > 
+ > 
+ > 
+ > ; Requires
+ > (require racket/private/base)
+ > (require 2htdp/universe)
+ > 
+ > (require racket/gui/base)
+ > ;(require "rsound/main.rkt")
+ > (require 2htdp/image)
+ > 
+ > ; a world is a struct
+ > ; (make-world alob number number)
+ > (define-struct world (blocks elapsed))
+ > 
+ > ; a block is a struct
+ > ; (make-block list-of-tiles string number image)
+ > (define-struct block (tiles rotation x y))
+ > 
+ > ; a tile is a struct
+ > ; (make-tile posn symbol)
+ > (define-struct tile (pos color))
+ > (define SCORE 0)
+ > 
+ > ; definitions
+ > ;(define TILES (list . . . . . . .))
+ > (define TILES (list (rectangle 32 32 "solid" "red")
+ >                    (rectangle 32 32 "solid" "blue")
+ >                    (rectangle 32 32 "solid" "yellow")
+ >                    (rectangle 32 32 "solid" "orange")
+ >                    (rectangle 32 32 "solid" "purple")
+ >                    (rectangle 32 32 "solid" "aqua")
+ >                    (rectangle 32 32 "solid" "green")))
+ > 
+ > (define TILE_SIZE 32)
+ > (define SPEED 0.5)
+ > (define CANVAS (empty-scene 320 480))
+ > 
+ > (define (make-tiles alop color)
+ >  (cond [(empty? alop) empty]
+ >        [else (cons (make-tile (first alop) color) (make-tiles (rest alop) color))]))
+ > 
+ > (define BLOCKS (list (list (make-posn 0 0) (make-posn 0 -1) (make-posn 0 1) (make-posn 0 2)) ;I-block
+ >                     (list (make-posn 0 0) (make-posn 0 -1) (make-posn 0 1) (make-posn -1 1)) ;J-block
+ >                     (list (make-posn 0 0) (make-posn 0 -1) (make-posn 0 1) (make-posn 1 1)) ;L-block
+ >                     (list (make-posn 0 0) (make-posn 0 1) (make-posn 1 0) (make-posn 1 1)) ;O-block
+ >                     (list (make-posn 0 0) (make-posn 1 0) (make-posn 0 1) (make-posn -1 1)) ;S-block
+ >                     (list (make-posn 0 0) (make-posn 0 1) (make-posn 1 1) (make-posn -1 1)) ;T-block
+ >                     (list (make-posn 0 0) (make-posn -1 0) (make-posn 0 1) (make-posn 1 1)))) ;Z-block
+ > 
+ > (define (random-color n)
+ >    (list-ref TILES n))
+ > 
+ > (define (translate ablock x y)
+ >  (make-block (block-tiles ablock);(translate-tiles (block-tiles ablock) x y)
+ >              (block-rotation ablock)
+ >              (+ (block-x ablock) x)
+ >              (+ (block-y ablock) y)))
+ > 
+ > (define (translate-block ablock)
+ >  (make-block (translate-tiles (block-tiles ablock) (block-x ablock) (block-y ablock))
+ >              (block-rotation ablock)
+ >              (block-x ablock)
+ >              (block-y ablock)))
+ > 
+ > (define (translate-tiles tiles x y)
+ >  (cond [(cons? tiles) (cons (make-tile (make-posn (+ x (posn-x (tile-pos (first tiles)))) (+ y (posn-y (tile-pos (first tiles))))) (tile-color (first tiles))) (translate-tiles (rest tiles) x y))]
+ >        [else empty]))
+ > 
+ > (define (get-tiles alob)
+ >  (cond [(cons? alob) (append (block-tiles (first alob)) (get-tiles (rest alob)))]
+ >        [else empty]))
+ > 
+ > (define (render-tiles alot)
+ >  (cond [(cons? alot) (place-image (tile-color (first alot)) (+ (* 0.5 TILE_SIZE) (* TILE_SIZE (posn-x (tile-pos (first alot))))) (+ (* 0.5 TILE_SIZE) (* TILE_SIZE (posn-y (tile-pos (first alot))))) (render-tiles (rest alot)))]
+ >        [else CANVAS]))
+ > 
+ > ;(render-tiles(get-tiles BLOCKS))
+ > 
+ > (define (remove-row blocks num)
+ >  (cond [(cons? blocks)
+ >         (cons (translate (make-block (remove-row-tiles (get-tiles (transform-blocks (list (first blocks)))) num)
+ >                                      (block-rotation (first blocks))
+ >                                      (block-x (first blocks))
+ >                                      (block-y (first blocks)))
+ >                          (- (block-x (first blocks)))
+ >                          (- (block-y (first blocks))))
+ >               (remove-row (rest blocks) num))]
+ >        [else blocks]))
+ > 
+ > (define (remove-row-tiles tiles num)
+ >  (cond [(cons? tiles)
+ >         (cond [(< (posn-y (tile-pos (first tiles))) num)
+ >                (cons (make-tile
+ >                       (make-posn (posn-x (tile-pos (first tiles)))
+ >                                  (+ 1 (posn-y (tile-pos (first tiles)))))
+ >                       (tile-color (first tiles)))
+ >                      (remove-row-tiles (rest tiles) num))]
+ >               [(> (posn-y (tile-pos (first tiles))) num)
+ >                (cons (first tiles) (remove-row-tiles (rest tiles) num))]
+ >               [else (remove-row-tiles (rest tiles) num)])]
+ >        [else empty]))
+ > 
+ > ;check-rows: world number -> list-of-numbers
+ > ;takes in a world and a number and checks if the row of the inputted number is completely filled with tiles, and recurses to the next lowest row.
+ > (define (check-rows blocks index)
+ >  (cond [(< index 15)
+ >         (if (= (- (length (get-tiles blocks)) (length (remove* (list index) (get-y-values (get-tiles (transform-blocks blocks)))))) 10)
+ >             ;index
+ >             (if (void? (set! SCORE (add1 SCORE))) (check-rows (remove-row blocks index) (+ 1 index)) (error "WAAHH!"))
+ >             (check-rows blocks (+ 1 index)))]
+ >        [else blocks]))
+ > 
+ > (define (get-y-values tiles)
+ >  (cond [(cons? tiles)
+ >         (cons (posn-y (tile-pos (first tiles))) (get-y-values (rest tiles)))]
+ >        [else empty]))
+ > 
+ > ;give-block: world -> world
+ > ;takes in a world and outputs a world with an updated list of blocks which has one more block of random color, shape, and y coordinate
+ > (define (give-block x)
+ >  (make-block (make-tiles (list-ref BLOCKS (random 7)) (random-color (random 7)))
+ >              0
+ >              (+ (random 7) 2) -2))
+ > 
+ > ;in-bounds?: list-of-tiles -> boolean
+ > ;given a list-of-tiles, returns true if all of the tiles are within the game boundary, else false
+ > (define (in-bounds? tiles)
+ >  (cond [(cons? tiles)
+ >         (if (and (< -1 (posn-x (tile-pos (first tiles))) 10)
+ >                  (< ; 0
+ > (posn-y (tile-pos (first tiles))) 15))
+ >             (in-bounds? (rest tiles))
+ >             false)]
+ >        [else true]))
+ > 
+ > ;block-free?: block list-of-blocks -> boolean
+ > ;given a block and a list of blocks, returns true if the block doesn't collide
+ > ;with any blocks in the list or the game boundary, else returns false (meaning it does collide).
+ > (define (block-free? ablock blocks)
+ >  (and (= (length (remove* (get-tiles (transform-blocks (list ablock))) (get-tiles (transform-blocks blocks))
+ >                           (lambda (tile1 tile2)
+ >                             (and (= (posn-x (tile-pos tile1)) (posn-x (tile-pos tile2)))
+ >                                  (= (posn-y (tile-pos tile1)) (posn-y (tile-pos tile2)))))))
+ >          (length (get-tiles blocks)))
+ >       (in-bounds? (get-tiles (transform-blocks (list ablock))))))
+ > 
+ > ; example call to the block-free? function
+ > ;(block-free?
+ > ; (translate (make-block (make-tiles LBLOCK 'red) 0 true) 5 5)
+ > ; (list (make-block (make-tiles LBLOCK 'red) 0 false)))
+ > 
+ > ;update-blocks: list-of-blocks -> list-of-blocks
+ > ;given a list-of-blocks, returns an updated list with each of the blocks'
+ > ;positions updated.
+ > (define (update-blocks ablock blocks)
+ >  (append (if (block-free? (translate ablock 0 1) blocks)
+ >              (list (translate ablock 0 1))
+ >              (list (give-block 0) ablock))
+ >          (check-rows blocks 0)))
+ > 
+ > ;update-world: world -> world
+ > ;given a world, returns an updated version of that world with the blocks, score,
+ > ;and elapsed time updated.
+ > (define (update-world aworld)
+ >  (make-world (if (= (modulo (world-elapsed aworld) (* 28 SPEED)) 0)
+ >                  (update-blocks (first (world-blocks aworld)) (rest (world-blocks aworld)))
+ >                  (world-blocks aworld))
+ >              (+ (world-elapsed aworld) 1)))
+ > 
+ > (define (get-bottom ablock blocks)
+ >  (cond [(block-free? (translate ablock 0 1) blocks)
+ >         (get-bottom (translate ablock 0 1) blocks)]
+ >        [else ablock]))
+ > 
+ > (define (rotate-block ablock)
+ >  (make-block (rotate-tiles (block-tiles ablock) (* (/ pi 180) (block-rotation ablock)))
+ >              (block-rotation ablock)
+ >              (block-x ablock)
+ >              (block-y ablock)))
+ > 
+ > (define (rotate-tiles tiles rad)
+ >  (cond [(cons? tiles)
+ >         (cons (make-tile (make-posn
+ >                           (inexact->exact (floor (+ (- (* (posn-x (tile-pos (first tiles))) (cos rad))
+ >                                                        (* (posn-y (tile-pos (first tiles))) (sin rad))) 0.5)))
+ >                           (inexact->exact (floor (+ (+ (* (posn-x (tile-pos (first tiles))) (sin rad))
+ >                                                        (* (posn-y (tile-pos (first tiles))) (cos rad))) 0.5))))
+ >                          (tile-color (first tiles)))
+ >               (rotate-tiles (rest tiles) rad))]
+ >        [else empty]))
+ > 
+ > (define (move-block aworld a-key)
+ >  (make-world
+ >   (cond
+ >     [(key=? a-key "left") (if (block-free? (translate (first (world-blocks aworld)) -1 0) (rest (world-blocks aworld)))
+ >                               (cons (translate (first (world-blocks aworld)) -1 0) (rest (world-blocks aworld)))
+ >                               (world-blocks aworld))]
+ >     [(key=? a-key "right") (if (block-free? (translate (first (world-blocks aworld)) 1 0) (rest (world-blocks aworld)))
+ >                                (cons (translate (first (world-blocks aworld)) 1 0) (rest (world-blocks aworld)))
+ >                                (world-blocks aworld))]
+ >     [(key=? a-key " ") (if (block-free? (translate (first (world-blocks aworld)) 0 1) (rest (world-blocks aworld)))
+ >                                (cons (translate (first (world-blocks aworld)) 0 1) (rest (world-blocks aworld)))
+ >                                (world-blocks aworld))]
+ >     [(key=? a-key "down") (cons (get-bottom (first (world-blocks aworld)) (rest (world-blocks aworld)))
+ >                                 (rest (world-blocks aworld)))]
+ >     [(key=? a-key "up") (if (block-free? (make-block (block-tiles (first (world-blocks aworld)))
+ >                                                      (modulo (+ (block-rotation (first (world-blocks aworld))) 90) 360)
+ >                                                      (block-x (first (world-blocks aworld)))
+ >                                                      (block-y (first (world-blocks aworld))))
+ >                                          (rest (world-blocks aworld)))
+ >                             (cons (make-block (block-tiles (first (world-blocks aworld)))
+ >                                               (modulo (+ (block-rotation (first (world-blocks aworld))) 90) 360)
+ >                                               (block-x (first (world-blocks aworld)))
+ >                                               (block-y (first (world-blocks aworld))))
+ >                                   (rest (world-blocks aworld)))
+ >                             (world-blocks aworld))]
+ >     [else (world-blocks aworld)])
+ >   (world-elapsed aworld)))
+ > 
+ > ;game-over?: world -> boolean
+ > ;given a world, returns true if the game is over (blocks reach top of screen),
+ > ;else returns false
+ > (define (game-over? aworld)
+ >  (if ; (and (void? (printf "~v " (world-blocks aworld)))
+ > (< (length (world-blocks aworld)) 2); )
+ > 
+ >      false
+ >      (game-over-tiles? (get-tiles (transform-blocks (list (first (rest (world-blocks aworld)))))))))
+ > 
+ > (define (game-over-tiles? tiles)
+ >  (cond [(cons? tiles)
+ >         (if (<= (posn-y (tile-pos (first tiles))) 0)
+ >             true
+ >             (game-over-tiles? (rest tiles)))]
+ >        [else false]))
+ > 
+ > ;render-world: world -> image
+ > ;given a world, renders each of the tiles in that world onto a blank canvas.
+ > (define (render-world aworld)
+ >  (render-tiles (get-tiles (transform-blocks (world-blocks aworld)))))
+ > 
+ > (define (transform-blocks blocks)
+ >  (cond [(cons? blocks)
+ >         (cons (translate-block (rotate-block (first blocks)))
+ >               (transform-blocks (rest blocks)))]
+ >        [else empty]))
+ > 
+ > (define (last-scene aworld)
+ >  (place-image (text (number->string SCORE) 36 "red") 100 100 CANVAS))
+ > 
+ > ;make a test game!
+ > ;(define THEMESONG (rsound-read "tetris3.wav"))
+ > ;(rsound-play THEMESONG)
+ > ;(rsound-loop THEMESONG)
+ > (big-bang (make-world (list (give-block 0)) 0)
+ >          (on-tick update-world)
+ >          (stop-when game-over? last-scene)
+ >          (on-draw render-world)
+ >          (on-key move-block))
+ > ;(stop-playing)
+ > 
+ > *** How to repeat:
+ > Using code above, run using advanced student language. Tetris game opens in window. Close the game window. Interactions window shows (make-world...) 
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7600)" (win32\i386\3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 124476792
+ > 
+ > Collections:
+ > (("C:\\Users\\klang\\AppData\\Roaming\\Racket\\5.0.2\\collects" "installed-teachpacks") ("C:\\Program Files (x86)\\Racket\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstab!
+ > le" "version" "web-server" "wxme" "xml"))
+ > Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced Student") (#(#t constructor repeating-decimal #t #t none) #f ()))
+ > 
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: klang@wpi.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11824: ellipsis in interactions window
+Date: Tue, 29 Mar 2011 08:00:18 -0500
+
+ On Tue, Mar 29, 2011 at 7:53 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > No check expects? Give the student an F. -- Matthias
+ >
+ 
+ I think there were before, as Karen observed that the problem didn't
+ show up there.
+ 
+ Robby
+
+Class changed from "sw-bug" to "not-a-bug" by ryanc at Wed, 06 Apr 2011 08:51:57 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by ryanc at Wed, 06 Apr 2011 08:51:57 -0400
+Reason>>> .
+

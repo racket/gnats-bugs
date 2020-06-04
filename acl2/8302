@@ -1,0 +1,222 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Sep 27 17:41:13 2006
+Received: from nf-out-f131.google.com (nf-out-0910.google.com [64.233.182.131])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k8RLf6PK002111
+	for <bugs@bugs.plt-scheme.org>; Wed, 27 Sep 2006 17:41:06 -0400
+Message-Id: <200609272141.k8RLf3uf002104@champlain.ccs.neu.edu>
+Date: Wed, 27 Sep 2006 17:41:03 -0400
+From: clements@brinckerhoff.org
+To: bugs@plt-scheme.org
+Subject: after-set-next-settings not getting called on language change?
+
+>Number:         8302
+>Category:       acl2
+>Synopsis:       after-set-next-settings not getting called on language change?
+>Class:          sw-bug
+>Responsible:    clements
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Sep 27 17:45:01 -0400 2006
+>Closed-Date:    Wed Sep 27 23:15:37 -0400 2006
+>Last-Modified:  Mon Oct 16 22:52:11 -0400 2006
+>Originator:     John Clements
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352.6-svn27sep2006
+>Environment:
+macosx "Darwin computer.csc.calpoly.edu 8.7.0 Darwin Kernel Version 8.7.0: Fri May 26 15:20:53 PDT 2006; root:xnu-792.6.76.obj~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/clements/plt/doc" "mzscheme" "help" "release-notes") ("/Users/clements/plt/collects/doc" "r5rs" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "acl2" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 77563308
+
+Collections:
+(("/Users/clements/svn/clements/collects" ".svn" "badger" "biff" "big-step-explorer" "clements-lib" "contour-letters" "gnucash" "info-domain" "iTunes-helper" "java-helpers" "matrix-arithmetic" "mnemisis" "no-brainer" "profjWizard" "projector" "shelly" "single-stepper" "template-tester" "test-tool" "web-utilities") ("/Users/clements/clements/matthias/collects" "web") ("/Users/clements/Library/PLT Scheme/352.6/collects" non-existent-path) ("/Users/clements/plt/collects" ".svn" "acl2" "afm" "algol60" "browser" "compiler" "config" "defaults" "doc" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "finish-install" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "pro!
+ fjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "reduction-semantics" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "ssax" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Pretty Big (includes MrEd and Advanced Student)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+I noticed that in this build, the stepper button was not getting 
+shown & hidden.  It appears to me that the problem is that the 
+"after-set-next-settings" method of the definition window is not 
+getting called on a language level change.
+
+To reduce the size of the problem, I've written a short piece of 
+code that duplicates the problem.  Of course, since it's a tool, 
+you have to create a directory for it (test-tool) and run setup-plt.
+
+Anyway, here's the info.ss file:
+
+(module info (lib "infotab.ss" "setup")
+  (define name "Test Tool")
+
+  (define tools '(("test-tool.ss")))
+
+  (define tool-names (list "The Test"))
+
+  (define tool-icons (list '("foot-up.png" "icons")))
+
+  )
+
+... and here's the test-tool.ss file:
+
+(module test-tool mzscheme
+  (require (lib "unitsig.ss")
+           (lib "tool.ss" "drscheme")
+           (lib "class.ss"))
+           
+  
+    (provide tool@)
+
+  (define tool@
+    (unit/sig drscheme:tool-exports^
+      (import drscheme:tool^)
+
+      ;; tool magic here:
+      (define (phase1) (void))
+      
+      (define (phase2) (void))
+
+      ;; stepper-definitions-text-mixin : a mixin for the definitions text that
+      ;; alerts the stepper when the definitions text is altered or destroyed
+      (define (stepper-definitions-text-mixin %)
+        (class %
+
+          (inherit get-top-level-window)
+          #;(define/private (notify-stepper-frame-of-change)
+            (let ([win (get-top-level-window)])
+              ;; should only be #f when win is #f
+              (when (is-a? win stepper-unit-frame<%>)
+                (let ([stepper-window (send win get-stepper-frame)])
+                  (when stepper-window
+                    (send stepper-window original-program-changed))))))
+
+          (define/augment (on-insert x y)
+            (with-output-to-file "/dev/stderr"
+              (lambda () (printf "on-insert got called.\n"))
+              'truncate)
+            (inner (void) on-insert x y))
+
+          (define/augment (after-set-next-settings s)
+            (with-output-to-file "/dev/stderr"
+              (lambda () (printf "after-set-next-settings got called\n"))
+              'truncate))
+
+          (super-new)))
+  
+  (drscheme:get/extend:extend-definitions-text
+       stepper-definitions-text-mixin))
+    
+    ))
+
+Note that I overrode the "on-insert" method just so you could 
+see whether the tool was properly installed.  I'm sure I could 
+have picked a less noisy hook for this, but it serves the purpose.
+>How-To-Repeat:
+Install the tool.  Start drscheme3m.  See the foot icon appear 
+twice during startup.  start typing characters in the defn's 
+window.  See lots of error messages on stderr ... (ooh, run 
+this on a machine like OS X where writing to "/dev/stderr" works
+properly).  
+
+Now, change languge levels.  No message written! Click Execute.
+No message written!
+>Fix:
+>Audit-Trail:
+From: John Clements <unsignable@brinckerhoff.org>
+To: clements@brinckerhoff.org, bugs@plt-scheme.org
+Cc: robby@plt-scheme.org, dalev@plt-scheme.org
+Subject: Re: all/8302: after-set-next-settings not getting called on language change?
+Date: Wed, 27 Sep 2006 15:33:24 -0700
+
+ I've just discovered that this bug is a consequence of the ACL2 tool,  
+ and the way it messes with compilation.  That is, removing the ACL2  
+ tool and recompiling solves this problem.
+ 
+ FWIW, this behavior may not occur with current versions of the ACL2  
+ tool; I don't know whether Dale has updated it recently.
+ 
+ Dale, if you've fixed this bug (e.g., by changing the acl2 tool to  
+ not bang the compilation environment) feel free to close this bug.
+ 
+ Thanks!
+ 
+ John
+ 
+From: Dale Vaillancourt <dalev@ccs.neu.edu>
+To: John Clements <unsignable@brinckerhoff.org>
+Cc: clements@brinckerhoff.org, bugs@plt-scheme.org, robby@plt-scheme.org,
+        dalev@plt-scheme.org
+Subject: Re: all/8302: after-set-next-settings not getting called on language change?
+Date: Wed, 27 Sep 2006 19:18:50 -0400
+
+ I fixed this a while back.  But just to be sure:  are you using the  
+ current version of the ACL2 tool, or the old one that I provided to  
+ you several moons ago when we started discussing the ACL2 stepper?  - 
+ Dale
+ 
+ On Sep 27, 2006, at 6:33 PM, John Clements wrote:
+ 
+ > I've just discovered that this bug is a consequence of the ACL2  
+ > tool, and the way it messes with compilation.  That is, removing  
+ > the ACL2 tool and recompiling solves this problem.
+ >
+ > FWIW, this behavior may not occur with current versions of the ACL2  
+ > tool; I don't know whether Dale has updated it recently.
+ >
+ > Dale, if you've fixed this bug (e.g., by changing the acl2 tool to  
+ > not bang the compilation environment) feel free to close this bug.
+ >
+ > Thanks!
+ >
+ > John
+ >
+ 
+
+State changed from "open" to "closed" by clements at Wed, 27 Sep 2006 23:15:37 -0400
+Reason>>> fixed in recent versions of ACL2 tool.
+
+From: John Clements <clements@brinckerhoff.org>
+To: Dale Vaillancourt <dalev@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, robby@plt-scheme.org, dalev@plt-scheme.org
+Subject: Re: all/8302: after-set-next-settings not getting called on language change?
+Date: Wed, 27 Sep 2006 20:16:11 -0700
+
+ On Sep 27, 2006, at 4:18 PM, Dale Vaillancourt wrote:
+ 
+ > I fixed this a while back.  But just to be sure:  are you using the  
+ > current version of the ACL2 tool, or the old one that I provided to  
+ > you several moons ago when we started discussing the ACL2 stepper?   
+ > -Dale
+ 
+ 
+ many moons ago.
+ 
+ okay, I closed it myself, thanks.
+ 
+ John
+ 
+ 
+ > On Sep 27, 2006, at 6:33 PM, John Clements wrote:
+ >
+ >> I've just discovered that this bug is a consequence of the ACL2  
+ >> tool, and the way it messes with compilation.  That is, removing  
+ >> the ACL2 tool and recompiling solves this problem.
+ >>
+ >> FWIW, this behavior may not occur with current versions of the  
+ >> ACL2 tool; I don't know whether Dale has updated it recently.
+ >>
+ >> Dale, if you've fixed this bug (e.g., by changing the acl2 tool to  
+ >> not bang the compilation environment) feel free to close this bug.
+ >>
+ >> Thanks!
+ >>
+ >> John
+ >>
+ 
+ 
+Responsible changed from "nobody" to "clements" by eli at Mon, 16 Oct 2006 22:52:11 -0400
+Reason>>> John closed
+

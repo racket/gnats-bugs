@@ -1,0 +1,120 @@
+From apache@plt-scheme.org Wed Aug 24 19:44:09 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j7ONhxZS011526
+	for <bugs@plt-scheme.org>; Wed, 24 Aug 2005 19:43:59 -0400
+Message-Id: <200508242343.j7ONhxu1011524@champlain.ccs.neu.edu>
+Date: Wed, 24 Aug 2005 19:43:59 -0400
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: web-server: Errors during the parsing of headers causes sockets to leak
+
+>Number:         7547
+>Category:       web-server
+>Synopsis:       web-server: Errors during the parsing of headers causes sockets to leak
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Aug 24 19:45:01 -0400 2005
+>Last-Modified:  Wed Aug 24 21:27:56 -0400 2005
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299
+>Environment:
+unknown-platform
+>Description:
+Errors that occur during request parsing are raised as exn:fail's, and cause the socket to be held in a CLOSE_WAIT state.
+
+There's already an exception handler in the server loop that watches for exn:fail:network, so the following patch changes the functions in request-parsing to raise the specific exn:fail:network instance:
+
+
+dyoo@shoebox ~/local/plt/collects/web-server $ svn diff request-parsing.ss 
+Index: request-parsing.ss
+===================================================================
+--- request-parsing.ss	(revision 662)
++++ request-parsing.ss	(working copy)
+@@ -105,7 +105,7 @@
+   (define (read-request-line ip)
+     (let ([line (read-bytes-line ip 'any)])
+       (if (eof-object? line)
+-          (error 'read-request "http input closed abruptly")
++          (network-error 'read-request "http input closed abruptly")
+           (cond
+             [(match-method line)
+              => (lambda (x)
+@@ -114,10 +114,22 @@
+                    (string->url (bytes->string/utf-8 (list-ref x 2)))
+                    (string->number (bytes->string/utf-8 (list-ref x 3)))
+                    (string->number (bytes->string/utf-8 (list-ref x 4)))))]
+-            [else (error 'read-request "malformed request ~a" line)]))))
++            [else (network-error 'read-request "malformed request ~a" line)]))))
+ 
+ 
++  
++  ;; network-error : symbol string . values
++  ;; raises an instance of exn:fail:network.
++  (define (network-error src-symbol format-string . values)
++    (let ((msg (string->immutable-string
++                (apply format (cons
++                               (string-append "~s: " format-string)
++                               (cons src-symbol
++                                     values))))))
++      (raise (make-exn:fail:network msg (current-continuation-marks)))))
+ 
++  
++
+   ;; **************************************************
+   ;; read-headers
+ 
+@@ -143,7 +155,7 @@
+                              (cons (cons (lowercase-symbol! (cadr match))
+                                          (read-one-head in (caddr match)))
+                                    (read-header)))]
+-          [else (error 'read-headers "malformed header")]))))
++          [else (network-error 'read-headers "malformed header")]))))
+ 
+ 
+   ; read-one-head : iport bytes -> bytes
+@@ -187,14 +199,14 @@
+                      (cond
+                        [(string->number (bytes->string/utf-8 (cdr len-str)))
+                         => (lambda (len) (read-string len in))]
+-                       [else (error "Post request contained a non-numeric content-length")])
++                       [else (network-error 'read-bindings "Post request contained a non-numeric content-length")])
+                      (apply string-append
+                             (let read-to-eof ()
+                               (let ([s (read-string INPUT-BUFFER-SIZE in)])
+                                 (if (eof-object? s)
+                                     null
+                                     (cons s (read-to-eof))))))))]))))]
+-      [else (error "unsupported method" meth)]))
++      [else (network-error 'read-bindings "unsupported method" meth)]))
+ 
+   (define FILE-FORM-REGEXP (regexp "multipart/form-data; *boundary=(.*)"))
+ 
+@@ -203,7 +215,7 @@
+   (define (get-field-name rhs)
+     (let ([x (regexp-match "name=(\"([^\"]*)\"|([^ ;]*))" rhs)])
+       (unless x
+-        (error 'get-field-name "Couldn't extract form field name for file upload from ~a" x))
++        (network-error 'get-field-name "Couldn't extract form field name for file upload from ~a" x))
+       (lowercase-symbol! (or (caddr x) (cadddr x)))))
+ 
+   ;; **************************************************
+>How-To-Repeat:
+Tested by hammering the server with the 'httperf' utility:
+
+------
+[dyoo@shoebox ~]$ httperf --server=localhost --port=8888 --rate=10 --num-conns=500 httperf --client=0/1 --server=localhost --port=8888 --uri=/ --rate=10 --send-buffer=4096 --recv-buffer=16384 --num-conns=500 --num-calls=1
+------
+
+Unpatched, the web server will start emitting error messages, and /usr/sbin/lsof will show open sockets in the CLOSE_WAIT state.
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by jay at Wed, 24 Aug 2005 21:27:56 -0400
+Reason>>> Committed, thanks.
+

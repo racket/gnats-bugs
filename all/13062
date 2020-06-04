@@ -1,0 +1,111 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug 24 15:36:18 2012
+Received: from mail-iy0-f172.google.com (mail-iy0-f172.google.com [209.85.210.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7OJaFMe004420
+	for <bugs@bugs.plt-scheme.org>; Fri, 24 Aug 2012 15:36:15 -0400
+Message-Id: <201208241936.q7OJaBKP004414@champlain.ccs.neu.edu>
+Date: Fri, 24 Aug 2012 15:36:11 -0400
+From: dmarshall207@gmail.com
+To: bugs@racket-lang.org
+Subject: immutable struct field mutable from hash stored lambda
+
+>Number:         13062
+>Category:       all
+>Synopsis:       immutable struct field mutable from hash stored lambda
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 24 15:40:01 -0400 2012
+>Closed-Date:    Fri Aug 24 18:08:30 -0400 2012
+>Last-Modified:  Fri Aug 24 18:08:30 -0400 2012
+>Originator:     dmarshall
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        v5.1.3
+>Environment:
+
+>Description:
+(Is this a bug or some subtly that I'm missing?)
+
+An instance of a structure with a field defined
+as immutable fails to respect the immutability
+of the field when accessed from within a
+lambda stored in a hash.
+>How-To-Repeat:
+For all the following code clips assume the 
+following struct definition:
+
+    (define-values
+      (struct:thing make-thing thing? thing-ref thing-set!)
+      (make-struct-type
+         'thing #f 1 0  
+         #f               ; auto val
+         (list)           ; property list
+         #f               ; inspector
+         #f               ; proc-spec
+         (list 0)))       ; immutables
+         
+    (define thing.id  (make-struct-field-accessor thing-ref 0))
+    (define thing.id! (make-struct-field-mutator thing-set! 0))
+
+The offending code:
+
+    ;;/ overrides immutability  ????
+    (define actions    
+      (make-hasheq (list
+         (cons 'test (ƛ ()
+                        (let*((thg       (make-thing 1)))
+                          (thing.id! thg 'new-val)
+                          thg))))))
+    ((hash-ref actions 'test))
+
+
+It seams to be be something to do with it being
+inside a hash as the following code works properly:
+
+    ;;/ respects immutability
+    ((ƛ () (let*((thg    (make-thing 1)))
+             (thing.id! thg 'new-val)
+             thg)))
+    ;;/ respects immutability
+    (define test
+         (ƛ () (let*((thg    (make-thing 1)))
+                 (thing.id! thg 'new-val)
+                 thg)))
+    (test)
+    ;;/ respects immutability
+    (define test  (list 
+        (ƛ () (let*((thing.id! (make-struct-field-mutator thing-set! 0))
+                    (thg       (make-thing 1)))
+                (thing.id! thg 'new-val)
+                thg))))
+    ((car test))
+
+
+The following maybe a hint. I don't understand the internals
+enough to know if it means anything or not.
+
+    ;;/ respects immutability
+    (with-handlers ()
+     ((lambda ()
+         (let*((thg    (make-thing 1)))
+           (thing.id! thg 'new-val)
+           thg))))
+
+    ;;/ allows mutation -- but does not print message
+    (with-handlers ([(lambda (e) #t)    (lambda (e) (printf "OOPS: ~s~n" e))])
+     ((lambda ()
+         (let*((thg    (make-thing 1)))
+           (thing.id! thg 'new-val)
+           thg))))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 24 Aug 2012 18:08:29 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/bd8e1e8b1f
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 24 Aug 2012 18:08:30 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/bd8e1e8b1f

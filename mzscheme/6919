@@ -1,0 +1,186 @@
+From rxqvw@yahoo.co.jo Sun Jun 20 00:05:15 2004
+Received: from localhost (YahooBB218123182006.bbtec.net [218.123.182.6])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id i5K4570u004564
+	for <bugs>; Sun, 20 Jun 2004 00:05:08 -0400
+Message-Id: <200406200405.i5K4570u004564@champlain.ccs.neu.edu>
+Date: Sun, 20 Jun 2004 00:05:07 -0400
+From: Chihiro Kuraya <rxqvw@yahoo.co.jo>
+To: bugs@plt-scheme.org
+Subject: scheme_reset_locale() makes sertod() buggy
+
+>Number:         6919
+>Category:       mzscheme
+>Synopsis:       scheme_reset_locale() makes sertod() buggy
+>Class:          duplicate
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jun 20 00:10:00 -0400 2004
+>Last-Modified:  Mon May 05 16:09:22 -0400 2008
+>Originator:     Chihiro Kuraya
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        207
+>Environment:
+windows "Windows NT 5.0 (Build 2195) Service Pack 4" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+("E:\\Scheme\\PLT\\collects\\doc\\web-server" "E:\\Scheme\\PLT\\collects\\doc\\tour" "E:\\Scheme\\PLT\\collects\\doc\\tools" "E:\\Scheme\\PLT\\collects\\doc\\tex2page" "E:\\Scheme\\PLT\\collects\\doc\\teachpack" "E:\\Scheme\\PLT\\collects\\doc\\t-y-scheme" "E:\\Scheme\\PLT\\collects\\doc\\srfi" "E:\\Scheme\\PLT\\collects\\doc\\r5rs" "E:\\Scheme\\PLT\\collects\\doc\\profj-intermediate" "E:\\Scheme\\PLT\\collects\\doc\\profj-beginner" "E:\\Scheme\\PLT\\collects\\doc\\profj-advanced" "E:\\Scheme\\PLT\\collects\\doc\\plot" "E:\\Scheme\\PLT\\collects\\doc\\mzscheme" "E:\\Scheme\\PLT\\collects\\doc\\mzlib" "E:\\Scheme\\PLT\\collects\\doc\\mzc" "E:\\Scheme\\PLT\\collects\\doc\\mred" "E:\\Scheme\\PLT\\collects\\doc\\misclib" "E:\\Scheme\\PLT\\collects\\doc\\intermediate-lambda" "E:\\Scheme\\PLT\\collects\\doc\\intermediate" "E:\\Scheme\\PLT\\collects\\doc\\insidemz" "E:\\Scheme\\PLT\\collects\\doc\\help" "E:\\Scheme\\PLT\\collects\\doc\\framework" "E:\\Scheme\\PLT\\collects\\doc\\drscheme" "E:\\Scheme\\PLT\\collects\\doc\\beginning-abbr" "E:\\Scheme\\PLT\\collects\\doc\\beginning" "E:\\Scheme\\PLT\\collects\\doc\\advanced")
+Collections: 
+(("C:\\Documents and Settings\\Totoro\\Application Data\\PLT Scheme\\207\\collects" "non-existent path") ("E:\\Scheme\\PLT\\collects" ("afm" "algol60" "browser" "compiler" "defaults" "doc" "drscheme" "dynext" "eopl" "errortrace" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plot" "preprocessor" "profj" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "syntax" "syntax-color" "test-suite" "tex2page" "texpict" "version" "web-server" "xml")))
+ 
+Human Language: english
+ 
+>Description:
+I write a mail to plt-scheme mailing list about this problem.
+I quote it as follows:
+
+=============================================================
+Greetings,
+
+I am striving to embed MzScheme to my C++ Builder 5 
+application on Windows 2000.  I compiled MzScheme and GC 
+library from source (v207).
+
+But a simple console program (single-thread) as the following
+doesn't work well, and access violation happens
+at scheme_basic_env() function.
+(Program tries to read address 0x00000004.)
+
+--------------------------------
+#pragma hdrstop
+#include "scheme.h"
+
+int main(void)
+{
+    Scheme_Env* env = scheme_basic_env();
+    return 0;
+}
+--------------------------------
+
+I traced into MzScheme source code with debugger
+and found that the bad point is line 3691 of 
+the file src/mzscheme/src/cstartup.inc .
+
+What's wrong with my compilation or sources ?
+Can I fix this problem easily ?
+Any suggestion will be appreciated.
+
+
+Sincerely
+Chihiro Kuraya
+=============================================================
+
+
+=============================================================
+Greetings,
+
+> I am striving to embed MzScheme to my C++ Builder 5 
+> application on Windows 2000.  I compiled MzScheme and GC 
+> library from source (v207).
+> 
+> But a simple console program (single-thread) as the following
+> doesn't work well, and access violation happens
+> at scheme_basic_env() function.
+> (Program tries to read address 0x00000004.)
+
+After debugging MzScheme source code for hours,
+I have resolved this problem.
+
+Access vilolation was being happened at
+src/mzscheme/src/numstr.c (line 958)
+--------------------------------------------
+    cpy = str;
+    d = STRTOD(cpy + delta, &ptr);
+--------------------------------------------
+
+When I dug into assembler code of strtod() function,
+I found the exception happened when internal 
+__getLocaleNumericInfo() function was called.
+
+Then I searched source position where
+strtod() will begin to raise excepotion,
+and found the position is 
+src/mzscheme/src/string.c (line 1526).
+
+--------------------------------------------
+    if (!setlocale(LC_CTYPE, name))
+      setlocale(LC_CTYPE, "C");
+    if (!setlocale(LC_COLLATE, name))
+      setlocale(LC_COLLATE, "C");
+--------------------------------------------
+
+
+On C++ Builder 5 (+Update1),
+passing empty string to setlocate() function
+will make strtod() function buggy
+through internal __getLocaleNumericInfo() function.
+(Passing "C" or NULL is ok.)
+
+The following simple code will reproduce
+this access viloation.
+
+---------------------------------------------
+#include <stdlib.h>
+#include <locale.h>
+
+int main(void)
+{
+    const char* str = "0.0";
+    char* ptr;
+    double d;
+
+    setlocale(LC_CTYPE, "");
+    d = strtod(str, &ptr);   // exception happens at this point.
+    
+    return 0;
+}
+---------------------------------------------
+
+To avoid this problem, I have defined DONT_USE_LOCALE macro
+as a compiler option of libmzsch project,
+and it went well at all with my application.
+
+
+I have found another bug during building libmzsch library
+with DONT_USE_LOCALE macro.
+
+Current source code (v207) defines charLOC_LOCCOMP macro
+in src/mzscheme/src/char.c (line 307) as follows.
+
+---------------------------------------------
+#ifdef DONT_USE_LOCALE
+# define charLOC_UPCASE(t, l, nl) nl;
+# define charLOCCOMP(t, prev, c, comp, rv) /* empty */
+#else
+# define charLOC_UPCASE(t, l, nl) if (t) { l; } else { nl; }
+# define charLOC_LOCCOMP(t, prev, c, comp, rv) \
+---------------------------------------------
+
+But it cannot compile char.c with this definition.
+The maro name 'charLOCCOMP' should be 'charLOC_LOCCOMP'.
+
+
+Chihiro Kuraya
+=============================================================
+
+>How-To-Repeat:
+Just compile MzScheme v207 by C++ Builder 5 (+Update1)
+and use it from your application
+by calling scheme_basic_env() function.
+This will raise access violation.
+
+>Fix:
+>Audit-Trail:
+Class changed from "sw-bug" to "duplicate" by eli at Wed, 14 Jul 2004 14:30:05 -0400
+Reason>>> duplicate of PR6918
+
+Responsible changed from "nobody" to "mflatt" by eli at Wed, 14 Jul 2004 14:30:05 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Wed, 14 Jul 2004 14:30:05 -0400
+Reason>>> duplicate of PR6918
+
+

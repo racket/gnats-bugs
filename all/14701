@@ -1,0 +1,124 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Aug 25 16:38:57 2014
+Received: from mail-ig0-f179.google.com (mail-ig0-f179.google.com [209.85.213.179])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s7PKcqOf030263
+	for <bugs@bugs.plt-scheme.org>; Mon, 25 Aug 2014 16:38:53 -0400
+Message-Id: <201408252038.s7PKcoCt030256@winooski.ccs.neu.edu>
+Date: Mon, 25 Aug 2014 16:38:50 -0400
+From: stchang@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: scope of match-define pattern is not the same as match
+
+>Number:         14701
+>Category:       all
+>Synopsis:       scope of match-define pattern is not the same as match
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Aug 25 16:40:01 -0400 2014
+>Last-Modified:  Mon Aug 25 17:08:01 -0400 2014
+>Originator:     Stephen Chang
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.0.2
+>Environment:
+unix "Linux caprica 3.2.0-4-amd64 #1 SMP Debian 3.2.54-2 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 314403584
+raco pkg (show):
+/home/stchang/plt/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [213 auto-installed packages not shown]
+Installation-wide:
+ Package         Checksum    Source
+ generic-bind    #f          (link ../../../../racket/generic-bind)
+ graph           #f          (link ../../../../racket/graph)
+ [2 auto-installed packages not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/stchang/.racket/development/collects"
+ (non-existent-path))
+("/home/stchang/plt/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((test) (main)) #t))
+>Description:
+The following program is ok:
+
+(let ([c add1])
+  (match 1
+    [(and x (app (λ _ c) c)) (c x)]))
+
+
+but this one reports that c is not in scope in the body of the lambda:
+
+(let ([c add1])
+  (match-define (and x (app (λ _ c) c)) 1)
+  (c x))
+
+=>
+
+c: undefined;
+ cannot use before initialization
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Stephen Chang <stchang@ccs.neu.edu>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14701: scope of match-define pattern is not the
+ same as match
+Date: Mon, 25 Aug 2014 17:03:52 -0400
+
+ On Mon, Aug 25, 2014 at 4:40 PM,  <stchang@ccs.neu.edu> wrote:
+ >
+ > *** Description:
+ > The following program is ok:
+ >
+ > (let ([c add1])
+ >   (match 1
+ >     [(and x (app (λ _ c) c)) (c x)]))
+ >
+ >
+ > but this one reports that c is not in scope in the body of the lambda:
+ >
+ > (let ([c add1])
+ >   (match-define (and x (app (λ _ c) c)) 1)
+ >   (c x))
+ >
+ > =>
+ >
+ > c: undefined;
+ >  cannot use before initialization
+ 
+ 
+ These programs aren't as related as you think they are, because the
+ second one binds `c` in a scope that includes the lambda in the `app`
+ pattern. The first one uses `add1` there, but the second refers to the
+ binding of `c` created by `match-define`, and thus gets the early
+ undefined error.
+ 
+ IOW, the second program is really like this:
+ 
+ (let ([c add1])
+   (define c ((lambda _ c) 1))
+   (define x c)
+   (c x))
+ 
+ Which has the same error.
+ 
+ Sam
+ 

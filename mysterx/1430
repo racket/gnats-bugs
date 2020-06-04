@@ -1,0 +1,291 @@
+From nobody@cs.rice.edu  Sun Apr 23 21:14:13 2000
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id VAA02224
+	for <plt-gnats@cs.rice.edu>; Sun, 23 Apr 2000 21:14:13 -0500 (CDT)
+Message-Id: <200004240214.VAA08632@web.cs.rice.edu>
+Date: Sun, 23 Apr 2000 21:14:12 -0500 (CDT)
+From: lars@cs.nwu.edu
+Reply-To: lars@cs.nwu.edu
+To: plt-gnats@cs.rice.edu
+Subject: MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present 
+
+>Number:         1430
+>Category:       mysterx
+>Synopsis:       MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present
+>Confidential:   no
+>Severity:       non-critical
+>Priority:       low
+>Responsible:    steck
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon Apr 24 02:15:03 GMT 2000
+>Last-Modified:  Tue May  9 13:55:25 CDT 2000
+>Originator:     Lars Bergstrom
+>Organization:
+titan
+>Release:        101
+>Environment:
+MS Windows NT
+>Description:
+Just so you know, I think there's a bug in the algorithm used in mysterx.cxx's coclassTypeInfoFromTypeInfo function. You search through the encompassing TypeLibrary for the interface in order to find the coclass that implements it. However, if you look at, for example, the msxml3.dll's type library info (using OLEVIEW or another reasonable tool), you'll see that if you have an instance of a coclass XMLDocument and are using its IXMLDocument2 interface, it'll first fail to provide you with IProvideClassInfo (lame msxml team...) and will then fall back to your algorithm. However, it'll pick up the coclass DOMDocument instead, as it appears earlier numerically in the type library.
+
+This is bad because of one context in which you use the function -- to determine the event source interfaces. The DOMDocument coclass exposes a source interface; the XMLDocument coclass doesn't.
+
+A fix for this algorithm is to instead chuck trying to find the coclass in the failure case and to instead enumerate the available connection points using the IConnectionPointContainer's appropriate hooks (that's what I do in WinScheme 48). It means that you'll have to make the decision of whether to allow your users to choose an event interface to use or whether you'll just find a better way to determine the [default] one. I chose the former and have no suggestions as to the latter, alas.
+
+By the way -- don't just throw away using IProvideClassInfo, as there are some controls which support connection points but don't allow you to enumerate them. All of them that I've run across, though, *have* supported IProvideClassInfo. An example of such an object is the agent object itself returned from the MS Agent SDK after you go through the initialization-dance to get it running.
+
+>How-To-Repeat:
+Can give source, if required. I have to admit that I'd run into the bug in my implementation for WinScheme 48 and wanted to see how you had handled it -- that's what lead me to notice your buglet. That was the same algorithm I was using it at first, too :-)
+>Fix:
+
+>Audit-Trail:
+
+From: "Paul A. Steckler" <steck@cs.rice.edu>
+To: <lars@cs.nwu.edu>, <plt-gnats@cs.rice.edu>
+Cc:  Subject: Re: all/1430: MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present 
+Date: Mon, 24 Apr 2000 12:11:16 -0500
+
+ Lars,
+ 
+ >Just so you know, I think there's a bug in the algorithm used in 
+ >mysterx.cxx's coclassTypeInfoFromTypeInfo function. You search 
+ >through the encompassing TypeLibrary for the interface in order to 
+ >find the coclass that implements it. However, if you look at, for 
+ >example, the msxml3.dll's type library info (using OLEVIEW or 
+ >another reasonable tool), you'll see that if you have an instance 
+ >of a coclass XMLDocument and are using its IXMLDocument2 
+ >interface, it'll first fail to provide you with IProvideClassInfo 
+ >(lame msxml team...) and will then fall back to your algorithm. 
+ >However, it'll pick up the coclass DOMDocument instead, as it 
+ >appears earlier numerically in the type library.
+ 
+ Thanks for looking at this code.
+ 
+ As I recall -- and my recollection is a bit fuzzy now -- the 
+ goal of this code is to take the ITypeInfo interface for
+ a COM object, and find the ITypeInfo interface for 
+ the object's coclass.
+ 
+ How about the following alternative?  From the COM object's
+ ITypeInfo interface, obtain the containing type library's
+ ITypeLib interface (as I'm already doing).  With that
+ interface, call GetLibAttr().  The TLIBATTR structure
+ contains a GUID, which I *think* is for the coclass.
+ So I can call ITypeLib::GetTypeInfoOfGuid() to
+ obtain the coclass's ITypeInfo.
+ 
+ Does this sound like a plausible strategy?
+ 
+ -- Paul
+ 
+ 
+ 
+
+From: "Paul A. Steckler" <steck@cs.rice.edu>
+To: <lars@cs.nwu.edu>, <plt-gnats@cs.rice.edu>
+Cc:  Subject: Re: all/1430: MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present 
+Date: Mon, 24 Apr 2000 13:10:01 -0500
+
+ > How about the following alternative?  From the COM object's
+ ITypeInfo interface, obtain the containing type library's
+ ITypeLib interface (as I'm already doing).  With that
+ interface, call GetLibAttr().  The TLIBATTR structure
+ contains a GUID, which I *think* is for the coclass.
+ So I can call ITypeLib::GetTypeInfoOfGuid() to
+ obtain the coclass's ITypeInfo.
+ 
+ Of course, this won't work, since the GUID is for 
+ the type library, not for the coclass :-(
+ 
+ -- Paul
+ 
+ 
+
+From: "Paul A. Steckler" <steck@cs.rice.edu>
+To: <lars@cs.nwu.edu>, <plt-gnats@cs.rice.edu>
+Cc:  Subject: Re: all/1430: MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present 
+Date: Mon, 24 Apr 2000 14:32:24 -0500
+
+ Lars,
+ 
+ > ... .  However, if you look at, for 
+ >example, the msxml3.dll's type library info (using OLEVIEW or 
+ >another reasonable tool), you'll see that if you have an instance 
+ >of a coclass XMLDocument and are using its IXMLDocument2 
+ >interface, it'll first fail to provide you with IProvideClassInfo 
+ >(lame msxml team...) and will then fall back to your algorithm. 
+ >However, it'll pick up the coclass DOMDocument instead, as it 
+ >appears earlier numerically in the type library.
+ 
+ I'm not sure I understand, perhaps because the names of the 
+ classes and interfaces are so close.
+ 
+ I'm looking at what I think is an older version of the MSXML
+ type library (our MSDN subscription ran out :-)).  Here's my 
+ understanding of the situation:
+ 
+ 	- an instance of coclass XMLDocument, which  
+ 	implements the interface IXMLDocument2
+ 
+ 	- the ITypeInfo for that instance should describe
+ 	the properties and methods of IXMLDocument2
+ 
+ 	- of the several coclasses in the type library,
+ 	only coclass XMLDocument contains the IXMLDocument2
+ 	interface
+ 
+ 	- I enumerate all the coclasses in the type lbirary, 
+ 	and get an ITypeInfo interface for each
+ 
+ 	- for each such coclass' ITypeInfo, I call GetRefTypeOfImplType()
+ 	to get a "handle" for each interface the coclass implements
+ 
+ 	- for such handle, I get the actual ITypeInfo for the 
+ 	interface using GetRefTypeInfo()
+ 
+ 	- the ITypeInfo is compared with the ITypeInfo for the
+ 	coclass instance, that is, for the interface IXMLDocument2.
+       The comparison succeeds iff the interfaces are intensionally 
+ 	the same (same C++ pointer) or have the same GUID.  
+ 
+ Now, the coclass DOMDocument implements the interface 
+ IXMLDOMDocument (*not* IXMLDocument2).  So when the code
+ examines the interfaces for that coclass, the comparison 
+ should fail.  Since no other coclass implements 
+ IXMLDocument2, eventually we should get down to XMLDocument,
+ which does implement it.  And because that coclass
+ has no outbound interface, we don't get the requested 
+ ITypeInfo for events -- as desired.
+ 
+ Am I missing something?
+ 
+ -- Paul
+ 
+ 
+ 
+
+From: lars@cs.nwu.edu
+To: steck@cs.rice.edu (Paul A. Steckler)
+Cc: lars@cs.nwu.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/1430: MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present
+Date: Mon, 24 Apr 2000 14:41:12 -0500 (CDT)
+
+ > I'm looking at what I think is an older version of the MSXML type
+ > library (our MSDN subscription ran out :-)).  Here's my
+ > understanding of the situation:
+ 
+ Check out the new release of the MSXML kit --
+ http://msdn.microsoft.com/downloads/webtechnology/xml/msxml.asp
+ 
+ Also, MS gives out free MSDN Universal subscriptions, if you know the
+ right people to ask. There should be a 'Microsoft Student Consultant'
+ associated with Rice who can get you anything you need from MS
+ (software, books, etc). If you can't locate them, I'll try to see if
+ you actually *do* have one. If you don't, I can put you in touch with
+ some people in the branch of Microsoft Research who handle outreach to
+ universities, if you'd like.
+ 
+ > Now, the coclass DOMDocument implements the interface 
+ > IXMLDOMDocument (*not* IXMLDocument2).
+ 
+ As you probably would guess, this changes in the new release -- they
+ both implement IXMLDOMDocument2 :-)
+ 
+ Sorry for not being more version-specific; when you get it all
+ installed, it'll be \winnt\system32\msxml3.dll with the type library
+ information you can peruse.
+ 
+ Happy hacking,
+ - Lars
+
+From: "Paul A. Steckler" <steck@cs.rice.edu>
+To: <lars@cs.nwu.edu>
+Cc: "Plt-Gnats@Cs. Rice. Edu" <plt-gnats@cs.rice.edu>
+Subject: Re: all/1430: MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present
+Date: Mon, 24 Apr 2000 15:31:59 -0500
+
+ Lars,
+  
+ > Also, MS gives out free MSDN Universal subscriptions, if you know the
+ > right people to ask. There should be a 'Microsoft Student Consultant'
+ > associated with Rice who can get you anything you need from MS
+ > (software, books, etc). If you can't locate them, I'll try to see if
+ > you actually *do* have one. If you don't, I can put you in touch with
+ > some people in the branch of Microsoft Research who handle outreach to
+ > universities, if you'd like.
+ 
+ Actually, MS was offering free MSDN's for registered VS users.  
+ I signed up a couple of months ago, but haven't heard back.
+ 
+ Of course, I'm not a student, so I may not be eligible for the 
+ perks you mention.
+ 
+ > Sorry for not being more version-specific; when you get it all
+ > installed, it'll be \winnt\system32\msxml3.dll with the type library
+ > information you can peruse.
+ 
+ How dare they have two classes implementing the same interface! :-)
+ 
+ I think I have a reasonable workaround.  For all the COM objects
+ created by MysterX using CoCreateInstance(), I can store a CLSID
+ with the Scheme representation of the object.  That will make it easy 
+ to find the coclass ITypeInfo.
+ 
+ For other COM objects, such as those returned by methods, 
+ I'll use the current algorithm, except that if more than
+ one coclass implements the interface, I'll report an ambiguity 
+ error.  This error should be fairly unusual.
+ 
+ For the ambiguous cases, I'll add an alternative entry point 
+ where the user can supply a ProgID to identify the coclass.  Phew!
+ 
+ -- Paul
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: steck
+State-Changed-When: Mon Apr 24 16:01:09 2000
+State-Changed-Why:
+Looked at source.
+ 
+
+From: "Lars Bergstrom" <lars@lars.com>
+To: "Paul A. Steckler" <steck@cs.rice.edu>
+Cc: <plt-gnats@cs.rice.edu>
+Subject: RE: all/1430: MysterX buglet: incorrect fallback lookup algorithm for event interface when no IProvideClassInfo present
+Date: Mon, 24 Apr 2000 17:05:49 -0500
+
+ > Actually, MS was offering free MSDN's for registered
+ > VS users.  I signed up a couple of months ago, but
+ > haven't heard back.
+ 
+ Just MSDN Library. I was talking about full MSDN Universal subscriptions.
+ 
+ > Of course, I'm not a student, so I may not be
+ > eligible for the perks you mention.
+ 
+ They're available for research groups and suitable non-profit projects. It
+ shouldn't be a problem (you might have to have your advisor bounce them
+ email, though).
+ 
+ > For the ambiguous cases, I'll add an alternative
+ > entry point where the user can supply a ProgID to
+ > identify the coclass.  Phew!
+ 
+ That sounds pretty reasonable! I got disgusted, myself, and instead allow
+ the user to specify the IID of the interface to handle events on. It's a
+ little bit more unwieldy, as it requires the user to choose between the
+ event interfaces through our little object display system, but served our
+ manicial needs. :-)
+ 
+ Happy hacking,
+ - Lars
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: steck
+State-Changed-When: Tue May  9 13:55:20 2000
+State-Changed-Why:
+Done.
+ 
+>Unformatted:

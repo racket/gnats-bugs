@@ -1,0 +1,100 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Sep 30 16:26:50 2013
+Received: from mail-we0-f173.google.com (mail-we0-f173.google.com [74.125.82.173])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id r8UKQkwH026873
+	for <bugs@bugs.plt-scheme.org>; Mon, 30 Sep 2013 16:26:47 -0400
+Message-Id: <201309302026.r8UKQgRs026842@winooski.ccs.neu.edu>
+Date: Mon, 30 Sep 2013 16:26:42 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: `typecheck-fail' fail
+
+>Number:         14061
+>Category:       typed-scheme
+>Synopsis:       `typecheck-fail' fail
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Sep 30 16:28:02 -0400 2013
+>Last-Modified:  Sat Oct 05 21:01:13 -0400 2013
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Win32 / Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.95 Safari/537.36
+>Description:
+Influenced by Eric's talk yesterday, I've finally played with
+`typecheck-fail' to see if it can get me the features of a disjoint
+union that are so important in my class language (since I'd really
+love to have the students use just `match' rather than that and
+`cases').  There's some problems with it, maybe solvable to a point
+where I can use it:
+
+* Minor: the documentation has some weirdness in "it must be..., it is
+  used ..."
+
+* Also, note that the error in the docs has "in: #%top-interaction",
+  shouldn't that be in the `cond*' expression?
+
+* The restriction of having only an identifier for `#:covered-id' is
+  bad, since I'd want to use it with any expression (to `match' on).
+  A cheap way out is to add another keyword to the syntax for the
+  expression that has the uncovered type -- so I could use a temporary
+  identifier but keep the error message.  It's probably all redundant
+  since it looks like I need to construct a message -- but the
+  constructed message could be left to TR if this information is
+  given, so it seems like a cleaner way to do it.
+
+* Wish: since `match' is catching unreachable code (eg, the bogus
+  string below doesn't throw a type error), it would be really good if
+  there was a way to make it throw an error in such cases.  Possibly
+  as some additional TR `match*' thing.
+
+  Alternatively some new syntax that is considered by TR as an
+  annotation of "this type should matter", so such a `match*' could be
+  implemented by expansion into
+
+      (match foo
+        [pattern (should-matter expr)]
+        ...)
+
+  and if the typechecker sees that one of these types was not checked,
+  it would throw an error.  (Hopefully that's clear -- the point is
+  that it seems to me like it shouldn't be hard to do this somehow.)
+
+* And finally, the main thing is that it looks like it's not working,
+  and I suspect that "it" is actually `match'.  See the code below,
+  which is what `define-type' from my class would expand to.  The
+  problem is that I still get the coverage error.  I tried to play
+  with it further (see `evalb') but couldn't find a way to make it
+  work.
+>How-To-Repeat:
+#lang typed/racket
+
+(define-type AE (U Num Add Sub))
+(struct: Num ([n : Number]) #:transparent)
+(struct: Add ([l : AE] [r : AE]) #:transparent)
+(struct: Sub ([l : AE] [r : AE]) #:transparent)
+
+(: eval : AE -> Number)
+(define (eval expr)
+  (match expr
+    [(Num n) n]
+    [(Add (Num 0) e) (eval e)]
+    [(Add (Num 0) e) "bleh"]
+    [(Add e1 e2) (+ (eval e1) (eval e2))]
+    [_ (typecheck-fail whatever #:covered-id expr)]))
+
+(eval (Add (Num 1) (Add (Num 2) (Num 3))))
+
+(: evalb : Boolean -> Number)
+(define (evalb expr)
+  (match expr
+    [#f 0]
+    [#t 1]
+    [_ (typecheck-fail whatever #:covered-id expr)]))
+>Fix:

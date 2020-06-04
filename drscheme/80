@@ -1,0 +1,189 @@
+From krentel@cs.rice.edu  Tue May 13 14:38:40 1997
+Received: from new-world.cs.rice.edu (new-world.cs.rice.edu [128.42.6.103]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id OAA08239 for <plt-gnats@cs.rice.edu>; Tue, 13 May 1997 14:38:40 -0500 (CDT)
+Message-Id: <199705131938.OAA18100@new-world.cs.rice.edu>
+Date: Tue, 13 May 1997 14:38:39 -0500 (CDT)
+From: "Mark W. Krentel" <krentel@cs.rice.edu>
+Reply-To: krentel@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: errors are not caught in gui libraries
+X-Send-Pr-Version: 3.101
+
+>Number:         80
+>Category:       drscheme
+>Synopsis:       errors are not caught in gui libraries
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue May 13 19:40:02 GMT 1997
+>Last-Modified:  Mon Mar 16 10:33:27 CST 1998
+>Originator:     Mark W. Krentel
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	
+Freebsd, nw, 49/s1, default prefs.
+
+>Description:
+	
+I write a library which provides the function "run" which takes
+one argument, a thunk, and invokes it somewhere.  The user writes
+the thunk, but it has an error, say (car 4).  On running the user's
+program plus library, something reasonable gets highlighted.
+Correct.
+
+But now, I put run inside a gui with some button to invoke the thunk.
+Now I get an internal error.
+
+I guess this happens because the gui is run in a separate thread
+which has its own error escape handler?
+
+This is especially bad for comp210 because so many of the libraries
+are gui's and an error in the student's program will show up as
+an internal error.
+
+>How-To-Repeat:
+	
+This is my library:
+
+(unit/sig (run)
+  (import plt:userspace^)
+  (define run
+    (lambda (user-fcn)
+      (local
+          [(define frame (make-object mred:frame% null "MyFrame"))
+           (define panel (make-object mred:vertical-panel% frame))
+
+           (define button
+             (make-object 
+              mred:button% 
+              panel
+              (lambda (self event) (user-fcn))
+              "Invoke"))
+           
+           (define quit-button
+             (make-object 
+              mred:button%
+              panel
+              (lambda (self event) (send frame show #f))
+              "Quit"))]
+        
+        (send frame show #t)))))
+
+This is my program (in defns window):
+
+(define f (lambda () (car 4)))
+(run f)
+
+>Fix:
+	
+>Audit-Trail:
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: plt-design@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/80: errors are not caught in gui libraries
+Date: Tue, 13 May 1997 15:36:24 -0500 (CDT)
+
+ Mark W. Krentel wrote something similar to:
+ > I write a library which provides the function "run" which takes one
+ > argument, a thunk, and invokes it somewhere.  The user writes the thunk,
+ > but it has an error, say (car 4).  I put run inside a gui with some
+ > button to invoke the thunk.  I get an internal error.
+ 
+ The fact that is shows up as an internal error is a limitation of the
+ current library setup. Only when libraries are run through zodiac will we
+ be able to catch these errors, and even then source locaitons for errors
+ must be in the library program in some cases. (Running libraries through
+ zodiac requires a little more support from zodiac, which should be around
+ in the release, namely separating out vocabularies (Shriram?))
+ 
+ There are lots of problems with libraries -- and many of these problems
+ will go away if libraries are eliminated in favor of compound-units ala drs
+ ii. 
+ 
+ There is also an interesting problem with reporting errors in the presence
+ of threads. Consider this program:
+ 
+ (define f (lambda () (thread f) (car)))
+ (f)
+ 
+ I think I understand how to report errors in a multi-threaded situation,
+ but my solution requires rewriting the REPL (something I started a while
+ back, but have pushed onto the back burner becuase of time constraints).
+ 
+ 
+ Robby
+
+From: Shriram Krishnamurthi <shriram@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-design@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/80: errors are not caught in gui libraries
+Date: Tue, 13 May 1997 15:40:47 -0500 (CDT)
+
+ > The fact that is shows up as an internal error is a limitation of the
+ > current library setup. Only when libraries are run through zodiac will we
+ > be able to catch these errors, and even then source locaitons for errors
+ > must be in the library program in some cases. (Running libraries through
+ > zodiac requires a little more support from zodiac, which should be around
+ > in the release, namely separating out vocabularies (Shriram?))
+ 
+ As I mentioned in person, I had M3 all but entirely split up, but we
+ made a bunch of changes to the language of MzScheme which created too
+ many changes for me to keep track of.  Hence, the split vocabulary
+ version of M3 will be available in the next release (not the current
+ one).  It will take a few days to split the vocabularies (now that
+ I've done it twice and know how to do it).
+ 
+ 'shriram
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: shriram@cs.rice.edu
+Cc: plt-design@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/80: errors are not caught in gui libraries
+Date: Tue, 13 May 1997 16:04:18 -0500 (CDT)
+
+ Shriram Krishnamurthi writes:
+ > > The fact that is shows up as an internal error is a limitation of the
+ > > current library setup. Only when libraries are run through zodiac will we
+ > > be able to catch these errors, and even then source locaitons for errors
+ > > must be in the library program in some cases. (Running libraries through
+ > > zodiac requires a little more support from zodiac, which should be around
+ > > in the release, namely separating out vocabularies (Shriram?))
+ > 
+ > As I mentioned in person, I had M3 all but entirely split up, but we
+ > made a bunch of changes to the language of MzScheme which created too
+ > many changes for me to keep track of.  Hence, the split vocabulary
+ > version of M3 will be available in the next release (not the current
+ > one).  It will take a few days to split the vocabularies (now that
+ > I've done it twice and know how to do it).
+ 
+ I didn't mean to slight you, Shriram. In fact zodiac's improvement only
+ patches libraries, making the buggyness a little harder to get to, it
+ doesn't fix libraries.
+ 
+ Robby
+
+Responsible-Changed-From-To: krentel->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Sat May 24 12:47:38 1997
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: robby
+State-Changed-When: Thu Mar  5 16:21:57 1998
+State-Changed-Why:
+
+no longer an internal error
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: robby
+State-Changed-When: Mon Mar 16 10:33:19 1998
+State-Changed-Why:
+
+
+>Unformatted:

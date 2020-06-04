@@ -1,0 +1,337 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Feb 14 02:18:20 2009
+Received: from yw-out-2324.google.com (yw-out-2324.google.com [74.125.46.29])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n1E7I6Xq001312
+	for <bugs@bugs.plt-scheme.org>; Sat, 14 Feb 2009 02:18:06 -0500
+Message-Id: <200902140718.n1E7I4q0001305@champlain.ccs.neu.edu>
+Date: Sat, 14 Feb 2009 02:18:04 -0500
+From: eggert@cs.ucla.edu
+To: bugs@plt-scheme.org
+Subject: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+
+>Number:         10072
+>Category:       mzscheme
+>Synopsis:       nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Feb 14 02:20:01 -0500 2009
+>Closed-Date:    Sat May 09 17:10:41 -0400 2009
+>Last-Modified:  Mon May 11 22:32:01 -0400 2009
+>Originator:     Paul Eggert
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.4
+>Environment:
+Solaris 8 sparc
+>Description:
+PLT Scheme won't build on Solaris 8 (sparc) with GCC 4.3.3, because the "unix-install" rule in src/mzscheme/Makefile.in contains a line "cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter", and on Solaris 8, /usr/ccs/bin/strip doesn't have a -S option.  The build failure is:
+
+cd ..; strip -S "/usr/local/cs/plt-4.1.4/lib/plt/starter"
+strip: illegal option -- S
+usage: strip [-lVx] file ...
+make[4]: *** [unix-install] Error 1
+
+The simple fix is to remove the line containing "strip -S".
+>How-To-Repeat:
+cd plt-4.1.4/src
+
+./configure --prefix=/usr/local/cs/plt-4.1.4 \
+  CXX="g++ -D_WCHAR_T -R/usr/local/cs/gcc-`gcc -dumpversion`/lib -Wl,-z,ignore"
+
+make
+make install
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: eggert@cs.ucla.edu, Matthew Flatt <mflatt@cs.utah.edu>,
+        bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Sat, 14 Feb 2009 03:12:12 -0500
+
+ If you're using GCC, then doesn't it make sense to also use the GNU
+ strip -- which does have a -S option?
+ 
+ 
+ On Feb 14, eggert@cs.ucla.edu wrote:
+ > PLT Scheme won't build on Solaris 8 (sparc) with GCC 4.3.3, because
+ > the "unix-install" rule in src/mzscheme/Makefile.in contains a line
+ > "cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter", and on Solaris 8,
+ > /usr/ccs/bin/strip doesn't have a -S option.  The build failure is:
+ > 
+ > cd ..; strip -S "/usr/local/cs/plt-4.1.4/lib/plt/starter"
+ > strip: illegal option -- S
+ > usage: strip [-lVx] file ...
+ > make[4]: *** [unix-install] Error 1
+ > 
+ > The simple fix is to remove the line containing "strip -S".
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Paul Eggert <eggert@CS.UCLA.EDU>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Sat, 09 May 2009 10:48:02 -0700
+
+ Eli Barzilay <eli@barzilay.org> writes:
+ 
+ > If you're using GCC, then doesn't it make sense to also use the GNU
+ > strip -- which does have a -S option?
+ 
+ I'm afraid not.  When using GCC, it's far more common for Solaris
+ installations to use Solaris binutils than to use GNU binutils.  The GNU
+ binutils historically have had compatibility issues on Solaris.
+ 
+ The problem is still there with PLT 4.1.5.  I expect the problem also
+ occurs on Solaris 10, though I haven't tested it there.  Here's the
+ obvious workaround, which worked for me on Solaris 8.  (Solaris strip's
+ -x option is probably what you want here, but I didn't bother with the
+ porting hassle with that.)
+ 
+ --- src/mzscheme/Makefile.in~	2009-03-15 18:22:47.000000000 -0700
+ +++ src/mzscheme/Makefile.in	2009-05-09 10:12:43.417754200 -0700
+ @@ -275,7 +275,7 @@ unix-install:	
+  	cd ..; rm -f "$(DESTDIR)$(bindir)/mzscheme@CGC_INSTALLED@"
+  	cd ..; rm -f "$(DESTDIR)$(bindir)/mzscheme@MMM_INSTALLED@"
+  	cd ..; cp mzscheme/starter "$(DESTDIR)$(libpltdir)/starter"
+ -	cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter"
+ +	cd ..; strip "$(DESTDIR)$(libpltdir)/starter"
+  	cd ..; echo 'CC=@CC@' > "$(BUILDINFO)"
+  	cd ..; echo 'CFLAGS=@CFLAGS@ @PREFLAGS@ @COMPFLAGS@' >> "$(BUILDINFO)"
+  	cd ..; echo 'OPTIONS=@OPTIONS@' >> "$(BUILDINFO)"
+From: Eli Barzilay <eli@barzilay.org>
+To: Paul Eggert <eggert@CS.UCLA.EDU>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Sat, 9 May 2009 14:16:44 -0400
+
+ On May  9, Paul Eggert wrote:
+ > Eli Barzilay <eli@barzilay.org> writes:
+ > 
+ > > If you're using GCC, then doesn't it make sense to also use the GNU
+ > > strip -- which does have a -S option?
+ > 
+ > I'm afraid not.  When using GCC, it's far more common for Solaris
+ > installations to use Solaris binutils than to use GNU binutils.  The
+ > GNU binutils historically have had compatibility issues on Solaris.
+ 
+ (FWIW, not only did I not find a machine with the solaris version
+ installed by default -- it took me ~15 minutes to find a machine with
+ the solaris strip installed *somewhere*.  That's searching through
+ solaris machines in three different departments.)
+ 
+ 
+ > The problem is still there with PLT 4.1.5.  I expect the problem
+ > also occurs on Solaris 10, though I haven't tested it there.  Here's
+ > the obvious workaround, which worked for me on Solaris 8.  (Solaris
+ > strip's -x option is probably what you want here, but I didn't
+ > bother with the porting hassle with that.)
+ > 
+ > [...]
+ > -	cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter"
+ > +	cd ..; strip "$(DESTDIR)$(libpltdir)/starter"
+ > [...]
+ 
+ Perhaps Matthew knows of some way to it work differently on linux and
+ on solaris, but this patch is looks wrong to me.  AFAICT, the man page
+ seem to indicate that `strip' removes everything by default, which is
+ probably not a good idea.  The same goes for `-x', which on linux
+ means "--discard-all, Remove non-global symbols".
+ 
+ Without an easy way to run a different command on solaris, the current
+ state (works fine on linux, throws an error on solaris) seems to me
+ better than the above change (works fine on both, breaks linux
+ binaries).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Paul Eggert <eggert@CS.UCLA.EDU>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Sat, 09 May 2009 11:40:54 -0700
+
+ Eli Barzilay <eli@barzilay.org> writes:
+ 
+ > Without an easy way to run a different command on solaris, the current
+ > state (works fine on linux, throws an error on solaris) seems to me
+ > better than the above change (works fine on both, breaks linux
+ > binaries).
+ 
+ OK, how about this patch instead?  It shouldn't affect Linux binaries,
+ and it won't cause the build to fail on Solaris.
+ 
+ --- src/mzscheme/Makefile.in~	2009-03-15 18:22:47.000000000 -0700
+ +++ src/mzscheme/Makefile.in	2009-05-09 11:36:44.360686200 -0700
+ @@ -275,7 +275,7 @@ unix-install:	
+  	cd ..; rm -f "$(DESTDIR)$(bindir)/mzscheme@CGC_INSTALLED@"
+  	cd ..; rm -f "$(DESTDIR)$(bindir)/mzscheme@MMM_INSTALLED@"
+  	cd ..; cp mzscheme/starter "$(DESTDIR)$(libpltdir)/starter"
+ -	cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter"
+ +	-cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter"
+  	cd ..; echo 'CC=@CC@' > "$(BUILDINFO)"
+  	cd ..; echo 'CFLAGS=@CFLAGS@ @PREFLAGS@ @COMPFLAGS@' >> "$(BUILDINFO)"
+  	cd ..; echo 'OPTIONS=@OPTIONS@' >> "$(BUILDINFO)"
+From: Eli Barzilay <eli@barzilay.org>
+To: Paul Eggert <eggert@CS.UCLA.EDU>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Sat, 9 May 2009 15:45:04 -0400
+
+ On May  9, Paul Eggert wrote:
+ > Eli Barzilay <eli@barzilay.org> writes:
+ > 
+ > > Without an easy way to run a different command on solaris, the current
+ > > state (works fine on linux, throws an error on solaris) seems to me
+ > > better than the above change (works fine on both, breaks linux
+ > > binaries).
+ > 
+ > OK, how about this patch instead?  It shouldn't affect Linux binaries,
+ > and it won't cause the build to fail on Solaris.
+ 
+ IIRC there *was* a reason to strip these binaries.
+ 
+ 
+ > --- src/mzscheme/Makefile.in~	2009-03-15 18:22:47.000000000 -0700
+ > +++ src/mzscheme/Makefile.in	2009-05-09 11:36:44.360686200 -0700
+ > @@ -275,7 +275,7 @@ unix-install:	
+ >  	cd ..; rm -f "$(DESTDIR)$(bindir)/mzscheme@CGC_INSTALLED@"
+ >  	cd ..; rm -f "$(DESTDIR)$(bindir)/mzscheme@MMM_INSTALLED@"
+ >  	cd ..; cp mzscheme/starter "$(DESTDIR)$(libpltdir)/starter"
+ > -	cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter"
+ > +	-cd ..; strip -S "$(DESTDIR)$(libpltdir)/starter"
+ >  	cd ..; echo 'CC=@CC@' > "$(BUILDINFO)"
+ >  	cd ..; echo 'CFLAGS=@CFLAGS@ @PREFLAGS@ @COMPFLAGS@' >> "$(BUILDINFO)"
+ >  	cd ..; echo 'OPTIONS=@OPTIONS@' >> "$(BUILDINFO)"
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Paul Eggert <eggert@CS.UCLA.EDU>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Sat, 09 May 2009 13:50:38 -0700
+
+ Eli Barzilay <eli@barzilay.org> writes:
+ 
+ > IIRC there *was* a reason to strip these binaries.
+ 
+ Sure, but isn't the proposed change an improvement?  Normally the only
+ reason to strip is to make the binaries smaller.  If that's the case,
+ it's safe to not strip on Solaris; and it's a win to not strip, because
+ it means the Solaris build will succeed and instead of failing (albeit
+ with larger binaries).  Surely it's better to have larger binaries that
+ work than to not have any binaries at all.
+
+Responsible changed from "nobody" to "eli" by eli at Sat, 09 May 2009 17:10:41 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Sat, 09 May 2009 17:10:41 -0400
+Reason>>> Committed Paul's suggested fix.
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Paul Eggert <eggert@CS.UCLA.EDU>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Sat, 9 May 2009 17:08:04 -0400
+
+ On May  9, Paul Eggert wrote:
+ > Eli Barzilay <eli@barzilay.org> writes:
+ > 
+ > > IIRC there *was* a reason to strip these binaries.
+ > 
+ > Sure, but isn't the proposed change an improvement?  Normally the
+ > only reason to strip is to make the binaries smaller.  If that's the
+ > case, it's safe to not strip on Solaris; and it's a win to not
+ > strip, because it means the Solaris build will succeed and instead
+ > of failing (albeit with larger binaries).  Surely it's better to
+ > have larger binaries that work than to not have any binaries at all.
+ 
+ Right -- by "was a reason" I meant something more significant than
+ just smaller binaries.
+ 
+ So, I went back and grepped through my emails, and found that the
+ problem was related to OSX switching to DWARF debugging info, and
+ somehow creating executables based on the pre-stripped starter files
+ being a problem.  So I think that it's safe to let the solaris build
+ ignore not being able to do that, and I'll commit the change.
+ 
+ (Solaris has enough problems for this to be significant -- in fact,
+ some people suggested we drop our solaris build which is by far the
+ worst bottleneck in the nightly builds, and we have no good solaris
+ machines in sight...  Seems that CS departments are all dumping
+ solaris.  (Personally, I'd add a "finally" to that sentence...))
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Paul Eggert <eggert@CS.UCLA.EDU>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Mon, 11 May 2009 09:43:42 -0600
+
+ I'm more comfortable fixing this at the `configure' level, so I've
+ changed `configure' and the Makefiles to set/use STRIP_DEBUG for the
+ strop operation. It defaults to ":", except on Mac OS X and Linux.
+ 
+ Maybe it should stay ":" for Linux, or maybe STRIP_DEBUG should be used
+ for more things under Linux (such as the `mzscheme' and `mred'
+ binaries).
+ 
+ 
+ Matthew
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Paul Eggert <eggert@CS.UCLA.EDU>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Mon, 11 May 2009 22:18:12 -0400
+
+ On May 11, Matthew Flatt wrote:
+ > I'm more comfortable fixing this at the `configure' level, so I've
+ > changed `configure' and the Makefiles to set/use STRIP_DEBUG for the
+ > strop operation. It defaults to ":", except on Mac OS X and Linux.
+ 
+ Isn't it better to use it when `strip' understands `-S'?  (On solaris
+ too, that is.)
+ 
+ 
+ > Maybe it should stay ":" for Linux, or maybe STRIP_DEBUG should be used
+ > for more things under Linux (such as the `mzscheme' and `mred'
+ > binaries).
+ 
+ That was my first thought when you did this change, but probably
+ there's little point in doing that if it's not done on other platforms
+ too (just OSX) since the build script will need to do it anyway.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Paul Eggert <eggert@CS.UCLA.EDU>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10072: nonportable use of "strip -S" in src/mzscheme/Makefile.in unix-install
+Date: Mon, 11 May 2009 20:27:57 -0600
+
+ At Mon, 11 May 2009 22:18:12 -0400, Eli Barzilay wrote:
+ > On May 11, Matthew Flatt wrote:
+ > > I'm more comfortable fixing this at the `configure' level, so I've
+ > > changed `configure' and the Makefiles to set/use STRIP_DEBUG for the
+ > > strop operation. It defaults to ":", except on Mac OS X and Linux.
+ > 
+ > Isn't it better to use it when `strip' understands `-S'?  (On solaris
+ > too, that is.)
+ 
+ Could be.
+ 
+ Currently, I think it doesn't matter on platforms other than Mac OS X.
+ 

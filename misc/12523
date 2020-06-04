@@ -1,0 +1,204 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jan 31 19:44:02 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q110hwi6008884
+	for <bugs@bugs.plt-scheme.org>; Tue, 31 Jan 2012 19:43:58 -0500
+Message-Id: <201202010043.q110htRi008878@champlain.ccs.neu.edu>
+Date: Tue, 31 Jan 2012 19:43:55 -0500
+From: eric.hanchrow@gmail.com
+To: bugs@racket-lang.org
+Subject: Fairly reliable "SIGSEGV MAPERR si_code 1 fault on addr (nil)" with sqlite3
+
+>Number:         12523
+>Category:       misc
+>Synopsis:       Fairly reliable "SIGSEGV MAPERR si_code 1 fault on addr (nil)" with sqlite3
+>Class:          sw-bug
+>Responsible:    ryanc
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jan 31 19:48:01 -0500 2012
+>Closed-Date:    Tue Jan 31 22:33:18 -0500 2012
+>Last-Modified:  Tue Jan 31 22:33:18 -0500 2012
+>Originator:     Eric Hanchrow
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2--2011-01-01(-/f)
+>Environment:
+unix "Linux erich-laptop 3.0.0-15-generic #26-Ubuntu SMP Fri Jan 20 15:59:53 UTC 2012 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 99425644
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/erich/.racket/5.2/collects"
+ (non-existent-path))
+("/usr/local/stow/racket/lib/racket/collects"
+ ("profile" "schemeunit" "honu" "data" "combinator-parser" "wxme" "sirmail" "scribble" "redex" "typed-racket" "typed-scheme" "slideshow" "parser-tools" "repo-time-stamp" "handin-client" "datalog" "unstable" "mysterx" "hierlist" "web-server" "htdp" "at-exp" "html" "swindle" "plot" "raco" "tex2page" "handin-server" "ffi" "test-engine" "texpict" "rnrs" "mred" "info-domain" "syntax" "sgl" "dynext" "drracket" "preprocessor" "deinprogramm" "mzscheme" "rackunit" "string-constants" "framework" "racklog" "gui-debugger" "launcher" "scriblib" "embedded-gui" "openssl" "drscheme" "srfi" "browser" "2htdp" "teachpack" "compiler" "xrepl" "reader" "planet" "picturing-programs" "scribblings" "algol60" "frtime" "test-box-recovery" "config" "scheme" "mzlib" "r6rs" "mrlib" "eopl" "r5rs" "trace" "lang" "s-exp" "games" "mzcom" "typed" "racket" "tests" "net" "errortrace" "readline" "xml" "stepper" "setup" "file" "slatex" "db" "graphics" "syntax-color" "make" "icons" "lazy" "defaults" "meta" "versio!
+ n" "guibuilder" "plai" "help" "macro-debugger"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+The enclosed program ought to run more or less forever (or until it fills up the filesystem in /tmp), but instead it abort after a few seconds, with a message like
+
+SIGSEGV MAPERR si_code 1 fault on addr (nil)
+>How-To-Repeat:
+Name this "repro.rkt", make it executable, run it.
+
+#! /bin/sh
+#| Hey Emacs, this is -*-scheme-*- code!
+PLTSTDERR=debug ; export PLTSTDERR
+exec racket -l errortrace --require "$0" --main -- ${1+"$@"}
+|#
+
+#lang racket
+
+(require
+ (only-in db
+          query-exec
+          query-value
+          sqlite3-connect))
+
+(define *db-file-name*  "/tmp/buggissimo")
+
+(with-handlers ([exn:fail:filesystem?
+                 (lambda (e)
+                   (fprintf (current-error-port) "No ~s present; no problem.~%" *db-file-name*))])
+  (delete-file *db-file-name*)
+  (fprintf (current-error-port) "Nuked ~s~%" *db-file-name*))
+
+
+(define db
+  (sqlite3-connect
+   #:database *db-file-name*
+   #:mode 'create))
+
+(query-exec
+ db
+ "CREATE TABLE IF NOT EXISTS
+        log_word_map(word TEXT, log_id INTEGER,
+            PRIMARY KEY (word, log_id)
+            ON CONFLICT FAIL)")
+
+(query-exec db "BEGIN TRANSACTION")
+
+(for ([x (in-naturals)])
+  (query-exec
+   db
+   "insert into log_word_map values (?, ?)"
+   (number->string x) x)
+
+  (when (zero? (remainder x 10000))
+    (query-exec db "COMMIT")
+    (query-exec db "BEGIN TRANSACTION")))
+
+(query-exec db "COMMIT")
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "ryanc" by ryanc at Tue, 31 Jan 2012 20:15:34 -0500
+Reason>>> db
+
+State changed from "open" to "feedback" by ryanc at Tue, 31 Jan 2012 20:15:34 -0500
+Reason>>> might have been fixed by
+6742c308d960f624ae9f05f12920e7fd108efec9
+
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: eric.hanchrow@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12523: Fairly reliable "SIGSEGV MAPERR si_code
+ 1 fault on addr (nil)" with sqlite3
+Date: Tue, 31 Jan 2012 18:13:49 -0700
+
+ I fixed a memory corruption bug in the SQLite bindings back in December. 
+ Can you try a recent build and let me know if you're still able to 
+ reproduce the problem? (I tried and wasn't able to.)
+ 
+ Ryan
+ 
+ 
+ On 01/31/2012 05:48 PM, eric.hanchrow@gmail.com wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12523
+ >
+ > Reported by Eric Hanchrow for release: 5.2--2011-01-01(-/f)
+ >
+ > *** Description:
+ > The enclosed program ought to run more or less forever (or until it fills up the filesystem in /tmp), but instead it abort after a few seconds, with a message like
+ >
+ > SIGSEGV MAPERR si_code 1 fault on addr (nil)
+ >
+ > *** How to repeat:
+ > Name this "repro.rkt", make it executable, run it.
+ >
+ > #! /bin/sh
+ > #| Hey Emacs, this is -*-scheme-*- code!
+ > PLTSTDERR=debug ; export PLTSTDERR
+ > exec racket -l errortrace --require "$0" --main -- ${1+"$@"}
+ > |#
+ >
+ > #lang racket
+ >
+ > (require
+ >   (only-in db
+ >            query-exec
+ >            query-value
+ >            sqlite3-connect))
+ >
+ > (define *db-file-name*  "/tmp/buggissimo")
+ >
+ > (with-handlers ([exn:fail:filesystem?
+ >                   (lambda (e)
+ >                     (fprintf (current-error-port) "No ~s present; no problem.~%" *db-file-name*))])
+ >    (delete-file *db-file-name*)
+ >    (fprintf (current-error-port) "Nuked ~s~%" *db-file-name*))
+ >
+ >
+ > (define db
+ >    (sqlite3-connect
+ >     #:database *db-file-name*
+ >     #:mode 'create))
+ >
+ > (query-exec
+ >   db
+ >   "CREATE TABLE IF NOT EXISTS
+ >          log_word_map(word TEXT, log_id INTEGER,
+ >              PRIMARY KEY (word, log_id)
+ >              ON CONFLICT FAIL)")
+ >
+ > (query-exec db "BEGIN TRANSACTION")
+ >
+ > (for ([x (in-naturals)])
+ >    (query-exec
+ >     db
+ >     "insert into log_word_map values (?, ?)"
+ >     (number->string x) x)
+ >
+ >    (when (zero? (remainder x 10000))
+ >      (query-exec db "COMMIT")
+ >      (query-exec db "BEGIN TRANSACTION")))
+ >
+ > (query-exec db "COMMIT")
+ >
+ > *** Environment:
+ > unix "Linux erich-laptop 3.0.0-15-generic #26-Ubuntu SMP Fri Jan 20 15:59:53 UTC 2012 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 99425644
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+ >
+ >
+ > Collections:
+ > ("/home/erich/.racket/5.2/collects"
+ >   (non-existent-path))
+ > ("/usr/local/stow/racket/lib/racket/collects"
+ >   ("profile" "schemeunit" "honu" "data" "combinator-parser" "wxme" "sirmail" "scribble" "redex" "typed-racket" "typed-scheme" "slideshow" "parser-tools" "repo-time-stamp" "handin-client" "datalog" "unstable" "mysterx" "hierlist" "web-server" "htdp" "at-exp" "html" "swindle" "plot" "raco" "tex2page" "handin-server" "ffi" "test-engine" "texpict" "rnrs" "mred" "info-domain" "syntax" "sgl" "dynext" "drracket" "preprocessor" "deinprogramm" "mzscheme" "rackunit" "string-constants" "framework" "racklog" "gui-debugger" "launcher" "scriblib" "embedded-gui" "openssl" "drscheme" "srfi" "browser" "2htdp" "teachpack" "compiler" "xrepl" "reader" "planet" "picturing-programs" "scribblings" "algol60" "frtime" "test-box-recovery" "config" "scheme" "mzlib" "r6rs" "mrlib" "eopl" "r5rs" "trace" "lang" "s-exp" "games" "mzcom" "typed" "racket" "tests" "net" "errortrace" "readline" "xml" "stepper" "setup" "file" "slatex" "db" "graphics" "syntax-color" "make" "icons" "lazy" "defaults" "meta" "vers
+ io!
+ >   n" "guibuilder" "plai" "help" "macro-debugger"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+ 
+
+State changed from "feedback" to "closed" by ryanc at Tue, 31 Jan 2012 22:33:18 -0500
+Reason>>> fixed
+

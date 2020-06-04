@@ -1,0 +1,175 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Jan  4 22:31:15 2013
+Received: from mail-ob0-f181.google.com (mail-ob0-f181.google.com [209.85.214.181])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r053VBek015343
+	for <bugs@bugs.plt-scheme.org>; Fri, 4 Jan 2013 22:31:11 -0500
+Message-Id: <201301050331.r053V926015336@champlain.ccs.neu.edu>
+Date: Fri, 4 Jan 2013 22:31:09 -0500
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: TR: Recursive union types including Listof sometimes cause type checker to fail
+
+>Number:         13412
+>Category:       all
+>Synopsis:       TR: Recursive union types including Listof sometimes cause type checker to fail
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Jan 04 22:32:01 -0500 2013
+>Closed-Date:    Mon Jan 28 16:01:04 -0500 2013
+>Last-Modified:  Mon Jan 28 16:01:04 -0500 2013
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.1.12--2013-01-02(cfa9bd9a/d)
+>Environment:
+unix "Linux schroder 2.6.38-15-generic #66-Ubuntu SMP Tue Aug 14 17:24:44 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 850666324
+Links: (links) = ("bayes"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/neil/.racket/5.3.1.12/collects"
+ (non-existent-path))
+("/home/neil/plt/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "planet2" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "realm" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "l!
+ ang" "raco" "gui-debugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((main) (test))))
+>Description:
+
+>How-To-Repeat:
+#lang typed/racket
+
+(define-type (Tree A) (U (Listof A) (node A)))
+(struct: (A) node ([value : A] [left : (Tree A)] [right : (Tree A)]) #:transparent)
+
+(: tree-set (All (A) ((Tree A) A -> (Tree A))))
+(define (tree-set t y)
+  (cond [(node? t)  (node y (node-left t) (node-right t))]
+        [else  (list y)]))
+
+
+Type Checker: Polymorphic function make-node could not be applied to arguments:
+Argument 1:
+  Expected: A
+  Given:    A2122898
+Argument 2:
+  Expected: (U (Listof A) (node A))
+  Given:    (U (Listof A2122898) (node A2122898))
+Argument 3:
+  Expected: (U (Listof A) (node A))
+  Given:    (U (Listof A2122898) (node A2122898))
+
+Result type:     (node A)
+Expected result: (U (Listof A2122898) (node A2122898))
+ in: (node y (node-left t) (node-right t))
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: bugs@racket-lang.org, neil.toronto@gmail.com
+Cc: 
+Subject: Re: all/13412: TR: Recursive union types including Listof sometimes
+ cause type checker to fail
+Date: Sat, 26 Jan 2013 13:50:13 -0800
+
+ --047d7b414e8c5fee0304d4380756
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I spent some time trying to figure out what the issue is, and it seems that
+ it is a problem with subtype and polymorphic application.
+ 
+ At some point (subtype (Listof A) (node A)) is called, which puts these two
+ Types in the seen list. During the application of (node A) we end up with
+ (struct:<syntax:node> ((U (Listof A) (node a)))), but because it is a union
+ type, and union types cannot have overlaps we try to simplify this and
+ since these types are on our seen list we instead end up with
+ (struct:<syntax:node> ((node a))).
+ 
+ I couldn't figure out any solution though.
+ 
+ --047d7b414e8c5fee0304d4380756
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I spent some time trying to figure out what the issue is, =
+ and it seems that it is a problem with subtype and polymorphic application.=
+ <div><br></div><div style>At some point (subtype (Listof A) (node A)) is ca=
+ lled, which puts these two Types in the seen list. During the application o=
+ f (node A) we end up with (struct:&lt;syntax:node&gt; ((U (Listof A) (node =
+ a)))), but because it is a union type, and union types cannot have overlaps=
+  we try to simplify this and since these types are on our seen list we inst=
+ ead end up with (struct:&lt;syntax:node&gt; ((node a))).</div>
+ <div style><br></div><div style>I couldn&#39;t figure out any solution thou=
+ gh.</div></div>
+ 
+ --047d7b414e8c5fee0304d4380756--
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: bugs <bugs@racket-lang.org>, Neil Toronto <neil.toronto@gmail.com>
+Cc: 
+Subject: Re: all/13412: TR: Recursive union types including Listof sometimes
+ cause type checker to fail
+Date: Sat, 26 Jan 2013 15:56:02 -0800
+
+ --089e013d11c24c9d2f04d439c982
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Actually spent some more time on it and have a solution,
+ https://github.com/plt/racket/pull/216.
+ 
+ 
+ On Sat, Jan 26, 2013 at 1:50 PM, Eric Dobson <eric.n.dobson@gmail.com>wrote:
+ 
+ > I spent some time trying to figure out what the issue is, and it seems
+ > that it is a problem with subtype and polymorphic application.
+ >
+ > At some point (subtype (Listof A) (node A)) is called, which puts these
+ > two Types in the seen list. During the application of (node A) we end up
+ > with (struct:<syntax:node> ((U (Listof A) (node a)))), but because it is a
+ > union type, and union types cannot have overlaps we try to simplify this
+ > and since these types are on our seen list we instead end up with
+ > (struct:<syntax:node> ((node a))).
+ >
+ > I couldn't figure out any solution though.
+ >
+ 
+ --089e013d11c24c9d2f04d439c982
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Actually spent some more time on it and have a solution,=
+ =C2=A0<a href=3D"https://github.com/plt/racket/pull/216">https://github.com=
+ /plt/racket/pull/216</a>.</div><div class=3D"gmail_extra"><br><br><div clas=
+ s=3D"gmail_quote">
+ On Sat, Jan 26, 2013 at 1:50 PM, Eric Dobson <span dir=3D"ltr">&lt;<a href=
+ =3D"mailto:eric.n.dobson@gmail.com" target=3D"_blank">eric.n.dobson@gmail.c=
+ om</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" style=3D"marg=
+ in:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ <div dir=3D"ltr">I spent some time trying to figure out what the issue is, =
+ and it seems that it is a problem with subtype and polymorphic application.=
+ <div><br></div><div>At some point (subtype (Listof A) (node A)) is called, =
+ which puts these two Types in the seen list. During the application of (nod=
+ e A) we end up with (struct:&lt;syntax:node&gt; ((U (Listof A) (node a)))),=
+  but because it is a union type, and union types cannot have overlaps we tr=
+ y to simplify this and since these types are on our seen list we instead en=
+ d up with (struct:&lt;syntax:node&gt; ((node a))).</div>
+ 
+ <div><br></div><div>I couldn&#39;t figure out any solution though.</div></d=
+ iv>
+ </blockquote></div><br></div>
+ 
+ --089e013d11c24c9d2f04d439c982--
+Responsible changed from "nobody" to "samth" by samth@racket-lang.org at Mon, 28 Jan 2013 16:01:03 -0500
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/13ff5883fe
+State changed from "open" to "closed" by samth@racket-lang.org at Mon, 28 Jan 2013 16:01:04 -0500
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/13ff5883fe
+  | Do not update subtype and resolve caches when subtyping.
+  | 
+  | Closes PR13412.
+

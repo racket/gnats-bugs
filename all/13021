@@ -1,0 +1,464 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Aug 13 16:42:02 2012
+Received: from mail-yx0-f172.google.com (mail-yx0-f172.google.com [209.85.213.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7DKfwRN009120
+	for <bugs@bugs.plt-scheme.org>; Mon, 13 Aug 2012 16:41:59 -0400
+Message-Id: <201208132041.q7DKfuqI009114@champlain.ccs.neu.edu>
+Date: Mon, 13 Aug 2012 16:41:56 -0400
+From: asumu@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: Space safety issue with delim. control?
+
+>Number:         13021
+>Category:       all
+>Synopsis:       Space safety issue with delim. control?
+>Class:          not-a-bug
+>Responsible:    asumu
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Aug 13 16:44:01 -0400 2012
+>Closed-Date:    Tue Aug 14 10:09:24 -0400 2012
+>Last-Modified:  Mon Feb 18 23:10:24 -0500 2013
+>Originator:     Asumu Takikawa
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.17--2012-08-07(75efede5/d)
+>Environment:
+unix "Linux porco 3.2.0-3-amd64 #1 SMP Thu Jun 28 09:07:26 UTC 2012 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 349204384
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/asumu/plt/racket-git/add-on/5.3.0.17/collects"
+ (non-existent-path))
+("/home/asumu/plt/racket-git/collects"
+ ("icons" "mzcom" "parser-tools" "images" "mred" "wxme" "picturing-programs" "stepper" "planet" "defaults" "r6rs" "scheme" "framework" "drracket" "rnrs" "lang" "xrepl" "unstable" "tests" "plot" "teachpack" "config" "help" "plai" "mzlib" "slatex" "graphics" "version" "profile" "handin-client" "errortrace" "browser" "repo-time-stamp" "embedded-gui" "html" "xml" "racket" "launcher" "games" "hierlist" "eopl" "typed-racket" "macro-debugger" "algol60" "slideshow" "drscheme" "rackunit" ".gitignore" "handin-server" "info-domain" "syntax-color" "file" "preprocessor" "datalog" "gui-debugger" "make" "r5rs" "deinprogramm" "sgl" "raco" "web-server" "at-exp" "net" "frtime" "test-engine" "trace" "scriblib" "htdp" "mrlib" "redex" "syntax" "future-visualizer" "mysterx" "typed-scheme" "swindle" "sirmail" "2htdp" "compatibility" "srfi" "scribble" "ffi" "string-constants" "reader" "schemeunit" "db" "lazy" "texpict" "dynext" "mzscheme" "s-exp" "json" "openssl" "data" "setup" "compiler" "meta" "r!
+ eadline" "typed" "honu" "scribblings" "racklog"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+The following code snippet triggers DrRacket's memory limit for me:
+
+#lang racket
+
+(define (tailtest)
+  (let ([p (make-continuation-prompt-tag)])
+    (call-with-continuation-prompt
+     (λ ()
+       (call-with-composable-continuation
+        (λ (k)
+          (abort-current-continuation p (λ () (tailtest))))
+        p))
+     p)))
+
+My intuition is that this program should be safe for space due
+to proper tail calls since the prompt handler is called in
+tail position.
+
+This is backed by this example in the Redex model for Racket's
+delimited control:
+
+#lang racket
+
+(require redex
+         redex/examples/delim-cont/grammar
+         redex/examples/delim-cont/meta
+         redex/examples/delim-cont/reduce)
+
+;; nullary Z combinator
+(define Z
+  (term (λ (f)
+          ((λ (x) (f (λ () (x x))))
+           (λ (x) (f (λ () (x x))))))))
+
+(traces
+ :->
+ (term (<>
+        () []
+        (,Z (λ (f)
+              (%
+               0
+               (call/comp
+                (λ (k) (abort 0 (λ () (f))))
+                0)
+               (λ (th) (th))))))))
+
+The resulting trace shows a loop, indicating that the continuation
+doesn't grow without bound. I think these examples are close enough
+that it shows Racket's space behavior is incorrect, but I'm not sure.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: asumu@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13021: Space safety issue with delim. control?
+Date: Mon, 13 Aug 2012 16:55:04 -0400
+
+ --Apple-Mail=_BC93A3FF-64B9-49AE-AA1C-DB8971163606
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=utf-8
+ 
+ 
+ Every call to tailtest pushes p on the stack (and allocates a tag).=20
+ Where does the Redex term perform such a push? -- Matthias, possibly =
+ blind=20
+ 
+ 
+ On Aug 13, 2012, at 4:44 PM, asumu@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D13021
+ >=20
+ > Reported by Asumu Takikawa for release: =
+ 5.3.0.17--2012-08-07(75efede5/d)
+ >=20
+ > *** Description:
+ > The following code snippet triggers DrRacket's memory limit for me:
+ >=20
+ > #lang racket
+ >=20
+ > (define (tailtest)
+ >  (let ([p (make-continuation-prompt-tag)])
+ >    (call-with-continuation-prompt
+ >     (=CE=BB ()
+ >       (call-with-composable-continuation
+ >        (=CE=BB (k)
+ >          (abort-current-continuation p (=CE=BB () (tailtest))))
+ >        p))
+ >     p)))
+ >=20
+ > My intuition is that this program should be safe for space due
+ > to proper tail calls since the prompt handler is called in
+ > tail position.
+ >=20
+ > This is backed by this example in the Redex model for Racket's
+ > delimited control:
+ >=20
+ > #lang racket
+ >=20
+ > (require redex
+ >         redex/examples/delim-cont/grammar
+ >         redex/examples/delim-cont/meta
+ >         redex/examples/delim-cont/reduce)
+ >=20
+ > ;; nullary Z combinator
+ > (define Z
+ >  (term (=CE=BB (f)
+ >          ((=CE=BB (x) (f (=CE=BB () (x x))))
+ >           (=CE=BB (x) (f (=CE=BB () (x x))))))))
+ >=20
+ > (traces
+ > :->
+ > (term (<>
+ >        () []
+ >        (,Z (=CE=BB (f)
+ >              (%
+ >               0
+ >               (call/comp
+ >                (=CE=BB (k) (abort 0 (=CE=BB () (f))))
+ >                0)
+ >               (=CE=BB (th) (th))))))))
+ >=20
+ > The resulting trace shows a loop, indicating that the continuation
+ > doesn't grow without bound. I think these examples are close enough
+ > that it shows Racket's space behavior is incorrect, but I'm not sure.
+ >=20
+ > *** How to repeat:
+ >=20
+ >=20
+ > *** Environment:
+ > unix "Linux porco 3.2.0-3-amd64 #1 SMP Thu Jun 28 09:07:26 UTC 2012 =
+ x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 349204384
+ > Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t) =3D=
+  (); (links #:user? #f #:root? #t) =3D ()
+ >=20
+ >=20
+ > Collections:
+ > ("/home/asumu/plt/racket-git/add-on/5.3.0.17/collects"
+ > (non-existent-path))
+ > ("/home/asumu/plt/racket-git/collects"
+ > ("icons" "mzcom" "parser-tools" "images" "mred" "wxme" =
+ "picturing-programs" "stepper" "planet" "defaults" "r6rs" "scheme" =
+ "framework" "drracket" "rnrs" "lang" "xrepl" "unstable" "tests" "plot" =
+ "teachpack" "config" "help" "plai" "mzlib" "slatex" "graphics" "version" =
+ "profile" "handin-client" "errortrace" "browser" "repo-time-stamp" =
+ "embedded-gui" "html" "xml" "racket" "launcher" "games" "hierlist" =
+ "eopl" "typed-racket" "macro-debugger" "algol60" "slideshow" "drscheme" =
+ "rackunit" ".gitignore" "handin-server" "info-domain" "syntax-color" =
+ "file" "preprocessor" "datalog" "gui-debugger" "make" "r5rs" =
+ "deinprogramm" "sgl" "raco" "web-server" "at-exp" "net" "frtime" =
+ "test-engine" "trace" "scriblib" "htdp" "mrlib" "redex" "syntax" =
+ "future-visualizer" "mysterx" "typed-scheme" "swindle" "sirmail" "2htdp" =
+ "compatibility" "srfi" "scribble" "ffi" "string-constants" "reader" =
+ "schemeunit" "db" "lazy" "texpict" "dynext" "mzscheme" "s-exp" "json" =
+ "openssl" "data" "setup" "compiler" "meta" "r!
+ > eadline" "typed" "honu" "scribblings" "racklog"))
+ >=20
+ > Computer Language: (("Determine language from source") (#(#t print =
+ mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t =
+ ((main) (test))))
+ >=20
+ 
+ 
+ --Apple-Mail=_BC93A3FF-64B9-49AE-AA1C-DB8971163606
+ Content-Disposition: attachment;
+ 	filename=smime.p7s
+ Content-Type: application/pkcs7-signature;
+ 	name=smime.p7s
+ Content-Transfer-Encoding: base64
+ 
+ MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAQAAoIIMTDCCBVYw
+ ggQ+oAMCAQICEHbDqMitQnj5Qd81mMX31uMwDQYJKoZIhvcNAQEFBQAwgd0xCzAJBgNVBAYTAlVT
+ MRcwFQYDVQQKEw5WZXJpU2lnbiwgSW5jLjEfMB0GA1UECxMWVmVyaVNpZ24gVHJ1c3QgTmV0d29y
+ azE7MDkGA1UECxMyVGVybXMgb2YgdXNlIGF0IGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9ycGEg
+ KGMpMDkxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UEAxMuVmVyaVNpZ24g
+ Q2xhc3MgMSBJbmRpdmlkdWFsIFN1YnNjcmliZXIgQ0EgLSBHMzAeFw0xMjA3MjYwMDAwMDBaFw0x
+ MzA3MjYyMzU5NTlaMIIBGTEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlT
+ aWduIFRydXN0IE5ldHdvcmsxRjBEBgNVBAsTPXd3dy52ZXJpc2lnbi5jb20vcmVwb3NpdG9yeS9S
+ UEEgSW5jb3JwLiBieSBSZWYuLExJQUIuTFREKGMpOTgxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZh
+ bGlkYXRlZDEzMDEGA1UECxMqRGlnaXRhbCBJRCBDbGFzcyAxIC0gTmV0c2NhcGUgRnVsbCBTZXJ2
+ aWNlMRswGQYDVQQDFBJNYXR0aGlhcyBGZWxsZWlzZW4xIzAhBgkqhkiG9w0BCQEWFG1hdHRoaWFz
+ QGNjcy5uZXUuZWR1MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxoivceU706ZnD2XD
+ JfoNFd4KTbYA9AObozHkSZ6BJLC8oSGjakZu6m11azFwk5LfPOjd7dQIKw9uDhmT1e4q6jP+B1FC
+ a1qqwm7Rw9PcFhqYFBlE8MbqJUXJW53Ynw3dK2XiUNqTXFcBa2otI8XxMtrQch4f9oMUy+aIn/fZ
+ QQDbkkzuwz3884xSbm0IMDneYUC6FF1OJe2+fkMqHqEDsSgY97RFcjdgTCOB012odwGhxJ3rIGaX
+ WUs7ttjnftzyGODVILMIx8RBJpGJ+Ur4R67SJygV8Clpg1RBuRUSNaZAN0tCjO9YSkb9HfF2tAx9
+ POWmQXdTtNNjZfJPbTVnkQIDAQABo4HSMIHPMAkGA1UdEwQCMAAwRAYDVR0gBD0wOzA5BgtghkgB
+ hvhFAQcXATAqMCgGCCsGAQUFBwIBFhxodHRwczovL3d3dy52ZXJpc2lnbi5jb20vcnBhMAsGA1Ud
+ DwQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDBAYIKwYBBQUHAwIwUAYDVR0fBEkwRzBFoEOgQYY/
+ aHR0cDovL2luZGMxZGlnaXRhbGlkLWczLWNybC52ZXJpc2lnbi5jb20vSW5kQzFEaWdpdGFsSUQt
+ RzMuY3JsMA0GCSqGSIb3DQEBBQUAA4IBAQCeAXGCjjlMmU1wb3Ii4V0yNygujjQcvJstFh7IyVcM
+ oD5/5Ar7b36JL1O2tpBosTf0pVZaORKCMPAf1IfBS48CvvqSoeVyXCFG1goXDjr7Ut+ZwosuFXdr
+ 2gD6u9EftuoUy+UBdz46NcN9YC0WbX7CrRE96XxvYwPfWnGIjsoNY7WqFI4f7HLlM5dCmAOXySsw
+ EbPKpflzEGPU8aKf4FqTX9ne+hTzPbCf5CDJdzrdyn5bQkqvSzxw+P3tvQSU9lnyZkG7wZ1cibna
+ QIuSNEe+HKOKcEfeTeD50JhLa43RE24nMsaXWdX61VTiPE/2Y9woEVLxXBp+AFpMZjGYsF/yMIIG
+ 7jCCBdagAwIBAgIQcRVmBUrkkSFN6bxE+azT3DANBgkqhkiG9w0BAQUFADCByjELMAkGA1UEBhMC
+ VVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3
+ b3JrMTowOAYDVQQLEzEoYykgMTk5OSBWZXJpU2lnbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVz
+ ZSBvbmx5MUUwQwYDVQQDEzxWZXJpU2lnbiBDbGFzcyAxIFB1YmxpYyBQcmltYXJ5IENlcnRpZmlj
+ YXRpb24gQXV0aG9yaXR5IC0gRzMwHhcNMDkwNTAxMDAwMDAwWhcNMTkwNDMwMjM1OTU5WjCB3TEL
+ MAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBU
+ cnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNp
+ Z24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQD
+ Ey5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczMIIBIjANBgkq
+ hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7cRH3yooHXwGa7vXITLJbBOP6bGNQU4099oL42r6ZYgg
+ CxET6ZvgSU6Lb9UB0F8NR5GKWkx0Pj/GkQm7TDSejW6hglFi92l2WJYHr54UGAdPWr2f0jGyVBlz
+ RmoZQhHsEnMhjfXcMM3l2VYKMcU2bSkUl70t2olHGYjYSwQ967Y8Zx50ABMN0Ibak2f4MwOuGjxr
+ aXj2wCyO4YM/d/mZ//6fUlrCtIcK2GypR8FUKWVDPkrAlh/Brfd3r2yxBF6+wbaULZeQLSfSux7p
+ g2qE9sSyriMGZSalJ1grByK0b6ZiSBp38tVQJ5op05b7KPW6JHZi44xZ6/tu1ULEvkHH9QIDAQAB
+ o4ICuTCCArUwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC52ZXJpc2ln
+ bi5jb20wEgYDVR0TAQH/BAgwBgEB/wIBADBwBgNVHSAEaTBnMGUGC2CGSAGG+EUBBxcBMFYwKAYI
+ KwYBBQUHAgEWHGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9jcHMwKgYIKwYBBQUHAgIwHhocaHR0
+ cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYTA0BgNVHR8ELTArMCmgJ6AlhiNodHRwOi8vY3JsLnZl
+ cmlzaWduLmNvbS9wY2ExLWczLmNybDAOBgNVHQ8BAf8EBAMCAQYwbgYIKwYBBQUHAQwEYjBgoV6g
+ XDBaMFgwVhYJaW1hZ2UvZ2lmMCEwHzAHBgUrDgMCGgQUS2u5KJYGDLvQUjibKaxLB4shBRgwJhYk
+ aHR0cDovL2xvZ28udmVyaXNpZ24uY29tL3ZzbG9nbzEuZ2lmMC4GA1UdEQQnMCWkIzAhMR8wHQYD
+ VQQDExZQcml2YXRlTGFiZWw0LTIwNDgtMTE4MB0GA1UdDgQWBBR5R2EIQf04BKJL57XM9UP2SSsR
+ +DCB8QYDVR0jBIHpMIHmoYHQpIHNMIHKMQswCQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24s
+ IEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRydXN0IE5ldHdvcmsxOjA4BgNVBAsTMShjKSAxOTk5
+ IFZlcmlTaWduLCBJbmMuIC0gRm9yIGF1dGhvcml6ZWQgdXNlIG9ubHkxRTBDBgNVBAMTPFZlcmlT
+ aWduIENsYXNzIDEgUHVibGljIFByaW1hcnkgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkgLSBHM4IR
+ AItbdVaEVIULAM+vOEjOsaQwDQYJKoZIhvcNAQEFBQADggEBADlNz0GZgbWpBbVSOOk5hIls5DSo
+ WufYbAlMJBq6WaSHO3Mh8ZOBz79oY1pn/jWFK6HDXaNKwjoZ3TDWzE3v8dKBl8pUWkO/N4t6jhmN
+ D0OojPKvYLMVirOVnDzgnrMnmKQ1chfl/Cpdh9OKDcLRRSr4wPSsKpM61a4ScAjr+zvid+zoK2Q1
+ ds262uDRyxTWcVibvtU+fbbZ6CTFJGZMXZEfdrMXPn8NxiGJL7M3uKH/XLJtSd5lUkL7DojS7Uod
+ v0vj+Mxy+kgOZY5JyNb4mZg7t5Q+MXEGh/psWVMu198r7V9jAKwV7QO4VRaMxmgD5yKocwuxvKDa
+ UljdCg5/wYIxggSLMIIEhwIBATCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWdu
+ LCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBv
+ ZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVy
+ c29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwg
+ U3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMAkGBSsOAwIaBQCgggJtMBgGCSqG
+ SIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTEyMDgxMzIwNTUwNVowIwYJKoZI
+ hvcNAQkEMRYEFLOnAuiYfZ2bACfJ9dxSkbdsR1syMIIBAwYJKwYBBAGCNxAEMYH1MIHyMIHdMQsw
+ CQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRy
+ dXN0IE5ldHdvcmsxOzA5BgNVBAsTMlRlcm1zIG9mIHVzZSBhdCBodHRwczovL3d3dy52ZXJpc2ln
+ bi5jb20vcnBhIChjKTA5MR4wHAYDVQQLExVQZXJzb25hIE5vdCBWYWxpZGF0ZWQxNzA1BgNVBAMT
+ LlZlcmlTaWduIENsYXNzIDEgSW5kaXZpZHVhbCBTdWJzY3JpYmVyIENBIC0gRzMCEHbDqMitQnj5
+ Qd81mMX31uMwggEFBgsqhkiG9w0BCRACCzGB9aCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
+ DlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQL
+ EzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwG
+ A1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIElu
+ ZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMA0GCSqGSIb3DQEB
+ AQUABIIBAMKIzLg7tEWSs7uWfLbzIIqTP77GaFx0DLjjuDHVkEqqkFahvccyEJ83yl/H9chbVRIW
+ 6FNP9nj1bYnsr2z65JH3wvmsu50T9D6Y2zxZ3qyLieP14ywTMdiw0KWCajMG20z8uf0Z61mmL0Tl
+ gL6rdEh0yaOa9DKuDw5SccxCkavkhCoS1whFUOmumd6vuH4ymSzi68e5UvU5d2ofuAfIHYWCF2Yv
+ lYTULd1eDEzLBqpIKkrrEWy6QiriJQd/u+DMRT06wywolXkjNypCxSjyTJrNSOxuSG8BRFpMECkb
+ 2nVBdDG5JFqGLEGF0anYuX7g8QZadS4wAHxUNFAdpea8hDQAAAAAAAA=
+ 
+ --Apple-Mail=_BC93A3FF-64B9-49AE-AA1C-DB8971163606--
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: asumu@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13021: Space safety issue with delim. control?
+Date: Mon, 13 Aug 2012 15:17:03 -0600
+
+ At Mon, 13 Aug 2012 16:44:01 -0400, asumu@ccs.neu.edu wrote:
+ > The following code snippet triggers DrRacket's memory limit for me:
+ > 
+ > #lang racket
+ > 
+ > (define (tailtest)
+ >   (let ([p (make-continuation-prompt-tag)])
+ >     (call-with-continuation-prompt
+ >      (Î» ()
+ >        (call-with-composable-continuation
+ >         (Î» (k)
+ >           (abort-current-continuation p (Î» () (tailtest))))
+ >         p))
+ >      p)))
+ > 
+ > My intuition is that this program should be safe for space due
+ > to proper tail calls since the prompt handler is called in
+ > tail position.
+ 
+ The default abort handler keeps a prompt around a call to the value
+ supplied to an abort. So, this program should run out of space.
+ 
+ > This is backed by this example in the Redex model for Racket's
+ > delimited control:
+ > 
+ > #lang racket
+ > 
+ > (require redex
+ >          redex/examples/delim-cont/grammar
+ >          redex/examples/delim-cont/meta
+ >          redex/examples/delim-cont/reduce)
+ > 
+ > ;; nullary Z combinator
+ > (define Z
+ >   (term (Î» (f)
+ >           ((Î» (x) (f (Î» () (x x))))
+ >            (Î» (x) (f (Î» () (x x))))))))
+ > 
+ > (traces
+ >  :->
+ >  (term (<>
+ >         () []
+ >         (,Z (Î» (f)
+ >               (%
+ >                0
+ >                (call/comp
+ >                 (Î» (k) (abort 0 (Î» () (f))))
+ >                 0)
+ >                (Î» (th) (th))))))))
+ > 
+ > The resulting trace shows a loop, 
+ 
+ You've supplied an abort handler `(lambda (th) (th))' that is different
+ than the default for `call-with-continuation-prompt':
+ 
+ Here's the loop in Racket:
+ 
+ (define (tailtest)
+   (let ([p (make-continuation-prompt-tag)])
+     (call-with-continuation-prompt
+      (lambda ()
+        (call-with-composable-continuation
+         (lambda (k)
+           (abort-current-continuation p (lambda () (tailtest))))
+         p))
+      p
+      (lambda (v) (v)))))
+ 
+ 
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13021: Space safety issue with delim. control?
+Date: Mon, 13 Aug 2012 17:16:23 -0400
+
+ On 2012-08-13 16:55:04 -0400, Matthias Felleisen wrote:
+ > Every call to tailtest pushes p on the stack (and allocates a tag).
+ > Where does the Redex term perform such a push? -- Matthias, possibly blind
+ 
+ This also triggers my memory limit:
+ 
+ (define (tailtest)
+   (call-with-continuation-prompt
+    (λ ()
+      (call-with-composable-continuation
+       (λ (k)
+         (abort-current-continuation
+          (default-continuation-prompt-tag)
+          (λ () (tailtest))))))))
+ 
+ No tag allocation here.
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13021: Space safety issue with delim. control?
+Date: Mon, 13 Aug 2012 17:26:12 -0400
+
+ On 2012-08-13 15:17:03 -0600, Matthew Flatt wrote:
+ > The default abort handler keeps a prompt around a call to the value
+ > supplied to an abort. So, this program should run out of space.
+ 
+ Since the prompt handler is called in tail position WRT the
+ call-with-continuation-prompt, doesn't this mean that when the default
+ prompt handler itself installs a prompt, this is the only prompt left in
+ the continuation (and so on for the next call)?
+ 
+ Cheers,
+ Asumu
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13021: Space safety issue with delim. control?
+Date: Mon, 13 Aug 2012 15:31:15 -0600
+
+ At Mon, 13 Aug 2012 17:26:12 -0400, Asumu Takikawa wrote:
+ > On 2012-08-13 15:17:03 -0600, Matthew Flatt wrote:
+ > > The default abort handler keeps a prompt around a call to the value
+ > > supplied to an abort. So, this program should run out of space.
+ > 
+ > Since the prompt handler is called in tail position WRT the
+ > call-with-continuation-prompt, doesn't this mean that when the default
+ > prompt handler itself installs a prompt, this is the only prompt left in
+ > the continuation (and so on for the next call)?
+ 
+ It's the only prompt left in the first call, but that call leads to
+ `tailtest', installs another prompt. So, the second time, there are 2
+ prompts, and so on.
+ 
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13021: Space safety issue with delim. control?
+Date: Mon, 13 Aug 2012 17:37:10 -0400
+
+ On 2012-08-13 15:31:15 -0600, Matthew Flatt wrote:
+ > It's the only prompt left in the first call, but that call leads to
+ > `tailtest', installs another prompt. So, the second time, there are 2
+ > prompts, and so on.
+ 
+ Ah, thanks, I see now. I can also produce the same behavior in the model
+ after encoding a default handler appropriately. Sorry for the confusion.
+ 
+ Cheers,
+ Asumu
+
+Class changed from "sw-bug" to "not-a-bug" by asumu at Tue, 14 Aug 2012 10:09:24 -0400
+Reason>>> PEBKAC
+
+State changed from "open" to "closed" by asumu at Tue, 14 Aug 2012 10:09:24 -0400
+Reason>>> Not a bug.
+
+
+Responsible changed from "nobody" to "asumu" by eli at Mon, 18 Feb 2013 23:10:24 -0500
+Reason>>> asumu closed
+

@@ -1,0 +1,126 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Nov  9 13:15:29 2007
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.187])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id lA9IFSxN011189
+	for <bugs@bugs.plt-scheme.org>; Fri, 9 Nov 2007 13:15:29 -0500
+Message-Id: <200711091815.lA9IFKg8011182@champlain.ccs.neu.edu>
+Date: Fri, 9 Nov 2007 13:15:20 -0500
+From: eggert@cs.ucla.edu
+To: bugs@plt-scheme.org
+Subject: plt-371 doesn't compile with GCC 4.2.2 on Solaris 8
+
+>Number:         9058
+>Category:       mzscheme
+>Synopsis:       plt-371 doesn't compile with GCC 4.2.2 on Solaris 8
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Nov 09 13:20:01 -0500 2007
+>Closed-Date:    Mon Jan 17 19:43:14 -0500 2011
+>Last-Modified:  Mon Jan 17 19:43:14 -0500 2011
+>Originator:     Paul Eggert
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        371
+>Environment:
+solaris-8
+>Description:
+plt-371 doesn't compile out of the box on my Solaris 8 (sparc) host. My host has GCC 4.2.2 installed.  The failing compile is:
+
+g++ -R/usr/local/cs/gcc-4.2.2/lib -DGC2_JUST_MACROS -include ./../../mzscheme/gc2/gc2.h -c -DNEWGC_BTC_ACCOUNT  -DOPERATOR_NEW_ARRAY -DUSE_GL  -Wall  -g -O2 -o Layout.o xsrc/Layout.cc
+xsrc/Layout.cc:142: error: redeclaration of C++ built-in type 'wchar_t'
+
+The problem is that plt-371/src/mred/gc2/xsrc/Layout.cc contains text like this:
+
+extern "C" {
+  extern unsigned char __ctype [] ;
+  typedef struct {
+    int quot ;
+    int rem ;
+  }
+  div_t ;
+  typedef struct {
+    long quot ;
+    long rem ;
+  }
+  ldiv_t ;
+  typedef long wchar_t ;
+  extern double atof (const char * ) ;
+  extern double strtod (const char * , char * * ) ;
+}
+
+and the "typedef long wchar_t;" is rejected by GCC 4.2.2.
+
+/usr/include/iso/stdlib_iso.h contains this text:
+
+#ifndef _WCHAR_T
+#define _WCHAR_T
+#if defined(_LP64)
+typedef int     wchar_t;
+#else
+typedef long    wchar_t;
+#endif
+#endif  /* !_WCHAR_T */
+
+so one way to work around the problem is to configure by defining _WCHAR_T, like this:
+
+./configure CXX="g++ -D_WCHAR_T -R/usr/local/cs/gcc-`gcc -dumpversion`/lib"
+
+But this runs into another problem, which I'll describe in a later bug report.
+>How-To-Repeat:
+cd plt-371/src
+./configure CXX="g++ -R/usr/local/cs/gcc-`gcc -dumpversion`/lib"
+make
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eggert@cs.ucla.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9058: plt-371 doesn't compile with GCC 4.2.2 on Solaris 8
+Date: Fri, 9 Nov 2007 13:11:13 -0700
+
+ At Fri, 9 Nov 2007 13:20:02 -0500, eggert@cs.ucla.edu wrote:
+ > The problem is that plt-371/src/mred/gc2/xsrc/Layout.cc contains text like 
+ > this: [...]
+ 
+ I'm unclear on one point:
+ 
+ Does your patch for PR 9059 solve this problem? That is, does creating
+ Layout.cc via g++ instead of gcc avoid the incorrect wchar_t
+ definition? Or is something more deeply wrong here?
+ 
+ Thanks,
+ Matthew
+ 
+From: Paul Eggert <eggert@CS.UCLA.EDU>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9058: plt-371 doesn't compile with GCC 4.2.2 on Solaris 8
+Date: Fri, 09 Nov 2007 16:27:41 -0800
+
+ Matthew Flatt <mflatt@cs.utah.edu> writes:
+ 
+ > Does your patch for PR 9059 solve this problem? That is, does creating
+ > Layout.cc via g++ instead of gcc avoid the incorrect wchar_t
+ > definition? Or is something more deeply wrong here?
+ 
+ No, it doesn't solve the problem.  I _think_ the problem is that
+ stdlib.h on Solaris 8 has a wchar_t typedef regardless of whether
+ you're compiling in C or C++, and the plt build procedure slurps that
+ typedef into its own file, which GCC 4.2.2 C++ rejects.
+ 
+ Artificially defining _WCHAR_T prevents the Solaris 8 stdlib.h from
+ typedef'ing wchar_t, which works around the problem.
+
+
+
+State changed from "open" to "closed" by eli at Mon, 17 Jan 2011 19:43:14 -0500
+Reason>>> closed as "obsolete" with respect to v5.0.99.6 and later;
+either the bug is long-since fixed, the relevant code
+doesn't exist anymore, the relevant platform hasn't been
+supported recently, or a new bug report is needed if the
+problem really isn't fixed and someone actually cares
+

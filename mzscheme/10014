@@ -1,0 +1,274 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jan  8 01:49:38 2009
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.228])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n086nSLt024371
+	for <bugs@bugs.plt-scheme.org>; Thu, 8 Jan 2009 01:49:28 -0500
+Message-Id: <200901080649.n086nPCs024364@champlain.ccs.neu.edu>
+Date: Thu, 8 Jan 2009 01:49:25 -0500
+From: dfelgar@rainier-infosys.com
+To: bugs@plt-scheme.org
+Subject: Segfault while embedding mzscheme
+
+>Number:         10014
+>Category:       mzscheme
+>Synopsis:       Segfault while embedding mzscheme
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jan 08 01:52:01 -0500 2009
+>Last-Modified:  Mon Mar 16 00:55:53 -0400 2009
+>Originator:     Don Felgar
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.3 3m non-shared
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.5) Gecko/2008120121 Firefox/3.0.5
+>Description:
+I'm unable to embed either the 3m or cgc mzscheme, shared or static, with any of the sample programs I've been able to find.  Below is a simplified version of a program from the PLT documentation.  The segfault occurs within a gc within scheme_eval_string:
+
+
+Program received signal SIGSEGV, Segmentation fault.
+update_want_level (logger=<value optimized out>) at ./../src/error.c:2564
+2564	      parent->want_level = want_level;
+(gdb) bt
+#0  update_want_level (logger=<value optimized out>) at ./../src/error.c:2564
+#1  0x0805e4e2 in scheme_log_message (logger=0xb79a8aa0, level=4, 
+    buffer=0xb7b4c008 "GC [minor] at 1536764 bytes; 665936 collected in 4 msec", len=55, data=0x0) at ./../src/error.c:2599
+#2  0x0805e646 in scheme_log (logger=0xb79a8aa0, level=4, flags=0, 
+    msg=0x81dbca0 "GC [%s] at %ld bytes; %ld collected in %ld msec")
+    at ./../src/error.c:835
+#3  0x081727e6 in inform_GC (major_gc=0, pre_used=1536764, post_used=870828)
+    at ./../src/thread.c:7280
+#4  0x081b46a4 in garbage_collect (gc=0x86af008, 
+    force_full=<value optimized out>) at ./newgc.c:2536
+#5  0x081b7449 in GC_malloc_one_tagged (s=20) at ./newgc.c:569
+#6  0x08114ece in read_compact (port=0xb7c38148, 
+    use_stack=<value optimized out>) at ./../src/read.c:4951
+#7  0x081161b1 in read_compact (port=0xb7c38148, 
+    use_stack=<value optimized out>) at ./../src/read.c:4732
+#8  0x081161c4 in read_compact (port=0xb7c38148, 
+    use_stack=<value optimized out>) at ./../src/read.c:4733
+#9  0x081161b1 in read_compact (port=0xb7c38148, 
+    use_stack=<value optimized out>) at ./../src/read.c:4732
+#10 0x081132a8 in read_inner_inner (port=0xb79a9058, stxsrc=0x0, 
+    ht=0xb7ab9ce8, indentation=0x82781a8, params=0xbfbdc740, comment_mode=2, 
+    pre_char=-1, table=0x0, get_info=0) at ./../src/read.c:5264
+#11 0x08114651 in _internal_read (port=0xb79a9058, stxsrc=0x0, 
+    crc=<value optimized out>, cant_fail=0, honu_mode=0, recur=0, 
+    expose_comment=0, extra_char=-1, init_readtable=0x0, magic_sym=0x0, 
+    magic_val=0x0, delay_load_info=0x82600e8, get_info=0)
+    at ./../src/read.c:2243
+#12 0x08114a77 in scheme_internal_read_k () at ./../src/read.c:2317
+#13 0x08096810 in scheme_top_level_do_worker (
+    k=0x81149a0 <scheme_internal_read_k>, eb=0, new_thread=0, dyn_state=0x0)
+    at ./../src/fun.c:2068
+#14 0x08097138 in scheme_top_level_do (k=0x81149a0 <scheme_internal_read_k>, 
+    eb=0) at ./../src/fun.c:1976
+#15 0x0810d66f in scheme_internal_read (port=0xb7ba4510, stxsrc=0x0, crc=1, 
+    cantfail=0, honu_mode=0, recur=0, expose_comment=0, pre_char=-1, 
+    init_readtable=0x0, magic_sym=0x0, magic_val=0x0, delay_load_info=0x0)
+    at ./../src/read.c:2351
+#16 0x080f9e1c in do_read_f (who=0x81c7323 "read", 
+    argc=<value optimized out>, argv=0xb7b44fa8, honu_mode=0, recur=0)
+    at ./../src/portfun.c:2765
+#17 0xb7b2bfe4 in ?? ()
+#18 0x00000000 in ?? ()
+>How-To-Repeat:
+// evalstring.c --------------------------------------------
+//
+// mzc --c-mods base.c ++lib scheme/base
+// g++  -fPIC -g evalstring.c -o evalstring -L/usr/local/plt/lib
+//     -I/usr/local/plt/include/plt -lmzscheme3m -ldl
+//
+// Pass in at least one cmd line string or you'll get a trivial error.
+
+#include "scheme.h"
+
+#include "base.c"
+
+static int run(Scheme_Env *e, int argc, char *argv[])
+{
+  Scheme_Object *curout = NULL;
+  Scheme_Object *v = NULL;
+  Scheme_Config *config = NULL;
+
+  MZ_GC_DECL_REG(4);
+  MZ_GC_VAR_IN_REG(0, e);
+  MZ_GC_VAR_IN_REG(1, curout);
+  MZ_GC_VAR_IN_REG(2, config);
+  MZ_GC_VAR_IN_REG(3, v);
+  MZ_GC_REG();
+
+  declare_modules(e);
+  
+  v = scheme_intern_symbol("scheme/base");
+  scheme_namespace_require(v);
+
+  config = scheme_current_config();
+  curout = scheme_get_param(config, MZCONFIG_OUTPUT_PORT);
+
+  printf("before scheme_eval_string\n"); fflush(stdout);
+  v = scheme_eval_string(argv[0], e);
+  printf("after scheme_eval_string\n"); fflush(stdout);
+
+  scheme_display(v, curout);
+  v = scheme_make_char('\n');
+  scheme_display(v, curout);
+
+  MZ_GC_UNREG();
+
+  return 0;
+}
+
+int main(int argc, char *argv[])
+{
+  return scheme_main_setup(1, run, argc, argv);
+}
+
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: dfelgar@rainier-infosys.com, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10014: Segfault while embedding mzscheme
+Date: Thu, 8 Jan 2009 05:55:52 -0700
+
+ If I'm reading this right, the SIGSEGV here isn't a crash. It's a write
+ barrier, and the GC will handle the signal. You should be able to
+ continue in gdb with
+ 
+  (gdb) handle SIGSEGV nostop noprint
+  (gdb) c
+ 
+ If a SIGSEGV doesn't make sense as a write barrier, the GC's signal
+ handler will call abort() to crash, and gdb will stop at abort().
+ 
+ Assuming that you do see such a crash, the comment on compiling
+ "evalstring.c" suggests that you need to add -DMZ_PRECISE_GC to the
+ g++ command line.
+ 
+ 
+ At Thu, 8 Jan 2009 01:52:01 -0500, dfelgar@rainier-infosys.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=10014
+ > 
+ > Reported by Don Felgar for release: 4.1.3 3m non-shared
+ > 
+ > *** Description:
+ > I'm unable to embed either the 3m or cgc mzscheme, shared or static, with any 
+ > of the sample programs I've been able to find.  Below is a simplified version 
+ > of a program from the PLT documentation.  The segfault occurs within a gc 
+ > within scheme_eval_string:
+ > 
+ > 
+ > Program received signal SIGSEGV, Segmentation fault.
+ > update_want_level (logger=<value optimized out>) at ./../src/error.c:2564
+ > 2564	      parent->want_level = want_level;
+ > (gdb) bt
+ > #0  update_want_level (logger=<value optimized out>) at ./../src/error.c:2564
+ > #1  0x0805e4e2 in scheme_log_message (logger=0xb79a8aa0, level=4, 
+ >     buffer=0xb7b4c008 "GC [minor] at 1536764 bytes; 665936 collected in 4 
+ > msec", len=55, data=0x0) at ./../src/error.c:2599
+ > #2  0x0805e646 in scheme_log (logger=0xb79a8aa0, level=4, flags=0, 
+ >     msg=0x81dbca0 "GC [%s] at %ld bytes; %ld collected in %ld msec")
+ >     at ./../src/error.c:835
+ > #3  0x081727e6 in inform_GC (major_gc=0, pre_used=1536764, post_used=870828)
+ >     at ./../src/thread.c:7280
+ > #4  0x081b46a4 in garbage_collect (gc=0x86af008, 
+ >     force_full=<value optimized out>) at ./newgc.c:2536
+ > #5  0x081b7449 in GC_malloc_one_tagged (s=20) at ./newgc.c:569
+ > #6  0x08114ece in read_compact (port=0xb7c38148, 
+ >     use_stack=<value optimized out>) at ./../src/read.c:4951
+ > #7  0x081161b1 in read_compact (port=0xb7c38148, 
+ >     use_stack=<value optimized out>) at ./../src/read.c:4732
+ > #8  0x081161c4 in read_compact (port=0xb7c38148, 
+ >     use_stack=<value optimized out>) at ./../src/read.c:4733
+ > #9  0x081161b1 in read_compact (port=0xb7c38148, 
+ >     use_stack=<value optimized out>) at ./../src/read.c:4732
+ > #10 0x081132a8 in read_inner_inner (port=0xb79a9058, stxsrc=0x0, 
+ >     ht=0xb7ab9ce8, indentation=0x82781a8, params=0xbfbdc740, comment_mode=2, 
+ >     pre_char=-1, table=0x0, get_info=0) at ./../src/read.c:5264
+ > #11 0x08114651 in _internal_read (port=0xb79a9058, stxsrc=0x0, 
+ >     crc=<value optimized out>, cant_fail=0, honu_mode=0, recur=0, 
+ >     expose_comment=0, extra_char=-1, init_readtable=0x0, magic_sym=0x0, 
+ >     magic_val=0x0, delay_load_info=0x82600e8, get_info=0)
+ >     at ./../src/read.c:2243
+ > #12 0x08114a77 in scheme_internal_read_k () at ./../src/read.c:2317
+ > #13 0x08096810 in scheme_top_level_do_worker (
+ >     k=0x81149a0 <scheme_internal_read_k>, eb=0, new_thread=0, dyn_state=0x0)
+ >     at ./../src/fun.c:2068
+ > #14 0x08097138 in scheme_top_level_do (k=0x81149a0 <scheme_internal_read_k>, 
+ >     eb=0) at ./../src/fun.c:1976
+ > #15 0x0810d66f in scheme_internal_read (port=0xb7ba4510, stxsrc=0x0, crc=1, 
+ >     cantfail=0, honu_mode=0, recur=0, expose_comment=0, pre_char=-1, 
+ >     init_readtable=0x0, magic_sym=0x0, magic_val=0x0, delay_load_info=0x0)
+ >     at ./../src/read.c:2351
+ > #16 0x080f9e1c in do_read_f (who=0x81c7323 "read", 
+ >     argc=<value optimized out>, argv=0xb7b44fa8, honu_mode=0, recur=0)
+ >     at ./../src/portfun.c:2765
+ > #17 0xb7b2bfe4 in ?? ()
+ > #18 0x00000000 in ?? ()
+ > 
+ > *** How to repeat:
+ > // evalstring.c --------------------------------------------
+ > //
+ > // mzc --c-mods base.c ++lib scheme/base
+ > // g++  -fPIC -g evalstring.c -o evalstring -L/usr/local/plt/lib
+ > //     -I/usr/local/plt/include/plt -lmzscheme3m -ldl
+ > //
+ > // Pass in at least one cmd line string or you'll get a trivial error.
+ > 
+ > #include "scheme.h"
+ > 
+ > #include "base.c"
+ > 
+ > static int run(Scheme_Env *e, int argc, char *argv[])
+ > {
+ >   Scheme_Object *curout = NULL;
+ >   Scheme_Object *v = NULL;
+ >   Scheme_Config *config = NULL;
+ > 
+ >   MZ_GC_DECL_REG(4);
+ >   MZ_GC_VAR_IN_REG(0, e);
+ >   MZ_GC_VAR_IN_REG(1, curout);
+ >   MZ_GC_VAR_IN_REG(2, config);
+ >   MZ_GC_VAR_IN_REG(3, v);
+ >   MZ_GC_REG();
+ > 
+ >   declare_modules(e);
+ >   
+ >   v = scheme_intern_symbol("scheme/base");
+ >   scheme_namespace_require(v);
+ > 
+ >   config = scheme_current_config();
+ >   curout = scheme_get_param(config, MZCONFIG_OUTPUT_PORT);
+ > 
+ >   printf("before scheme_eval_string\n"); fflush(stdout);
+ >   v = scheme_eval_string(argv[0], e);
+ >   printf("after scheme_eval_string\n"); fflush(stdout);
+ > 
+ >   scheme_display(v, curout);
+ >   v = scheme_make_char('\n');
+ >   scheme_display(v, curout);
+ > 
+ >   MZ_GC_UNREG();
+ > 
+ >   return 0;
+ > }
+ > 
+ > int main(int argc, char *argv[])
+ > {
+ >   return scheme_main_setup(1, run, argc, argv);
+ > }
+ > 
+ > 
+ > *** Environment:
+ > Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.5) 
+ > Gecko/2008120121 Firefox/3.0.5
+
+State changed from "open" to "closed" by eli at Mon, 16 Mar 2009 00:55:53 -0400
+Reason>>> Not a bug (see matthew's reply).
+

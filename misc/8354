@@ -1,0 +1,154 @@
+From apache@plt-scheme.org Mon Oct 30 09:36:45 2006
+Received: from ug-out-1314.google.com (ug-out-1314.google.com [66.249.92.169])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k9UEabJw031254
+	for <bugs@bugs.plt-scheme.org>; Mon, 30 Oct 2006 09:36:38 -0500
+Message-Id: <200610301436.k9UEaa7m031248@champlain.ccs.neu.edu>
+Date: Mon, 30 Oct 2006 09:36:36 -0500
+From: akborder@gmail.com
+To: bugs@plt-scheme.org
+Subject: string-tokenize produces incorrect output when using explicit start and end
+
+>Number:         8354
+>Category:       misc
+>Synopsis:       string-tokenize produces incorrect output when using explicit start and end
+>Class:          sw-bug
+>Responsible:    eli
+>Notify-List:    czhu@cs.utah.edu
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Oct 30 09:40:02 -0500 2006
+>Closed-Date:    Thu Nov 16 02:41:24 -0500 2006
+>Last-Modified:  Thu Nov 16 02:41:24 -0500 2006
+>Originator:     Anakim Border
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352
+>Environment:
+macosx "Darwin chariot.local 8.8.0 Darwin Kernel Version 8.8.0: Fri Sep  8 17:18:57 PDT 2006; root:xnu-792.12.6.obj~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx) (get-display-depth) = 32
+Docs Installed:
+(("/Applications/PLT Scheme v352/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 141021184
+
+Collections:
+(("/Users/border/Library/PLT Scheme/352/collects" non-existent-path) ("/Applications/PLT Scheme v352/collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tex2page" "texpict" "trace" "version" "web-server" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+The two calls:
+
+(string-tokenize s char-set start end)
+
+and
+
+(string-tokenize (substring s start end) char-set)
+
+should produce the same result. When, on the contrary, I evaluate the code in "steps to reproduce" I get the following:
+
+Welcome to DrScheme, version 352.
+Language: Textual (MzScheme, includes R5RS).
+("$(addprefix prefix_" "a b c d")
+("prefix_" "a b c d")
+> 
+>How-To-Repeat:
+(require (lib "13.ss" "srfi"))
+(require (lib "14.ss" "srfi"))
+
+(define s "$(addsuffix _suffix,$(addprefix prefix_,a b c d)) $ #@#")
+(define char-set:no-comma (char-set-complement (char-set #\,)))
+
+(string-tokenize s char-set:no-comma 32 47)
+(string-tokenize (substring s 32 47) char-set:no-comma)
+>Fix:
+>Audit-Trail:
+From: David Van Horn <dvanhorn@cs.brandeis.edu>
+To: bugs@plt-scheme.org, akborder@gmail.com
+Cc: 
+Subject: Re: all/8354: string-tokenize produces incorrect output when using
+ explicit start and end
+Date: Tue, 31 Oct 2006 22:13:07 -0500
+
+ This is a multi-part message in MIME format.
+ --------------050901030602070805000806
+ Content-Type: text/plain; charset=ISO-8859-1; format=flowed
+ Content-Transfer-Encoding: 7bit
+ 
+ The bug is in string-skip-right and string-index-right as the following 
+ example shows:
+ 
+ (string-skip-right "$(addsuffix _suffix,$(addprefix prefix_,a b c d)) $ 
+ #@#" char-set:no-comma 32 38) ;; => 19 <-- WRONG, should be #f.
+ 
+ Neither procedure should continue searching left past the given start 
+ index, but the code only check thats the index is positive.  A patch is 
+ attached that fixes this example and the original bug.
+ 
+ David
+ 
+ --------------050901030602070805000806
+ Content-Type: text/plain; x-mac-type="0"; x-mac-creator="0";
+  name="string.ss.patch"
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline;
+  filename="string.ss.patch"
+ 
+ Index: string.ss
+ ===================================================================
+ --- string.ss	(revision 4724)
+ +++ string.ss	(working copy)
+ @@ -1190,17 +1190,17 @@
+      (let-string-start+end (start end) 'string-index-right str maybe-start+end
+  			  (cond ((char? criterion)
+  				 (let lp ((i (- end 1)))
+ -				   (and (>= i 0)
+ +				   (and (>= i start)
+  					(if (char=? criterion (string-ref str i)) i
+  					    (lp (- i 1))))))
+  				((char-set? criterion)
+  				 (let lp ((i (- end 1)))
+ -				   (and (>= i 0)
+ +				   (and (>= i start)
+  					(if (char-set-contains? criterion (string-ref str i)) i
+  					    (lp (- i 1))))))
+  				((procedure? criterion)
+  				 (let lp ((i (- end 1)))
+ -				   (and (>= i 0)
+ +				   (and (>= i start)
+  					(if (criterion (string-ref str i)) i
+  					    (lp (- i 1))))))
+  				(else (error "Second param is neither char-set, char, or predicate procedure."
+ @@ -1232,19 +1232,19 @@
+      (let-string-start+end (start end) 'string-skip-right str maybe-start+end
+  			  (cond ((char? criterion)
+  				 (let lp ((i (- end 1)))
+ -				   (and (>= i 0)
+ +				   (and (>= i start)
+  					(if (char=? criterion (string-ref str i))
+  					    (lp (- i 1))
+  					    i))))
+  				((char-set? criterion)
+  				 (let lp ((i (- end 1)))
+ -				   (and (>= i 0)
+ +				   (and (>= i start)
+  					(if (char-set-contains? criterion (string-ref str i))
+  					    (lp (- i 1))
+  					    i))))
+  				((procedure? criterion)
+  				 (let lp ((i (- end 1)))
+ -				   (and (>= i 0)
+ +				   (and (>= i start)
+  					(if (criterion (string-ref str i)) (lp (- i 1))
+  					    i))))
+  				(else (error "CRITERION param is neither char-set or char."
+ 
+ --------------050901030602070805000806--
+
+Responsible changed from "nobody" to "eli" by eli at Thu, 16 Nov 2006 02:41:24 -0500
+Reason>>> Proxy for Chongkai
+
+State changed from "open" to "closed" by eli at Thu, 16 Nov 2006 02:41:24 -0500
+Reason>>> Chongkai comitted the change -- thanks. 
+

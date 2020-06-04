@@ -1,0 +1,999 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jan  4 10:32:40 2017
+Received: from mail-it0-f46.google.com (mail-it0-f46.google.com [209.85.214.46])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id v04FWclR018120
+	for <bugs@bugs.plt-scheme.org>; Wed, 4 Jan 2017 10:32:39 -0500
+Message-Id: <201701041532.v04FWZkQ018113@winooski.ccs.neu.edu>
+Date: Wed, 4 Jan 2017 10:32:35 -0500
+From: spdegabrielle@gmail.com
+To: bugs@racket-lang.org
+Subject: Dr Racket incorrectly blames web-server code for my incorrect code
+
+>Number:         15392
+>Category:       all
+>Synopsis:       Dr Racket incorrectly blames web-server code for my incorrect code
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Jan 04 10:36:01 -0500 2017
+>Last-Modified:  Wed Jan 04 10:56:01 -0500 2017
+>Originator:     Stephen De Gabrielle
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.7
+>Environment:
+macosx "Darwin Miriams-MacBook-Pro.local 15.6.0 Darwin Kernel Version 15.6.0: Wed Nov  2 20:30:56 PDT 2016; root:xnu-3248.60.11.1.2~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 1412497352
+raco pkg (show):
+Installation-wide:
+ Package            Checksum             Source
+ main-distribution  ba3c3c7492822f85...  catalog...tribution
+ racket-lib         eab208a9ea408bd3...  catalog racket-lib
+ [189 auto-installed packages not shown]
+User-specific for installation "6.7":
+ [none]
+
+
+
+Collections:
+("/Users/spdegabrielle/Library/Racket/6.7/collects"
+ (non-existent-path))
+("/Applications/Racket v6.7/collects"
+ ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+I changed the lang declaration to '#lang web-server' and commented out '(require web-server/servlet)'
+
+Instead of reporting my code as wrong (which it is), the error message in DrRacket blamed 'elim-callcc.rkt'  with the following error message: 
+Welcome to DrRacket, version 6.7 [3m].
+Language: web-server, with debugging; memory limit: 512 MB.
+#(struct:9f73ed3899b0eb018012427e8a86c4c8:0 #<procedure:...lang/closure.rkt:124:28>)
+Your Web application is running at http://localhost:8000.
+Stop this program at any time to terminate the Web Server.
+. . ../../lang/elim-callcc.rkt:157:10: Servlet (@ /) exception:
+current-continuation-marks: no corresponding prompt in the continuation
+  prompt tag: #<continuation-prompt-tag:web>
+>How-To-Repeat:
+run the code below in DrRacket
+
+
+;;;;
+#lang web-server
+;#lang racket
+ 
+;(require web-server/servlet)
+(provide/contract (start (request? . -> . response?)))
+;(provide interface-version stuffer start)
+
+; Todo
+; Loggin dialog - DONE
+; user table
+; set cookie
+; check cookie
+; logout;
+ 
+;Tests- check across browsers.
+ 
+;;;
+(require web-server/http
+         web-server/http/cookie
+         web-server/http/cookie-parse
+         web-server/http/id-cookie
+         web-server/dispatch)
+
+(define secret-salt (make-secret-salt/file "secret-salt.salt"))
+(define id-cookie (make-id-cookie "stephen" secret-salt "test"))
+
+(define time-cookie
+  (make-cookie "time" (number->string (current-seconds))))
+
+; A blog is a (blog posts)a
+; where posts is a (listof post)
+(struct blog (posts) #:mutable)
+ 
+; and post is a (post title body comments)
+; where title is a string, body is a string,
+; and comments is a (listof string)
+(struct post (title body comments) #:mutable)
+ 
+; BLOG: blog
+; The initial BLOG.
+(define BLOG
+  (blog
+   (list (post "Second Post"
+               "This is another post"
+               (list))
+         (post "First Post"
+               "This is my first post"
+               (list "First comment!")))))
+ 
+; blog-insert-post!: blog post -> void
+; Consumes a blog and a post, adds the post at the top of the blog.
+(define (blog-insert-post! a-blog a-post)
+  (set-blog-posts! a-blog
+                   (cons a-post (blog-posts a-blog))))
+ 
+; post-insert-comment!: post string -> void
+; Consumes a post and a comment string.  As a side-efect,
+; adds the comment to the bottom of the post's list of comments.
+(define (post-insert-comment! a-post a-comment)
+  (set-post-comments!
+   a-post
+   (append (post-comments a-post) (list a-comment))))
+ 
+; start: request -> doesn't return
+; Consumes a request and produces a page that displays
+; all of the web content.
+(define (start request)
+  (blog-dispatch request))
+
+(define-values (blog-dispatch blog-url)
+  (dispatch-rules
+   [("") render-blog-page]
+   [("loggin") render-loggin-page]
+   [("render-loggin-attempt-page") render-loggin-attempt-page]
+   ;[("render-posts") render-posts]
+   [("logout") render-logout-page]
+   [("add-post") review-archive]
+   [("loggedin") render-loggedin-page]
+   ;render-loggin-attempt-page
+   ;[else render-blog-page]
+   ))
+
+(displayln blog-url)
+
+;And define your request handlers as follows:
+(define (list-posts req) `(list-posts))
+(define (review-post req p) `(review-post ,p))
+(define (review-archive req y m) `(review-archive ,y ,m))
+
+; render-loggin-page request -> doesn't return
+; Produces a loggin page
+(define (render-loggin-page request)
+  (define (response-generator embed/url)
+    (response/xexpr
+     `(html (head (title "My Blog - loggin page"))
+            (body
+             (h1 "My Blog - loggin page")
+             (p "please loggin")
+             (form ((action "render-loggin-attempt-page" ) (method "get"))
+                   ;,(embed/url insert-loggin-handler)))
+                   (input ((name "username") (placeholder "username") (type "text")))
+                   (input ((name "password") (placeholder "password") (type "password")))
+                   (input ((type "submit") (value "loggin"))))))))
+ 
+  ; parse-post: bindings -> post
+  ; Extracts a post out of the bindings.
+  (define (parse-loggin bindings)
+    (list (extract-binding/single 'username bindings)
+          (extract-binding/single 'password bindings)))
+ 
+  ;; check against users database
+  (define (valid-user? login-details)
+    (displayln '("stephen" "pass"))
+    (if (equal? login-details '("stephen" "pass")) #t #f))
+ 
+  (define (insert-loggin-handler request)
+    (displayln (parse-loggin (request-bindings request)))
+    (if (valid-user? (parse-loggin (request-bindings request)))
+        (render-loggedin-page
+         (redirect/get)
+         (make-id-cookie "current-user" secret-salt "loggedin")); #:timeout +inf.0))
+        (render-loggin-page (redirect/get))))
+ 
+  (send/suspend/dispatch response-generator))
+
+
+; render-loggedin-page: request -> doesn't return
+; Produces an logged-in page
+(define (render-loggedin-page request id-cookie)
+  (define (response-generator embed/url)
+    (response/xexpr
+     #:cookies (list id-cookie)
+     `(html
+       (head (title "My Blog"))
+       (body
+
+        (h1 "My Blog")
+
+        (h2 "you have logged in")
+        (a ((href "/"))
+           "go to the blog")))))
+
+  (define (render-blog-page-handler request)
+    (render-blog-page request))
+  
+  (send/suspend/dispatch response-generator))
+; render-loggin-attempt-page: request -> doesn't return
+; Produces an logged-in page
+(define (render-loggin-attempt-page request)
+  (define rq-bindings (request-bindings request))
+  
+  (define (response-generator embed/url)
+    (response/xexpr
+     #:cookies (list (logout-id-cookie "current-user"))
+     `(html
+       (head (title "My Blog"))
+       (body
+
+        (h1 "My Blog")
+
+        (h2 "you have logged OUT")
+        (a ((href "loggin"))
+           "go to the loggin")))))
+
+  ; (define (render-blog-page-handlerx request)
+  ;   (render-blog-pagex request))
+
+  ; parse-post: bindings -> post
+  ; Extracts a post out of the bindings.
+  (define (parse-loggin bindings)
+    (list (extract-binding/single 'username bindings)
+          (extract-binding/single 'password bindings)))
+ 
+  ;; check against users database
+  (define (valid-user? login-details)
+    (displayln '("stephen" "pass"))
+    (if (equal? login-details '("stephen" "pass")) #t #f))
+ 
+  ;(define (insert-loggin-handler request)
+  (displayln (parse-loggin rq-bindings))
+  (if (valid-user? (parse-loggin rq-bindings))
+
+      (response/xexpr
+       #:cookies (list (make-id-cookie "current-user" secret-salt "loggedin"))
+       `(html
+         (head (title "My Blog"))
+         (body
+
+          (h1 "My Blog")
+
+          (h2 "you have logged IN")
+          (a ((href "/"))
+             "go to the blog"))))
+      (response/xexpr
+       ;#:cookies (list (make-id-cookie "current-user" secret-salt "loggedin"))
+       `(html
+         (head (title "My Blog"))
+         (body
+
+          (h1 "My Blog")
+
+          (h2 "Loggin failed - please try again")
+          (a ((href "loggin"))
+             "go to loggin"))))
+      )
+  ;  (render-loggedin-page
+  ;   (redirect/get)
+  ;   (make-id-cookie "current-user" secret-salt "loggedin")); #:timeout +inf.0))
+  ;(render-loggin-page (redirect/get));)
+
+
+  
+  ;(send/suspend/dispatch response-generator)
+  )
+
+; render-logout-page: request -> doesn't return
+; Produces an logged-in page
+(define (render-logout-page request)
+  (define (response-generator embed/url)
+    (response/xexpr
+     #:cookies (list (logout-id-cookie "current-user"))
+     `(html
+       (head (title "My Blog"))
+       (body
+
+        (h1 "My Blog")
+
+        (h2 "you have logged OUT")
+        (a ((href "loggin"))
+           "go to the loggin")))))
+
+  (define (render-blog-page-handler request)
+    (render-blog-page request))
+  
+  (send/suspend/dispatch response-generator))
+ 
+; render-blog-page: request -> doesn't return
+; Produces an HTML page of the content of the
+; BLOG.
+(define (render-blog-page request)
+  (define id-cookie (request-id-cookie "current-user" secret-salt request )) ;#:timeout timeout)	 
+
+  (define (response-generator embed/url)
+    (response/xexpr
+     `(html (head (title "My Blog"))
+            (body
+             (p ,(render-logged-in-user request))
+             (hr )
+
+             (h1 "My Blog")
+             (p ,(if id-cookie id-cookie "id-cookie is #f "))
+             ,(if id-cookie (render-posts embed/url)
+                  `(p "no ID cookie found - please log in"))
+
+             ,(if id-cookie '(h2 "Add post") '(p "no ID cookie found - please log in"))
+             ,(if id-cookie
+                  `(form ((action ,(embed/url insert-post-handler)))
+                         (fieldset ((style "display: inline-block;"))
+                                   (legend "add a post to the blog")
+                                   (label ((for "title")) "Title:")
+
+                                   (input ((name "title") (id "title") (size "60")))
+                                   (br )
+                                   (label ((for "body")) "Body:")
+                                   (br )
+                                   (textarea ((name "body")(id "body")(cols "60")))
+                                   (br )
+                                   (input ((type "submit")))))
+                  `(p "no ID cookie found - please log in"))
+             ))))
+ 
+  ; parse-post: bindings -> post
+  ; Extracts a post out of the bindings.
+  (define (parse-post bindings)
+    (post (extract-binding/single 'title bindings)
+          (extract-binding/single 'body bindings)
+          (list)))
+ 
+  (define (insert-post-handler request)
+    (blog-insert-post!
+     BLOG (parse-post (request-bindings request)))
+    (render-blog-page (redirect/get)))
+
+  (define (loggin-handler request)
+    (render-loggin-page request))
+  
+  
+  (send/suspend/dispatch response-generator))
+ 
+; render-post-detail-page: post request -> doesn't return
+; Consumes a post and produces a detail page of the post.
+; The user will be able to either insert new comments
+; or go back to render-blog-page.
+(define (render-post-detail-page a-post request)
+  (define (response-generator embed/url)
+    (response/xexpr
+     `(html (head (title "Post Details"))
+            (body
+             (h1 "Post Details")
+             (h2 ,(post-title a-post))
+             (p ,(post-body a-post))
+             ,(render-as-itemized-list
+               (post-comments a-post))
+             (form ((action
+                     ,(embed/url insert-comment-handler)))
+                   (input ((name "comment")))
+                   (input ((type "submit"))))
+             (a ((href ,(embed/url back-handler)))
+                "Back to the blog")))))
+ 
+  (define (parse-comment bindings)
+    (extract-binding/single 'comment bindings))
+ 
+  (define (insert-comment-handler request)
+    (render-confirm-add-comment-page
+     (parse-comment (request-bindings request))
+     a-post
+     request))
+ 
+  (define (back-handler request)
+    (render-blog-page request))
+  (send/suspend/dispatch response-generator))
+ 
+; render-confirm-add-comment-page :
+; comment post request -> doesn't return
+; Consumes a comment that we intend to add to a post, as well
+; as the request. If the user follows through, adds a comment
+; and goes back to the display page. Otherwise, goes back to
+; the detail page of the post.
+(define (render-confirm-add-comment-page a-comment a-post request)
+  (define (response-generator embed/url)
+    (response/xexpr
+     `(html (head (title "Add a Comment"))
+            (body
+             (h1 "Add a Comment")
+             "The comment: " (div (p ,a-comment))
+             "will be added to "
+             (div ,(post-title a-post))
+             
+             (p (a ((href ,(embed/url yes-handler)))
+                   "Yes, add the comment."))
+             (p (a ((href ,(embed/url cancel-handler)))
+                   "No, I changed my mind!"))))))
+ 
+  (define (yes-handler request)
+    (post-insert-comment! a-post a-comment)
+    (render-post-detail-page a-post (redirect/get)))
+ 
+  (define (cancel-handler request)
+    (render-post-detail-page a-post request))
+  (send/suspend/dispatch response-generator))
+ 
+; render-post: post (handler -> string) -> xexpr
+; Consumes a post, produces an xexpr fragment of the post.
+; The fragment contains a link to show a detailed view of the post.
+(define (render-post a-post embed/url)
+  (define (view-post-handler request)
+    (render-post-detail-page a-post request))
+  `(div ((class "post"))
+        (a ((href ,(embed/url view-post-handler)))
+           ,(post-title a-post))
+        (p ,(post-body a-post))
+        (div ,(number->string (length (post-comments a-post)))
+             " comment(s)")))
+ 
+; render-posts: (handler -> string) -> xexpr
+; Consumes a embed/url, produces an xexpr fragment
+; of all its posts.
+(define (render-posts embed/url)
+  (define (render-post/embed/url a-post)
+    (render-post a-post embed/url))
+  `(div ((class "posts"))
+        ,@(map render-post/embed/url (blog-posts BLOG))))
+ 
+; render-as-itemized-list: (listof xexpr) -> xexpr
+; Consumes a list of items, and produces a rendering as
+; an unorderered list.
+(define (render-as-itemized-list fragments)
+  `(ul ,@(map render-as-item fragments)))
+ 
+; render-as-item: xexpr -> xexpr
+; Consumes an xexpr, and produces a rendering
+; as a list item.
+(define (render-as-item a-fragment)
+  `(li ,a-fragment))
+
+
+; render-as-item: xexpr -> xexpr
+; Consumes an xexpr, and produces a rendering
+; as a list item.
+(define (render-logged-in-user request)
+  (define id-cookie (request-id-cookie "current-user" secret-salt request ));#:timeout timeout)
+  (if id-cookie
+      '(p "id cookie true"  (a  ((href "logout")) "Logout"))
+      '(p "id-cookie false" (a  ((href "loggin")) "Loggin")))
+  )
+
+
+
+(require web-server/servlet-env)
+(serve/servlet start
+               #:launch-browser? #t
+               #:quit? #f
+               #:listen-ip #f
+               #:port 8000
+               #:extra-files-paths
+               (list (build-path "~//Dev//genetic-cis" "htdocs"))
+               #:servlet-regexp #rx""
+               #:servlet-path ""
+               )
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stephen De Gabrielle <spdegabrielle@gmail.com>,
+        bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15392: Dr Racket incorrectly blames web-server
+ code for my incorrect code
+Date: Wed, 4 Jan 2017 10:06:43 -0600
+
+ I think what this error message is saying is that the procedure in
+ elim-callcc on line 157 was at the top of the stack when the error was
+ discovered. DrRacket's error display handler is the one that is making
+ the choice to put the top of the stack at the top of the error
+ message, based on the information that errortrace computes. Perhaps it
+ should not do that, I'm not sure. If you run this program as "racket
+ -l errortrace -t file-containing-program.rkt" then you get a different
+ message:
+ 
+ #(struct:4a5f51819e09ce22730da25ac26cef47:0
+ #<procedure:...lang/closure.rkt:124:28>)
+ Your Web application is running at http://localhost:8000.
+ Stop this program at any time to terminate the Web Server.
+ current-continuation-marks: no corresponding prompt in the continuation
+   prompt tag: #<continuation-prompt-tag:web>
+   errortrace...:
+    /Applications/Racket
+ v6.7/share/pkgs/web-server-lib/web-server/lang/elim-callcc.rkt:157:10:
+ (send/suspend/dispatch response-generator)
+   context...:
+    /Applications/Racket
+ v6.7/share/pkgs/web-server-lib/web-server/lang/abort-resume.rkt:33:0:
+ activation-record-list
+    /Applications/Racket
+ v6.7/share/pkgs/web-server-lib/web-server/lang/abort-resume.rkt:150:0:
+ call-with-serializable-current-continuation
+    /Applications/Racket
+ v6.7/collects/racket/contract/private/arrow-higher-order.rkt:342:33
+    /Applications/Racket
+ v6.7/share/pkgs/web-server-lib/web-server/dispatchers/dispatch-servlets.rkt:58:2
+    /Applications/Racket
+ v6.7/collects/racket/contract/private/arrow-higher-order.rkt:342:33
+    /Applications/Racket
+ v6.7/collects/racket/contract/private/arrow-higher-order.rkt:342:33
+    /Applications/Racket
+ v6.7/collects/racket/contract/private/arrow-higher-order.rkt:342:33
+    /Applications/Racket
+ v6.7/share/pkgs/web-server-lib/web-server/private/dispatch-server-with-connect-unit.rkt:131:8
+ 
+ I'm also unsure of what is the best way to characterize this error.
+ Are there two bugs, one in "#lang webserver" somewhere that causes it
+ to call current-continuation-marks with a bad argument as well as the
+ one that Stephen is thinking about? So should we say that #lang
+ webserver should be doing more checking (or compiling by putting more
+ source locations from the input into the output) so that we get an
+ error report in terms of the original program? (FWIW, redex uses
+ quasisyntax/loc and friends extensively precisely to deal with the
+ issue of errortrace annotated code reporting source locations in the
+ redex program.)
+ 
+ Robby
+ 
+ 
+ On Wed, Jan 4, 2017 at 9:36 AM,  <spdegabrielle@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15392
+ >
+ > Reported by Stephen De Gabrielle for release: 6.7
+ >
+ > *** Description:
+ > I changed the lang declaration to '#lang web-server' and commented out '(require web-server/servlet)'
+ >
+ > Instead of reporting my code as wrong (which it is), the error message in DrRacket blamed 'elim-callcc.rkt'  with the following error message:
+ > Welcome to DrRacket, version 6.7 [3m].
+ > Language: web-server, with debugging; memory limit: 512 MB.
+ > #(struct:9f73ed3899b0eb018012427e8a86c4c8:0 #<procedure:...lang/closure.rkt:124:28>)
+ > Your Web application is running at http://localhost:8000.
+ > Stop this program at any time to terminate the Web Server.
+ > . . ../../lang/elim-callcc.rkt:157:10: Servlet (@ /) exception:
+ > current-continuation-marks: no corresponding prompt in the continuation
+ >   prompt tag: #<continuation-prompt-tag:web>
+ >
+ > *** How to repeat:
+ > run the code below in DrRacket
+ >
+ >
+ > ;;;;
+ > #lang web-server
+ > ;#lang racket
+ >
+ > ;(require web-server/servlet)
+ > (provide/contract (start (request? . -> . response?)))
+ > ;(provide interface-version stuffer start)
+ >
+ > ; Todo
+ > ; Loggin dialog - DONE
+ > ; user table
+ > ; set cookie
+ > ; check cookie
+ > ; logout;
+ >
+ > ;Tests- check across browsers.
+ >
+ > ;;;
+ > (require web-server/http
+ >          web-server/http/cookie
+ >          web-server/http/cookie-parse
+ >          web-server/http/id-cookie
+ >          web-server/dispatch)
+ >
+ > (define secret-salt (make-secret-salt/file "secret-salt.salt"))
+ > (define id-cookie (make-id-cookie "stephen" secret-salt "test"))
+ >
+ > (define time-cookie
+ >   (make-cookie "time" (number->string (current-seconds))))
+ >
+ > ; A blog is a (blog posts)a
+ > ; where posts is a (listof post)
+ > (struct blog (posts) #:mutable)
+ >
+ > ; and post is a (post title body comments)
+ > ; where title is a string, body is a string,
+ > ; and comments is a (listof string)
+ > (struct post (title body comments) #:mutable)
+ >
+ > ; BLOG: blog
+ > ; The initial BLOG.
+ > (define BLOG
+ >   (blog
+ >    (list (post "Second Post"
+ >                "This is another post"
+ >                (list))
+ >          (post "First Post"
+ >                "This is my first post"
+ >                (list "First comment!")))))
+ >
+ > ; blog-insert-post!: blog post -> void
+ > ; Consumes a blog and a post, adds the post at the top of the blog.
+ > (define (blog-insert-post! a-blog a-post)
+ >   (set-blog-posts! a-blog
+ >                    (cons a-post (blog-posts a-blog))))
+ >
+ > ; post-insert-comment!: post string -> void
+ > ; Consumes a post and a comment string.  As a side-efect,
+ > ; adds the comment to the bottom of the post's list of comments.
+ > (define (post-insert-comment! a-post a-comment)
+ >   (set-post-comments!
+ >    a-post
+ >    (append (post-comments a-post) (list a-comment))))
+ >
+ > ; start: request -> doesn't return
+ > ; Consumes a request and produces a page that displays
+ > ; all of the web content.
+ > (define (start request)
+ >   (blog-dispatch request))
+ >
+ > (define-values (blog-dispatch blog-url)
+ >   (dispatch-rules
+ >    [("") render-blog-page]
+ >    [("loggin") render-loggin-page]
+ >    [("render-loggin-attempt-page") render-loggin-attempt-page]
+ >    ;[("render-posts") render-posts]
+ >    [("logout") render-logout-page]
+ >    [("add-post") review-archive]
+ >    [("loggedin") render-loggedin-page]
+ >    ;render-loggin-attempt-page
+ >    ;[else render-blog-page]
+ >    ))
+ >
+ > (displayln blog-url)
+ >
+ > ;And define your request handlers as follows:
+ > (define (list-posts req) `(list-posts))
+ > (define (review-post req p) `(review-post ,p))
+ > (define (review-archive req y m) `(review-archive ,y ,m))
+ >
+ > ; render-loggin-page request -> doesn't return
+ > ; Produces a loggin page
+ > (define (render-loggin-page request)
+ >   (define (response-generator embed/url)
+ >     (response/xexpr
+ >      `(html (head (title "My Blog - loggin page"))
+ >             (body
+ >              (h1 "My Blog - loggin page")
+ >              (p "please loggin")
+ >              (form ((action "render-loggin-attempt-page" ) (method "get"))
+ >                    ;,(embed/url insert-loggin-handler)))
+ >                    (input ((name "username") (placeholder "username") (type "text")))
+ >                    (input ((name "password") (placeholder "password") (type "password")))
+ >                    (input ((type "submit") (value "loggin"))))))))
+ >
+ >   ; parse-post: bindings -> post
+ >   ; Extracts a post out of the bindings.
+ >   (define (parse-loggin bindings)
+ >     (list (extract-binding/single 'username bindings)
+ >           (extract-binding/single 'password bindings)))
+ >
+ >   ;; check against users database
+ >   (define (valid-user? login-details)
+ >     (displayln '("stephen" "pass"))
+ >     (if (equal? login-details '("stephen" "pass")) #t #f))
+ >
+ >   (define (insert-loggin-handler request)
+ >     (displayln (parse-loggin (request-bindings request)))
+ >     (if (valid-user? (parse-loggin (request-bindings request)))
+ >         (render-loggedin-page
+ >          (redirect/get)
+ >          (make-id-cookie "current-user" secret-salt "loggedin")); #:timeout +inf.0))
+ >         (render-loggin-page (redirect/get))))
+ >
+ >   (send/suspend/dispatch response-generator))
+ >
+ >
+ > ; render-loggedin-page: request -> doesn't return
+ > ; Produces an logged-in page
+ > (define (render-loggedin-page request id-cookie)
+ >   (define (response-generator embed/url)
+ >     (response/xexpr
+ >      #:cookies (list id-cookie)
+ >      `(html
+ >        (head (title "My Blog"))
+ >        (body
+ >
+ >         (h1 "My Blog")
+ >
+ >         (h2 "you have logged in")
+ >         (a ((href "/"))
+ >            "go to the blog")))))
+ >
+ >   (define (render-blog-page-handler request)
+ >     (render-blog-page request))
+ >
+ >   (send/suspend/dispatch response-generator))
+ > ; render-loggin-attempt-page: request -> doesn't return
+ > ; Produces an logged-in page
+ > (define (render-loggin-attempt-page request)
+ >   (define rq-bindings (request-bindings request))
+ >
+ >   (define (response-generator embed/url)
+ >     (response/xexpr
+ >      #:cookies (list (logout-id-cookie "current-user"))
+ >      `(html
+ >        (head (title "My Blog"))
+ >        (body
+ >
+ >         (h1 "My Blog")
+ >
+ >         (h2 "you have logged OUT")
+ >         (a ((href "loggin"))
+ >            "go to the loggin")))))
+ >
+ >   ; (define (render-blog-page-handlerx request)
+ >   ;   (render-blog-pagex request))
+ >
+ >   ; parse-post: bindings -> post
+ >   ; Extracts a post out of the bindings.
+ >   (define (parse-loggin bindings)
+ >     (list (extract-binding/single 'username bindings)
+ >           (extract-binding/single 'password bindings)))
+ >
+ >   ;; check against users database
+ >   (define (valid-user? login-details)
+ >     (displayln '("stephen" "pass"))
+ >     (if (equal? login-details '("stephen" "pass")) #t #f))
+ >
+ >   ;(define (insert-loggin-handler request)
+ >   (displayln (parse-loggin rq-bindings))
+ >   (if (valid-user? (parse-loggin rq-bindings))
+ >
+ >       (response/xexpr
+ >        #:cookies (list (make-id-cookie "current-user" secret-salt "loggedin"))
+ >        `(html
+ >          (head (title "My Blog"))
+ >          (body
+ >
+ >           (h1 "My Blog")
+ >
+ >           (h2 "you have logged IN")
+ >           (a ((href "/"))
+ >              "go to the blog"))))
+ >       (response/xexpr
+ >        ;#:cookies (list (make-id-cookie "current-user" secret-salt "loggedin"))
+ >        `(html
+ >          (head (title "My Blog"))
+ >          (body
+ >
+ >           (h1 "My Blog")
+ >
+ >           (h2 "Loggin failed - please try again")
+ >           (a ((href "loggin"))
+ >              "go to loggin"))))
+ >       )
+ >   ;  (render-loggedin-page
+ >   ;   (redirect/get)
+ >   ;   (make-id-cookie "current-user" secret-salt "loggedin")); #:timeout +inf.0))
+ >   ;(render-loggin-page (redirect/get));)
+ >
+ >
+ >
+ >   ;(send/suspend/dispatch response-generator)
+ >   )
+ >
+ > ; render-logout-page: request -> doesn't return
+ > ; Produces an logged-in page
+ > (define (render-logout-page request)
+ >   (define (response-generator embed/url)
+ >     (response/xexpr
+ >      #:cookies (list (logout-id-cookie "current-user"))
+ >      `(html
+ >        (head (title "My Blog"))
+ >        (body
+ >
+ >         (h1 "My Blog")
+ >
+ >         (h2 "you have logged OUT")
+ >         (a ((href "loggin"))
+ >            "go to the loggin")))))
+ >
+ >   (define (render-blog-page-handler request)
+ >     (render-blog-page request))
+ >
+ >   (send/suspend/dispatch response-generator))
+ >
+ > ; render-blog-page: request -> doesn't return
+ > ; Produces an HTML page of the content of the
+ > ; BLOG.
+ > (define (render-blog-page request)
+ >   (define id-cookie (request-id-cookie "current-user" secret-salt request )) ;#:timeout timeout)
+ >
+ >   (define (response-generator embed/url)
+ >     (response/xexpr
+ >      `(html (head (title "My Blog"))
+ >             (body
+ >              (p ,(render-logged-in-user request))
+ >              (hr )
+ >
+ >              (h1 "My Blog")
+ >              (p ,(if id-cookie id-cookie "id-cookie is #f "))
+ >              ,(if id-cookie (render-posts embed/url)
+ >                   `(p "no ID cookie found - please log in"))
+ >
+ >              ,(if id-cookie '(h2 "Add post") '(p "no ID cookie found - please log in"))
+ >              ,(if id-cookie
+ >                   `(form ((action ,(embed/url insert-post-handler)))
+ >                          (fieldset ((style "display: inline-block;"))
+ >                                    (legend "add a post to the blog")
+ >                                    (label ((for "title")) "Title:")
+ >
+ >                                    (input ((name "title") (id "title") (size "60")))
+ >                                    (br )
+ >                                    (label ((for "body")) "Body:")
+ >                                    (br )
+ >                                    (textarea ((name "body")(id "body")(cols "60")))
+ >                                    (br )
+ >                                    (input ((type "submit")))))
+ >                   `(p "no ID cookie found - please log in"))
+ >              ))))
+ >
+ >   ; parse-post: bindings -> post
+ >   ; Extracts a post out of the bindings.
+ >   (define (parse-post bindings)
+ >     (post (extract-binding/single 'title bindings)
+ >           (extract-binding/single 'body bindings)
+ >           (list)))
+ >
+ >   (define (insert-post-handler request)
+ >     (blog-insert-post!
+ >      BLOG (parse-post (request-bindings request)))
+ >     (render-blog-page (redirect/get)))
+ >
+ >   (define (loggin-handler request)
+ >     (render-loggin-page request))
+ >
+ >
+ >   (send/suspend/dispatch response-generator))
+ >
+ > ; render-post-detail-page: post request -> doesn't return
+ > ; Consumes a post and produces a detail page of the post.
+ > ; The user will be able to either insert new comments
+ > ; or go back to render-blog-page.
+ > (define (render-post-detail-page a-post request)
+ >   (define (response-generator embed/url)
+ >     (response/xexpr
+ >      `(html (head (title "Post Details"))
+ >             (body
+ >              (h1 "Post Details")
+ >              (h2 ,(post-title a-post))
+ >              (p ,(post-body a-post))
+ >              ,(render-as-itemized-list
+ >                (post-comments a-post))
+ >              (form ((action
+ >                      ,(embed/url insert-comment-handler)))
+ >                    (input ((name "comment")))
+ >                    (input ((type "submit"))))
+ >              (a ((href ,(embed/url back-handler)))
+ >                 "Back to the blog")))))
+ >
+ >   (define (parse-comment bindings)
+ >     (extract-binding/single 'comment bindings))
+ >
+ >   (define (insert-comment-handler request)
+ >     (render-confirm-add-comment-page
+ >      (parse-comment (request-bindings request))
+ >      a-post
+ >      request))
+ >
+ >   (define (back-handler request)
+ >     (render-blog-page request))
+ >   (send/suspend/dispatch response-generator))
+ >
+ > ; render-confirm-add-comment-page :
+ > ; comment post request -> doesn't return
+ > ; Consumes a comment that we intend to add to a post, as well
+ > ; as the request. If the user follows through, adds a comment
+ > ; and goes back to the display page. Otherwise, goes back to
+ > ; the detail page of the post.
+ > (define (render-confirm-add-comment-page a-comment a-post request)
+ >   (define (response-generator embed/url)
+ >     (response/xexpr
+ >      `(html (head (title "Add a Comment"))
+ >             (body
+ >              (h1 "Add a Comment")
+ >              "The comment: " (div (p ,a-comment))
+ >              "will be added to "
+ >              (div ,(post-title a-post))
+ >
+ >              (p (a ((href ,(embed/url yes-handler)))
+ >                    "Yes, add the comment."))
+ >              (p (a ((href ,(embed/url cancel-handler)))
+ >                    "No, I changed my mind!"))))))
+ >
+ >   (define (yes-handler request)
+ >     (post-insert-comment! a-post a-comment)
+ >     (render-post-detail-page a-post (redirect/get)))
+ >
+ >   (define (cancel-handler request)
+ >     (render-post-detail-page a-post request))
+ >   (send/suspend/dispatch response-generator))
+ >
+ > ; render-post: post (handler -> string) -> xexpr
+ > ; Consumes a post, produces an xexpr fragment of the post.
+ > ; The fragment contains a link to show a detailed view of the post.
+ > (define (render-post a-post embed/url)
+ >   (define (view-post-handler request)
+ >     (render-post-detail-page a-post request))
+ >   `(div ((class "post"))
+ >         (a ((href ,(embed/url view-post-handler)))
+ >            ,(post-title a-post))
+ >         (p ,(post-body a-post))
+ >         (div ,(number->string (length (post-comments a-post)))
+ >              " comment(s)")))
+ >
+ > ; render-posts: (handler -> string) -> xexpr
+ > ; Consumes a embed/url, produces an xexpr fragment
+ > ; of all its posts.
+ > (define (render-posts embed/url)
+ >   (define (render-post/embed/url a-post)
+ >     (render-post a-post embed/url))
+ >   `(div ((class "posts"))
+ >         ,@(map render-post/embed/url (blog-posts BLOG))))
+ >
+ > ; render-as-itemized-list: (listof xexpr) -> xexpr
+ > ; Consumes a list of items, and produces a rendering as
+ > ; an unorderered list.
+ > (define (render-as-itemized-list fragments)
+ >   `(ul ,@(map render-as-item fragments)))
+ >
+ > ; render-as-item: xexpr -> xexpr
+ > ; Consumes an xexpr, and produces a rendering
+ > ; as a list item.
+ > (define (render-as-item a-fragment)
+ >   `(li ,a-fragment))
+ >
+ >
+ > ; render-as-item: xexpr -> xexpr
+ > ; Consumes an xexpr, and produces a rendering
+ > ; as a list item.
+ > (define (render-logged-in-user request)
+ >   (define id-cookie (request-id-cookie "current-user" secret-salt request ));#:timeout timeout)
+ >   (if id-cookie
+ >       '(p "id cookie true"  (a  ((href "logout")) "Logout"))
+ >       '(p "id-cookie false" (a  ((href "loggin")) "Loggin")))
+ >   )
+ >
+ >
+ >
+ > (require web-server/servlet-env)
+ > (serve/servlet start
+ >                #:launch-browser? #t
+ >                #:quit? #f
+ >                #:listen-ip #f
+ >                #:port 8000
+ >                #:extra-files-paths
+ >                (list (build-path "~//Dev//genetic-cis" "htdocs"))
+ >                #:servlet-regexp #rx""
+ >                #:servlet-path ""
+ >                )
+ >
+ > *** Environment:
+ > macosx "Darwin Miriams-MacBook-Pro.local 15.6.0 Darwin Kernel Version 15.6.0: Wed Nov  2 20:30:56 PDT 2016; root:xnu-3248.60.11.1.2~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 1412497352
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package            Checksum             Source
+ >  main-distribution  ba3c3c7492822f85...  catalog...tribution
+ >  racket-lib         eab208a9ea408bd3...  catalog racket-lib
+ >  [189 auto-installed packages not shown]
+ > User-specific for installation "6.7":
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/Users/spdegabrielle/Library/Racket/6.7/collects"
+ >  (non-existent-path))
+ > ("/Applications/Racket v6.7/collects"
+ >  ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version" "xml"))
+ >
+ > Recent Internal Errors:
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+ >

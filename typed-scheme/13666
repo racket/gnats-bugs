@@ -1,0 +1,314 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Apr  6 16:53:55 2013
+Received: from mail-ob0-f174.google.com (mail-ob0-f174.google.com [209.85.214.174])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r36Krph5014699
+	for <bugs@bugs.plt-scheme.org>; Sat, 6 Apr 2013 16:53:52 -0400
+Message-Id: <201304062053.r36Kro6g014693@champlain.ccs.neu.edu>
+Date: Sat, 6 Apr 2013 16:53:50 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Recursive types make contract generation unsound
+
+>Number:         13666
+>Category:       typed-scheme
+>Synopsis:       Recursive types make contract generation unsound
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Apr 06 16:56:01 -0400 2013
+>Last-Modified:  Sat Apr 13 11:14:39 -0400 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+Recursive types make it so that a tree traversal of the type to generate the contract will always have issues, as we cannot generate a contract based on its context. An example is given below, which should fail but doesn't.
+>How-To-Repeat:
+#lang racket/load
+
+(module typed typed/racket
+  (provide g)
+
+  (define-type Foo (Rec a (U (List Any) (Boxof a))))
+
+
+  (: f (Byte -> Natural))
+  (define (f x) (add1 x))
+  (: g (Foo -> Void))
+  (define (g b) 
+    (when (box? b)
+      (set-box! b (list f)))))
+
+(require 'typed)
+(define b (box #f))
+(g b)
+(displayln ((first (unbox b)) "foo"))
+
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13666: Recursive types make contract generation unsound
+Date: Sat, 6 Apr 2013 18:08:34 -0400
+
+ This example is clearly wrong, but I don't see how your conclusion
+ about recursive types follows.  I think this should generate a
+ contract like
+ 
+    (letrec ([c (recursive-contract (or/c (listof any/c) (box/c c))
+ #:chaperone)])
+      c)
+ 
+ 
+ 
+ On Sat, Apr 6, 2013 at 4:56 PM,  <eric.n.dobson@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13666
+ >
+ > Reported by Eric Dobson for release: 5.3.2.3
+ >
+ > *** Description:
+ > Recursive types make it so that a tree traversal of the type to generate the contract will always have issues, as we cannot generate a contract based on its context. An example is given below, which should fail but doesn't.
+ >
+ > *** How to repeat:
+ > #lang racket/load
+ >
+ > (module typed typed/racket
+ >   (provide g)
+ >
+ >   (define-type Foo (Rec a (U (List Any) (Boxof a))))
+ >
+ >
+ >   (: f (Byte -> Natural))
+ >   (define (f x) (add1 x))
+ >   (: g (Foo -> Void))
+ >   (define (g b)
+ >     (when (box? b)
+ >       (set-box! b (list f)))))
+ >
+ > (require 'typed)
+ > (define b (box #f))
+ > (g b)
+ > (displayln ((first (unbox b)) "foo"))
+ >
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13666: Recursive types make contract generation unsound
+Date: Sat, 6 Apr 2013 15:15:30 -0700
+
+ Thats what currently happens but is wrong because it needs to generate
+ any-wrap/c, as my report shows.
+ 
+ You cannot tell which you need by the time you get to Any, because if
+ the type was instead (Rec a (U (List Any) (List a a))) then you would
+ need to generate any/c. This is why a tree traversal is wrong.
+ 
+ On Sat, Apr 6, 2013 at 3:08 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > This example is clearly wrong, but I don't see how your conclusion
+ > about recursive types follows.  I think this should generate a
+ > contract like
+ >
+ >    (letrec ([c (recursive-contract (or/c (listof any/c) (box/c c))
+ > #:chaperone)])
+ >      c)
+ >
+ >
+ >
+ > On Sat, Apr 6, 2013 at 4:56 PM,  <eric.n.dobson@gmail.com> wrote:
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=13666
+ >>
+ >> Reported by Eric Dobson for release: 5.3.2.3
+ >>
+ >> *** Description:
+ >> Recursive types make it so that a tree traversal of the type to generate the contract will always have issues, as we cannot generate a contract based on its context. An example is given below, which should fail but doesn't.
+ >>
+ >> *** How to repeat:
+ >> #lang racket/load
+ >>
+ >> (module typed typed/racket
+ >>   (provide g)
+ >>
+ >>   (define-type Foo (Rec a (U (List Any) (Boxof a))))
+ >>
+ >>
+ >>   (: f (Byte -> Natural))
+ >>   (define (f x) (add1 x))
+ >>   (: g (Foo -> Void))
+ >>   (define (g b)
+ >>     (when (box? b)
+ >>       (set-box! b (list f)))))
+ >>
+ >> (require 'typed)
+ >> (define b (box #f))
+ >> (g b)
+ >> (displayln ((first (unbox b)) "foo"))
+ >>
+ >>
+ >> *** Environment:
+ >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >>
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13666: Recursive types make contract generation unsound
+Date: Sat, 6 Apr 2013 18:23:39 -0400
+
+ Oh, now I see.  So what we need is a way to tell if an `Any` is
+ eventually used under a mutable container type.
+ 
+ I see two options off the top of my head -- unroll all recursive types
+ once, or record this information and generate fresh names for each
+ `Any`, and then place the generated contract in a scope that maps
+ those names to the appropriate contract.
+ 
+ Sam
+ 
+ On Sat, Apr 6, 2013 at 6:15 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > Thats what currently happens but is wrong because it needs to generate
+ > any-wrap/c, as my report shows.
+ >
+ > You cannot tell which you need by the time you get to Any, because if
+ > the type was instead (Rec a (U (List Any) (List a a))) then you would
+ > need to generate any/c. This is why a tree traversal is wrong.
+ >
+ > On Sat, Apr 6, 2013 at 3:08 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> This example is clearly wrong, but I don't see how your conclusion
+ >> about recursive types follows.  I think this should generate a
+ >> contract like
+ >>
+ >>    (letrec ([c (recursive-contract (or/c (listof any/c) (box/c c))
+ >> #:chaperone)])
+ >>      c)
+ >>
+ >>
+ >>
+ >> On Sat, Apr 6, 2013 at 4:56 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>> A new problem report is waiting at
+ >>>   http://bugs.racket-lang.org/query/?cmd=view&pr=13666
+ >>>
+ >>> Reported by Eric Dobson for release: 5.3.2.3
+ >>>
+ >>> *** Description:
+ >>> Recursive types make it so that a tree traversal of the type to generate the contract will always have issues, as we cannot generate a contract based on its context. An example is given below, which should fail but doesn't.
+ >>>
+ >>> *** How to repeat:
+ >>> #lang racket/load
+ >>>
+ >>> (module typed typed/racket
+ >>>   (provide g)
+ >>>
+ >>>   (define-type Foo (Rec a (U (List Any) (Boxof a))))
+ >>>
+ >>>
+ >>>   (: f (Byte -> Natural))
+ >>>   (define (f x) (add1 x))
+ >>>   (: g (Foo -> Void))
+ >>>   (define (g b)
+ >>>     (when (box? b)
+ >>>       (set-box! b (list f)))))
+ >>>
+ >>> (require 'typed)
+ >>> (define b (box #f))
+ >>> (g b)
+ >>> (displayln ((first (unbox b)) "foo"))
+ >>>
+ >>>
+ >>> *** Environment:
+ >>> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >>>
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13666: Recursive types make contract generation unsound
+Date: Sat, 6 Apr 2013 15:29:31 -0700
+
+ No we need to know where any type that is checked differently for
+ typed/untyped values is used. This currently is Any/(Poly (a ...)
+ t)/(Listof t)/Functions with filter types.
+ 
+ I have a sorta solution which is to treat all Recursive types as used
+ from both sides, and this seems to work. Its an approximation in the
+ other direction so there are programs which should have contracts
+ generated for them but don't.
+ 
+ On Sat, Apr 6, 2013 at 3:23 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > Oh, now I see.  So what we need is a way to tell if an `Any` is
+ > eventually used under a mutable container type.
+ >
+ > I see two options off the top of my head -- unroll all recursive types
+ > once, or record this information and generate fresh names for each
+ > `Any`, and then place the generated contract in a scope that maps
+ > those names to the appropriate contract.
+ >
+ > Sam
+ >
+ > On Sat, Apr 6, 2013 at 6:15 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ >> Thats what currently happens but is wrong because it needs to generate
+ >> any-wrap/c, as my report shows.
+ >>
+ >> You cannot tell which you need by the time you get to Any, because if
+ >> the type was instead (Rec a (U (List Any) (List a a))) then you would
+ >> need to generate any/c. This is why a tree traversal is wrong.
+ >>
+ >> On Sat, Apr 6, 2013 at 3:08 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >>> This example is clearly wrong, but I don't see how your conclusion
+ >>> about recursive types follows.  I think this should generate a
+ >>> contract like
+ >>>
+ >>>    (letrec ([c (recursive-contract (or/c (listof any/c) (box/c c))
+ >>> #:chaperone)])
+ >>>      c)
+ >>>
+ >>>
+ >>>
+ >>> On Sat, Apr 6, 2013 at 4:56 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>>> A new problem report is waiting at
+ >>>>   http://bugs.racket-lang.org/query/?cmd=view&pr=13666
+ >>>>
+ >>>> Reported by Eric Dobson for release: 5.3.2.3
+ >>>>
+ >>>> *** Description:
+ >>>> Recursive types make it so that a tree traversal of the type to generate the contract will always have issues, as we cannot generate a contract based on its context. An example is given below, which should fail but doesn't.
+ >>>>
+ >>>> *** How to repeat:
+ >>>> #lang racket/load
+ >>>>
+ >>>> (module typed typed/racket
+ >>>>   (provide g)
+ >>>>
+ >>>>   (define-type Foo (Rec a (U (List Any) (Boxof a))))
+ >>>>
+ >>>>
+ >>>>   (: f (Byte -> Natural))
+ >>>>   (define (f x) (add1 x))
+ >>>>   (: g (Foo -> Void))
+ >>>>   (define (g b)
+ >>>>     (when (box? b)
+ >>>>       (set-box! b (list f)))))
+ >>>>
+ >>>> (require 'typed)
+ >>>> (define b (box #f))
+ >>>> (g b)
+ >>>> (displayln ((first (unbox b)) "foo"))
+ >>>>
+ >>>>
+ >>>> *** Environment:
+ >>>> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >>>>
+

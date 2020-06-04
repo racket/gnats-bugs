@@ -1,0 +1,94 @@
+From apache@plt-scheme.org Fri Oct  8 18:47:32 2004
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id i98MlWnA004733
+	for <bugs@plt-scheme.org>; Fri, 8 Oct 2004 18:47:32 -0400
+Message-Id: <200410082247.i98MlW4m004731@champlain.ccs.neu.edu>
+Date: Fri, 8 Oct 2004 18:47:32 -0400
+From: mike@mike-burns.com
+To: bugs@plt-scheme.org
+Subject: Cannot invoke continuation after capturing thread is shut down
+
+>Number:         7066
+>Category:       mzscheme
+>Synopsis:       Cannot invoke continuation after capturing thread is shut down
+>Class:          sw-bug
+>Responsible:    gregp
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Oct 08 18:50:00 -0400 2004
+>Last-Modified:  Mon May 05 13:44:22 -0400 2008
+>Originator:     Mike Burns
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.17
+>Environment:
+solaris-other
+>Description:
+A continuation is captured on the connection thread. The connection thread is then shut down via custodian-shutdown-all.
+
+custodian-shutdown-all happens when:
+ * e.g. the connection is allowed to time out
+ * e.g. the protocol version is < 1.1 and the connection thread is shut down after each request
+
+Continuations captured on this thread cannot be invoked and result in the following error message:
+Servlet exception:
+"default-load-handler: the custodian has been shut down: #<custodian>\n"
+display: output port is closed
+
+
+<GregP>
+Note: the following program illustrates the cause of the bug:
+;; the first line is a comment
+(module foo mzscheme
+
+  (define global-k #f)
+  (define sema (make-semaphore))
+
+  (let ([thread-cust (make-custodian)])
+    (parameterize ([current-custodian thread-cust])
+      (thread
+       (lambda ()
+         (with-handlers ([void
+                          (lambda (the-exn)
+                            (call-with-input-file "foo.ss"
+                              (lambda (i-port)
+                                (display (read-line i-port))))
+                            (newline))])
+           (if (let/cc k
+                 (set! global-k k)
+                 #f)
+               (error "should go to the error handler now")
+               (begin
+                 (printf "second branch~n")
+                 (semaphore-post sema)))))))
+    (thread
+     (lambda ()
+       (semaphore-wait sema)
+
+       ;; if you uncomment the next line, you will unveil
+       ;; the source of all my woes:
+       ;(custodian-shutdown-all thread-cust)
+       (global-k #t)))))
+>How-To-Repeat:
+1. Visit add.ss using wget.
+2. Get URL from the action of the form in the resulting response.
+3. Use this URL to wget another page.
+
+(Note: quote the URL on the command-line using single-quotes.)
+
+Results:
+* wget will spin then timeout on the last page.
+* Command-line output from Web server is as above.
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by gregp at Thu, 14 Oct 2004 16:30:30 -0400
+Reason>>> fixed.
+
+
+Responsible changed from "nobody" to "gregp" by eli at Thu, 30 Dec 2004 15:58:37 -0500
+Reason>>> (Greg closed this)
+
+

@@ -1,0 +1,135 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Apr  9 21:57:50 2007
+Received: from an-out-0708.google.com (an-out-0708.google.com [209.85.132.251])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l3A1vo5w032710
+	for <bugs@bugs.plt-scheme.org>; Mon, 9 Apr 2007 21:57:50 -0400
+Message-Id: <200704100157.l3A1vmJU032705@champlain.ccs.neu.edu>
+Date: Mon, 9 Apr 2007 21:57:48 -0400
+From: matthias@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: student program interferes with drscheme operations 
+
+>Number:         8596
+>Category:       mzscheme
+>Synopsis:       student program interferes with drscheme operations
+>Class:          sw-bug
+>Responsible:    mflatt
+>Notify-List:    robby@plt-scheme.org
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Apr 09 22:00:01 -0400 2007
+>Last-Modified:  Fri May 04 03:07:22 -0400 2007
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.8-svn31mar2007
+>Environment:
+macosx "Darwin europe.local 8.9.1 Darwin Kernel Version 8.9.1: Thu Feb 22 20:55:00 PST 2007; root:xnu-792.18.15~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/matthias/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced") ("/Users/matthias/plt/collects/doc" "teachpack") (* "/Users/matthias/Library/PLT Scheme/planet/300/369.8/cache/plt/typed-scheme.plt/1/3/doc"))
+Human Language: english
+(current-memory-use) 110609164
+
+Collections:
+(("/Users/matthias/Unison/collects/" ".DS_Store" "date" "finance" "testing" "utils" "web") ("/Users/matthias/Library/PLT Scheme/369.8/collects" non-existent-path) ("/Users/matthias/plt/collects" ".DS_Store" ".svn" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "doc" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpic!
+ t" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+I am running a program that opens a few too many ports (my fault). 
+If you let it run for a while, you eventually get some error message
+about too many files open. Then try to do something with drscheme 
+(assuming you haven't saved the contents of the definitions window)
+and voila drscheme will spit out this error message: 
+
+open-output-file: cannot open output file: "/Users/matthias/svn/Squadron/server.scm" (Too many open files; errno=24)
+
+ === context ===
+/Users/matthias/plt/collects/framework/private/keymap.ss:1258:16: save-file
+call-with-break-parameterization
+
+I am adding the program that I ran. You don't need the whole thing but it's good enough. 
+(the bug fix is added)
+>How-To-Repeat:
+(module server mzscheme
+  
+  (require "test-support.scm"
+           (lib "xml.ss" "xml")
+           (lib "mred.ss" "mred")
+           (lib "match.ss")
+           (lib "list.ss"))
+  
+  (define SQPORT 8080)
+  (define gui:ch (make-channel))
+  (define the-custodian (make-custodian))
+  
+  ;; -> Void 
+  ;; thread: listens for REGISTER messages; creates proxy players from them
+  (define (listener)
+    (define tcp-listener (tcp-listen SQPORT 4 #t))
+    (define (add-player start players)
+      (lambda (in-out)
+        (define in (first in-out))
+        (define out (second in-out))
+        (parameterize ([current-input-port in])
+          (define next (receive-xml-message))
+          (match next
+            [`(REGISTER ((name ,n)))
+              (if start 
+                  (begin 
+                    (printf "rejected: ~a\n" n)
+;;; ---> close ports here 
+                    (loop players start))
+                  (begin 
+                    (printf "name ~s\n" n)
+;;; ---> switch start to #t when enough players have registered 
+                    (loop (cons (list in out) players) start)))]
+            [else  
+             (printf "erroneous connection: ~s\n" next)
+             (loop players start)]))))
+    (define (interpret-command start players)
+      (lambda (c)
+        (if (eq? c 'START)
+            (loop players #t)
+            (begin 
+              (printf "done\n")
+              (custodian-shutdown-all the-custodian)))))
+    (define (loop players start)
+      (sync (wrap-evt (tcp-accept-evt tcp-listener) (add-player start players))
+            (wrap-evt gui:ch (interpret-command start players))))
+    (loop '() #f))
+
+  
+  (define (fake)
+    (with-handlers ((exn:fail:network? (lambda (x)
+                                         (printf "exn: ~a\n" (exn-message x))
+                                         (fake))))
+      (define-values (in out) (tcp-connect "127.0.0.1" SQPORT))
+      (parameterize ([current-output-port out])
+        (send-xml-message `(REGISTER ((name ,(symbol->string (gensym 'Matthias))))))
+        (sleep 1)
+        (fake))))
+  
+  (define (gui)
+    (message-box "START" "START" #f)
+    (printf "sending go!\n")
+    (channel-put gui:ch 'START)
+    (message-box "STOP" "STOP" #f)
+    (channel-put gui:ch 'STOP))
+  
+  (define (main)
+    (parameterize ([current-custodian the-custodian])
+      (thread listener)
+      (thread gui)
+      (thread fake)))
+  
+  (main)
+  
+  )
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by eli at Fri, 04 May 2007 03:07:22 -0400
+Reason>>> more resources for custodians
+

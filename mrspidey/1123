@@ -1,0 +1,208 @@
+From matthias@cs.rice.edu  Thu Aug 19 23:29:55 1999
+Received: from africa.cs.rice.edu (africa.cs.rice.edu [128.42.1.175])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id XAA27073
+	for <plt-gnats@cs.rice.edu>; Thu, 19 Aug 1999 23:29:55 -0500 (CDT)
+Message-Id: <199908200429.XAA08134@africa.cs.rice.edu>
+Date: Thu, 19 Aug 1999 23:29:54 -0500 (CDT)
+From: Matthias Felleisen <matthias@cs.rice.edu>
+Reply-To: matthias@rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: spidey spits out messages
+X-Send-Pr-Version: 3.101
+
+>Number:         1123
+>Category:       mrspidey
+>Synopsis:       spidey spits out messages
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    steck
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Aug 20 04:30:01 GMT 1999
+>Last-Modified:  Mon Jan 10 14:55:42 CST 2000
+>Originator:     Matthias Felleisen
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	100
+>Description:
+	Use spidey. The console will contain: 
+
+	template-type: expects argument of type <struct:template>; given #f
+	template-type: expects argument of type <struct:template>; given #f
+	template-type: expects argument of type <struct:template>; given #f
+	ivar: instance variable not found: get-command-int in class: control-event%
+	ivar: instance variable not found: get-command-int in class: control-event%
+
+	Sorry that's all I have right now .
+
+>How-To-Repeat:
+
+>Fix:
+
+>Audit-Trail:
+
+From: Paul Steckler <steck@cs.rice.edu>
+To: matthias@rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1123: spidey spits out messages
+Date: Fri, 20 Aug 1999 12:15:07 -0500 (CDT)
+
+ 	Use spidey. The console will contain: 
+ 
+ 	template-type: expects argument of type <struct:template>; given #f
+ 	template-type: expects argument of type <struct:template>; given #f
+ 	template-type: expects argument of type <struct:template>; given #f
+ 	ivar: instance variable not found: get-command-int in class: control-event%
+ 	ivar: instance variable not found: get-command-int in class: control-event%
+ 
+ Do you at least know the file you had loaded?  I think that's the
+ clue needed for the first 2 errors.
+ 
+ -- Paul
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: steck@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1123: spidey spits out messages
+Date: Fri, 20 Aug 1999 13:13:14 -0500 (CDT)
+
+ I will. In the meantime, just load any file. I think this error came up
+ every time I analzed a reasonably complex program.
+
+From: Paul Steckler <steck@cs.rice.edu>
+To: matthias@rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1123: spidey spits out messages
+Date: Fri, 20 Aug 1999 15:01:14 -0500 (CDT)
+
+ 	ivar: instance variable not found: get-command-int in class: control-event%
+ 
+ That bug should be fixed now.  It occurred when changing 
+ radio buttons or sliders in the Spidey Preferences.
+ 
+ The other problem
+ 
+ 	template-type: expects argument of type <struct:template>; given #f
+ 
+ is still open.
+ 
+ -- Paul
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: steck@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1123: spidey spits out messages
+Date: Fri, 20 Aug 1999 15:11:44 -0500 (CDT)
+
+ Here is the file I was analyzing
+ 
+ ; (require-library "core.ss")
+ ; inline: "spidey.ss"
+ 
+ 
+ ;; ----------------------------------------------------------------------------
+ ;; Data Definition and Constructors: 
+ 
+ (define-struct scons (con))
+ 
+ (define-struct fcons (fst rst))
+ 
+ ;; state-list = (make-scons func-list)
+ ;; func-list = empty | (make-fcons X state-list)
+ 
+ (define-type state-list (structure:scons func-list))
+ (define-type func-list  (union nil (structure:fcons num state-list)))
+ 
+ ;; fcons : X state-list -> func-list
+ (define (fcons X sl)
+   (unless (or (null? sl) (scons? sl))
+     (error 'fcons "bad state-list: ~e"))
+   (make-fcons X sl))
+ 
+ ;; scons : func-list -> state-list
+ (define (scons fl)
+   (unless (or (null? fl) (fcons? fl))
+     (error 'scons "bad func-list: ~e" fl))
+   (make-scons fl))
+ 
+ ;; ----------------------------------------------------------------------------
+ ;; N-ary Constructor
+ 
+ ;; slist : (listof X) -> (state-list X)
+ ;; to construct a state-list of Xs from an arbitrary number of X
+ (define (slist . Xs)
+   (local ((define (slist lstX)
+             (cond
+               [(null? lstX) (make-scons empty)]
+               [else (scons (fcons (first lstX) (slist (rest lstX))))])))
+     (slist Xs)))
+ 
+ ;; ----------------------------------------------------------------------------
+ ;; Removing an Element
+ 
+ ;; remove! : X (state-list X) -> void
+ ;; effect: to remove the first X in sl destructively 
+ (define (remove! X sl)
+   (local (;; rm-sl : (state-list X) -> (state-list X)
+           (define (rm-sl sl)
+             (set-scons-con! sl (rm-fl (scons-con sl)))
+             sl)
+           ;; rm-fl : (func-list X) -> (func-list X)
+           (define (rm-fl fl)
+             (cond
+               [(null? fl) empty]
+               [else (scons-con
+                      ;^^^^^^^^^^ this indrection is unusual; otherwise it's fine 
+                      (cond
+                        [(eq? X (fcons-fst fl))
+                         (fcons-rst fl)]
+                        [else (rm-sl (fcons-rst fl))]))])))
+     (rm-sl sl)))
+ 
+ ;; ----------------------------------------------------------------------------
+ ;; TESTS: 
+ 
+ ;; simple construction of these things
+ (define f0 empty)
+ (define s0 (make-scons empty))
+ (define f1 (fcons 1 s0))
+ (define s1 (scons f1))
+ (define f2 (fcons 2 s1))
+ (define s2 (scons f2))
+ 
+ (define s3 (slist 2 1))
+ (equal? s3 s2)
+ (: s2 state-list)
+ (: s3 state-list)
+ 
+ (remove! 2 s3)
+ (equal? s3 s1)
+ 
+ (remove! (type: num) (type: state-list))
+ 
+
+From: Paul Steckler <steck@cs.rice.edu>
+To: matthias@rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1123: spidey spits out messages
+Date: Fri, 20 Aug 1999 17:19:19 -0500 (CDT)
+
+ 	template-type: expects argument of type <struct:template>; given #f
+ 	template-type: expects argument of type <struct:template>; given #f
+ 	template-type: expects argument of type <struct:template>; given #f
+ 
+ I'm not able to generate this error using the file you sent.
+ Can you identify an action that makes this happen?
+ 
+ -- Paul
+
+State-Changed-From-To: open-closed
+State-Changed-By: steck
+State-Changed-When: Mon Jan 10 14:55:24 2000
+State-Changed-Why:
+Unable to reproduce.
+>Unformatted:

@@ -1,0 +1,162 @@
+From matthias@cs.rice.edu  Wed Nov  8 08:56:29 2000
+Received: from localhost (europa.rice.edu [192.225.19.49])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id IAA26999
+	for <plt-gnats>; Wed, 8 Nov 2000 08:56:28 -0600 (CST)
+Message-Id: <200011081456.IAA26999@cs.rice.edu>
+Date: Wed, 8 Nov 2000 08:56:28 -0600 (CST)
+From: matthias@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: check-syntax has problems with define-signature
+
+>Number:         1754
+>Category:       drscheme
+>Synopsis:       check-syntax has problems with define-signature
+>Class:          sw-bug
+>Responsible:    steck
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Nov 08 10:00:01 -0500 2000
+>Last-Modified:  Mon May 05 15:33:49 -0400 2008
+>Originator:     matthias
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        103d100
+>Environment:
+unix (i386-linux) (get-display-depth) = 16
+Tools: ("CVS" "analysis" "debug" "syncheck" "project-manager" "unit-bundle")
+Docs Installed:
+("help" "r5rs" "mzscheme" "mred" "drscheme" "misclib" "framework" "mzc" "index.html" "icons" "teach" "teachpack" "tools" "mrspidey" "beginning" "advanced" "intermediate")
+Collections:
+(("/home/matthias/ptg/collects/" ("CVS" "server")) ("/home/matthias/matthias/312/" ("CVS" "announcement" "announcement.tex" "Courses" "announcement.aux" "announcement.html" "announcement.xml" "Spidey" "TODO")) ("/home/matthias/matthias/312/Spidey" ("spidey-bug1.ss" "spidey-test1a.ss" "spidey-test1.ss~" "spidey-test1.ss" "spidey-bug2.ss")) ("/home/matthias/collects/" ("eopl" "utils" "foo.ss" "spidey")) ("/home/scheme/plt/collects/" ("CVS" "afm" "backward" "browser" "xml" "compiler" "countdwn" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "gusrspce" "help" "helpdoc" "hierarchy" "hierlist" "icons" "launcher" "make" "mrdemo" "mred" "mrspidey" "mysterx" "mzdynext" "mzlib" "mzos" "mzscheme" "net" "quasiquote" "readline" "slatex" "stepper" "system" "test" "tests" "texpict" "userspce" "zodiac" "doc" "drjava" "release-notes" "htdp" "setup" "defaults" "guserspce" "stepper-graphical")))
+>Description:
+use a signature inside a plain file (no units)
+to load and invoke a unit dynamically 
+
+click check syntax 
+
+it will fail due to missing signature (fine)
+
+add the signature definition, click check syntax again
+
+now it fails again 
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: matthias@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1754: check-syntax has problems with define-signature
+Date: Wed, 8 Nov 2000 18:37:27 -0800 (PST)
+
+ Please include a (small) program that demonstrates this problem.
+ 
+ For example, this program (in a single file) works fine:
+ 
+ (define-signature s^ (a b c))
+ (define-signature t^ (d e f))
+ 
+ (unit/sig s^
+   (import t^)
+   
+   (define-values (a b c) 1))
+ 
+ Robby
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1754: check-syntax has problems with define-signature
+Date: Fri, 10 Nov 2000 09:32:51 -0600 (CST)
+
+ Robby, I append the smallest program for which this bug shows up on an
+ intermittent basis. Sorry that's the best I can do. 
+ 
+ Click on check syntax and look for the bound occurrence of cgi^. 
+ It is not colored. It doesn't have an arrow. 
+ 
+ Click several times on check syntax, eventually it signals an error. 
+ So I hope. If not, I will demo it with full web-dispatcher-body.ss
+ when you get in. It always repeats there. 
+ 
+ -- Matthias
+ 
+ 
+  ;; for CheckSyntax
+ (define-signature cgi^ (method uri headers bindings send/suspend send/finish adjust-timeout))
+ 
+ 
+ (with-handlers ([void (lambda (exn)
+                         (output-headers out 404 "Not found" (current-seconds) 
+                                         TEXT/HTML-MIME-TYPE
+                                         `(("Content-length: " ,(string-length FILE-ERROR))))
+                         (display FILE-ERROR out)
+                         (purge-table))])
+   (let ([cgi-program (cached-load (substring (url-path uri) 1 (string-length (url-path uri))))])
+     (with-handlers ([void (lambda (exn)
+      ;; more here - check 5xx number
+                             (output-headers out 500 "Cgi error" (current-seconds) 
+                                             TEXT/HTML-MIME-TYPE
+                                             `(("Content-length: " ,(string-length SCRIPT-ERROR))))
+                             (display SCRIPT-ERROR out)
+                             (purge-table))])
+       (output-xhtml (let/ec send/finish (invoke-unit/sig cgi-program cgi^))))))
+ 
+   
+   ;; cgi-content-producer : Method URL (listof (cons Symbol String)) iport oport -> Void
+   (define cgi-content-producer
+     (let (
+           [instance-table (make-hash-table)])
+       (lambda (method uri headers in out)
+         0
+         )))
+   
+   
+    ;; update-params : Url (U #f String) -> String
+   (define (update-params uri params)
+     (url->string
+      (make-url (url-scheme uri) (url-host uri) (url-port uri) 
+                (url-path uri) params (url-query uri) 
+                (url-fragment uri))))
+ 
+   ;; gen-id : -> Symbol
+   (define gen-id
+     (let ([n 0])
+       (lambda ()
+         (set! n (add1 n))
+         (format "id~a" n))))
+   
+   ;; parse-bindings : (U #f String) -> (U #f (listof (cons Symbol String)))
+   (define (parse-bindings raw)
+     (if (string? raw)
+         (let ([len (string-length raw)])
+           (let loop ([start 0])
+             (let find= ([key-end start])
+               (if (>= key-end len)
+                   null
+                   (if (eq? (string-ref raw key-end) #\=)
+                       (let find-amp ([amp-end (add1 key-end)])
+                         (if (or (= amp-end len) (eq? (string-ref raw amp-end) #\&))
+                             (cons (cons (string->symbol (substring raw start key-end))
+ 				    (translate-escapes 
+                                      (substring raw (add1 key-end) amp-end)))
+ 			      (loop (add1 amp-end)))
+                             (find-amp (add1 amp-end))))
+                       (find= (add1 key-end)))))))
+         null))
+ 
+   (define-struct cgi-error ())
+   (define-struct (invalid-%-suffix struct:cgi-error) (chars))
+   (define-struct (incomplete-%-suffix struct:invalid-%-suffix) ())
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Wed Nov 15 10:53:09 2000
+State-Changed-Why:
+
+fixed just earlier with revision of check syntax.
+
+   
+>Unformatted:

@@ -1,0 +1,220 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Mar 30 05:40:36 2012
+Received: from mail-vb0-f44.google.com (mail-vb0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q2U9eVuD001727
+	for <bugs@bugs.plt-scheme.org>; Fri, 30 Mar 2012 05:40:31 -0400
+Message-Id: <201203300940.q2U9eRSG001721@champlain.ccs.neu.edu>
+Date: Fri, 30 Mar 2012 05:40:27 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Bad error message in keyworded function application
+
+>Number:         12663
+>Category:       mzscheme
+>Synopsis:       Bad error message in keyworded function application
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Mar 30 05:44:01 -0400 2012
+>Last-Modified:  Wed Apr 18 16:46:08 -0400 2012
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Windows
+>Description:
+This comes from trying to see what happens when the `plain-proc' has a different
+arity from the main one:
+
+  -> ((make-keyword-procedure (λ (kws kvs a . r) 1) (lambda (a) 2)) 1 2)
+  ; #<procedure>: expects 1 argument plus arbitrary keyword arguments, given 2: 1
+  ;   2 [,bt for context]
+
+The problem is that "1 argument plus arbitrary keyword arguments" is bogus.  I
+thought that it's coming from the main function, but that's not the case:
+
+  -> ((make-keyword-procedure (λ (kws kvs a b) 1) (lambda (a) 2)) 1 2)
+  ; #<procedure>: expects 1 argument plus arbitrary keyword arguments, given 2: 1
+  ;   2 [,bt for context]
+  -> ((make-keyword-procedure (λ (kws kvs a b) 1) (lambda (a b c) 2)) 1 2)
+  ; #<procedure>: expects 3 arguments plus arbitrary keyword arguments, given 2:
+  ;   1 2 [,bt for context]
+
+so it looks like its the arity of the simple function, and the keywords of the
+main one.
+
+The other way shows another problem:
+
+  -> ((make-keyword-procedure (λ (kws kvs a b c) 1) (lambda (a b) 2)) 1 2 #:x 3)
+  ; #<procedure>: no case matching 2 non-keyword arguments; arguments were: 1 2
+  ;   #:x 3 [,bt for context]
+
+The error message here is in contradiction to the fact that `procedure-arity' of
+that function returns 2.
+
+Reading the docs, it looks like the intention *might* be to apply the plain
+function if possible, and otherwise use the main one.  But that sounds like it
+can be tricky to do efficiently, so perhaps the best way to deal with this is
+to make `make-keyword-procedure' throw an error if the arity of the plain proc
+doesn't match the main one without its keywords.
+
+(The "tricky" bit might be possible -- do the same check, and if it doesn't
+match then make it somehow default to calling the main function; but I doubt
+that this is possible with keeping calls efficient enough.)
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eli@barzilay.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12663: Bad error message in keyworded function application
+Date: Sat, 31 Mar 2012 07:23:55 -0600
+
+ At Fri, 30 Mar 2012 05:44:01 -0400, eli@barzilay.org wrote:
+ > Reading the docs, it looks like the intention *might* be to apply the plain
+ > function if possible, and otherwise use the main one.
+ 
+ I'll try to clarify the docs. Any suggestions on where the current docs
+ are unclear?
+ 
+ > perhaps the best way to deal with this is
+ > to make `make-keyword-procedure' throw an error if the arity of the plain proc
+ > doesn't match the main one without its keywords.
+ 
+ We could do things along those lines, which might mean changing the
+ default second argument to use `procedure-reduce-arity', etc.
+ 
+ But the intent of `make-keyword-procedure' is to be more of a minimal
+ building block, and the expectation is that users will apply
+ `procedure-reduce-keyword-arity' to make the arity report more precise
+ as needed.
+ 
+ In other words, `make-keyword-procedure' is meant to be analogous to
+ 
+   (define (make-a-procedure f)
+     (lambda args
+       (apply f args)))
+ 
+ Like `make-keyword-procedure', the result of `make-a-procedure' claims
+ a particular arity, but applying it can immediately trigger an error
+ message involving a different arity.
+ 
+ 
+ Instead of changing `make-keyword-procedure', I think a better
+ direction would be to have a syntactic form that suitably manages arity
+ (on top of `make-keyword-procedure'). That approach would leave the
+ minimal functionality available, and it also avoid issues with backward
+ compatibility.
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12663: Bad error message in keyworded function application
+Date: Sat, 31 Mar 2012 16:39:40 -0400
+
+ 7 hours ago, Matthew Flatt wrote:
+ > At Fri, 30 Mar 2012 05:44:01 -0400, eli@barzilay.org wrote:
+ > > Reading the docs, it looks like the intention *might* be to apply
+ > > the plain function if possible, and otherwise use the main one.
+ > 
+ > I'll try to clarify the docs. Any suggestions on where the current
+ > docs are unclear?
+ 
+ What's missing is some slarifying sentence that the decision of which
+ proc gets called is done only based on whether keywords in the call
+ site are used or not, (and on whether you specified the plain-proc).
+ Specifically, it should clarify that the first proc argument is not
+ used when the arity of the plain-proc doesn't match, and the other
+ way.
+ 
+ It also still seems like a good idea to throw an error if the arity of
+ the two input functions doesn't match.  Is there any use for such
+ cases?
+ 
+ Such an error would also help with the doc clarification, making it
+ mostly redundant: you have to use matching arities, so there's no
+ confusion about some kind of trying one in case the other doesn't
+ match.
+ 
+ Looking at the code, I see also this as a surprising behavior that is
+ not documented:
+ 
+   -> (procedure-arity (make-keyword-procedure (λ (kws kvs x y) 1)))
+   (arity-at-least 0)
+ 
+ So I think that what would make sense to me is:
+ 
+ 1. For the first case of not having a `plain-proc' argument, have a
+    few cases for common options (ie, functions with precise arities
+    when `proc's arity is 2, 3, 4, 5, 2-, 3-, 4-), and use reduce-arity
+    for the rest.
+ 
+ 1a. Also give these functions some indicative name -- even if it's not
+     using an inferred name, it'll still be better to have some
+     #<procedure:keyworded> instead of the current
+     #<procedure:...t/private/kw.rkt:189:14>.
+ 
+ 2. When both functions are given, throw an error if they don't match
+    (if `proc's arity is not 2+`plain-proc's arity).
+ 
+ 
+ > > perhaps the best way to deal with this is to make
+ > > `make-keyword-procedure' throw an error if the arity of the plain
+ > > proc doesn't match the main one without its keywords.
+ > 
+ > We could do things along those lines, which might mean changing the
+ > default second argument to use `procedure-reduce-arity', etc.
+ > 
+ > But the intent of `make-keyword-procedure' is to be more of a
+ > minimal building block, and the expectation is that users will apply
+ > `procedure-reduce-keyword-arity' to make the arity report more
+ > precise as needed.
+ 
+ I just think that it's not a good idea to leave it as open as it is
+ now, since it easily leads to confusing mistakes.  Also, IIRC, there
+ have been several cases when such problems popped.  (And that's in
+ addition to still not having too many cases where a function sends all
+ inputs to another function.)
+ 
+ 
+ > In other words, `make-keyword-procedure' is meant to be analogous to
+ > 
+ >   (define (make-a-procedure f)
+ >     (lambda args
+ >       (apply f args)))
+ > 
+ > Like `make-keyword-procedure', the result of `make-a-procedure'
+ > claims a particular arity, but applying it can immediately trigger
+ > an error message involving a different arity.
+ 
+ I guess that this holds in general, but since there's more details
+ with keywords my first reaction is to try to do the precise thing
+ rather than go for the equivalent of a generic `apply f args'.  (If it
+ wasn't clear, this was all due to trying to get a proper
+ `call/input-url', so perhaps another factor is the attention to
+ contracts in that neighborhood.)  So maybe there's a point in leaving
+ things as is, or maybe there's a point about the above
+ `make-a-procedure' being exposed as a hack, resulting from bad support
+ for something with more control--?
+ 
+ 
+ > Instead of changing `make-keyword-procedure', I think a better
+ > direction would be to have a syntactic form that suitably manages
+ > arity (on top of `make-keyword-procedure'). That approach would
+ > leave the minimal functionality available, and it also avoid issues
+ > with backward compatibility.
+ 
+ That would be great, though I still don't have a good idea about what
+ it would look like...  (Especially some syntax that allows you to
+ specify a function that takes the same keyword arguments as another
+ one.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+

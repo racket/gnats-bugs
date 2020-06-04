@@ -1,0 +1,785 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Nov 19 11:53:29 2009
+Received: from mail-yx0-f192.google.com (mail-yx0-f192.google.com [209.85.210.192])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id nAJGrOI3031877
+	for <bugs@bugs.plt-scheme.org>; Thu, 19 Nov 2009 11:53:25 -0500
+Message-Id: <200911191653.nAJGrLZc031870@champlain.ccs.neu.edu>
+Date: Thu, 19 Nov 2009 11:53:21 -0500
+From: samth@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: image to bitmap conversion broken on linux
+
+>Number:         10590
+>Category:       htdp
+>Synopsis:       image to bitmap conversion broken on linux
+>Class:          sw-bug
+>Responsible:    matthias
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Nov 19 11:56:01 -0500 2009
+>Closed-Date:    Wed Feb 17 11:18:23 -0500 2010
+>Last-Modified:  Wed Feb 17 16:24:02 -0500 2010
+>Originator:     Sam TH
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.3.2-svn19nov2009
+>Environment:
+unix "Linux punge 2.6.31-14-generic #48-Ubuntu SMP Fri Oct 16 14:04:26 UTC 2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 165295544
+
+Collections:
+(("/home/samth/.plt-scheme/4.2.3.2/collects" non-existent-path) ("/home/samth/sw/plt-trunk/collects" "honu" "eopl" "tests" "typed" "test-engine" "errortrace" "sgl" "plot" "combinator-parser" "mzcom" "test-box-recovery" "version" ".svn" "defaults" "deinprogramm" "s-exp" "handin-client" "srpersist" "launcher" "scriblib" "browser" "unstable" "r5rs" "gui-debugger" "at-exp" "swindle" "scheme" "reader" "frtime" "file" "slatex" "net" "wxme" "syntax" "scribblings" "parser-tools" "ffi" "hierlist" "handin-server" "2htdp" "framework" "openssl" "dynext" "slideshow" "games" "xml" "texpict" "graphics" "mzscheme" "profile" "help" "web-server" "trace" "make" "algol60" "mzlib" "icons" "sirmail" "lazy" "mrlib" "setup" "string-constants" "syntax-color" "r6rs" "repos-time-stamp" "drscheme" "lang" "afm" "planet" "typed-scheme" "info-domain" "config" "guibuilder" "stepper" "mred" "embedded-gui" "preprocessor" "readline" "htdp" "compiler" "srfi" "waterworld" "macro-debugger" "html" "scribble" "mys!
+ terx" "redex" "rnrs" "teachpack" "tex2page" "schemeunit"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+Currently, using `image->color-list' changes the drawn representation of some images under Linux.  For example, this program prints *different* images for the two occurrences of `i':
+
+#lang scheme
+(require htdp/image)
+(define i (circle 1 'solid 'red))
+i
+(image->color-list i)
+i
+
+The second `i' printout shows a blank image.  The `image->color-list' output is:
+(#(struct:color 255 0 0) #(struct:color 255 0 0) #(struct:color 255 0 0) #(struct:color 255 0 0))
+
+which is incorrect.
+
+Based on some debugging in the source of "mrlib/cache-image-snip.ss", the problem appears to be in the conversion to an ARGB vector.  
+
+The call to `get-argb' in `get-bitmap' produces this ARGB vector on Linux:
+argb: #(255 0 0 0 255 0 0 0 255 0 0 0 255 0 0 0)
+and this vector on OS X:
+argb: #(0 255 0 0 0 255 0 0 0 255 0 0 0 255 0 0)
+
+Beyond that, I wasn't able to track what was going on.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by robby at Wed, 17 Feb 2010 11:18:23 -0500
+Reason>>> I think that this is a side-effect of the way drawing
+happens and the particular (bad) combination of features in
+the way htdp/image works. Specifically, any operation
+(including equal? and image->color-list) that requires
+inspection of the bits of the image changes its internal
+representation by drawing the image and then using the
+bitmap. Due to various unfortunate details that I don't
+recall anymore, this has to happen in unsmoothed mode, which
+is why the image looks different afterwards (you can see
+this with larger circles; they get jaggy afterwards). 
+
+I'm closing this because the right answer is "use
+2htdp/image" and I don't know a good fix for htdp/image.
+
+(I've removed the offending test case that inspired Sam's
+investigation.)
+
+Thanks for looking in this, tho.
+
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        robby@plt-scheme.org, mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 14:31:00 -0500
+
+ On Wed, Feb 17, 2010 at 11:18 AM,  <robby@plt-scheme.org> wrote:
+ >
+ > State changed from "open" to "closed" by robby at Wed, 17 Feb 2010 11:18:23 -0500
+ > Reason>>> I think that this is a side-effect of the way drawing
+ > happens and the particular (bad) combination of features in
+ > the way htdp/image works. Specifically, any operation
+ > (including equal? and image->color-list) that requires
+ > inspection of the bits of the image changes its internal
+ > representation by drawing the image and then using the
+ > bitmap. Due to various unfortunate details that I don't
+ > recall anymore, this has to happen in unsmoothed mode, which
+ > is why the image looks different afterwards (you can see
+ > this with larger circles; they get jaggy afterwards).
+ >
+ > I'm closing this because the right answer is "use
+ > 2htdp/image" and I don't know a good fix for htdp/image.
+ 
+ Is `2htdp/image' what's recommended for student use now?  I thought we
+ were still recommending `htdp/image' for courses, but I'm not sure.
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 13:54:52 -0600
+
+ But 2htdp/image is ready for use in the classroom, if people wish to
+ make their own exercises.
+ 
+ Robby
+ 
+ On Wed, Feb 17, 2010 at 1:52 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > We are with htdp/image until I have rewritten 2e and all the programs.
+ > That'll take a while.
+ >
+ >
+ > On Feb 17, 2010, at 2:31 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> On Wed, Feb 17, 2010 at 11:18 AM, =C2=A0<robby@plt-scheme.org> wrote:
+ >>>
+ >>> State changed from "open" to "closed" by robby at Wed, 17 Feb 2010
+ >>> 11:18:23 -0500
+ >>> Reason>>> I think that this is a side-effect of the way drawing
+ >>> happens and the particular (bad) combination of features in
+ >>> the way htdp/image works. Specifically, any operation
+ >>> (including equal? and image->color-list) that requires
+ >>> inspection of the bits of the image changes its internal
+ >>> representation by drawing the image and then using the
+ >>> bitmap. Due to various unfortunate details that I don't
+ >>> recall anymore, this has to happen in unsmoothed mode, which
+ >>> is why the image looks different afterwards (you can see
+ >>> this with larger circles; they get jaggy afterwards).
+ >>>
+ >>> I'm closing this because the right answer is "use
+ >>> 2htdp/image" and I don't know a good fix for htdp/image.
+ >>
+ >> Is `2htdp/image' what's recommended for student use now? =C2=A0I thought=
+  we
+ >> were still recommending `htdp/image' for courses, but I'm not sure.
+ >>
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ >
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, matthias@plt-scheme.org, nobody@plt-scheme.org,
+        sk@plt-scheme.org, robby@plt-scheme.org, mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 14:52:26 -0500
+
+ We are with htdp/image until I have rewritten 2e and all the programs.  
+ That'll take a while.
+ 
+ 
+ On Feb 17, 2010, at 2:31 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Wed, Feb 17, 2010 at 11:18 AM,  <robby@plt-scheme.org> wrote:
+ >>
+ >> State changed from "open" to "closed" by robby at Wed, 17 Feb 2010  
+ >> 11:18:23 -0500
+ >> Reason>>> I think that this is a side-effect of the way drawing
+ >> happens and the particular (bad) combination of features in
+ >> the way htdp/image works. Specifically, any operation
+ >> (including equal? and image->color-list) that requires
+ >> inspection of the bits of the image changes its internal
+ >> representation by drawing the image and then using the
+ >> bitmap. Due to various unfortunate details that I don't
+ >> recall anymore, this has to happen in unsmoothed mode, which
+ >> is why the image looks different afterwards (you can see
+ >> this with larger circles; they get jaggy afterwards).
+ >>
+ >> I'm closing this because the right answer is "use
+ >> 2htdp/image" and I don't know a good fix for htdp/image.
+ >
+ > Is `2htdp/image' what's recommended for student use now?  I thought we
+ > were still recommending `htdp/image' for courses, but I'm not sure.
+ >
+ > -- 
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, matthias@plt-scheme.org, nobody@plt-scheme.org,
+        sk@plt-scheme.org, robby@plt-scheme.org, mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 15:11:50 -0500
+
+ On Wed, Feb 17, 2010 at 2:52 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > We are with htdp/image until I have rewritten 2e and all the programs.
+ > That'll take a while.
+ 
+ In this case, it seems bad that image equality doesn't work
+ consistently for `htdp/image' on Linux.
+ 
+ >
+ >
+ > On Feb 17, 2010, at 2:31 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> On Wed, Feb 17, 2010 at 11:18 AM, =A0<robby@plt-scheme.org> wrote:
+ >>>
+ >>> State changed from "open" to "closed" by robby at Wed, 17 Feb 2010
+ >>> 11:18:23 -0500
+ >>> Reason>>> I think that this is a side-effect of the way drawing
+ >>> happens and the particular (bad) combination of features in
+ >>> the way htdp/image works. Specifically, any operation
+ >>> (including equal? and image->color-list) that requires
+ >>> inspection of the bits of the image changes its internal
+ >>> representation by drawing the image and then using the
+ >>> bitmap. Due to various unfortunate details that I don't
+ >>> recall anymore, this has to happen in unsmoothed mode, which
+ >>> is why the image looks different afterwards (you can see
+ >>> this with larger circles; they get jaggy afterwards).
+ >>>
+ >>> I'm closing this because the right answer is "use
+ >>> 2htdp/image" and I don't know a good fix for htdp/image.
+ >>
+ >> Is `2htdp/image' what's recommended for student use now? =A0I thought we
+ >> were still recommending `htdp/image' for courses, but I'm not sure.
+ >>
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ >
+ >
+ 
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 14:30:23 -0600
+
+ On Wed, Feb 17, 2010 at 2:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > In this case, it seems bad that image equality doesn't work
+ > consistently for `htdp/image' on Linux.
+ 
+ a: Your pr does not say anything about image equality and I don't see
+ how it is connected to your pr.
+ 
+ b: It seems bad to me that you complain this much without offering any
+ solutions. Was I not clear that I don't know how to fix it and that I
+ have tried?
+ 
+ Robby
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 15:38:44 -0500
+
+ On Wed, Feb 17, 2010 at 3:30 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Wed, Feb 17, 2010 at 2:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> In this case, it seems bad that image equality doesn't work
+ >> consistently for `htdp/image' on Linux.
+ >
+ > a: Your pr does not say anything about image equality and I don't see
+ > how it is connected to your pr.
+ 
+ The test case I submitted uses `image->color-list', since that's
+ simpler, but as you said, anything that uses the normalization, such
+ as equality, observes the bug as well.  This means that programs that
+ use `check-expect' with the same image value in multiple tests will
+ fail on Linux.
+ 
+ > b: It seems bad to me that you complain this much without offering any
+ > solutions. Was I not clear that I don't know how to fix it and that I
+ > have tried?
+ 
+ I don't have any immediate solutions, but closing the bug and removing
+ the test case doesn't strike me as the right solution.  If we can't
+ fix it now, that's not great, but all software has bugs, and we'll
+ live.  But we should remember that this bug exists, rather than saying
+ that it's not a bug.
+ 
+ Also, since it works on OSX, perhaps the problem is at a lower layer,
+ and needs to be fixed there, rather than in the image library.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 14:47:09 -0600
+
+ On Wed, Feb 17, 2010 at 2:38 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wr=
+ ote:
+ > On Wed, Feb 17, 2010 at 3:30 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> On Wed, Feb 17, 2010 at 2:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>=
+  wrote:
+ >>> In this case, it seems bad that image equality doesn't work
+ >>> consistently for `htdp/image' on Linux.
+ >>
+ >> a: Your pr does not say anything about image equality and I don't see
+ >> how it is connected to your pr.
+ >
+ > The test case I submitted uses `image->color-list', since that's
+ > simpler, but as you said, anything that uses the normalization, such
+ > as equality, observes the bug as well. =C2=A0This means that programs tha=
+ t
+ > use `check-expect' with the same image value in multiple tests will
+ > fail on Linux.
+ 
+ I don't see how this would happen. Perhaps an example would clarify or
+ perhaps you have a different bug in mind than I do.
+ 
+ >> b: It seems bad to me that you complain this much without offering any
+ >> solutions. Was I not clear that I don't know how to fix it and that I
+ >> have tried?
+ >
+ > I don't have any immediate solutions, but closing the bug and removing
+ > the test case doesn't strike me as the right solution. =C2=A0If we can't
+ > fix it now, that's not great, but all software has bugs, and we'll
+ > live. =C2=A0But we should remember that this bug exists, rather than sayi=
+ ng
+ > that it's not a bug.
+ 
+ This is a duplicate PR. A casual search turns up 8283 and 9123. It has
+ been reported many times.
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 14:48:53 -0600
+
+ On Wed, Feb 17, 2010 at 2:38 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > Also, since it works on OSX, perhaps the problem is at a lower layer,
+ > and needs to be fixed there, rather than in the image library.
+ 
+ Oh, forgot to reply to this part. I don't think that this will be
+ productive. The problem is that the design of htdp/image forces it use
+ a particular strategy in its implementation that's flawed. The correct
+ fix is to use 2htdp/image, as I have said (another reason why I
+ consider this bug report closed).
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 14:57:42 -0600
+
+ Let me try to put this another way: unless you (or someone else) wants
+ to take this bug on, there is no other, better "bug fix" that is going
+ to happen.
+ 
+ From my perspective, therefore, the "fix" is two fold:
+ 
+  a) I made a new image library, whose design is, in part, about avoid
+ this problem
+ 
+  b) I declare that the current behavior of htdp/image is not a "bug"
+ but just the way it works. You don't have to like it, but avoid
+ struggling with this problem for many years (off and on again) the
+ best approach, imo, is to declare it a feature.
+ 
+ Either way, this PR should remain closed as far as I'm concerned.
+ 
+ Does that make more sense?
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 14:58:26 -0600
+
+ Two typos: "but avoid" =3D> "but after" and "about avoid" =3D> "about
+ avoiding". Sigh.
+ 
+ On Wed, Feb 17, 2010 at 2:57 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Let me try to put this another way: unless you (or someone else) wants
+ > to take this bug on, there is no other, better "bug fix" that is going
+ > to happen.
+ >
+ > From my perspective, therefore, the "fix" is two fold:
+ >
+ > =C2=A0a) I made a new image library, whose design is, in part, about avoi=
+ d
+ > this problem
+ >
+ > =C2=A0b) I declare that the current behavior of htdp/image is not a "bug"
+ > but just the way it works. You don't have to like it, but avoid
+ > struggling with this problem for many years (off and on again) the
+ > best approach, imo, is to declare it a feature.
+ >
+ > Either way, this PR should remain closed as far as I'm concerned.
+ >
+ > Does that make more sense?
+ >
+ > Robby
+ >
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 16:00:05 -0500
+
+ On Wed, Feb 17, 2010 at 3:47 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Wed, Feb 17, 2010 at 2:38 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> =
+ wrote:
+ >> On Wed, Feb 17, 2010 at 3:30 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> On Wed, Feb 17, 2010 at 2:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu=
+ > wrote:
+ >>>> In this case, it seems bad that image equality doesn't work
+ >>>> consistently for `htdp/image' on Linux.
+ >>>
+ >>> a: Your pr does not say anything about image equality and I don't see
+ >>> how it is connected to your pr.
+ >>
+ >> The test case I submitted uses `image->color-list', since that's
+ >> simpler, but as you said, anything that uses the normalization, such
+ >> as equality, observes the bug as well. =A0This means that programs that
+ >> use `check-expect' with the same image value in multiple tests will
+ >> fail on Linux.
+ >
+ > I don't see how this would happen. Perhaps an example would clarify or
+ > perhaps you have a different bug in mind than I do.
+ 
+ When I went back to create an example here, I discovered that the bug
+ has actually been fixed.  The current output of `image->color-list' on
+ linux in the example I reported is
+ 
+ (#(struct:color 255 255 255) #(struct:color 255 255 255)
+ #(struct:color 255 255 255) #(struct:color 255 255 255))
+ 
+ Also, based on the rest of your responses, I suspect we're talking
+ about different bugs, since the one I reported was almost certainly a
+ bug in the Linux implementation of cached-image-snips, rather than in
+ the image library at all.  However, since it's now fixed, that's
+ really a moot point.
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 15:04:16 -0600
+
+ Another possibility is that you ran the example before with a build
+ that didn't have the GUI developer libraries installed (or you're
+ doing that now).
+ 
+ Anyways, the bug I know doesn't affect equality. The images are both
+ "corrupted" or "jaggyizied" in the same way so equality still does
+ (roughly) the right thing. Certainly if two images were constructed
+ the same way, they'll always be equality. Overlays that you might
+ expect to be equal won't always be (but no one has ever complained
+ about that). And the "mutation" via image->color-list (or image
+ comparison) is still with us and will be forever, as far as I can
+ tell.
+ 
+ Robby
+ 
+ On Wed, Feb 17, 2010 at 3:00 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wr=
+ ote:
+ > On Wed, Feb 17, 2010 at 3:47 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> On Wed, Feb 17, 2010 at 2:38 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>=
+  wrote:
+ >>> On Wed, Feb 17, 2010 at 3:30 PM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>> On Wed, Feb 17, 2010 at 2:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.ed=
+ u> wrote:
+ >>>>> In this case, it seems bad that image equality doesn't work
+ >>>>> consistently for `htdp/image' on Linux.
+ >>>>
+ >>>> a: Your pr does not say anything about image equality and I don't see
+ >>>> how it is connected to your pr.
+ >>>
+ >>> The test case I submitted uses `image->color-list', since that's
+ >>> simpler, but as you said, anything that uses the normalization, such
+ >>> as equality, observes the bug as well. =C2=A0This means that programs t=
+ hat
+ >>> use `check-expect' with the same image value in multiple tests will
+ >>> fail on Linux.
+ >>
+ >> I don't see how this would happen. Perhaps an example would clarify or
+ >> perhaps you have a different bug in mind than I do.
+ >
+ > When I went back to create an example here, I discovered that the bug
+ > has actually been fixed. =C2=A0The current output of `image->color-list' =
+ on
+ > linux in the example I reported is
+ >
+ > (#(struct:color 255 255 255) #(struct:color 255 255 255)
+ > #(struct:color 255 255 255) #(struct:color 255 255 255))
+ >
+ > Also, based on the rest of your responses, I suspect we're talking
+ > about different bugs, since the one I reported was almost certainly a
+ > bug in the Linux implementation of cached-image-snips, rather than in
+ > the image library at all. =C2=A0However, since it's now fixed, that's
+ > really a moot point.
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ >
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 16:09:12 -0500
+
+ On Wed, Feb 17, 2010 at 4:04 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Another possibility is that you ran the example before with a build
+ > that didn't have the GUI developer libraries installed (or you're
+ > doing that now).
+ 
+ I can't build DrScheme without them, so that seems unlikely.
+ 
+ > Anyways, the bug I know doesn't affect equality. The images are both
+ > "corrupted" or "jaggyizied" in the same way so equality still does
+ > (roughly) the right thing. Certainly if two images were constructed
+ > the same way, they'll always be equality. Overlays that you might
+ > expect to be equal won't always be (but no one has ever complained
+ > about that). And the "mutation" via image->color-list (or image
+ > comparison) is still with us and will be forever, as far as I can
+ > tell.
+ 
+ We're definitely talking about different bugs, then.  The bug I
+ reported was that mrlib/cache-image-snip behaved differently on OSX
+ and Linux, which meant that the mutation changed the image to a
+ totally blank image, rather than a jaggier image.
+ 
+ sam th
+ 
+ >
+ > Robby
+ >
+ > On Wed, Feb 17, 2010 at 3:00 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> =
+ wrote:
+ >> On Wed, Feb 17, 2010 at 3:47 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> On Wed, Feb 17, 2010 at 2:38 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu=
+ > wrote:
+ >>>> On Wed, Feb 17, 2010 at 3:30 PM, Robby Findler
+ >>>> <robby@eecs.northwestern.edu> wrote:
+ >>>>> On Wed, Feb 17, 2010 at 2:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.e=
+ du> wrote:
+ >>>>>> In this case, it seems bad that image equality doesn't work
+ >>>>>> consistently for `htdp/image' on Linux.
+ >>>>>
+ >>>>> a: Your pr does not say anything about image equality and I don't see
+ >>>>> how it is connected to your pr.
+ >>>>
+ >>>> The test case I submitted uses `image->color-list', since that's
+ >>>> simpler, but as you said, anything that uses the normalization, such
+ >>>> as equality, observes the bug as well. =A0This means that programs tha=
+ t
+ >>>> use `check-expect' with the same image value in multiple tests will
+ >>>> fail on Linux.
+ >>>
+ >>> I don't see how this would happen. Perhaps an example would clarify or
+ >>> perhaps you have a different bug in mind than I do.
+ >>
+ >> When I went back to create an example here, I discovered that the bug
+ >> has actually been fixed. =A0The current output of `image->color-list' on
+ >> linux in the example I reported is
+ >>
+ >> (#(struct:color 255 255 255) #(struct:color 255 255 255)
+ >> #(struct:color 255 255 255) #(struct:color 255 255 255))
+ >>
+ >> Also, based on the rest of your responses, I suspect we're talking
+ >> about different bugs, since the one I reported was almost certainly a
+ >> bug in the Linux implementation of cached-image-snips, rather than in
+ >> the image library at all. =A0However, since it's now fixed, that's
+ >> really a moot point.
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ >>
+ >
+ 
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 16:14:44 -0500
+
+ On Wed, Feb 17, 2010 at 4:13 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Wed, Feb 17, 2010 at 3:09 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> =
+ wrote:
+ >> On Wed, Feb 17, 2010 at 4:04 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> Another possibility is that you ran the example before with a build
+ >>> that didn't have the GUI developer libraries installed (or you're
+ >>> doing that now).
+ >>
+ >> I can't build DrScheme without them, so that seems unlikely.
+ >
+ > Sorry for my lack of specificity. I mean cairo.
+ 
+ Right, that's what I meant too.  cairo is necessary for the build on linux.
+ 
+ >>> Anyways, the bug I know doesn't affect equality. The images are both
+ >>> "corrupted" or "jaggyizied" in the same way so equality still does
+ >>> (roughly) the right thing. Certainly if two images were constructed
+ >>> the same way, they'll always be equality. Overlays that you might
+ >>> expect to be equal won't always be (but no one has ever complained
+ >>> about that). And the "mutation" via image->color-list (or image
+ >>> comparison) is still with us and will be forever, as far as I can
+ >>> tell.
+ >>
+ >> We're definitely talking about different bugs, then. =A0The bug I
+ >> reported was that mrlib/cache-image-snip behaved differently on OSX
+ >> and Linux, which meant that the mutation changed the image to a
+ >> totally blank image, rather than a jaggier image.
+ >
+ > ok. So now you agree it should be closed. Good.
+ 
+ Yeah, the bug was fixed at some point, so it should certainly be closed.
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 15:13:27 -0600
+
+ On Wed, Feb 17, 2010 at 3:09 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wr=
+ ote:
+ > On Wed, Feb 17, 2010 at 4:04 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> Another possibility is that you ran the example before with a build
+ >> that didn't have the GUI developer libraries installed (or you're
+ >> doing that now).
+ >
+ > I can't build DrScheme without them, so that seems unlikely.
+ 
+ Sorry for my lack of specificity. I mean cairo.
+ 
+ >> Anyways, the bug I know doesn't affect equality. The images are both
+ >> "corrupted" or "jaggyizied" in the same way so equality still does
+ >> (roughly) the right thing. Certainly if two images were constructed
+ >> the same way, they'll always be equality. Overlays that you might
+ >> expect to be equal won't always be (but no one has ever complained
+ >> about that). And the "mutation" via image->color-list (or image
+ >> comparison) is still with us and will be forever, as far as I can
+ >> tell.
+ >
+ > We're definitely talking about different bugs, then. =C2=A0The bug I
+ > reported was that mrlib/cache-image-snip behaved differently on OSX
+ > and Linux, which meant that the mutation changed the image to a
+ > totally blank image, rather than a jaggier image.
+ 
+ ok. So now you agree it should be closed. Good.
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 15:17:00 -0600
+
+ On Wed, Feb 17, 2010 at 3:14 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wr=
+ ote:
+ > On Wed, Feb 17, 2010 at 4:13 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> On Wed, Feb 17, 2010 at 3:09 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>=
+  wrote:
+ >>> On Wed, Feb 17, 2010 at 4:04 PM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>> Another possibility is that you ran the example before with a build
+ >>>> that didn't have the GUI developer libraries installed (or you're
+ >>>> doing that now).
+ >>>
+ >>> I can't build DrScheme without them, so that seems unlikely.
+ >>
+ >> Sorry for my lack of specificity. I mean cairo.
+ >
+ > Right, that's what I meant too. =C2=A0cairo is necessary for the build on=
+  linux.
+ 
+ That seems like a relatively recent change, then, since drdr didn't
+ have it installed a few months ago and was building okay. (I've also
+ built without cairo myself, but before that.)
+ 
+ Robby
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@plt-scheme.org,
+        matthias@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org
+Subject: Re: [plt-bug] htdp/10590 image to bitmap conversion broken on linux
+Date: Wed, 17 Feb 2010 16:21:27 -0500
+
+ On Wed, Feb 17, 2010 at 4:17 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Wed, Feb 17, 2010 at 3:14 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> =
+ wrote:
+ >> On Wed, Feb 17, 2010 at 4:13 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> On Wed, Feb 17, 2010 at 3:09 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu=
+ > wrote:
+ >>>> On Wed, Feb 17, 2010 at 4:04 PM, Robby Findler
+ >>>> <robby@eecs.northwestern.edu> wrote:
+ >>>>> Another possibility is that you ran the example before with a build
+ >>>>> that didn't have the GUI developer libraries installed (or you're
+ >>>>> doing that now).
+ >>>>
+ >>>> I can't build DrScheme without them, so that seems unlikely.
+ >>>
+ >>> Sorry for my lack of specificity. I mean cairo.
+ >>
+ >> Right, that's what I meant too. =A0cairo is necessary for the build on l=
+ inux.
+ >
+ > That seems like a relatively recent change, then, since drdr didn't
+ > have it installed a few months ago and was building okay. (I've also
+ > built without cairo myself, but before that.)
+ 
+ Ah, right.  I was remembering incorrectly - it's not necessary, but it
+ disables certain code when you don't have it.  But either way, I've
+ definitely had it installed for all my builds of DrScheme.  I expect
+ this bug got fixed either by some change Matthew made to MrEd, or by
+ some fix lower down in the stack.
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu

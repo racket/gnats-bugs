@@ -1,0 +1,170 @@
+From robby@cs.rice.edu  Mon Dec  8 10:51:36 1997
+Received: from australia.cs.rice.edu (australia.cs.rice.edu [128.42.1.176]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id KAA19314 for <plt-gnats@cs.rice.edu>; Mon, 8 Dec 1997 10:51:36 -0600 (CST)
+Message-Id: <199712081651.KAA15616@australia.cs.rice.edu>
+Date: Mon, 8 Dec 1997 10:51:35 -0600 (CST)
+From: Robert Bruce Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: evespace parameterization don't get right exit-handler
+X-Send-Pr-Version: 3.101
+
+>Number:         388
+>Category:       mred
+>Synopsis:       eventspace parameterization don't get right exit-handler
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon Dec 08 11:55:01 -0500 1997
+>Last-Modified:  Sun Mar 28 02:36:08 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        unknown
+>Organization:
+titan
+>Environment:
+51/9 (-x), both motif and xt
+>Description:
+Under certain conditions, newly created eventspaces don't pick up the right
+exit-handler in their parameterizations
+>How-To-Repeat:
+Welcome to MrEd version 51/9.
+Copyright (c) 1995-1997 PLT, Rice University (Matthew Flatt and Robert
+Bruce Findler).
+> (define p (make-parameterization))
+> (invoke-open-unit/sig wx@ wx)
+> (with-parameterization p
+    (lambda ()
+      (let ([my-eh
+	     (lambda (x)
+	       (display "hi")
+	       (newline))])
+	(exit-handler my-eh)
+	(wx:current-eventspace (wx:make-eventspace))
+	(with-parameterization (wx:eventspace-parameterization
+				(wx:current-eventspace))
+	  (lambda ()
+	   (exit-handler))))))
+#<primitive:default-exit-handler>
+> 
+>Fix:
+	
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/388: evespace parameterization don't get right exit-handler
+Date: Thu, 11 Dec 1997 09:00:59 -0600 (CST)
+
+ The bug is that console.ss messes up the parameterization branch
+ handler:
+ 
+ 	    (with-parameterization user-parameterization
+ 	      (lambda ()
+ 		(port-read-handler this-in (lambda (x) (transparent-read)))
+ 		(parameterization-branch-handler 
+ 		 (lambda () (make-parameterization user-parameterization)))))))))
+ 
+ I'll leave the PR unclaimed.
+ 
+ Matthew
+
+Responsible-Changed-From-To: ptg->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Thu Dec 11 10:39:13 1997
+Responsible-Changed-Why:
+
+Responsible-Changed-From-To: robby->mflatt
+Responsible-Changed-By: robby
+Responsible-Changed-When: Thu Dec 11 11:42:40 1997
+Responsible-Changed-Why:
+
+I removed the offending expression in console.ss (didn't release it) and
+tried the same expression again. It still gives the wrong answer:
+
+     Welcome to MrEd version 51/9.
+     Copyright (c) 1995-1997 PLT, Rice University (Matthew Flatt and Robert
+     Bruce Findler).
+     > (parameterization-branch-handler)
+     #<primitive:eventspace-parameterization-branch-handler>
+     > (define p (make-parameterization))
+     > (with-parameterization p
+	 (lambda ()
+	   (let ([my-eh
+		  (lambda (x)
+		    (display "hi")
+		    (newline))])
+	     (exit-handler my-eh)
+	     (wx:current-eventspace (wx:make-eventspace))
+	     (with-parameterization (wx:eventspace-parameterization
+				     (wx:current-eventspace))
+	       (lambda ()
+		(exit-handler))))))
+     #<primitive:default-exit-handler>
+
+I have changed the responsibility to you, since I don't see any other hooks 
+that could change this behavior. However, just to be sure, I created a new
+system containing only this code:
+
+     (define p (make-parameterization))
+     (display (parameterization-branch-handler))
+     (newline)
+     (display
+      (with-parameterization p
+	(lambda ()
+	  (let ([my-eh
+		 (lambda (x)
+		   (display "hi")
+		   (newline))])
+	    (exit-handler my-eh)
+	    (wx:current-eventspace (wx:make-eventspace))
+	    (with-parameterization (wx:eventspace-parameterization
+				    (wx:current-eventspace))
+	      (lambda ()
+		(exit-handler)))))))
+     (newline)
+
+     (define mred:initialize (lambda x (exit)))
+
+and then ran it:
+
+     [Thu 11 Dec] ~/plt> mred -robby -s tmp
+     #<primitive:eventspace-parameterization-branch-handler>
+     #<primitive:default-exit-handler>
+     [11:47am] ~/plt> 
+
+and you still see the error. 9I actually originally got the wrong response
+in mzos, where console.ss isn't even run.
+
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: mredsystem/388: eventspace parameterization don't get right exit-handler
+Date: Thu, 11 Dec 1997 12:08:59 -0600 (CST)
+
+ >      #<primitive:eventspace-parameterization-branch-handler>
+ 
+ For some reason, wx:make-eventspace gets a new parameterization from
+ the branch handler and then installs (in that parameterization) a new
+ branch handler that creates parameterizations from the eventspace's
+ parameterization.
+ 
+ I suspect that this behavior should have been deleted when we changed
+ the default branch handler. Unless further thought suggests otherwise,
+ I'll delete this behavior for the next release.
+ 
+ Matthew
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Thu Dec 11 16:51:44 1997
+State-Changed-Why:
+Fixed and released.
+ 
+>Unformatted:

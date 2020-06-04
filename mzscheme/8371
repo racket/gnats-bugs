@@ -1,0 +1,80 @@
+From apache@plt-scheme.org Fri Nov  3 03:52:08 2006
+Received: from py-out-1112.google.com (py-out-1112.google.com [64.233.166.180])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id kA38q3rj006668
+	for <bugs@bugs.plt-scheme.org>; Fri, 3 Nov 2006 03:52:03 -0500
+Message-Id: <200611030852.kA38q2Du006662@champlain.ccs.neu.edu>
+Date: Fri, 3 Nov 2006 03:52:02 -0500
+From: lealanko@ssh.com
+To: bugs@plt-scheme.org
+Subject: get-module-code doesn't work in nonstandard namespaces
+
+>Number:         8371
+>Category:       mzscheme
+>Synopsis:       get-module-code doesn't work in nonstandard namespaces
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Nov 03 03:55:01 -0500 2006
+>Closed-Date:    Fri Nov 03 16:44:27 -0500 2006
+>Last-Modified:  Fri Nov 03 16:44:27 -0500 2006
+>Originator:     Lauri Alanko
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352
+>Environment:
+linux-debian
+>Description:
+Module loading should not depend on the top-level bindings of the current namespace, only its module name registry. The default load handler makes sure that the "module" identifier in a module expression always gets bound to its #%kernel binding. However, when using the compiler in a namespace where "module" does not have its default binding, compiling of modules suddenly fails.
+
+The problem is simply that the syntax-enriched return value of check-module-form is not being used. Here's a patch:
+
+--- .svn/text-base/moddep.ss.svn-base	2006-10-31 08:44:27.000000000 +0200
++++ moddep.ss	2006-11-03 10:35:41.000000000 +0200
+@@ -104,16 +104,16 @@
+       (dynamic-wind
+        void
+        (lambda ()
+-	 (let ([v (with-module-reading-parameterization
+-		   (lambda ()
+-		     (read-syntax path p)))])
+-	   (when (eof-object? v)
+-	     (error 'read-one "empty file; expected a module declaration in: ~a" path))
+-	   (let ([name (let-values ([(base name dir?) (split-path path)])
+-			 (string->symbol (bytes->string/utf-8
+-					  (path->bytes (path-replace-suffix  name #""))
+-					  #\?)))])
+-	     (check-module-form v name path))
++	 (let* ([v (with-module-reading-parameterization
++		    (lambda ()
++		      (read-syntax path p)))]
++		[_ (when (eof-object? v)
++		     (error 'read-one "empty file; expected a module declaration in: ~a" path))]
++		[name (let-values ([(base name dir?) (split-path path)])
++			(string->symbol (bytes->string/utf-8
++					 (path->bytes (path-replace-suffix  name #""))
++					 #\?)))]
++		[v (check-module-form v name path)])
+ 	   (unless (eof-object? (read p))
+ 	     (error 
+ 	      'read-one
+>How-To-Repeat:
+Define a file "foo.ss" with:
+(module foo mzscheme)
+
+Then:
+> (require (lib "moddep.ss" "syntax"))                                  
+> (define c (let ((orig-ns (current-namespace)) (ns (make-namespace 'empty))) (parameterize ((current-namespace ns)) (namespace-attach-module orig-ns 'mzscheme) (get-module-code "foo.ss"))))
+foo.ss:1:0: compile: bad syntax; function application is not allowed, because no #%app syntax transformer is bound in: (module foo mzscheme)
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt at Fri, 03 Nov 2006 16:44:27 -0500
+Reason>>> fixed
+
+Thanks for another very helpful patch!
+
+Matthew
+

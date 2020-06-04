@@ -1,0 +1,175 @@
+From robby@cs.rice.edu  Wed Dec 13 08:30:02 2000
+Received: from localhost (cupertino.cs.rice.edu [128.42.2.124])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id IAA23126
+	for <plt-gnats>; Wed, 13 Dec 2000 08:30:01 -0600 (CST)
+Message-Id: <200012131430.IAA23126@cs.rice.edu>
+Date: Wed, 13 Dec 2000 08:30:01 -0600 (CST)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: auto wrapping and line lengths in a text%
+
+>Number:         1805
+>Category:       mred
+>Synopsis:       auto wrapping and line lengths in a text%
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          open
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Dec 13 09:30:01 -0500 2000
+>Last-Modified:  Sun Mar 28 02:47:14 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        103.5d103
+>Organization:
+titan
+>Environment:
+macos (ppc-mac) (get-display-depth) = 16
+Tools: ("analysis" "CVS" "debug" "project-manager" "spidey2" "syncheck" "typeset" "unit-bundle")
+Docs Installed:
+("advanced" "beginning" "drscheme" "framework" "help" "icons" "insidemz" "intermediate" "misclib" "mred" "mrspidey" "mzc" "mzscheme" "r5rs" "teach" "teachpack" "tools")
+Collections:
+(("Cupertino:Robby:cvs:robby:collects" ("account" "backgammon" "checkers" "CVS" "doonesbury" "friendly" "icfp-pc-99" "magic" "mahjongg" "paper-utils" "pente" "pop-pop" "set-fonts" "solutions" "test-image-map" "xmahjongg")) ("Cupertino:Robby:cvs:robby:proj:talks" ("CVS" "drscheme-architecture" "icfp98" "jcontracts" "lc" "lunch1" "unit-patterns" "unit-proposal" "util")) ("Cupertino:Robby:cvs:robby:proj:papers" ("c+u.save" "contract-challenge" "CVS" "dr" "dr-column" "dr-journal" "drafthead.sty" "extensibility-problem" "geometric-control" "graphical-units" "java-blame" "java-blame-theory" "lw-strict" "sba-procedures" "senior-thesis" "signature-constraints" "type-safety" "typed-unit-calculus" "unit" "unit-semantics")) ("Cupertino:Robby:cvs:plt exp:collects" ("afm" "browser" "cogen" "compiler" "countdwn" "CVS" "defaults" "doc" "drjava" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "guserspce" "help" "hierarchy" "hierlist" "htdp" "html" "icons" "launcher" "make" "mrdemo" "mred" "mrspidey" "mysterx" "mzlib" "mzos" "mzscheme" "net" "newspidey" "quasiquote" "readline" "setup" "slatex" "slibinit" "srpersist" "stepper" "stepper-graphical" "tests" "texpict" "typeset" "userspce" "xml" "zodiac")) ("Cupertino:cvs:robby:mflatt:collects" "non-existant path"))
+>Description:
+The only question I am really interested in, for the short term,
+is this:
+
+  how many extra pixels does a text% put between snips, on a
+  single line?
+
+I know that there are two extra at the end -- are there any
+more extra anywhere else? (the code below assumes that there
+are the same two between snips, but I think that it might
+be wrong in that assumpution)
+>How-To-Repeat:
+;; this is a fairly complex program intended to demonstrate how
+;; word wrapping is doing strange things when the width of the
+;; items in a text is right at the maximum.
+;;
+;; Run the program.
+;;
+;; The top text has an editor snip and an icon snip. The bottom
+;; text has only an editor snip.  The widths (passed to
+;; set-max-width and set-min-width on the editor-snip) for the
+;; editor snips are calculated by taking the width of the view
+;; and subtracting out the space needed for the caret, the
+;; image snip (if present) and the space around the editor
+;; snip, plus a compensation determined by the slider.  The
+;; radio button lets you toggle the autowrapping mode of the
+;; text. I don't understand why the slider's extra few pixels
+;; are necessary and I suspect a bug in the autowrapping code.
+
+
+(define f (make-object frame% "frame" #f 400 400))
+(define t1 (make-object text%))
+(make-object editor-canvas% f t1)
+(define t2 (make-object text%))
+(make-object editor-canvas% f t2)
+
+(send t1 set-autowrap-bitmap
+      (make-object bitmap% (build-path (collection-path "icons") "return.xbm")))
+(send t2 set-autowrap-bitmap
+      (make-object bitmap% (build-path (collection-path "icons") "return.xbm")))
+
+(define es1 (make-object editor-snip% (make-object text%) 5 5 5 5))
+(define es2 (make-object editor-snip% (make-object text%) 5 5 5 5))
+(define is (make-object image-snip% (build-path (collection-path "icons") "bb.gif")))
+
+(send t1 insert es1) (send t1 insert is)
+
+(send t2 insert es2)
+
+(define (set-width t es is)
+  (let* ([view-width
+	  (let ([b (box 0)])
+	    (send (send t get-admin) get-view #f #f b #f)
+	    (unbox b))]
+	 [is-width
+	  (if is
+	      (+
+	       2 ;; cursor space between snips (necessary?)
+	       (let ([bl (box 0)]
+		     [br (box 0)])
+		 (send t get-snip-location is bl #f #f)
+		 (send t get-snip-location is br #f #t)
+		 (- (unbox br) (unbox bl))))
+	      0)]
+	 [es-width (- view-width
+		      is-width
+		      (send compensation-slider get-value)
+		      10   ;; editor margin
+		      2)]) ;; for cursor at eol
+    (send es set-min-width es-width)
+    (send es set-max-width es-width)))
+
+(define (set-both-widths)
+  (set-width t1 es1 is)
+  (set-width t2 es2 #f))
+
+(define p (make-object horizontal-panel% f))
+(send p stretchable-height #f)
+
+(define compensation-slider
+  (make-object slider% "Compensation" -10 10 p
+	       (lambda (rb evt)
+		 (set-both-widths))
+	       0))
+
+(make-object radio-box% #f '("No wrapping" "Wrap") p
+	     (lambda (rb evt)
+	       (send t1 auto-wrap (= 1 (send rb get-selection)))
+	       (send t2 auto-wrap (= 1 (send rb get-selection)))
+	       (set-both-widths)))
+
+(send f show #t)
+(set-both-widths)
+>Fix:
+>Release-Note:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Tue Dec 19 11:02:05 2000
+Responsible-Changed-Why:
+
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1805: auto wrapping and line lengths in a text%
+Date: Tue, 24 Jul 2001 11:20:53 -0600 (MDT)
+
+ I vaguely remember a discussion related to this PR, but I can't quite
+ figure out what I'm supposed to see.
+ 
+ One thing that confuses me is that the width calculation doesn't seem
+ to account for the width of thw auto-wrapping bitmap. When I change the
+ `is-width' calculation as follows:
+ 
+  (define awbm (make-object bitmap% 
+                           (build-path (collection-path "icons") "return.xbm")))
+ 
+  (send t1 set-autowrap-bitmap awbm)
+  (send t2 set-autowrap-bitmap awbm)
+ 
+ ...
+ 
+          [is-width
+           (if is
+               (+
+ 	       (send awbm get-width) ;; auto-wrap bitmap
+                0 ;; cursor space between snips (necessary?) - not necessary!
+                (let ([bl (box 0)]
+                      [br (box 0)])
+ 
+ then I get the same output whether "no autowrapping" or "autowrapping"
+ is selected.
+ 
+ I think there's something more, but I can't see or remember it...
+ 
+ Thanks,
+ Matthew
+ 
+>Unformatted:

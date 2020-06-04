@@ -1,0 +1,969 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug 10 18:24:29 2012
+Received: from mail-gg0-f172.google.com (mail-gg0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7AMOQbD000348
+	for <bugs@bugs.plt-scheme.org>; Fri, 10 Aug 2012 18:24:26 -0400
+Message-Id: <201208102224.q7AMOOGJ000342@champlain.ccs.neu.edu>
+Date: Fri, 10 Aug 2012 18:24:24 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: Child struct type's parameter is apparently Nothing when treated as parent type
+
+>Number:         12998
+>Category:       all
+>Synopsis:       Child struct type's parameter is apparently Nothing when treated as parent type
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 10 18:28:01 -0400 2012
+>Closed-Date:    Wed Aug 22 16:52:44 -0400 2012
+>Last-Modified:  Wed Aug 22 16:52:44 -0400 2012
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.16--2012-08-01(fd44769c/d)
+>Environment:
+unix "Linux schroder 2.6.38-15-generic #64-Ubuntu SMP Fri Jul 6 18:51:28 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 452472632
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/neil/.racket/5.3.0.16/collects"
+ (non-existent-path))
+("/home/neil/plt-math/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "lang" "raco" "gui-d!
+ ebugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((main) (test))))
+>Description:
+
+>How-To-Repeat:
+#lang typed/racket
+
+(struct: (A) Box ([value : A]) #:transparent)
+(struct: (A) Child-Box Box () #:transparent)
+
+(: box->child-box (All (A) ((Box A) -> (Child-Box A))))
+(define (box->child-box b)
+  (Child-Box (Box-value b)))
+
+
+> (Child-Box 0)
+- : (Child-Box Zero)
+(Child-Box 0)
+
+> (Box-value (Child-Box 0))
+- : Integer [generalized from Nothing]
+0
+
+> (ann (Child-Box 0) (Box Symbol))
+- : (Box Symbol)
+(Child-Box 0)
+
+> (Box-value (ann (Child-Box 0) (Box Symbol)))
+- : Symbol
+0
+
+> (box->child-box (Child-Box 0))
+- : (Child-Box Nothing)
+(Child-Box 0)
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/12998: Child struct type's parameter is apparently
+ Nothing when treated as parent type
+Date: Fri, 10 Aug 2012 16:35:20 -0600
+
+ On 08/10/2012 04:28 PM, bugs@racket-lang.org wrote:
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/12998'.
+ > You can check on the status of your problem report at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12998
+ >
+ > If you wish to provide further information regarding this problem
+ > you can do so as a reply to this message.  (But please make sure
+ > that your mailer replies to both "bugs" and "bug-notification".)
+ 
+ Because this error makes the type checker unsound, I can't tell whether 
+ I should continue trying a new type hierarchy for arrays. Simplified to 
+ boxes, it looks like this:
+ 
+ #lang typed/racket
+ 
+ (struct: (A) Box ([proc : (-> A)]))
+ (struct: (A) Strict-Box Box ())
+ (struct: (A) Mutable-Box Strict-Box ([value : (Vector A)]))
+ 
+ Specifically, before I continue, I need to know whether this should 
+ typecheck:
+ 
+ (: box-mutable (All (A) ((Box A) -> (Mutable-Box A))))
+ (define (box-mutable b)
+    (define v ((Box-proc b)))
+    (define vs (vector v))
+    (Mutable-Box (λ () (vector-ref vs 0)) vs))
+ 
+ (: box-strict (All (A) ((Box A) -> (Box A))))
+ (define (box-strict b)
+    (cond [(Strict-Box? b)  b]
+          [else  (box-mutable b)]))
+ 
+ (box-mutable (Box (λ () 0)))
+ (box-strict (box-mutable (Box (λ () 0))))
+ 
+ Neil ⊥
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: neil.toronto@gmail.com, nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Cc: 
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Sun, 12 Aug 2012 02:01:55 -0700
+
+ That looks like it should typecheck, so I think you should be fine
+ implementing it that way. I'll take a look tomorrow and see if I can
+ figure out the issue.
+ 
+ The one case I would worry about typechecking is:
+ (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box Number))
+ 
+ Which should typecheck (if TR was perfect), and currently does now
+ because of the bug. Whether TR can make the jump from (Mutable-Box
+ Integer) to (Box Number) without be guided through (Box Integer), I'm
+ not sure.
+ 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Sun, 12 Aug 2012 08:01:29 -0600
+
+ On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ > That looks like it should typecheck, so I think you should be fine
+ > implementing it that way. I'll take a look tomorrow and see if I can
+ > figure out the issue.
+ 
+ Excellent, thanks.
+ 
+ > The one case I would worry about typechecking is:
+ > (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box Number))
+ >
+ > Which should typecheck (if TR was perfect), and currently does now
+ > because of the bug. Whether TR can make the jump from (Mutable-Box
+ > Integer) to (Box Number) without be guided through (Box Integer), I'm
+ > not sure.
+ 
+ It would be great if it could. Translated back to the array library, 
+ it's convenient to be able to send a (Mutable-Array Real) to functions 
+ that accept an (Array Number) without having to annotate it.
+ 
+ Neil ⊥
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Sun, 12 Aug 2012 14:47:25 -0700
+
+ Fixed in https://github.com/plt/racket/pull/132. Just need to get it
+ merged into master.
+ 
+ 
+ 
+ On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ >>
+ >> That looks like it should typecheck, so I think you should be fine
+ >> implementing it that way. I'll take a look tomorrow and see if I can
+ >> figure out the issue.
+ >
+ >
+ > Excellent, thanks.
+ >
+ >
+ >> The one case I would worry about typechecking is:
+ >> (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box
+ >> Number))
+ >>
+ >> Which should typecheck (if TR was perfect), and currently does now
+ >> because of the bug. Whether TR can make the jump from (Mutable-Box
+ >> Integer) to (Box Number) without be guided through (Box Integer), I'm
+ >> not sure.
+ >
+ >
+ > It would be great if it could. Translated back to the array library, it's
+ > convenient to be able to send a (Mutable-Array Real) to functions that
+ > accept an (Array Number) without having to annotate it.
+ >
+ > Neil ⊥
+ >
+ 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Wed, 15 Aug 2012 21:41:27 -0600
+
+ What's the status on this one?
+ 
+ I've discovered that I reported a similar issue in the past:
+ 
+    http://bugs.racket-lang.org/query/?database=default&pr=11122
+ 
+ Any chance your fix allows occurrence typing to be useful on polymorphic 
+ struct subtypes? (It's okay if it doesn't. The array library doesn't 
+ need that, though it would be nice.)
+ 
+ Neil ⊥
+ 
+ On 08/12/2012 03:47 PM, Eric Dobson wrote:
+ > Fixed in https://github.com/plt/racket/pull/132. Just need to get it
+ > merged into master.
+ >
+ >
+ >
+ > On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >> On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ >>>
+ >>> That looks like it should typecheck, so I think you should be fine
+ >>> implementing it that way. I'll take a look tomorrow and see if I can
+ >>> figure out the issue.
+ >>
+ >>
+ >> Excellent, thanks.
+ >>
+ >>
+ >>> The one case I would worry about typechecking is:
+ >>> (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box
+ >>> Number))
+ >>>
+ >>> Which should typecheck (if TR was perfect), and currently does now
+ >>> because of the bug. Whether TR can make the jump from (Mutable-Box
+ >>> Integer) to (Box Number) without be guided through (Box Integer), I'm
+ >>> not sure.
+ >>
+ >>
+ >> It would be great if it could. Translated back to the array library, it's
+ >> convenient to be able to send a (Mutable-Array Real) to functions that
+ >> accept an (Array Number) without having to annotate it.
+ >>
+ >> Neil ⊥
+ >>
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Wed, 15 Aug 2012 20:45:58 -0700
+
+ I'm waiting on Sam to merge it. I filed a ton of pull requests over
+ the weekend and he has merged about half of them so far.
+ 
+ I'm not sure what you mean by occurrence typing on polymorphic struct
+ subtypes. Can you give an example program?
+ 
+ On Wed, Aug 15, 2012 at 8:41 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > What's the status on this one?
+ >
+ > I've discovered that I reported a similar issue in the past:
+ >
+ >   http://bugs.racket-lang.org/query/?database=default&pr=11122
+ >
+ > Any chance your fix allows occurrence typing to be useful on polymorphic
+ > struct subtypes? (It's okay if it doesn't. The array library doesn't need
+ > that, though it would be nice.)
+ >
+ > Neil ⊥
+ >
+ >
+ > On 08/12/2012 03:47 PM, Eric Dobson wrote:
+ >>
+ >> Fixed in https://github.com/plt/racket/pull/132. Just need to get it
+ >> merged into master.
+ >>
+ >>
+ >>
+ >> On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto <neil.toronto@gmail.com>
+ >> wrote:
+ >>>
+ >>> On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ >>>>
+ >>>>
+ >>>> That looks like it should typecheck, so I think you should be fine
+ >>>> implementing it that way. I'll take a look tomorrow and see if I can
+ >>>> figure out the issue.
+ >>>
+ >>>
+ >>>
+ >>> Excellent, thanks.
+ >>>
+ >>>
+ >>>> The one case I would worry about typechecking is:
+ >>>> (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box
+ >>>> Number))
+ >>>>
+ >>>> Which should typecheck (if TR was perfect), and currently does now
+ >>>> because of the bug. Whether TR can make the jump from (Mutable-Box
+ >>>> Integer) to (Box Number) without be guided through (Box Integer), I'm
+ >>>> not sure.
+ >>>
+ >>>
+ >>>
+ >>> It would be great if it could. Translated back to the array library, it's
+ >>> convenient to be able to send a (Mutable-Array Real) to functions that
+ >>> accept an (Array Number) without having to annotate it.
+ >>>
+ >>> Neil ⊥
+ >>>
+ >
+ 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Wed, 15 Aug 2012 21:49:15 -0600
+
+ That bug report has one:
+ 
+ #lang typed/racket
+ 
+ (struct: (T) mybox ([value : T]))
+ (struct: (T) mypair mybox ([snd : T]))
+ 
+ (: snd-or-value (All (T) ((mybox T) -> T)))
+ (define (snd-or-value b)
+    (if (mypair? b)
+        (mypair-snd b)
+        (mybox-value b)))
+ 
+ 
+ The problem here is that in the "true" branch, `b'  has type 
+ #(struct:mypair (Any Any)) instead of something externally meaningful 
+ like (mypair T).
+ 
+ On 08/15/2012 09:45 PM, Eric Dobson wrote:
+ > I'm waiting on Sam to merge it. I filed a ton of pull requests over
+ > the weekend and he has merged about half of them so far.
+ >
+ > I'm not sure what you mean by occurrence typing on polymorphic struct
+ > subtypes. Can you give an example program?
+ >
+ > On Wed, Aug 15, 2012 at 8:41 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >> What's the status on this one?
+ >>
+ >> I've discovered that I reported a similar issue in the past:
+ >>
+ >>    http://bugs.racket-lang.org/query/?database=default&pr=11122
+ >>
+ >> Any chance your fix allows occurrence typing to be useful on polymorphic
+ >> struct subtypes? (It's okay if it doesn't. The array library doesn't need
+ >> that, though it would be nice.)
+ >>
+ >> Neil ⊥
+ >>
+ >>
+ >> On 08/12/2012 03:47 PM, Eric Dobson wrote:
+ >>>
+ >>> Fixed in https://github.com/plt/racket/pull/132. Just need to get it
+ >>> merged into master.
+ >>>
+ >>>
+ >>>
+ >>> On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto <neil.toronto@gmail.com>
+ >>> wrote:
+ >>>>
+ >>>> On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ >>>>>
+ >>>>>
+ >>>>> That looks like it should typecheck, so I think you should be fine
+ >>>>> implementing it that way. I'll take a look tomorrow and see if I can
+ >>>>> figure out the issue.
+ >>>>
+ >>>>
+ >>>>
+ >>>> Excellent, thanks.
+ >>>>
+ >>>>
+ >>>>> The one case I would worry about typechecking is:
+ >>>>> (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box
+ >>>>> Number))
+ >>>>>
+ >>>>> Which should typecheck (if TR was perfect), and currently does now
+ >>>>> because of the bug. Whether TR can make the jump from (Mutable-Box
+ >>>>> Integer) to (Box Number) without be guided through (Box Integer), I'm
+ >>>>> not sure.
+ >>>>
+ >>>>
+ >>>>
+ >>>> It would be great if it could. Translated back to the array library, it's
+ >>>> convenient to be able to send a (Mutable-Array Real) to functions that
+ >>>> accept an (Array Number) without having to annotate it.
+ >>>>
+ >>>> Neil ⊥
+ >>>>
+ >>
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Wed, 15 Aug 2012 21:01:30 -0700
+
+ It should be able to support that. I believe the issue is in merging
+ the proposition environments
+ 
+ In the body of the function you have that
+ b : (mybox T)
+ and then if (mypair? b) returns true you have
+ b : (mypair Any Any)
+ thus in the true branch you should have
+ b : (mybox T) V (mypair Any Any)
+ which should be equivalent to
+ b : (mypair T)
+ but it looks like it is not constructing that.
+ 
+ 
+ 
+ On Wed, Aug 15, 2012 at 8:49 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > That bug report has one:
+ >
+ > #lang typed/racket
+ >
+ > (struct: (T) mybox ([value : T]))
+ > (struct: (T) mypair mybox ([snd : T]))
+ >
+ > (: snd-or-value (All (T) ((mybox T) -> T)))
+ > (define (snd-or-value b)
+ >   (if (mypair? b)
+ >       (mypair-snd b)
+ >       (mybox-value b)))
+ >
+ >
+ > The problem here is that in the "true" branch, `b'  has type #(struct:mypair
+ > (Any Any)) instead of something externally meaningful like (mypair T).
+ >
+ >
+ > On 08/15/2012 09:45 PM, Eric Dobson wrote:
+ >>
+ >> I'm waiting on Sam to merge it. I filed a ton of pull requests over
+ >> the weekend and he has merged about half of them so far.
+ >>
+ >> I'm not sure what you mean by occurrence typing on polymorphic struct
+ >> subtypes. Can you give an example program?
+ >>
+ >> On Wed, Aug 15, 2012 at 8:41 PM, Neil Toronto <neil.toronto@gmail.com>
+ >> wrote:
+ >>>
+ >>> What's the status on this one?
+ >>>
+ >>> I've discovered that I reported a similar issue in the past:
+ >>>
+ >>>    http://bugs.racket-lang.org/query/?database=default&pr=11122
+ >>>
+ >>> Any chance your fix allows occurrence typing to be useful on polymorphic
+ >>> struct subtypes? (It's okay if it doesn't. The array library doesn't need
+ >>> that, though it would be nice.)
+ >>>
+ >>> Neil ⊥
+ >>>
+ >>>
+ >>> On 08/12/2012 03:47 PM, Eric Dobson wrote:
+ >>>>
+ >>>>
+ >>>> Fixed in https://github.com/plt/racket/pull/132. Just need to get it
+ >>>> merged into master.
+ >>>>
+ >>>>
+ >>>>
+ >>>> On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto <neil.toronto@gmail.com>
+ >>>> wrote:
+ >>>>>
+ >>>>>
+ >>>>> On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ >>>>>>
+ >>>>>>
+ >>>>>>
+ >>>>>> That looks like it should typecheck, so I think you should be fine
+ >>>>>> implementing it that way. I'll take a look tomorrow and see if I can
+ >>>>>> figure out the issue.
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>> Excellent, thanks.
+ >>>>>
+ >>>>>
+ >>>>>> The one case I would worry about typechecking is:
+ >>>>>> (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box
+ >>>>>> Number))
+ >>>>>>
+ >>>>>> Which should typecheck (if TR was perfect), and currently does now
+ >>>>>> because of the bug. Whether TR can make the jump from (Mutable-Box
+ >>>>>> Integer) to (Box Number) without be guided through (Box Integer), I'm
+ >>>>>> not sure.
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>> It would be great if it could. Translated back to the array library,
+ >>>>> it's
+ >>>>> convenient to be able to send a (Mutable-Array Real) to functions that
+ >>>>> accept an (Array Number) without having to annotate it.
+ >>>>>
+ >>>>> Neil ⊥
+ >>>>>
+ >>>
+ >
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        bugs@racket-lang.org, nobody@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Thu, 16 Aug 2012 00:11:14 -0400
+
+ --bcaec51ba3e9fe7e8704c75a3b9f
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ This is almost certainly in the `restrict` function, in
+ `remove-intersect.rkt`.
+ 
+ Sam
+ On Aug 16, 2012 12:01 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ 
+ > It should be able to support that. I believe the issue is in merging
+ > the proposition environments
+ >
+ > In the body of the function you have that
+ > b : (mybox T)
+ > and then if (mypair? b) returns true you have
+ > b : (mypair Any Any)
+ > thus in the true branch you should have
+ > b : (mybox T) V (mypair Any Any)
+ > which should be equivalent to
+ > b : (mypair T)
+ > but it looks like it is not constructing that.
+ >
+ >
+ >
+ > On Wed, Aug 15, 2012 at 8:49 PM, Neil Toronto <neil.toronto@gmail.com>
+ > wrote:
+ > > That bug report has one:
+ > >
+ > > #lang typed/racket
+ > >
+ > > (struct: (T) mybox ([value : T]))
+ > > (struct: (T) mypair mybox ([snd : T]))
+ > >
+ > > (: snd-or-value (All (T) ((mybox T) -> T)))
+ > > (define (snd-or-value b)
+ > >   (if (mypair? b)
+ > >       (mypair-snd b)
+ > >       (mybox-value b)))
+ > >
+ > >
+ > > The problem here is that in the "true" branch, `b'  has type
+ > #(struct:mypair
+ > > (Any Any)) instead of something externally meaningful like (mypair T).
+ > >
+ > >
+ > > On 08/15/2012 09:45 PM, Eric Dobson wrote:
+ > >>
+ > >> I'm waiting on Sam to merge it. I filed a ton of pull requests over
+ > >> the weekend and he has merged about half of them so far.
+ > >>
+ > >> I'm not sure what you mean by occurrence typing on polymorphic struct
+ > >> subtypes. Can you give an example program?
+ > >>
+ > >> On Wed, Aug 15, 2012 at 8:41 PM, Neil Toronto <neil.toronto@gmail.com>
+ > >> wrote:
+ > >>>
+ > >>> What's the status on this one?
+ > >>>
+ > >>> I've discovered that I reported a similar issue in the past:
+ > >>>
+ > >>>    http://bugs.racket-lang.org/query/?database=3Ddefault&pr=3D11122
+ > >>>
+ > >>> Any chance your fix allows occurrence typing to be useful on
+ > polymorphic
+ > >>> struct subtypes? (It's okay if it doesn't. The array library doesn't
+ > need
+ > >>> that, though it would be nice.)
+ > >>>
+ > >>> Neil =E2=8A=A5
+ > >>>
+ > >>>
+ > >>> On 08/12/2012 03:47 PM, Eric Dobson wrote:
+ > >>>>
+ > >>>>
+ > >>>> Fixed in https://github.com/plt/racket/pull/132. Just need to get it
+ > >>>> merged into master.
+ > >>>>
+ > >>>>
+ > >>>>
+ > >>>> On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto <neil.toronto@gmail.co=
+ m
+ > >
+ > >>>> wrote:
+ > >>>>>
+ > >>>>>
+ > >>>>> On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ > >>>>>>
+ > >>>>>>
+ > >>>>>>
+ > >>>>>> That looks like it should typecheck, so I think you should be fine
+ > >>>>>> implementing it that way. I'll take a look tomorrow and see if I c=
+ an
+ > >>>>>> figure out the issue.
+ > >>>>>
+ > >>>>>
+ > >>>>>
+ > >>>>>
+ > >>>>> Excellent, thanks.
+ > >>>>>
+ > >>>>>
+ > >>>>>> The one case I would worry about typechecking is:
+ > >>>>>> (ann (ann (box-mutable (Box (=CE=BB () 0))) (Mutable-Box Integer))=
+  (Box
+ > >>>>>> Number))
+ > >>>>>>
+ > >>>>>> Which should typecheck (if TR was perfect), and currently does now
+ > >>>>>> because of the bug. Whether TR can make the jump from (Mutable-Box
+ > >>>>>> Integer) to (Box Number) without be guided through (Box Integer),
+ > I'm
+ > >>>>>> not sure.
+ > >>>>>
+ > >>>>>
+ > >>>>>
+ > >>>>>
+ > >>>>> It would be great if it could. Translated back to the array library=
+ ,
+ > >>>>> it's
+ > >>>>> convenient to be able to send a (Mutable-Array Real) to functions
+ > that
+ > >>>>> accept an (Array Number) without having to annotate it.
+ > >>>>>
+ > >>>>> Neil =E2=8A=A5
+ > >>>>>
+ > >>>
+ > >
+ >
+ 
+ --bcaec51ba3e9fe7e8704c75a3b9f
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">This is almost certainly in the `restrict` function, in `rem=
+ ove-intersect.rkt`.</p>
+ <p dir=3D"ltr">Sam</p>
+ <div class=3D"gmail_quote">On Aug 16, 2012 12:01 AM, &quot;Eric Dobson&quot=
+ ; &lt;<a href=3D"mailto:eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a=
+ >&gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" styl=
+ e=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ It should be able to support that. I believe the issue is in merging<br>
+ the proposition environments<br>
+ <br>
+ In the body of the function you have that<br>
+ b : (mybox T)<br>
+ and then if (mypair? b) returns true you have<br>
+ b : (mypair Any Any)<br>
+ thus in the true branch you should have<br>
+ b : (mybox T) V (mypair Any Any)<br>
+ which should be equivalent to<br>
+ b : (mypair T)<br>
+ but it looks like it is not constructing that.<br>
+ <br>
+ <br>
+ <br>
+ On Wed, Aug 15, 2012 at 8:49 PM, Neil Toronto &lt;<a href=3D"mailto:neil.to=
+ ronto@gmail.com">neil.toronto@gmail.com</a>&gt; wrote:<br>
+ &gt; That bug report has one:<br>
+ &gt;<br>
+ &gt; #lang typed/racket<br>
+ &gt;<br>
+ &gt; (struct: (T) mybox ([value : T]))<br>
+ &gt; (struct: (T) mypair mybox ([snd : T]))<br>
+ &gt;<br>
+ &gt; (: snd-or-value (All (T) ((mybox T) -&gt; T)))<br>
+ &gt; (define (snd-or-value b)<br>
+ &gt; =C2=A0 (if (mypair? b)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 (mypair-snd b)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 (mybox-value b)))<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; The problem here is that in the &quot;true&quot; branch, `b&#39; =C2=
+ =A0has type #(struct:mypair<br>
+ &gt; (Any Any)) instead of something externally meaningful like (mypair T).=
+ <br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On 08/15/2012 09:45 PM, Eric Dobson wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; I&#39;m waiting on Sam to merge it. I filed a ton of pull requests=
+  over<br>
+ &gt;&gt; the weekend and he has merged about half of them so far.<br>
+ &gt;&gt;<br>
+ &gt;&gt; I&#39;m not sure what you mean by occurrence typing on polymorphic=
+  struct<br>
+ &gt;&gt; subtypes. Can you give an example program?<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Wed, Aug 15, 2012 at 8:41 PM, Neil Toronto &lt;<a href=3D"mailt=
+ o:neil.toronto@gmail.com">neil.toronto@gmail.com</a>&gt;<br>
+ &gt;&gt; wrote:<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; What&#39;s the status on this one?<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; I&#39;ve discovered that I reported a similar issue in the pas=
+ t:<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; =C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?dat=
+ abase=3Ddefault&amp;pr=3D11122" target=3D"_blank">http://bugs.racket-lang.o=
+ rg/query/?database=3Ddefault&amp;pr=3D11122</a><br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; Any chance your fix allows occurrence typing to be useful on p=
+ olymorphic<br>
+ &gt;&gt;&gt; struct subtypes? (It&#39;s okay if it doesn&#39;t. The array l=
+ ibrary doesn&#39;t need<br>
+ &gt;&gt;&gt; that, though it would be nice.)<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; Neil =E2=8A=A5<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; On 08/12/2012 03:47 PM, Eric Dobson wrote:<br>
+ &gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt; Fixed in <a href=3D"https://github.com/plt/racket/pull/132=
+ " target=3D"_blank">https://github.com/plt/racket/pull/132</a>. Just need t=
+ o get it<br>
+ &gt;&gt;&gt;&gt; merged into master.<br>
+ &gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt; On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto &lt;<a href=
+ =3D"mailto:neil.toronto@gmail.com">neil.toronto@gmail.com</a>&gt;<br>
+ &gt;&gt;&gt;&gt; wrote:<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt; On 08/12/2012 03:01 AM, Eric Dobson wrote:<br>
+ &gt;&gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; That looks like it should typecheck, so I think yo=
+ u should be fine<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; implementing it that way. I&#39;ll take a look tom=
+ orrow and see if I can<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; figure out the issue.<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt; Excellent, thanks.<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; The one case I would worry about typechecking is:<=
+ br>
+ &gt;&gt;&gt;&gt;&gt;&gt; (ann (ann (box-mutable (Box (=CE=BB () 0))) (Mutab=
+ le-Box Integer)) (Box<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; Number))<br>
+ &gt;&gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; Which should typecheck (if TR was perfect), and cu=
+ rrently does now<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; because of the bug. Whether TR can make the jump f=
+ rom (Mutable-Box<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; Integer) to (Box Number) without be guided through=
+  (Box Integer), I&#39;m<br>
+ &gt;&gt;&gt;&gt;&gt;&gt; not sure.<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt; It would be great if it could. Translated back to the =
+ array library,<br>
+ &gt;&gt;&gt;&gt;&gt; it&#39;s<br>
+ &gt;&gt;&gt;&gt;&gt; convenient to be able to send a (Mutable-Array Real) t=
+ o functions that<br>
+ &gt;&gt;&gt;&gt;&gt; accept an (Array Number) without having to annotate it=
+ .<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;&gt;&gt; Neil =E2=8A=A5<br>
+ &gt;&gt;&gt;&gt;&gt;<br>
+ &gt;&gt;&gt;<br>
+ &gt;<br>
+ </blockquote></div>
+ 
+ --bcaec51ba3e9fe7e8704c75a3b9f--
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        bugs@racket-lang.org, nobody@racket-lang.org
+Subject: Re: all/12998: Child struct type's parameter is apparently Nothing
+ when treated as parent type
+Date: Wed, 15 Aug 2012 21:42:02 -0700
+
+ I don't believe it is a problem with restrict. I actually don't
+ believe that my last transition
+ b : (mybox T) V (mypair Any Any)
+ =>
+ b : (mypair T)
+ 
+ because we no longer have the connection between how the types of the
+ fields of mypair and mybox interact.
+ 
+ The issue is that mypair has the type (Any -> Boolean : (mypair Any
+ Any)) versus the more precise type (Any -> Boolean : (Exists (T)
+ (mypair T T))).
+ 
+ With that we could do the restriction correctly.
+ 
+ On Wed, Aug 15, 2012 at 9:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > This is almost certainly in the `restrict` function, in
+ > `remove-intersect.rkt`.
+ >
+ > Sam
+ >
+ > On Aug 16, 2012 12:01 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>
+ >> It should be able to support that. I believe the issue is in merging
+ >> the proposition environments
+ >>
+ >> In the body of the function you have that
+ >> b : (mybox T)
+ >> and then if (mypair? b) returns true you have
+ >> b : (mypair Any Any)
+ >> thus in the true branch you should have
+ >> b : (mybox T) V (mypair Any Any)
+ >> which should be equivalent to
+ >> b : (mypair T)
+ >> but it looks like it is not constructing that.
+ >>
+ >>
+ >>
+ >> On Wed, Aug 15, 2012 at 8:49 PM, Neil Toronto <neil.toronto@gmail.com>
+ >> wrote:
+ >> > That bug report has one:
+ >> >
+ >> > #lang typed/racket
+ >> >
+ >> > (struct: (T) mybox ([value : T]))
+ >> > (struct: (T) mypair mybox ([snd : T]))
+ >> >
+ >> > (: snd-or-value (All (T) ((mybox T) -> T)))
+ >> > (define (snd-or-value b)
+ >> >   (if (mypair? b)
+ >> >       (mypair-snd b)
+ >> >       (mybox-value b)))
+ >> >
+ >> >
+ >> > The problem here is that in the "true" branch, `b'  has type
+ >> > #(struct:mypair
+ >> > (Any Any)) instead of something externally meaningful like (mypair T).
+ >> >
+ >> >
+ >> > On 08/15/2012 09:45 PM, Eric Dobson wrote:
+ >> >>
+ >> >> I'm waiting on Sam to merge it. I filed a ton of pull requests over
+ >> >> the weekend and he has merged about half of them so far.
+ >> >>
+ >> >> I'm not sure what you mean by occurrence typing on polymorphic struct
+ >> >> subtypes. Can you give an example program?
+ >> >>
+ >> >> On Wed, Aug 15, 2012 at 8:41 PM, Neil Toronto <neil.toronto@gmail.com>
+ >> >> wrote:
+ >> >>>
+ >> >>> What's the status on this one?
+ >> >>>
+ >> >>> I've discovered that I reported a similar issue in the past:
+ >> >>>
+ >> >>>    http://bugs.racket-lang.org/query/?database=default&pr=11122
+ >> >>>
+ >> >>> Any chance your fix allows occurrence typing to be useful on
+ >> >>> polymorphic
+ >> >>> struct subtypes? (It's okay if it doesn't. The array library doesn't
+ >> >>> need
+ >> >>> that, though it would be nice.)
+ >> >>>
+ >> >>> Neil ⊥
+ >> >>>
+ >> >>>
+ >> >>> On 08/12/2012 03:47 PM, Eric Dobson wrote:
+ >> >>>>
+ >> >>>>
+ >> >>>> Fixed in https://github.com/plt/racket/pull/132. Just need to get it
+ >> >>>> merged into master.
+ >> >>>>
+ >> >>>>
+ >> >>>>
+ >> >>>> On Sun, Aug 12, 2012 at 7:01 AM, Neil Toronto
+ >> >>>> <neil.toronto@gmail.com>
+ >> >>>> wrote:
+ >> >>>>>
+ >> >>>>>
+ >> >>>>> On 08/12/2012 03:01 AM, Eric Dobson wrote:
+ >> >>>>>>
+ >> >>>>>>
+ >> >>>>>>
+ >> >>>>>> That looks like it should typecheck, so I think you should be fine
+ >> >>>>>> implementing it that way. I'll take a look tomorrow and see if I
+ >> >>>>>> can
+ >> >>>>>> figure out the issue.
+ >> >>>>>
+ >> >>>>>
+ >> >>>>>
+ >> >>>>>
+ >> >>>>> Excellent, thanks.
+ >> >>>>>
+ >> >>>>>
+ >> >>>>>> The one case I would worry about typechecking is:
+ >> >>>>>> (ann (ann (box-mutable (Box (λ () 0))) (Mutable-Box Integer)) (Box
+ >> >>>>>> Number))
+ >> >>>>>>
+ >> >>>>>> Which should typecheck (if TR was perfect), and currently does now
+ >> >>>>>> because of the bug. Whether TR can make the jump from (Mutable-Box
+ >> >>>>>> Integer) to (Box Number) without be guided through (Box Integer),
+ >> >>>>>> I'm
+ >> >>>>>> not sure.
+ >> >>>>>
+ >> >>>>>
+ >> >>>>>
+ >> >>>>>
+ >> >>>>> It would be great if it could. Translated back to the array library,
+ >> >>>>> it's
+ >> >>>>> convenient to be able to send a (Mutable-Array Real) to functions
+ >> >>>>> that
+ >> >>>>> accept an (Array Number) without having to annotate it.
+ >> >>>>>
+ >> >>>>> Neil ⊥
+ >> >>>>>
+ >> >>>
+ >> >
+ 
+Responsible changed from "nobody" to "samth" by samth@racket-lang.org at Wed, 22 Aug 2012 16:52:44 -0400
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/e9f209977b
+State changed from "open" to "closed" by samth@racket-lang.org at Wed, 22 Aug 2012 16:52:44 -0400
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/e9f209977b

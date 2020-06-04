@@ -1,0 +1,185 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Feb 19 21:46:09 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q1K2k6nx025032
+	for <bugs@bugs.plt-scheme.org>; Sun, 19 Feb 2012 21:46:06 -0500
+Message-Id: <201202200246.q1K2k288025026@champlain.ccs.neu.edu>
+Date: Sun, 19 Feb 2012 21:46:02 -0500
+From: dyoo@hashcollision.org
+To: bugs@racket-lang.org
+Subject: Slow & potentially uncorrect result of Rec-typed data in TR
+
+>Number:         12586
+>Category:       all
+>Synopsis:       Slow & potentially uncorrect result of Rec-typed data in TR
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Feb 19 21:48:01 -0500 2012
+>Closed-Date:    Mon Feb 20 15:28:01 -0500 2012
+>Last-Modified:  Mon Feb 20 15:28:01 -0500 2012
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; Linux i686) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.124 Safari/534.30
+>Description:
+I'm running into an issue where large data structures are taking a long time to pass through the type checker.  Moreover, TR thinks that the data doesn't fit the type, but it looks ok to me.
+
+I've been able to condense the issue into a test case.  I have two files, one typed and one untyped:
+
+    http://hashcollision.org/tr-bug/dynamic-input.rkt
+    http://hashcollision.org/tr-bug/dynamic-input-untyped.rkt
+
+(The majority of the file is content meant for the "dynamic" benchmark.  I was trying to benchmark Whalesong, but when I tried feeding dynamic-input.txt into it, Bad Things happened.)
+
+
+The two files have mostly the same content: the first tries to assert via the type system that some large value is a "const" value, where "const" is defined as:
+
+(define-type const-value
+  (Rec C
+       (U Symbol
+          String
+          Number
+          Boolean
+          Void
+          Null
+          Char
+          Bytes
+          Path
+          (Pairof C C)
+          (Vectorof C)
+          (Boxof C))))
+
+
+The second just applies what I think is the equivalent predicate.  However, they produce results not consistent with each other: the first asserts that the value is not "const", and the second says that it does.
+
+
+---
+
+kui ~/tmp $ time racket dynamic-input.rkt
+dynamic-input.txt:21:1: Type Checker: Expected const-value, but got (List (List 'let Null (List 'begin (List 'set! 'make-relative-filename (List 'lambda '_components_1 (List 'let (List (List '_construct_2 (List 'unspecified))) (List 'begin (List 'set! '_construct_2 (List 'lambda (List '_l_3) (List 'if (List 'null? (List 'let (List (List '_x_4_7 '_l_3)) (List 'begin (List '_check! (List 'pair? '_x_4_7) One '_x_4_7) (List 'cdr:pair '_x_4_7)))) '_l_3 (List 'cons (List 'let (List (List '_x_8_11 '_l_3)) (List 'begin (List '_check! (List 'pair? '_x_8_11) Zero '_x_8_11) (List 'car:pair '_x_8_11))) (List 'cons String (List '_construct_2 (List 'let (List (List '_x_12_15 '_l_3)) (List 'begin (List '_check! (List 'pair? '_x_12_15) One '_x_12_15) (List 'cdr:pair '_x_12_15))))))))) (List 'if (List 'null? (List 'let (List (List '_x_16_19 '_components_1)) (List 'begin (List '_check! (List 'pair? '_x_16_19) One '_x_16_19) (List 'cdr:pair '_x_16_19)))) (List 'let (List (List '_x_20_23 '_comp!
+ onents_1)) (List 'begin (List '_check! (List 'pair? '_x_20_23) Zero '_x_20_23) (List 'car:pair '_x_20_23))) (List 'apply 'string-append (List '_construct_2 '_components_1))))))) (List 'quote 'make-relative-filename))) (List 'l
+
+ === context ===
+/home/dyoo/local/racket-5.2.1/lib/racket/collects/typed-racket/typecheck/tc-toplevel.rkt:254:0: type-check
+/home/dyoo/local/racket-5.2.1/lib/racket/collects/typed-racket/typed-racket.rkt:36:4
+standard-module-name-resolver
+
+
+real	1m29.240s
+user	1m26.321s
+sys	0m0.692s
+
+
+$ time racket dynamic-input-untyped.rkt
+#t
+
+real	0m0.597s
+user	0m0.332s
+sys	0m0.052s
+
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@cs.wpi.edu>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: dyoo@hashcollision.org
+Subject: Re: [racket-bug] all/12586: Slow & potentially uncorrect result of
+ Rec-typed data in TR
+Date: Sun, 19 Feb 2012 22:14:04 -0500
+
+ Something strange is happening: if I do the type checking through the
+ require/typed mechanism, then the contract appears to pass
+ successfully.  The additional test and its helper module:
+ 
+     http://hashcollision.org/tr-bug/dynamic-input-revised.rkt
+     http://hashcollision.org/tr-bug/helper.rkt
+ 
+ forces the type-check to be done at runtime, rather than compile-time,
+ and the contract seems to hold just fine.
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Danny Yoo <dyoo@cs.wpi.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org,
+        dyoo@hashcollision.org
+Subject: Re: [racket-bug] all/12586: Slow & potentially uncorrect result of
+ Rec-typed data in TR
+Date: Mon, 20 Feb 2012 09:24:54 -0500
+
+ On Sun, Feb 19, 2012 at 10:14 PM, Danny Yoo <dyoo@cs.wpi.edu> wrote:
+ > Something strange is happening: if I do the type checking through the
+ > require/typed mechanism, then the contract appears to pass
+ > successfully.  The additional test and its helper module:
+ >
+ >    http://hashcollision.org/tr-bug/dynamic-input-revised.rkt
+ >    http://hashcollision.org/tr-bug/helper.rkt
+ >
+ > forces the type-check to be done at runtime, rather than compile-time,
+ > and the contract seems to hold just fine.
+ 
+ Neither this, nor the original difference, is that surprising -- the
+ typechecker is more conservative than a dynamic check.
+ 
+ In this particular case, it seems like the typechecker is missing
+ something that it shouldn't, though.  Can you please try reducing the
+ size of the typed file to something a little more manageable that
+ still produces the error?
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Danny Yoo <dyoo@cs.wpi.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org,
+        dyoo@hashcollision.org
+Subject: Re: [racket-bug] all/12586: Slow & potentially uncorrect result of
+ Rec-typed data in TR
+Date: Mon, 20 Feb 2012 13:15:50 -0500
+
+ As it turned out, TR was so slow here that I couldn't even binary
+ search the file usefully.  Fortunately, I managed to make things
+ faster (the file now take about 30 sec to typecheck), and discovered
+ the bug in typechecking as well (it was assigning a useless type to
+ empty vectors).  This should be fixed soon.
+ 
+ On Mon, Feb 20, 2012 at 9:24 AM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >
+ > In this particular case, it seems like the typechecker is missing
+ > something that it shouldn't, though.  Can you please try reducing the
+ > size of the typed file to something a little more manageable that
+ > still produces the error?
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Danny Yoo <dyoo@cs.wpi.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org,
+        dyoo@hashcollision.org
+Subject: Re: [racket-bug] all/12586: Slow & potentially uncorrect result of
+ Rec-typed data in TR
+Date: Mon, 20 Feb 2012 13:30:05 -0500
+
+ On Mon, Feb 20, 2012 at 1:15 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > As it turned out, TR was so slow here that I couldn't even binary
+ > search the file usefully.  Fortunately, I managed to make things
+ > faster (the file now take about 30 sec to typecheck), and discovered
+ > the bug in typechecking as well (it was assigning a useless type to
+ > empty vectors).  This should be fixed soon.
+ 
+ Cool; thank you!
+ 
+Responsible changed from "nobody" to "samth" by samth@racket-lang.org at Mon, 20 Feb 2012 15:28:01 -0500
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/a8bdb9d6ce
+State changed from "open" to "closed" by samth@racket-lang.org at Mon, 20 Feb 2012 15:28:01 -0500
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/a8bdb9d6ce

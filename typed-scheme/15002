@@ -1,0 +1,374 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Mar  9 20:01:10 2015
+Received: from mail-ig0-f169.google.com (mail-ig0-f169.google.com [209.85.213.169])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t2A017jN019200
+	for <bugs@bugs.plt-scheme.org>; Mon, 9 Mar 2015 20:01:07 -0400
+Message-Id: <201503100001.t2A0134x019193@winooski.ccs.neu.edu>
+Date: Mon, 9 Mar 2015 20:01:03 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: TR: Contract boundary makes snips completely unusable
+
+>Number:         15002
+>Category:       typed-scheme
+>Synopsis:       TR: Contract boundary makes snips completely unusable
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Mar 09 20:04:01 -0400 2015
+>Last-Modified:  Wed Jun 10 11:58:51 -0400 2015
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.8--2015-03-05(-/f)
+>Environment:
+unix "Linux snoopy 3.13.0-37-generic #64-Ubuntu SMP Mon Sep 22 21:28:38 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 875081296
+raco pkg (show):
+Installation-wide:
+ Package                 Checksum           Source
+ disassemble             cf0ee3a5...        catalog...ssemble
+ drbayes                 a71b4ca1...        url...drbayes.git
+ images-lib              bcfb8cf3...        clone...mages-lib
+ main-distribution       67868e03...        catalog...ibution
+ main-distribution-test  ca4a870e...        catalog...on-test
+ math-lib                d0bb40b6...        clone...=math-lib
+ nonplussed              f6c06999...        url.../nonplussed
+ optimization-coach      77f8eda5...        catalog.../master
+ pict3d                  45d280a3...        url.../pict3d.git
+ plot                    4842f4ce...        clone...path=plot
+ racket-lib                                 static-link...lib
+ rsound                  4960bd6b...        catalog...master/
+ slideshow-latex         7da8bc7a...        catalog.../master
+ typed-racket-more       a3e25231...        clone...cket-more
+ unstable-flonum-lib     7071d9a3...        clone...lonum-lib
+ [211 auto-installed packages not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/development/collects"
+ (non-existent-path))
+("/home/neil/plt-fresh/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t ((test) (main)) #t))
+>Description:
+I don't know whether this applies to all snips, but it certainly applies to image-snip% instances. When they pass from untyped to typed code, they become unusable, displaying either as zero-size or single-pixel-size. (It's hard to tell.)
+
+Reproduction steps contains two programs. The first demonstrates the problem using Plot, which is currently badly broken. No plots display, either in untyped or Typed Racket. The second demonstrates the problem without using Plot.
+
+The problem appeared sometime between 6.1.1.8--2015-01-31 and current.
+>How-To-Repeat:
+#lang racket
+
+(module untyped-module racket
+  (require plot)
+  (plot (function sin -3 3)))
+
+(module typed-module typed/racket
+  (require plot)
+  (plot (function sin -3 3)))
+
+(require (submod "." untyped-module)
+         (submod "." typed-module))
+
+
+
+#lang racket
+
+(module converter racket
+  (require racket/snip)
+  (provide bitmap->snip)
+  (define (bitmap->snip bm)
+    (make-object image-snip% bm)))
+
+(module typed-converter typed/racket
+  (require (only-in typed/racket/gui Snip%)
+           (only-in typed/racket/draw Bitmap%))
+  (provide bitmap->snip)
+  (require/typed
+   (submod ".." converter)
+   [bitmap->snip  (-> (Instance Bitmap%) (Instance Snip%))]))
+
+(require racket/draw
+         ;(submod "." converter)  ; works
+         (submod "." typed-converter)  ; doesn't work
+         )
+
+(define bm (make-bitmap 400 400))
+(define dc (make-object bitmap-dc% bm))
+(send dc draw-ellipse 0 0 400 400)
+(bitmap->snip bm)
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15002: TR: Contract boundary makes snips
+ completely unusable
+Date: Mon, 9 Mar 2015 20:19:52 -0400
+
+ On 2015-03-09 20:04:02 -0400, neil.toronto@gmail.com wrote:
+ > I don't know whether this applies to all snips, but it certainly
+ > applies to image-snip% instances. When they pass from untyped to typed
+ > code, they become unusable, displaying either as zero-size or
+ > single-pixel-size. (It's hard to tell.)
+ >
+ > Reproduction steps contains two programs. The first demonstrates the
+ > problem using Plot, which is currently badly broken. No plots display,
+ > either in untyped or Typed Racket. The second demonstrates the problem
+ > without using Plot.
+ 
+ Could this be a general object-identity + contracts issue? We've had
+ some issues with pasteboards elsewhere and such assuming that objects
+ are never wrapped like that.
+ 
+ Cheers,
+ Asumu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15002: TR: Contract boundary makes snips
+ completely unusable
+Date: Mon, 9 Mar 2015 19:56:51 -0500
+
+ Here's an example without DrRacket. Maybe this helps someone remove TR from it.
+ 
+ Robby
+ 
+ #lang racket/gui
+ 
+ (module converter racket
+   (require racket/snip)
+   (provide bitmap->snip)
+   (define (bitmap->snip bm)
+     (make-object image-snip% bm)))
+ 
+ (module typed-converter typed/racket
+   (require (only-in typed/racket/gui Snip%)
+            (only-in typed/racket/draw Bitmap%))
+   (provide bitmap->snip)
+   (require/typed
+    (submod ".." converter)
+    [bitmap->snip  (-> (Instance Bitmap%) (Instance Snip%))]))
+ 
+ (require racket/draw
+          ;(submod "." converter)  ; works
+          (submod "." typed-converter)  ; doesn't work
+          )
+ 
+ (define bm (make-bitmap 400 400))
+ (define dc (make-object bitmap-dc% bm))
+ (send dc draw-ellipse 0 0 400 400)
+ ;(bitmap->snip bm)
+ 
+ (define f (new frame% [label ""] [width 200] [height 200]))
+ (define t (new text%))
+ (send t insert (send (bitmap->snip bm) copy))
+ (define ec (new editor-canvas% [parent f] [editor t]))
+ (send f show #t)
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15002: TR: Contract boundary makes snips
+ completely unusable
+Date: Tue, 10 Mar 2015 00:26:24 -0400
+
+ On 2015-03-09 19:56:51 -0500, Robby Findler wrote:
+ > Here's an example without DrRacket. Maybe this helps someone remove TR from it.
+ 
+ The following should reproduce it without TR involved.
+ 
+ Cheers,
+ Asumu
+ 
+ ;;;
+ 
+ #lang racket/gui
+ 
+ (module converter racket
+   (require racket/snip)
+   (provide bitmap->snip)
+   (define (bitmap->snip bm)
+     (make-object image-snip% bm)))
+ 
+ (module contract-converter racket
+   (provide (contract-out
+             [bitmap->snip
+              (-> any/c
+                  (letrec ([ctc (recursive-contract
+                                 (object/c
+                                  [set-admin (->m (or/c #f (object/c)) void?)]
+                                  [copy (->m ctc)]))])
+                    ctc))]))
+   (require (submod ".." converter)))
+ 
+ (require racket/draw
+          ;(submod "." converter)  ; works
+          (submod "." contract-converter)  ; doesn't work
+          )
+ 
+ (define bm (make-bitmap 400 400))
+ (define dc (make-object bitmap-dc% bm))
+ (send dc draw-ellipse 0 0 400 400)
+ (define f (new frame% [label ""] [width 200] [height 200]))
+ (define t (new text%))
+ (send t insert (send (bitmap->snip bm) copy))
+ (define ec (new editor-canvas% [parent f] [editor t]))
+ (send f show #t)
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/15002: TR: Contract boundary makes snips
+ completely unusable
+Date: Tue, 10 Mar 2015 22:14:56 +0000
+
+ --001a1139c902247be70510f67b96
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Here's an even simpler version. Change `object/c` to `any/c` to get working
+ behavior. This makes me think it's a `eq?` that needs to be `object=3D?`.
+ 
+ Sam
+ 
+ #lang racket/gui
+ 
+ (define bitmap->snip
+  (contract (-> any/c (object/c [set-admin (->m (object/c) any)]))
+             (=CE=BB (bm) (make-object image-snip% bm))
+             'p 'n))
+ 
+ (define bm (make-bitmap 400 400))
+ (define sn (bitmap->snip bm))
+ (define dc (make-object bitmap-dc% bm))
+ (send dc draw-ellipse 0 0 400 400)
+ (define f (new frame% [label ""] [width 200] [height 200]))
+ (define t (new text%))
+ (send t insert sn)
+ (define ec (new editor-canvas% [parent f] [editor t]))
+ (send f show #t)
+ 
+ --001a1139c902247be70510f67b96
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Here&#39;s an even simpler version. Change `object/c` to `=
+ any/c` to get working behavior. This makes me think it&#39;s a `eq?` that n=
+ eeds to be `object=3D?`.<div><br></div><div>Sam<br><div><br></div><div><div=
+ >#lang racket/gui</div><div><br></div><div><div>(define bitmap-&gt;snip</di=
+ v><div>=C2=A0(contract (-&gt; any/c (object/c [set-admin (-&gt;m (object/c)=
+  any)]))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (=CE=BB (bm) (=
+ make-object image-snip% bm))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 &#39;p &#39;n))</div></div><div><br></div><div>(define bm (make-bitm=
+ ap 400 400))</div><div>(define sn (bitmap-&gt;snip bm))</div><div>(define d=
+ c (make-object bitmap-dc% bm))</div><div>(send dc draw-ellipse 0 0 400 400)=
+ </div><div>(define f (new frame% [label &quot;&quot;] [width 200] [height 2=
+ 00]))</div><div>(define t (new text%))</div><div>(send t insert sn)</div><d=
+ iv>(define ec (new editor-canvas% [parent f] [editor t]))</div><div>(send f=
+  show #t)</div></div></div></div>
+ 
+ --001a1139c902247be70510f67b96--
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/15002: TR: Contract boundary makes snips
+ completely unusable
+Date: Tue, 10 Mar 2015 22:24:13 +0000
+
+ --001a113943ca532a340510f69c20
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Even simpler. Now I'm convinced it's a use of `eq?`.
+ 
+ #lang racket/gui
+ 
+ (require (only-in racket/private/class-internal object-ref))
+ 
+ (define simple-obj/c
+   (make-contract #:projection (=CE=BB (b) (=CE=BB (v) (impersonate-struct v
+ object-ref (=CE=BB (o c) c))))))
+ 
+ (define bitmap->snip
+  (contract (-> any/c (object/c [set-admin (->m simple-obj/c any)]))
+             (=CE=BB (bm) (make-object image-snip% bm))
+             'p 'n))
+ 
+ On Tue, Mar 10, 2015 at 6:14 PM Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ wrote:
+ 
+ > Here's an even simpler version. Change `object/c` to `any/c` to get
+ > working behavior. This makes me think it's a `eq?` that needs to be
+ > `object=3D?`.
+ >
+ > Sam
+ >
+ > #lang racket/gui
+ >
+ > (define bitmap->snip
+ >  (contract (-> any/c (object/c [set-admin (->m (object/c) any)]))
+ >             (=CE=BB (bm) (make-object image-snip% bm))
+ >             'p 'n))
+ >
+ > (define bm (make-bitmap 400 400))
+ > (define sn (bitmap->snip bm))
+ > (define dc (make-object bitmap-dc% bm))
+ > (send dc draw-ellipse 0 0 400 400)
+ > (define f (new frame% [label ""] [width 200] [height 200]))
+ > (define t (new text%))
+ > (send t insert sn)
+ > (define ec (new editor-canvas% [parent f] [editor t]))
+ > (send f show #t)
+ >
+ 
+ --001a113943ca532a340510f69c20
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Even simpler. Now I&#39;m convinced it&#39;s a use of `eq?=
+ `.<div><br></div><div><div>#lang racket/gui</div><div><br></div><div>(requi=
+ re (only-in racket/private/class-internal object-ref))</div><div><br></div>=
+ <div>(define simple-obj/c</div><div>=C2=A0 (make-contract #:projection (=CE=
+ =BB (b) (=CE=BB (v) (impersonate-struct v object-ref (=CE=BB (o c) c))))))<=
+ /div><div><br></div><div>(define bitmap-&gt;snip</div><div>=C2=A0(contract =
+ (-&gt; any/c (object/c [set-admin (-&gt;m simple-obj/c any)]))</div><div>=
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (=CE=BB (bm) (make-object image-s=
+ nip% bm))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;p &#39;n=
+ ))</div><div><br></div><div class=3D"gmail_quote">On Tue, Mar 10, 2015 at 6=
+ :14 PM Sam Tobin-Hochstadt &lt;<a href=3D"mailto:samth@cs.indiana.edu">samt=
+ h@cs.indiana.edu</a>&gt; wrote:<br><blockquote class=3D"gmail_quote" style=
+ =3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><div dir=
+ =3D"ltr">Here&#39;s an even simpler version. Change `object/c` to `any/c` t=
+ o get working behavior. This makes me think it&#39;s a `eq?` that needs to =
+ be `object=3D?`.<div><br></div><div>Sam<br><div><br></div><div><div>#lang r=
+ acket/gui</div><div><br></div><div><div>(define bitmap-&gt;snip</div><div>=
+ =C2=A0(contract (-&gt; any/c (object/c [set-admin (-&gt;m (object/c) any)])=
+ )</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (=CE=BB (bm) (make-ob=
+ ject image-snip% bm))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &=
+ #39;p &#39;n))</div></div></div></div></div><div dir=3D"ltr"><div><div><div=
+ ><br></div><div>(define bm (make-bitmap 400 400))</div></div></div></div><d=
+ iv dir=3D"ltr"><div><div><div>(define sn (bitmap-&gt;snip bm))</div></div><=
+ /div></div><div dir=3D"ltr"><div><div><div>(define dc (make-object bitmap-d=
+ c% bm))</div><div>(send dc draw-ellipse 0 0 400 400)</div><div>(define f (n=
+ ew frame% [label &quot;&quot;] [width 200] [height 200]))</div><div>(define=
+  t (new text%))</div></div></div></div><div dir=3D"ltr"><div><div><div>(sen=
+ d t insert sn)</div></div></div></div><div dir=3D"ltr"><div><div><div>(defi=
+ ne ec (new editor-canvas% [parent f] [editor t]))</div><div>(send f show #t=
+ )</div></div></div></div></blockquote></div></div></div>
+ 
+ --001a113943ca532a340510f69c20--
+

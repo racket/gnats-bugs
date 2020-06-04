@@ -1,0 +1,282 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Dec  7 21:02:33 2012
+Received: from mail-ia0-f182.google.com (mail-ia0-f182.google.com [209.85.210.182])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id qB822Ujo027472
+	for <bugs@bugs.plt-scheme.org>; Fri, 7 Dec 2012 21:02:30 -0500
+Message-Id: <201212080202.qB822QUV027466@champlain.ccs.neu.edu>
+Date: Fri, 7 Dec 2012 21:02:26 -0500
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: xrepl uses all of a core
+
+>Number:         13350
+>Category:       all
+>Synopsis:       xrepl uses all of a core
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Dec 07 21:04:02 -0500 2012
+>Closed-Date:    Sun Feb 10 07:57:49 -0500 2013
+>Last-Modified:  Sun Feb 10 07:57:49 -0500 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_0) AppleWebKit/537.2 (KHTML, like Gecko) Chrome/22.0.1215.0 Safari/537.2
+>Description:
+xrepl runs the racket process at 100% of a cpu. After starting it, one core of my machine runs at full blast.
+>How-To-Repeat:
+endobson@yggdrasil () ~/tmp % racket -q
+Welcome to Racket v5.3.1.9.
+> (require xrepl)
+->
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Cc: 
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Fri, 8 Feb 2013 14:53:04 -0700
+
+ %3Fcmd%3Dview%2520audit-trail%26database%3Ddefault%26pr%3D13350
+ 
+ Appears related to readline.  Still tracing the CPU usage down.
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Cc: 
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Fri, 8 Feb 2013 15:01:12 -0700
+
+ On Fri, Feb 8, 2013 at 2:53 PM, Danny Yoo <dyoo@hashcollision.org> wrote:
+ > %3Fcmd%3Dview%2520audit-trail%26database%3Ddefault%26pr%3D13350
+ >
+ > Appears related to readline.  Still tracing the CPU usage down.
+ 
+ Followup.  It's the call to:
+ 
+     (dynamic-require 'readline/rep-start #f)
+ 
+ that pegs the CPU at 100%.  Still continuing to trace it.
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Cc: 
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Fri, 8 Feb 2013 15:11:11 -0700
+
+ > Followup.  It's the call to:
+ >
+ >     (dynamic-require 'readline/rep-start #f)
+ >
+ > that pegs the CPU at 100%.  Still continuing to trace it.
+ 
+ Problem found.  The readline-input input port in readline/pread
+ behaves very badly and doesn't idle.  For example:
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ #lang racket
+ (require readline/pread)
+ (read-char readline-input)
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ 
+ exhibits the 100% CPU usage bug that's at the heart of what Eric's
+ seeing with xrepl.  Trying to figure out why.
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Cc: 
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Fri, 8 Feb 2013 16:19:45 -0700
+
+ > exhibits the 100% CPU usage bug that's at the heart of what Eric's
+ > seeing with xrepl.  Trying to figure out why.
+ 
+ 
+ Ok, found it!  I've isolated the problem down to the interaction
+ between readline and Racket.  In readline/mzrl, the FFI tells readline
+ to cooperate with the Racket evaluator via setting rl_event_hook:
+ 
+     http://git.racket-lang.org/plt/blob/HEAD:/collects/readline/mzrl.rkt#l118
+ 
+ However, the effect is that there is a busy poll between readline and
+ Racket, and that's where the CPU is getting consumed.  So even:
+ 
+ ;;;;;;;
+ #lang racket
+ (require readline/mzrl)
+ (readline-bytes #"hello:")
+ ;;;;;;;
+ 
+ exhibits 100% CPU usage.
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Cc: 
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Fri, 8 Feb 2013 16:26:27 -0700
+
+ > However, the effect is that there is a busy poll between readline and
+ > Racket, and that's where the CPU is getting consumed.
+ 
+ My recommendation: we should use the alternative interface to readline
+ to avoid the busy polling.
+ 
+ There are a set of functions rl_callback_handler_install,
+ rl_callback_read_char, rl_callback_handler_remove, that are intended
+ to avoid the busy polling approach.
+ 
+     http://www.delorie.com/gnu/docs/readline/rlman_41.html
+ 
+ I'll try to correct the FFI to use these instead, and see how it goes.
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Cc: 
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Sat, 9 Feb 2013 14:45:09 -0700
+
+ > My recommendation: we should use the alternative interface to readline
+ > to avoid the busy polling.
+ >
+ > There are a set of functions rl_callback_handler_install,
+ > rl_callback_read_char, rl_callback_handler_remove, that are intended
+ > to avoid the busy polling approach.
+ 
+ 
+ Ok, patch written and pull request sent on github.  Awaiting upstream merge.
+ 
+ https://github.com/dyoo/racket/commit/c6a647fc281d6d471f487d7a8c1756ca311ad17d
+ 
+ https://github.com/plt/racket/pull/235
+From: Eli Barzilay <eli@barzilay.org>
+To: Danny Yoo <dyoo@hashcollision.org>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Sat, 9 Feb 2013 17:18:45 -0500
+
+ 30 minutes ago, Danny Yoo wrote:
+ > 
+ > Ok, patch written and pull request sent on github.  Awaiting upstream merge.
+ > 
+ > https://github.com/dyoo/racket/commit/c6a647fc281d6d471f487d7a8c1756ca311ad17d
+ > 
+ > https://github.com/plt/racket/pull/235
+ 
+ I'm not at all sure about this change.
+ 
+ First, the problem is one that shows up only on OSX, on linux the
+ polling works fine since it's supposed to be on a very low frequency.
+ (IIRC, 10hz.)  If it's really something else, then changing the
+ implementation strategy seems dangerous, but maybe it's overall
+ better.
+ 
+ Also, there's significant effort that went into the whole readline
+ thing, which resulted in an inconvenient interface with reading lines
+ and dealing with the prompt etc.  The whole thing would be more worth
+ it if there was some way to clean it up and get something less messy.
+ OTOH, having that mess worries me with such changes since the code is
+ more fragile.
+ 
+ Also, the `maybe-consume-newline' hack seems like a bad idea to me.
+ My guess is that it can mess things up if you do a require from some
+ context other than the toplevel, and in addition you don't resolve the
+ same problem if you happen to type a space before a newline, or if you
+ have a terminal that somehow ends up having something other than a LF
+ after it.
+ 
+ Style note:
+ 
+   (cond [result result]
+         [else (blah)])
+ 
+   =>
+ 
+   (or result (blah))
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Danny Yoo <dyoo@hashcollision.org>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Sat, 9 Feb 2013 21:19:22 -0700
+
+ At Sat, 9 Feb 2013 14:45:09 -0700, Danny Yoo wrote:
+ > > My recommendation: we should use the alternative interface to readline
+ > > to avoid the busy polling.
+ > >
+ > > There are a set of functions rl_callback_handler_install,
+ > > rl_callback_read_char, rl_callback_handler_remove, that are intended
+ > > to avoid the busy polling approach.
+ > 
+ > 
+ > Ok, patch written and pull request sent on github.  Awaiting upstream merge.
+ > 
+ > https://github.com/dyoo/racket/commit/c6a647fc281d6d471f487d7a8c1756ca311ad17d
+ > 
+ > https://github.com/plt/racket/pull/235
+ 
+ How about just getting rid of the `rl_event_hook' setting,
+ 
+  ;; make it possible to run Scheme threads while waiting for input
+  (set-ffi-obj! "rl_event_hook" libreadline (_fun -> _int)
+                (lambda () (sync/enable-break real-input-port)  0))
+ 
+ and replacing it with your `rl_getc_function' setting,
+ 
+  ;; We need to tell readline to pull content through our own 
+  ;; function, to avoid the buffering issues between C and Racket
+  ;; and to allow Racket threads to run wheil waiting for input.
+  (set-ffi-obj! "rl_getc_function" libreadline (_fun _pointer -> _int)
+                (lambda (_)
+                  (define next-byte (read-byte real-input-port))
+                  (if (eof-object? next-byte) -1 next-byte)))
+ 
+ ?
+ 
+From: Danny Yoo <dyoo@hashcollision.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, eric.n.dobson@gmail.com
+Subject: Re: all/13350: xrepl uses all of a core
+Date: Sat, 9 Feb 2013 21:51:31 -0700
+
+ > How about just getting rid of the `rl_event_hook' setting,
+ >
+ >  ;; make it possible to run Scheme threads while waiting for input
+ >  (set-ffi-obj! "rl_event_hook" libreadline (_fun -> _int)
+ >                (lambda () (sync/enable-break real-input-port)  0))
+ >
+ > and replacing it with your `rl_getc_function' setting,
+ 
+ 
+ Ah, that works as well!  There's still a superfluous newline if one
+ requires xrepl from the repl, but that's not that gamebreaking.  I can
+ observe that the patch prevents the CPU busy looping on my Macbook
+ Air.
+ 
+ I'll put a revised version of the patch here for review:
+ 
+     https://github.com/dyoo/racket/tree/pr-13350-attempt-2
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sun, 10 Feb 2013 07:57:49 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/f1e7051652
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sun, 10 Feb 2013 07:57:49 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/f1e7051652
+  | Override readline's getc function to use Racket's read-byte.
+  | 
+  | Eliminates the busy-polling behavior observed in Mac OS X when
+  | xrepl is required at the regular repl.
+  | 
+  | Closes PR 13350.
+

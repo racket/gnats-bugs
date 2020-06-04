@@ -1,0 +1,1615 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jun  1 09:23:29 2016
+Received: from mail-it0-f43.google.com (mail-it0-f43.google.com [209.85.214.43])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u51DNODB024325
+	for <bugs@bugs.plt-scheme.org>; Wed, 1 Jun 2016 09:23:25 -0400
+Message-Id: <201606011323.u51DNJ74024318@winooski.ccs.neu.edu>
+Date: Wed, 1 Jun 2016 09:23:19 -0400
+From: jensaxel@soegaard.net
+To: bugs@racket-lang.org
+Subject: Wrong error location reported by syntax-parameter-value
+
+>Number:         15307
+>Category:       all
+>Synopsis:       Wrong error location reported by syntax-parameter-value
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Jun 01 09:24:01 -0400 2016
+>Last-Modified:  Sat Jun 11 16:52:01 -0400 2016
+>Originator:     Jens Axel Søgaard
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.5.0.5--2016-05-31(-/f)
+>Environment:
+macosx "Darwin mbp 15.0.0 Darwin Kernel Version 15.0.0: Sat Sep 19 15:53:46 PDT 2015; root:xnu-3247.10.11~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 393606736
+raco pkg (show):
+Installation-wide:
+ Package                 Checksum           Source
+ main-distribution       1a0cd523117ae3...  catalog...ibution
+ main-distribution-test  046a93803a9e84...  catalog...on-test
+ racket-lib                                 static-link...lib
+ [223 auto-installed packages not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/Users/soegaard/Library/Racket/development/collects"
+ (non-existent-path))
+("/Users/soegaard/Dropbox/GitHub/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+The program below gives the error:
+
+.../racket/racket/collects/racket/stxparam-exptime.rkt:11:4: syntax-parameter-value: contract violation
+  expected: syntax-parameter?
+  given: #f
+>How-To-Repeat:
+#lang racket
+(require (for-syntax syntax/parse)
+         racket/stxparam)
+
+(define-syntax-parameter count 100)
+
+(define-syntax (noisy-datum stx)
+  (syntax-parse stx
+    [(_ . datum:number) (displayln (list 'counter (syntax-parameter-value #'counter-id)))
+                        (with-syntax ([counter (syntax-parameter-value #'counter-id)])
+                          #'(begin
+                              (set! counter (+ counter 1))                               
+                              (#%datum . datum)))]
+    [(_ . datum)        #'(#%datum . datum)]))
+
+(define-syntax (noisy-define stx)
+  (syntax-parse stx
+    [(_ (f . params) body)
+     (with-syntax ([new-#%datum (datum->syntax #'body '#%datum)])
+       (syntax-local-lift-module-end-declaration #'(define counter 42))
+       #'(begin
+           (define (f . params)
+             (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)])
+               (syntax-parameterize ([count 0])
+                 ; while body is expand the name of the counter of number literals is foo
+                 body)))))]))
+
+
+
+(noisy-define (f x)
+              (+ x 1 2))
+(f 4)
+>Fix:
+>Audit-Trail:
+From: Jay McCarthy <jay.mccarthy@gmail.com>
+To: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>,
+        bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15307: Wrong error location reported by syntax-parameter-value
+Date: Sat, 11 Jun 2016 15:34:38 -0400
+
+ I believe you have a typo in your program.
+ 
+ You use `(syntax-parameter-value #'counter-id)` but `counter-id` is
+ not bound. I think you meant to name the syntax-parameter `counter-id`
+ and bind it to the new identifier `counter` in the other macro. Like
+ so:
+ 
+ #lang racket
+ (require (for-syntax syntax/parse
+                      racket/syntax)
+          racket/stxparam)
+ 
+ (define-syntax-parameter counter-id #f)
+ 
+ (define-syntax (noisy-datum stx)
+   (syntax-parse stx
+     [(_ . datum:number) (displayln (list 'counter
+ (syntax-parameter-value #'counter-id)))
+      (with-syntax ([counter (syntax-parameter-value #'counter-id)])
+        #'(begin
+            (set! counter (+ counter 1))
+            (#%datum . datum)))]
+     [(_ . datum)        #'(#%datum . datum)]))
+ 
+ (define-syntax (noisy-define stx)
+   (syntax-parse stx
+     [(_ (f . params) body)
+      (with-syntax ([counter (generate-temporary 'counter)]
+                    [new-#%datum (datum->syntax #'body '#%datum)])
+        (syntax-local-lift-module-end-declaration #'(define counter 42))
+        #'(begin
+            (define (f . params)
+              (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)])
+                (syntax-parameterize ([counter-id #'counter])
+                  ; while body is expand the name of the counter of
+ number literals is foo
+                  body)))))]))
+ 
+ 
+ 
+ (module+ test
+   (noisy-define (f x) (+ x 1 2))
+   (f 4))
+ 
+ However, this gives the following error:
+ 
+ counter1.0: undefined;
+  cannot reference an identifier before its definition
+ 
+ Because the definition is counter is moved to the end of the module
+ and thus after the application of `(f 4)`
+ 
+ If instead you move the definition inside, as follows:
+ 
+ (define-syntax (noisy-define stx)
+   (syntax-parse stx
+     [(_ (f . params) body)
+      (with-syntax ([counter (generate-temporary 'counter)]
+                    [new-#%datum (datum->syntax #'body '#%datum)])
+        #'(begin
+            (define counter 42)
+            (define (f . params)
+              (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)])
+                (syntax-parameterize ([counter-id #'counter])
+                  ; while body is expand the name of the counter of
+ number literals is foo
+                  body)))))]))
+ 
+ Then it works. This seems reasonable because you're getting one
+ counter for every instance of `f` that is created rather than one per
+ expansion. (Imagine that `f` is inside of a loop.)
+ 
+ If you really want a single one, then you can use
+ `syntax-local-lift-expression` as follows:
+ 
+ (define-syntax (noisy-define stx)
+   (syntax-parse stx
+     [(_ (f . params) body)
+      (with-syntax ([counter (syntax-local-lift-expression #'0)]
+                    [new-#%datum (datum->syntax #'body '#%datum)])
+        #'(begin
+            (define (f . params)
+              (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)])
+                (syntax-parameterize ([counter-id #'counter])
+                  ; while body is expand the name of the counter of
+ number literals is foo
+                  body)))))]))
+ 
+ And you'll get a single one per expansion.
+ 
+ Jay
+ 
+ On Wed, Jun 1, 2016 at 9:24 AM,  <jensaxel@soegaard.net> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15307
+ >
+ > Reported by Jens Axel Søgaard for release: 6.5.0.5--2016-05-31(-/f)
+ >
+ > *** Description:
+ > The program below gives the error:
+ >
+ > .../racket/racket/collects/racket/stxparam-exptime.rkt:11:4: syntax-parameter-value: contract violation
+ >   expected: syntax-parameter?
+ >   given: #f
+ >
+ > *** How to repeat:
+ > #lang racket
+ > (require (for-syntax syntax/parse)
+ >          racket/stxparam)
+ >
+ > (define-syntax-parameter count 100)
+ >
+ > (define-syntax (noisy-datum stx)
+ >   (syntax-parse stx
+ >     [(_ . datum:number) (displayln (list 'counter (syntax-parameter-value #'counter-id)))
+ >                         (with-syntax ([counter (syntax-parameter-value #'counter-id)])
+ >                           #'(begin
+ >                               (set! counter (+ counter 1))
+ >                               (#%datum . datum)))]
+ >     [(_ . datum)        #'(#%datum . datum)]))
+ >
+ > (define-syntax (noisy-define stx)
+ >   (syntax-parse stx
+ >     [(_ (f . params) body)
+ >      (with-syntax ([new-#%datum (datum->syntax #'body '#%datum)])
+ >        (syntax-local-lift-module-end-declaration #'(define counter 42))
+ >        #'(begin
+ >            (define (f . params)
+ >              (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)])
+ >                (syntax-parameterize ([count 0])
+ >                  ; while body is expand the name of the counter of number literals is foo
+ >                  body)))))]))
+ >
+ >
+ >
+ > (noisy-define (f x)
+ >               (+ x 1 2))
+ > (f 4)
+ >
+ > *** Environment:
+ > macosx "Darwin mbp 15.0.0 Darwin Kernel Version 15.0.0: Sat Sep 19 15:53:46 PDT 2015; root:xnu-3247.10.11~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 393606736
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package                 Checksum           Source
+ >  main-distribution       1a0cd523117ae3...  catalog...ibution
+ >  main-distribution-test  046a93803a9e84...  catalog...on-test
+ >  racket-lib                                 static-link...lib
+ >  [223 auto-installed packages not shown]
+ > User-specific for installation "development":
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/Users/soegaard/Library/Racket/development/collects"
+ >  (non-existent-path))
+ > ("/Users/soegaard/Dropbox/GitHub/racket/racket/collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version" "xml"))
+ >
+ > Recent Internal Errors:
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+ >
+ 
+ 
+ 
+ -- 
+ Jay McCarthy
+ Associate Professor
+ PLT @ CS @ UMass Lowell
+ http://jeapostrophe.github.io
+ 
+            "Wherefore, be not weary in well-doing,
+       for ye are laying the foundation of a great work.
+ And out of small things proceedeth that which is great."
+                           - D&C 64:33
+ 
+From: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>
+To: Jay McCarthy <jay.mccarthy@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15307: Wrong error location reported by syntax-parameter-value
+Date: Sat, 11 Jun 2016 22:39:35 +0200
+
+ --001a1141bd7a4482bd053506a78c
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Hi Jay,
+ 
+ Thanks for looking into it - but the program was just to provoke the error
+ message,
+ which were given a source location from within .collects/
+ racket/stxparam-exptime.rkt
+ and not from the offending program.
+ 
+ At IRC Spencer pointed out he reported the same bug:
+ 
+     https://github.com/racket/racket/issues/1329
+ 
+ /Jens Axel
+ 
+ 
+ 2016-06-11 21:34 GMT+02:00 Jay McCarthy <jay.mccarthy@gmail.com>:
+ 
+ > I believe you have a typo in your program.
+ >
+ > You use `(syntax-parameter-value #'counter-id)` but `counter-id` is
+ > not bound. I think you meant to name the syntax-parameter `counter-id`
+ > and bind it to the new identifier `counter` in the other macro. Like
+ > so:
+ >
+ > #lang racket
+ > (require (for-syntax syntax/parse
+ >                      racket/syntax)
+ >          racket/stxparam)
+ >
+ > (define-syntax-parameter counter-id #f)
+ >
+ > (define-syntax (noisy-datum stx)
+ >   (syntax-parse stx
+ >     [(_ . datum:number) (displayln (list 'counter
+ > (syntax-parameter-value #'counter-id)))
+ >      (with-syntax ([counter (syntax-parameter-value #'counter-id)])
+ >        #'(begin
+ >            (set! counter (+ counter 1))
+ >            (#%datum . datum)))]
+ >     [(_ . datum)        #'(#%datum . datum)]))
+ >
+ > (define-syntax (noisy-define stx)
+ >   (syntax-parse stx
+ >     [(_ (f . params) body)
+ >      (with-syntax ([counter (generate-temporary 'counter)]
+ >                    [new-#%datum (datum->syntax #'body '#%datum)])
+ >        (syntax-local-lift-module-end-declaration #'(define counter 42))
+ >        #'(begin
+ >            (define (f . params)
+ >              (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)=
+ ])
+ >                (syntax-parameterize ([counter-id #'counter])
+ >                  ; while body is expand the name of the counter of
+ > number literals is foo
+ >                  body)))))]))
+ >
+ >
+ >
+ > (module+ test
+ >   (noisy-define (f x) (+ x 1 2))
+ >   (f 4))
+ >
+ > However, this gives the following error:
+ >
+ > counter1.0: undefined;
+ >  cannot reference an identifier before its definition
+ >
+ > Because the definition is counter is moved to the end of the module
+ > and thus after the application of `(f 4)`
+ >
+ > If instead you move the definition inside, as follows:
+ >
+ > (define-syntax (noisy-define stx)
+ >   (syntax-parse stx
+ >     [(_ (f . params) body)
+ >      (with-syntax ([counter (generate-temporary 'counter)]
+ >                    [new-#%datum (datum->syntax #'body '#%datum)])
+ >        #'(begin
+ >            (define counter 42)
+ >            (define (f . params)
+ >              (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)=
+ ])
+ >                (syntax-parameterize ([counter-id #'counter])
+ >                  ; while body is expand the name of the counter of
+ > number literals is foo
+ >                  body)))))]))
+ >
+ > Then it works. This seems reasonable because you're getting one
+ > counter for every instance of `f` that is created rather than one per
+ > expansion. (Imagine that `f` is inside of a loop.)
+ >
+ > If you really want a single one, then you can use
+ > `syntax-local-lift-expression` as follows:
+ >
+ > (define-syntax (noisy-define stx)
+ >   (syntax-parse stx
+ >     [(_ (f . params) body)
+ >      (with-syntax ([counter (syntax-local-lift-expression #'0)]
+ >                    [new-#%datum (datum->syntax #'body '#%datum)])
+ >        #'(begin
+ >            (define (f . params)
+ >              (let-syntax ([new-#%datum (syntax-local-value #'noisy-datum)=
+ ])
+ >                (syntax-parameterize ([counter-id #'counter])
+ >                  ; while body is expand the name of the counter of
+ > number literals is foo
+ >                  body)))))]))
+ >
+ > And you'll get a single one per expansion.
+ >
+ > Jay
+ >
+ > On Wed, Jun 1, 2016 at 9:24 AM,  <jensaxel@soegaard.net> wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D15307
+ > >
+ > > Reported by Jens Axel S=C3=B8gaard for release: 6.5.0.5--2016-05-31(-/f=
+ )
+ > >
+ > > *** Description:
+ > > The program below gives the error:
+ > >
+ > > .../racket/racket/collects/racket/stxparam-exptime.rkt:11:4:
+ > syntax-parameter-value: contract violation
+ > >   expected: syntax-parameter?
+ > >   given: #f
+ > >
+ > > *** How to repeat:
+ > > #lang racket
+ > > (require (for-syntax syntax/parse)
+ > >          racket/stxparam)
+ > >
+ > > (define-syntax-parameter count 100)
+ > >
+ > > (define-syntax (noisy-datum stx)
+ > >   (syntax-parse stx
+ > >     [(_ . datum:number) (displayln (list 'counter
+ > (syntax-parameter-value #'counter-id)))
+ > >                         (with-syntax ([counter (syntax-parameter-value
+ > #'counter-id)])
+ > >                           #'(begin
+ > >                               (set! counter (+ counter 1))
+ > >                               (#%datum . datum)))]
+ > >     [(_ . datum)        #'(#%datum . datum)]))
+ > >
+ > > (define-syntax (noisy-define stx)
+ > >   (syntax-parse stx
+ > >     [(_ (f . params) body)
+ > >      (with-syntax ([new-#%datum (datum->syntax #'body '#%datum)])
+ > >        (syntax-local-lift-module-end-declaration #'(define counter 42))
+ > >        #'(begin
+ > >            (define (f . params)
+ > >              (let-syntax ([new-#%datum (syntax-local-value
+ > #'noisy-datum)])
+ > >                (syntax-parameterize ([count 0])
+ > >                  ; while body is expand the name of the counter of
+ > number literals is foo
+ > >                  body)))))]))
+ > >
+ > >
+ > >
+ > > (noisy-define (f x)
+ > >               (+ x 1 2))
+ > > (f 4)
+ > >
+ > > *** Environment:
+ > > macosx "Darwin mbp 15.0.0 Darwin Kernel Version 15.0.0: Sat Sep 19
+ > 15:53:46 PDT 2015; root:xnu-3247.10.11~1/RELEASE_X86_64 x86_64"
+ > (x86_64-macosx/3m) (get-display-depth) =3D 32
+ > > Human Language: english
+ > > (current-memory-use) 393606736
+ > > raco pkg (show):
+ > > Installation-wide:
+ > >  Package                 Checksum           Source
+ > >  main-distribution       1a0cd523117ae3...  catalog...ibution
+ > >  main-distribution-test  046a93803a9e84...  catalog...on-test
+ > >  racket-lib                                 static-link...lib
+ > >  [223 auto-installed packages not shown]
+ > > User-specific for installation "development":
+ > >  [none]
+ > >
+ > >
+ > >
+ > > Collections:
+ > > ("/Users/soegaard/Library/Racket/development/collects"
+ > >  (non-existent-path))
+ > > ("/Users/soegaard/Dropbox/GitHub/racket/racket/collects"
+ > >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ > "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet"
+ > "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version" "xml"=
+ ))
+ > >
+ > > Recent Internal Errors:
+ > > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test=
+ )
+ > (main)) #t))
+ > >
+ >
+ >
+ >
+ > --
+ > Jay McCarthy
+ > Associate Professor
+ > PLT @ CS @ UMass Lowell
+ > http://jeapostrophe.github.io
+ >
+ >            "Wherefore, be not weary in well-doing,
+ >       for ye are laying the foundation of a great work.
+ > And out of small things proceedeth that which is great."
+ >                           - D&C 64:33
+ >
+ 
+ 
+ 
+ --=20
+ --=20
+ Jens Axel S=C3=B8gaard
+ 
+ --001a1141bd7a4482bd053506a78c
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Hi Jay,<div><br>Thanks for looking into it - but the progr=
+ am was just to provoke the error message,</div><div>which were given a sour=
+ ce location from within .collects/<span style=3D"font-size:12.8px">racket/s=
+ txparam-exptime.rkt<br></span>and not from the offending program.<br><br></=
+ div><div>At IRC Spencer pointed out he reported the same bug:</div><div><br=
+ ></div><div>=C2=A0 =C2=A0 <a href=3D"https://github.com/racket/racket/issue=
+ s/1329">https://github.com/racket/racket/issues/1329</a><br><br>/Jens Axel<=
+ /div><div><br></div></div><div class=3D"gmail_extra"><br><div class=3D"gmai=
+ l_quote">2016-06-11 21:34 GMT+02:00 Jay McCarthy <span dir=3D"ltr">&lt;<a h=
+ ref=3D"mailto:jay.mccarthy@gmail.com" target=3D"_blank">jay.mccarthy@gmail.=
+ com</a>&gt;</span>:<br><blockquote class=3D"gmail_quote" style=3D"margin:0 =
+ 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">I believe you have a =
+ typo in your program.<br>
+ <br>
+ You use `(syntax-parameter-value #&#39;counter-id)` but `counter-id` is<br>
+ not bound. I think you meant to name the syntax-parameter `counter-id`<br>
+ and bind it to the new identifier `counter` in the other macro. Like<br>
+ so:<br>
+ <br>
+ #lang racket<br>
+ (require (for-syntax syntax/parse<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0racket/syntax)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0racket/stxparam)<br>
+ <br>
+ (define-syntax-parameter counter-id #f)<br>
+ <span class=3D""><br>
+ (define-syntax (noisy-datum stx)<br>
+ =C2=A0 (syntax-parse stx<br>
+ =C2=A0 =C2=A0 [(_ . datum:number) (displayln (list &#39;counter<br>
+ (syntax-parameter-value #&#39;counter-id)))<br>
+ =C2=A0 =C2=A0 =C2=A0(with-syntax ([counter (syntax-parameter-value #&#39;co=
+ unter-id)])<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0#&#39;(begin<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(set! counter (+ counter 1))<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(#%datum . datum)))]<br>
+ =C2=A0 =C2=A0 [(_ . datum)=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(#%datum . datu=
+ m)]))<br>
+ <br>
+ (define-syntax (noisy-define stx)<br>
+ =C2=A0 (syntax-parse stx<br>
+ =C2=A0 =C2=A0 [(_ (f . params) body)<br>
+ </span>=C2=A0 =C2=A0 =C2=A0(with-syntax ([counter (generate-temporary &#39;=
+ counter)]<br>
+ <span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0[new-#%datum (datum-&gt;syntax #&#39;body &#39;#%datum)])<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0(syntax-local-lift-module-end-declaration #&#39;=
+ (define counter 42))<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0#&#39;(begin<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(define (f . params)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(let-syntax ([new-#%datum (=
+ syntax-local-value #&#39;noisy-datum)])<br>
+ </span>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(syntax-param=
+ eterize ([counter-id #&#39;counter])<br>
+ <span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0; while body is expand the name of the counter of<br>
+ number literals is foo<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0body)))))]))<=
+ br>
+ <br>
+ <br>
+ <br>
+ </span>(module+ test<br>
+ <span class=3D"">=C2=A0 (noisy-define (f x) (+ x 1 2))<br>
+ </span>=C2=A0 (f 4))<br>
+ <br>
+ However, this gives the following error:<br>
+ <br>
+ counter1.0: undefined;<br>
+ =C2=A0cannot reference an identifier before its definition<br>
+ <br>
+ Because the definition is counter is moved to the end of the module<br>
+ and thus after the application of `(f 4)`<br>
+ <br>
+ If instead you move the definition inside, as follows:<br>
+ <span class=3D""><br>
+ (define-syntax (noisy-define stx)<br>
+ =C2=A0 (syntax-parse stx<br>
+ =C2=A0 =C2=A0 [(_ (f . params) body)<br>
+ </span>=C2=A0 =C2=A0 =C2=A0(with-syntax ([counter (generate-temporary &#39;=
+ counter)]<br>
+ <span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0[new-#%datum (datum-&gt;syntax #&#39;body &#39;#%datum)])<br>
+ </span>=C2=A0 =C2=A0 =C2=A0 =C2=A0#&#39;(begin<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(define counter 42)<br>
+ <span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(define (f . para=
+ ms)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(let-syntax ([new-#%datum (=
+ syntax-local-value #&#39;noisy-datum)])<br>
+ </span>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(syntax-param=
+ eterize ([counter-id #&#39;counter])<br>
+ <span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0; while body is expand the name of the counter of<br>
+ number literals is foo<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0body)))))]))<=
+ br>
+ <br>
+ </span>Then it works. This seems reasonable because you&#39;re getting one<=
+ br>
+ counter for every instance of `f` that is created rather than one per<br>
+ expansion. (Imagine that `f` is inside of a loop.)<br>
+ <br>
+ If you really want a single one, then you can use<br>
+ `syntax-local-lift-expression` as follows:<br>
+ <span class=3D""><br>
+ (define-syntax (noisy-define stx)<br>
+ =C2=A0 (syntax-parse stx<br>
+ =C2=A0 =C2=A0 [(_ (f . params) body)<br>
+ </span>=C2=A0 =C2=A0 =C2=A0(with-syntax ([counter (syntax-local-lift-expres=
+ sion #&#39;0)]<br>
+ <span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0[new-#%datum (datum-&gt;syntax #&#39;body &#39;#%datum)])<br>
+ </span><span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0#&#39;(begin<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(define (f . params)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(let-syntax ([new-#%datum (=
+ syntax-local-value #&#39;noisy-datum)])<br>
+ </span>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(syntax-param=
+ eterize ([counter-id #&#39;counter])<br>
+ <span class=3D"">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0; while body is expand the name of the counter of<br>
+ number literals is foo<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0body)))))]))<=
+ br>
+ <br>
+ </span>And you&#39;ll get a single one per expansion.<br>
+ <br>
+ Jay<br>
+ <div class=3D"HOEnZb"><div class=3D"h5"><br>
+ On Wed, Jun 1, 2016 at 9:24 AM,=C2=A0 &lt;<a href=3D"mailto:jensaxel@soegaa=
+ rd.net">jensaxel@soegaard.net</a>&gt; wrote:<br>
+ &gt; A new problem report is waiting at<br>
+ &gt;=C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D15307" rel=3D"noreferrer" target=3D"_blank">http://bugs.racket-lang=
+ .org/query/?cmd=3Dview&amp;pr=3D15307</a><br>
+ &gt;<br>
+ &gt; Reported by Jens Axel S=C3=B8gaard for release: 6.5.0.5--2016-05-31(-/=
+ f)<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; The program below gives the error:<br>
+ &gt;<br>
+ &gt; .../racket/racket/collects/racket/stxparam-exptime.rkt:11:4: syntax-pa=
+ rameter-value: contract violation<br>
+ &gt;=C2=A0 =C2=A0expected: syntax-parameter?<br>
+ &gt;=C2=A0 =C2=A0given: #f<br>
+ &gt;<br>
+ &gt; *** How to repeat:<br>
+ &gt; #lang racket<br>
+ &gt; (require (for-syntax syntax/parse)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 racket/stxparam)<br>
+ &gt;<br>
+ &gt; (define-syntax-parameter count 100)<br>
+ &gt;<br>
+ &gt; (define-syntax (noisy-datum stx)<br>
+ &gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0[(_ . datum:number) (displayln (list &#39;counter (=
+ syntax-parameter-value #&#39;counter-id)))<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0(with-syntax ([counter (syntax-parameter-value #&#39;co=
+ unter-id)])<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0#&#39;(begin<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(set! counter (+ counter 1))<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(#%datum . datum)))]<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0[(_ . datum)=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(#%da=
+ tum . datum)]))<br>
+ &gt;<br>
+ &gt; (define-syntax (noisy-define stx)<br>
+ &gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0[(_ (f . params) body)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 (with-syntax ([new-#%datum (datum-&gt;syntax #&#39=
+ ;body &#39;#%datum)])<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 (syntax-local-lift-module-end-declaration #=
+ &#39;(define counter 42))<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(begin<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (define (f . params)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (let-syntax ([new-#%da=
+ tum (syntax-local-value #&#39;noisy-datum)])<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (syntax-paramet=
+ erize ([count 0])<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ; while =
+ body is expand the name of the counter of number literals is foo<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 body))))=
+ )]))<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; (noisy-define (f x)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(+ x 1 2))<br>
+ &gt; (f 4)<br>
+ &gt;<br>
+ &gt; *** Environment:<br>
+ &gt; macosx &quot;Darwin mbp 15.0.0 Darwin Kernel Version 15.0.0: Sat Sep 1=
+ 9 15:53:46 PDT 2015; root:xnu-3247.10.11~1/RELEASE_X86_64 x86_64&quot; (x86=
+ _64-macosx/3m) (get-display-depth) =3D 32<br>
+ &gt; Human Language: english<br>
+ &gt; (current-memory-use) 393606736<br>
+ &gt; raco pkg (show):<br>
+ &gt; Installation-wide:<br>
+ &gt;=C2=A0 Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0Checksum=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Source<br>
+ &gt;=C2=A0 main-distribution=C2=A0 =C2=A0 =C2=A0 =C2=A01a0cd523117ae3...=C2=
+ =A0 catalog...ibution<br>
+ &gt;=C2=A0 main-distribution-test=C2=A0 046a93803a9e84...=C2=A0 catalog...o=
+ n-test<br>
+ &gt;=C2=A0 racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0static-li=
+ nk...lib<br>
+ &gt;=C2=A0 [223 auto-installed packages not shown]<br>
+ &gt; User-specific for installation &quot;development&quot;:<br>
+ &gt;=C2=A0 [none]<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; Collections:<br>
+ &gt; (&quot;/Users/soegaard/Library/Racket/development/collects&quot;<br>
+ &gt;=C2=A0 (non-existent-path))<br>
+ &gt; (&quot;/Users/soegaard/Dropbox/GitHub/racket/racket/collects&quot;<br>
+ &gt;=C2=A0 (&quot;.gitignore&quot; &quot;acks&quot; &quot;compiler&quot; &q=
+ uot;data&quot; &quot;db&quot; &quot;dynext&quot; &quot;ffi&quot; &quot;file=
+ &quot; &quot;info&quot; &quot;info-domain&quot; &quot;json&quot; &quot;laun=
+ cher&quot; &quot;net&quot; &quot;openssl&quot; &quot;pkg&quot; &quot;planet=
+ &quot; &quot;racket&quot; &quot;raco&quot; &quot;reader&quot; &quot;realm&q=
+ uot; &quot;s-exp&quot; &quot;setup&quot; &quot;syntax&quot; &quot;version&q=
+ uot; &quot;xml&quot;))<br>
+ &gt;<br>
+ &gt; Recent Internal Errors:<br>
+ &gt; Computer Language: ((&quot;Determine language from source&quot;) (#(#t=
+  print mixed-fraction-e #f #t debug) (default) #() &quot;#lang racket\n&quo=
+ t; #t #t ((test) (main)) #t))<br>
+ &gt;<br>
+ <br>
+ <br>
+ <br>
+ </div></div><span class=3D"HOEnZb"><font color=3D"#888888">--<br>
+ Jay McCarthy<br>
+ Associate Professor<br>
+ PLT @ CS @ UMass Lowell<br>
+ <a href=3D"http://jeapostrophe.github.io" rel=3D"noreferrer" target=3D"_bla=
+ nk">http://jeapostrophe.github.io</a><br>
+ <br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&quot;Wherefore, be not weary in w=
+ ell-doing,<br>
+ =C2=A0 =C2=A0 =C2=A0 for ye are laying the foundation of a great work.<br>
+ And out of small things proceedeth that which is great.&quot;<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 - D&amp;C 64:33<br>
+ </font></span></blockquote></div><br><br clear=3D"all"><div><br></div>-- <b=
+ r><div class=3D"gmail_signature" data-smartmail=3D"gmail_signature">-- <br>=
+ Jens Axel S=C3=B8gaard<br><br></div>
+ </div>
+ 
+ --001a1141bd7a4482bd053506a78c--
+From: Jay McCarthy <jay.mccarthy@gmail.com>
+To: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15307: Wrong error location reported by syntax-parameter-value
+Date: Sat, 11 Jun 2016 16:43:57 -0400
+
+ I see. Thanks for the clarification.
+ 
+ On Sat, Jun 11, 2016 at 4:39 PM, Jens Axel Søgaard
+ <jensaxel@soegaard.net> wrote:
+ > Hi Jay,
+ >
+ > Thanks for looking into it - but the program was just to provoke the error
+ > message,
+ > which were given a source location from within
+ > .collects/racket/stxparam-exptime.rkt
+ > and not from the offending program.
+ >
+ > At IRC Spencer pointed out he reported the same bug:
+ >
+ >     https://github.com/racket/racket/issues/1329
+ >
+ > /Jens Axel
+ >
+ >
+ > 2016-06-11 21:34 GMT+02:00 Jay McCarthy <jay.mccarthy@gmail.com>:
+ >>
+ >> I believe you have a typo in your program.
+ >>
+ >> You use `(syntax-parameter-value #'counter-id)` but `counter-id` is
+ >> not bound. I think you meant to name the syntax-parameter `counter-id`
+ >> and bind it to the new identifier `counter` in the other macro. Like
+ >> so:
+ >>
+ >> #lang racket
+ >> (require (for-syntax syntax/parse
+ >>                      racket/syntax)
+ >>          racket/stxparam)
+ >>
+ >> (define-syntax-parameter counter-id #f)
+ >>
+ >> (define-syntax (noisy-datum stx)
+ >>   (syntax-parse stx
+ >>     [(_ . datum:number) (displayln (list 'counter
+ >> (syntax-parameter-value #'counter-id)))
+ >>      (with-syntax ([counter (syntax-parameter-value #'counter-id)])
+ >>        #'(begin
+ >>            (set! counter (+ counter 1))
+ >>            (#%datum . datum)))]
+ >>     [(_ . datum)        #'(#%datum . datum)]))
+ >>
+ >> (define-syntax (noisy-define stx)
+ >>   (syntax-parse stx
+ >>     [(_ (f . params) body)
+ >>      (with-syntax ([counter (generate-temporary 'counter)]
+ >>                    [new-#%datum (datum->syntax #'body '#%datum)])
+ >>        (syntax-local-lift-module-end-declaration #'(define counter 42))
+ >>        #'(begin
+ >>            (define (f . params)
+ >>              (let-syntax ([new-#%datum (syntax-local-value
+ >> #'noisy-datum)])
+ >>                (syntax-parameterize ([counter-id #'counter])
+ >>                  ; while body is expand the name of the counter of
+ >> number literals is foo
+ >>                  body)))))]))
+ >>
+ >>
+ >>
+ >> (module+ test
+ >>   (noisy-define (f x) (+ x 1 2))
+ >>   (f 4))
+ >>
+ >> However, this gives the following error:
+ >>
+ >> counter1.0: undefined;
+ >>  cannot reference an identifier before its definition
+ >>
+ >> Because the definition is counter is moved to the end of the module
+ >> and thus after the application of `(f 4)`
+ >>
+ >> If instead you move the definition inside, as follows:
+ >>
+ >> (define-syntax (noisy-define stx)
+ >>   (syntax-parse stx
+ >>     [(_ (f . params) body)
+ >>      (with-syntax ([counter (generate-temporary 'counter)]
+ >>                    [new-#%datum (datum->syntax #'body '#%datum)])
+ >>        #'(begin
+ >>            (define counter 42)
+ >>            (define (f . params)
+ >>              (let-syntax ([new-#%datum (syntax-local-value
+ >> #'noisy-datum)])
+ >>                (syntax-parameterize ([counter-id #'counter])
+ >>                  ; while body is expand the name of the counter of
+ >> number literals is foo
+ >>                  body)))))]))
+ >>
+ >> Then it works. This seems reasonable because you're getting one
+ >> counter for every instance of `f` that is created rather than one per
+ >> expansion. (Imagine that `f` is inside of a loop.)
+ >>
+ >> If you really want a single one, then you can use
+ >> `syntax-local-lift-expression` as follows:
+ >>
+ >> (define-syntax (noisy-define stx)
+ >>   (syntax-parse stx
+ >>     [(_ (f . params) body)
+ >>      (with-syntax ([counter (syntax-local-lift-expression #'0)]
+ >>                    [new-#%datum (datum->syntax #'body '#%datum)])
+ >>        #'(begin
+ >>            (define (f . params)
+ >>              (let-syntax ([new-#%datum (syntax-local-value
+ >> #'noisy-datum)])
+ >>                (syntax-parameterize ([counter-id #'counter])
+ >>                  ; while body is expand the name of the counter of
+ >> number literals is foo
+ >>                  body)))))]))
+ >>
+ >> And you'll get a single one per expansion.
+ >>
+ >> Jay
+ >>
+ >> On Wed, Jun 1, 2016 at 9:24 AM,  <jensaxel@soegaard.net> wrote:
+ >> > A new problem report is waiting at
+ >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=15307
+ >> >
+ >> > Reported by Jens Axel Søgaard for release: 6.5.0.5--2016-05-31(-/f)
+ >> >
+ >> > *** Description:
+ >> > The program below gives the error:
+ >> >
+ >> > .../racket/racket/collects/racket/stxparam-exptime.rkt:11:4:
+ >> > syntax-parameter-value: contract violation
+ >> >   expected: syntax-parameter?
+ >> >   given: #f
+ >> >
+ >> > *** How to repeat:
+ >> > #lang racket
+ >> > (require (for-syntax syntax/parse)
+ >> >          racket/stxparam)
+ >> >
+ >> > (define-syntax-parameter count 100)
+ >> >
+ >> > (define-syntax (noisy-datum stx)
+ >> >   (syntax-parse stx
+ >> >     [(_ . datum:number) (displayln (list 'counter
+ >> > (syntax-parameter-value #'counter-id)))
+ >> >                         (with-syntax ([counter (syntax-parameter-value
+ >> > #'counter-id)])
+ >> >                           #'(begin
+ >> >                               (set! counter (+ counter 1))
+ >> >                               (#%datum . datum)))]
+ >> >     [(_ . datum)        #'(#%datum . datum)]))
+ >> >
+ >> > (define-syntax (noisy-define stx)
+ >> >   (syntax-parse stx
+ >> >     [(_ (f . params) body)
+ >> >      (with-syntax ([new-#%datum (datum->syntax #'body '#%datum)])
+ >> >        (syntax-local-lift-module-end-declaration #'(define counter 42))
+ >> >        #'(begin
+ >> >            (define (f . params)
+ >> >              (let-syntax ([new-#%datum (syntax-local-value
+ >> > #'noisy-datum)])
+ >> >                (syntax-parameterize ([count 0])
+ >> >                  ; while body is expand the name of the counter of
+ >> > number literals is foo
+ >> >                  body)))))]))
+ >> >
+ >> >
+ >> >
+ >> > (noisy-define (f x)
+ >> >               (+ x 1 2))
+ >> > (f 4)
+ >> >
+ >> > *** Environment:
+ >> > macosx "Darwin mbp 15.0.0 Darwin Kernel Version 15.0.0: Sat Sep 19
+ >> > 15:53:46 PDT 2015; root:xnu-3247.10.11~1/RELEASE_X86_64 x86_64"
+ >> > (x86_64-macosx/3m) (get-display-depth) = 32
+ >> > Human Language: english
+ >> > (current-memory-use) 393606736
+ >> > raco pkg (show):
+ >> > Installation-wide:
+ >> >  Package                 Checksum           Source
+ >> >  main-distribution       1a0cd523117ae3...  catalog...ibution
+ >> >  main-distribution-test  046a93803a9e84...  catalog...on-test
+ >> >  racket-lib                                 static-link...lib
+ >> >  [223 auto-installed packages not shown]
+ >> > User-specific for installation "development":
+ >> >  [none]
+ >> >
+ >> >
+ >> >
+ >> > Collections:
+ >> > ("/Users/soegaard/Library/Racket/development/collects"
+ >> >  (non-existent-path))
+ >> > ("/Users/soegaard/Dropbox/GitHub/racket/racket/collects"
+ >> >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ >> > "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet"
+ >> > "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version" "xml"))
+ >> >
+ >> > Recent Internal Errors:
+ >> > Computer Language: (("Determine language from source") (#(#t print
+ >> > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test)
+ >> > (main)) #t))
+ >> >
+ >>
+ >>
+ >>
+ >> --
+ >> Jay McCarthy
+ >> Associate Professor
+ >> PLT @ CS @ UMass Lowell
+ >> http://jeapostrophe.github.io
+ >>
+ >>            "Wherefore, be not weary in well-doing,
+ >>       for ye are laying the foundation of a great work.
+ >> And out of small things proceedeth that which is great."
+ >>                           - D&C 64:33
+ >
+ >
+ >
+ >
+ > --
+ > --
+ > Jens Axel Søgaard
+ >
+ 
+ 
+ 
+ -- 
+ Jay McCarthy
+ Associate Professor
+ PLT @ CS @ UMass Lowell
+ http://jeapostrophe.github.io
+ 
+            "Wherefore, be not weary in well-doing,
+       for ye are laying the foundation of a great work.
+ And out of small things proceedeth that which is great."
+                           - D&C 64:33
+ 
+From: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>
+To: Jay McCarthy <jay.mccarthy@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15307: Wrong error location reported by syntax-parameter-value
+Date: Sat, 11 Jun 2016 22:52:48 +0200
+
+ --001a1141bd7a89f606053506d635
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ I almost forgot: I intended to use the macro in an answer to:
+ 
+ http://stackoverflow.com/questions/37539314/how-to-rewrite-this-macro-with-=
+ template-macros
+ 
+ I think your version is simpler than the proposed one.
+ (But it might depend on how much Racket one knows)
+ 
+ /Jens Axel
+ 
+ 
+ 
+ 2016-06-11 22:43 GMT+02:00 Jay McCarthy <jay.mccarthy@gmail.com>:
+ 
+ > I see. Thanks for the clarification.
+ >
+ > On Sat, Jun 11, 2016 at 4:39 PM, Jens Axel S=C3=B8gaard
+ > <jensaxel@soegaard.net> wrote:
+ > > Hi Jay,
+ > >
+ > > Thanks for looking into it - but the program was just to provoke the
+ > error
+ > > message,
+ > > which were given a source location from within
+ > > .collects/racket/stxparam-exptime.rkt
+ > > and not from the offending program.
+ > >
+ > > At IRC Spencer pointed out he reported the same bug:
+ > >
+ > >     https://github.com/racket/racket/issues/1329
+ > >
+ > > /Jens Axel
+ > >
+ > >
+ > > 2016-06-11 21:34 GMT+02:00 Jay McCarthy <jay.mccarthy@gmail.com>:
+ > >>
+ > >> I believe you have a typo in your program.
+ > >>
+ > >> You use `(syntax-parameter-value #'counter-id)` but `counter-id` is
+ > >> not bound. I think you meant to name the syntax-parameter `counter-id`
+ > >> and bind it to the new identifier `counter` in the other macro. Like
+ > >> so:
+ > >>
+ > >> #lang racket
+ > >> (require (for-syntax syntax/parse
+ > >>                      racket/syntax)
+ > >>          racket/stxparam)
+ > >>
+ > >> (define-syntax-parameter counter-id #f)
+ > >>
+ > >> (define-syntax (noisy-datum stx)
+ > >>   (syntax-parse stx
+ > >>     [(_ . datum:number) (displayln (list 'counter
+ > >> (syntax-parameter-value #'counter-id)))
+ > >>      (with-syntax ([counter (syntax-parameter-value #'counter-id)])
+ > >>        #'(begin
+ > >>            (set! counter (+ counter 1))
+ > >>            (#%datum . datum)))]
+ > >>     [(_ . datum)        #'(#%datum . datum)]))
+ > >>
+ > >> (define-syntax (noisy-define stx)
+ > >>   (syntax-parse stx
+ > >>     [(_ (f . params) body)
+ > >>      (with-syntax ([counter (generate-temporary 'counter)]
+ > >>                    [new-#%datum (datum->syntax #'body '#%datum)])
+ > >>        (syntax-local-lift-module-end-declaration #'(define counter 42)=
+ )
+ > >>        #'(begin
+ > >>            (define (f . params)
+ > >>              (let-syntax ([new-#%datum (syntax-local-value
+ > >> #'noisy-datum)])
+ > >>                (syntax-parameterize ([counter-id #'counter])
+ > >>                  ; while body is expand the name of the counter of
+ > >> number literals is foo
+ > >>                  body)))))]))
+ > >>
+ > >>
+ > >>
+ > >> (module+ test
+ > >>   (noisy-define (f x) (+ x 1 2))
+ > >>   (f 4))
+ > >>
+ > >> However, this gives the following error:
+ > >>
+ > >> counter1.0: undefined;
+ > >>  cannot reference an identifier before its definition
+ > >>
+ > >> Because the definition is counter is moved to the end of the module
+ > >> and thus after the application of `(f 4)`
+ > >>
+ > >> If instead you move the definition inside, as follows:
+ > >>
+ > >> (define-syntax (noisy-define stx)
+ > >>   (syntax-parse stx
+ > >>     [(_ (f . params) body)
+ > >>      (with-syntax ([counter (generate-temporary 'counter)]
+ > >>                    [new-#%datum (datum->syntax #'body '#%datum)])
+ > >>        #'(begin
+ > >>            (define counter 42)
+ > >>            (define (f . params)
+ > >>              (let-syntax ([new-#%datum (syntax-local-value
+ > >> #'noisy-datum)])
+ > >>                (syntax-parameterize ([counter-id #'counter])
+ > >>                  ; while body is expand the name of the counter of
+ > >> number literals is foo
+ > >>                  body)))))]))
+ > >>
+ > >> Then it works. This seems reasonable because you're getting one
+ > >> counter for every instance of `f` that is created rather than one per
+ > >> expansion. (Imagine that `f` is inside of a loop.)
+ > >>
+ > >> If you really want a single one, then you can use
+ > >> `syntax-local-lift-expression` as follows:
+ > >>
+ > >> (define-syntax (noisy-define stx)
+ > >>   (syntax-parse stx
+ > >>     [(_ (f . params) body)
+ > >>      (with-syntax ([counter (syntax-local-lift-expression #'0)]
+ > >>                    [new-#%datum (datum->syntax #'body '#%datum)])
+ > >>        #'(begin
+ > >>            (define (f . params)
+ > >>              (let-syntax ([new-#%datum (syntax-local-value
+ > >> #'noisy-datum)])
+ > >>                (syntax-parameterize ([counter-id #'counter])
+ > >>                  ; while body is expand the name of the counter of
+ > >> number literals is foo
+ > >>                  body)))))]))
+ > >>
+ > >> And you'll get a single one per expansion.
+ > >>
+ > >> Jay
+ > >>
+ > >> On Wed, Jun 1, 2016 at 9:24 AM,  <jensaxel@soegaard.net> wrote:
+ > >> > A new problem report is waiting at
+ > >> >   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D15307
+ > >> >
+ > >> > Reported by Jens Axel S=C3=B8gaard for release: 6.5.0.5--2016-05-31(=
+ -/f)
+ > >> >
+ > >> > *** Description:
+ > >> > The program below gives the error:
+ > >> >
+ > >> > .../racket/racket/collects/racket/stxparam-exptime.rkt:11:4:
+ > >> > syntax-parameter-value: contract violation
+ > >> >   expected: syntax-parameter?
+ > >> >   given: #f
+ > >> >
+ > >> > *** How to repeat:
+ > >> > #lang racket
+ > >> > (require (for-syntax syntax/parse)
+ > >> >          racket/stxparam)
+ > >> >
+ > >> > (define-syntax-parameter count 100)
+ > >> >
+ > >> > (define-syntax (noisy-datum stx)
+ > >> >   (syntax-parse stx
+ > >> >     [(_ . datum:number) (displayln (list 'counter
+ > >> > (syntax-parameter-value #'counter-id)))
+ > >> >                         (with-syntax ([counter (syntax-parameter-val=
+ ue
+ > >> > #'counter-id)])
+ > >> >                           #'(begin
+ > >> >                               (set! counter (+ counter 1))
+ > >> >                               (#%datum . datum)))]
+ > >> >     [(_ . datum)        #'(#%datum . datum)]))
+ > >> >
+ > >> > (define-syntax (noisy-define stx)
+ > >> >   (syntax-parse stx
+ > >> >     [(_ (f . params) body)
+ > >> >      (with-syntax ([new-#%datum (datum->syntax #'body '#%datum)])
+ > >> >        (syntax-local-lift-module-end-declaration #'(define counter
+ > 42))
+ > >> >        #'(begin
+ > >> >            (define (f . params)
+ > >> >              (let-syntax ([new-#%datum (syntax-local-value
+ > >> > #'noisy-datum)])
+ > >> >                (syntax-parameterize ([count 0])
+ > >> >                  ; while body is expand the name of the counter of
+ > >> > number literals is foo
+ > >> >                  body)))))]))
+ > >> >
+ > >> >
+ > >> >
+ > >> > (noisy-define (f x)
+ > >> >               (+ x 1 2))
+ > >> > (f 4)
+ > >> >
+ > >> > *** Environment:
+ > >> > macosx "Darwin mbp 15.0.0 Darwin Kernel Version 15.0.0: Sat Sep 19
+ > >> > 15:53:46 PDT 2015; root:xnu-3247.10.11~1/RELEASE_X86_64 x86_64"
+ > >> > (x86_64-macosx/3m) (get-display-depth) =3D 32
+ > >> > Human Language: english
+ > >> > (current-memory-use) 393606736
+ > >> > raco pkg (show):
+ > >> > Installation-wide:
+ > >> >  Package                 Checksum           Source
+ > >> >  main-distribution       1a0cd523117ae3...  catalog...ibution
+ > >> >  main-distribution-test  046a93803a9e84...  catalog...on-test
+ > >> >  racket-lib                                 static-link...lib
+ > >> >  [223 auto-installed packages not shown]
+ > >> > User-specific for installation "development":
+ > >> >  [none]
+ > >> >
+ > >> >
+ > >> >
+ > >> > Collections:
+ > >> > ("/Users/soegaard/Library/Racket/development/collects"
+ > >> >  (non-existent-path))
+ > >> > ("/Users/soegaard/Dropbox/GitHub/racket/racket/collects"
+ > >> >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ > >> > "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet=
+ "
+ > >> > "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version"
+ > "xml"))
+ > >> >
+ > >> > Recent Internal Errors:
+ > >> > Computer Language: (("Determine language from source") (#(#t print
+ > >> > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t
+ > ((test)
+ > >> > (main)) #t))
+ > >> >
+ > >>
+ > >>
+ > >>
+ > >> --
+ > >> Jay McCarthy
+ > >> Associate Professor
+ > >> PLT @ CS @ UMass Lowell
+ > >> http://jeapostrophe.github.io
+ > >>
+ > >>            "Wherefore, be not weary in well-doing,
+ > >>       for ye are laying the foundation of a great work.
+ > >> And out of small things proceedeth that which is great."
+ > >>                           - D&C 64:33
+ > >
+ > >
+ > >
+ > >
+ > > --
+ > > --
+ > > Jens Axel S=C3=B8gaard
+ > >
+ >
+ >
+ >
+ > --
+ > Jay McCarthy
+ > Associate Professor
+ > PLT @ CS @ UMass Lowell
+ > http://jeapostrophe.github.io
+ >
+ >            "Wherefore, be not weary in well-doing,
+ >       for ye are laying the foundation of a great work.
+ > And out of small things proceedeth that which is great."
+ >                           - D&C 64:33
+ >
+ 
+ 
+ 
+ --=20
+ --=20
+ Jens Axel S=C3=B8gaard
+ 
+ --001a1141bd7a89f606053506d635
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I almost forgot: I intended to use the macro in an answer =
+ to:<div><br></div><div><a href=3D"http://stackoverflow.com/questions/375393=
+ 14/how-to-rewrite-this-macro-with-template-macros">http://stackoverflow.com=
+ /questions/37539314/how-to-rewrite-this-macro-with-template-macros</a><br><=
+ br>I think your version is simpler than the proposed one.<br>(But it might =
+ depend on how much Racket one knows)</div><div><br></div><div>/Jens Axel</d=
+ iv><div><br><br></div></div><div class=3D"gmail_extra"><br><div class=3D"gm=
+ ail_quote">2016-06-11 22:43 GMT+02:00 Jay McCarthy <span dir=3D"ltr">&lt;<a=
+  href=3D"mailto:jay.mccarthy@gmail.com" target=3D"_blank">jay.mccarthy@gmai=
+ l.com</a>&gt;</span>:<br><blockquote class=3D"gmail_quote" style=3D"margin:=
+ 0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">I see. Thanks for t=
+ he clarification.<br>
+ <div class=3D"HOEnZb"><div class=3D"h5"><br>
+ On Sat, Jun 11, 2016 at 4:39 PM, Jens Axel S=C3=B8gaard<br>
+ &lt;<a href=3D"mailto:jensaxel@soegaard.net">jensaxel@soegaard.net</a>&gt; =
+ wrote:<br>
+ &gt; Hi Jay,<br>
+ &gt;<br>
+ &gt; Thanks for looking into it - but the program was just to provoke the e=
+ rror<br>
+ &gt; message,<br>
+ &gt; which were given a source location from within<br>
+ &gt; .collects/racket/stxparam-exptime.rkt<br>
+ &gt; and not from the offending program.<br>
+ &gt;<br>
+ &gt; At IRC Spencer pointed out he reported the same bug:<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0<a href=3D"https://github.com/racket/racket/issues/=
+ 1329" rel=3D"noreferrer" target=3D"_blank">https://github.com/racket/racket=
+ /issues/1329</a><br>
+ &gt;<br>
+ &gt; /Jens Axel<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; 2016-06-11 21:34 GMT+02:00 Jay McCarthy &lt;<a href=3D"mailto:jay.mcca=
+ rthy@gmail.com">jay.mccarthy@gmail.com</a>&gt;:<br>
+ &gt;&gt;<br>
+ &gt;&gt; I believe you have a typo in your program.<br>
+ &gt;&gt;<br>
+ &gt;&gt; You use `(syntax-parameter-value #&#39;counter-id)` but `counter-i=
+ d` is<br>
+ &gt;&gt; not bound. I think you meant to name the syntax-parameter `counter=
+ -id`<br>
+ &gt;&gt; and bind it to the new identifier `counter` in the other macro. Li=
+ ke<br>
+ &gt;&gt; so:<br>
+ &gt;&gt;<br>
+ &gt;&gt; #lang racket<br>
+ &gt;&gt; (require (for-syntax syntax/parse<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 racket/syntax)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 racket/stxparam)<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define-syntax-parameter counter-id #f)<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define-syntax (noisy-datum stx)<br>
+ &gt;&gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0[(_ . datum:number) (displayln (list &#39;count=
+ er<br>
+ &gt;&gt; (syntax-parameter-value #&#39;counter-id)))<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 (with-syntax ([counter (syntax-parameter-value=
+  #&#39;counter-id)])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(begin<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (set! counter (+ counter =
+ 1))<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (#%datum . datum)))]<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0[(_ . datum)=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(=
+ #%datum . datum)]))<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define-syntax (noisy-define stx)<br>
+ &gt;&gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0[(_ (f . params) body)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 (with-syntax ([counter (generate-temporary &#3=
+ 9;counter)]<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 [new-#%datum (datum-&gt;syntax #&#39;body &#39;#%datum)])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 (syntax-local-lift-module-end-declarati=
+ on #&#39;(define counter 42))<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(begin<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (define (f . params)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (let-syntax ([new-=
+ #%datum (syntax-local-value<br>
+ &gt;&gt; #&#39;noisy-datum)])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (syntax-par=
+ ameterize ([counter-id #&#39;counter])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ; wh=
+ ile body is expand the name of the counter of<br>
+ &gt;&gt; number literals is foo<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 body=
+ )))))]))<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; (module+ test<br>
+ &gt;&gt;=C2=A0 =C2=A0(noisy-define (f x) (+ x 1 2))<br>
+ &gt;&gt;=C2=A0 =C2=A0(f 4))<br>
+ &gt;&gt;<br>
+ &gt;&gt; However, this gives the following error:<br>
+ &gt;&gt;<br>
+ &gt;&gt; counter1.0: undefined;<br>
+ &gt;&gt;=C2=A0 cannot reference an identifier before its definition<br>
+ &gt;&gt;<br>
+ &gt;&gt; Because the definition is counter is moved to the end of the modul=
+ e<br>
+ &gt;&gt; and thus after the application of `(f 4)`<br>
+ &gt;&gt;<br>
+ &gt;&gt; If instead you move the definition inside, as follows:<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define-syntax (noisy-define stx)<br>
+ &gt;&gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0[(_ (f . params) body)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 (with-syntax ([counter (generate-temporary &#3=
+ 9;counter)]<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 [new-#%datum (datum-&gt;syntax #&#39;body &#39;#%datum)])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(begin<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (define counter 42)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (define (f . params)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (let-syntax ([new-=
+ #%datum (syntax-local-value<br>
+ &gt;&gt; #&#39;noisy-datum)])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (syntax-par=
+ ameterize ([counter-id #&#39;counter])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ; wh=
+ ile body is expand the name of the counter of<br>
+ &gt;&gt; number literals is foo<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 body=
+ )))))]))<br>
+ &gt;&gt;<br>
+ &gt;&gt; Then it works. This seems reasonable because you&#39;re getting on=
+ e<br>
+ &gt;&gt; counter for every instance of `f` that is created rather than one =
+ per<br>
+ &gt;&gt; expansion. (Imagine that `f` is inside of a loop.)<br>
+ &gt;&gt;<br>
+ &gt;&gt; If you really want a single one, then you can use<br>
+ &gt;&gt; `syntax-local-lift-expression` as follows:<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define-syntax (noisy-define stx)<br>
+ &gt;&gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0[(_ (f . params) body)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 (with-syntax ([counter (syntax-local-lift-expr=
+ ession #&#39;0)]<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 [new-#%datum (datum-&gt;syntax #&#39;body &#39;#%datum)])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(begin<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (define (f . params)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (let-syntax ([new-=
+ #%datum (syntax-local-value<br>
+ &gt;&gt; #&#39;noisy-datum)])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (syntax-par=
+ ameterize ([counter-id #&#39;counter])<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ; wh=
+ ile body is expand the name of the counter of<br>
+ &gt;&gt; number literals is foo<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 body=
+ )))))]))<br>
+ &gt;&gt;<br>
+ &gt;&gt; And you&#39;ll get a single one per expansion.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Jay<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Wed, Jun 1, 2016 at 9:24 AM,=C2=A0 &lt;<a href=3D"mailto:jensax=
+ el@soegaard.net">jensaxel@soegaard.net</a>&gt; wrote:<br>
+ &gt;&gt; &gt; A new problem report is waiting at<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=
+ =3Dview&amp;pr=3D15307" rel=3D"noreferrer" target=3D"_blank">http://bugs.ra=
+ cket-lang.org/query/?cmd=3Dview&amp;pr=3D15307</a><br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; Reported by Jens Axel S=C3=B8gaard for release: 6.5.0.5--2016=
+ -05-31(-/f)<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; *** Description:<br>
+ &gt;&gt; &gt; The program below gives the error:<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; .../racket/racket/collects/racket/stxparam-exptime.rkt:11:4:<=
+ br>
+ &gt;&gt; &gt; syntax-parameter-value: contract violation<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0expected: syntax-parameter?<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0given: #f<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; *** How to repeat:<br>
+ &gt;&gt; &gt; #lang racket<br>
+ &gt;&gt; &gt; (require (for-syntax syntax/parse)<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 racket/stxparam)<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (define-syntax-parameter count 100)<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (define-syntax (noisy-datum stx)<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(_ . datum:number) (displayln (list &#39;=
+ counter<br>
+ &gt;&gt; &gt; (syntax-parameter-value #&#39;counter-id)))<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0(with-syntax ([counter (syntax-parameter-value<=
+ br>
+ &gt;&gt; &gt; #&#39;counter-id)])<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0#&#39;(begin<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(set! counter (+ counter 1=
+ ))<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(#%datum . datum)))]<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(_ . datum)=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&=
+ #39;(#%datum . datum)]))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (define-syntax (noisy-define stx)<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0(syntax-parse stx<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(_ (f . params) body)<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (with-syntax ([new-#%datum (datum-&gt;syn=
+ tax #&#39;body &#39;#%datum)])<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 (syntax-local-lift-module-end-decl=
+ aration #&#39;(define counter 42))<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 #&#39;(begin<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (define (f . params)=
+ <br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (let-syntax (=
+ [new-#%datum (syntax-local-value<br>
+ &gt;&gt; &gt; #&#39;noisy-datum)])<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (synta=
+ x-parameterize ([count 0])<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  ; while body is expand the name of the counter of<br>
+ &gt;&gt; &gt; number literals is foo<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  body)))))]))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (noisy-define (f x)<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(+ x 1 =
+ 2))<br>
+ &gt;&gt; &gt; (f 4)<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; *** Environment:<br>
+ &gt;&gt; &gt; macosx &quot;Darwin mbp 15.0.0 Darwin Kernel Version 15.0.0: =
+ Sat Sep 19<br>
+ &gt;&gt; &gt; 15:53:46 PDT 2015; root:xnu-3247.10.11~1/RELEASE_X86_64 x86_6=
+ 4&quot;<br>
+ &gt;&gt; &gt; (x86_64-macosx/3m) (get-display-depth) =3D 32<br>
+ &gt;&gt; &gt; Human Language: english<br>
+ &gt;&gt; &gt; (current-memory-use) 393606736<br>
+ &gt;&gt; &gt; raco pkg (show):<br>
+ &gt;&gt; &gt; Installation-wide:<br>
+ &gt;&gt; &gt;=C2=A0 Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0Checksum=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Source<br>
+ &gt;&gt; &gt;=C2=A0 main-distribution=C2=A0 =C2=A0 =C2=A0 =C2=A01a0cd523117=
+ ae3...=C2=A0 catalog...ibution<br>
+ &gt;&gt; &gt;=C2=A0 main-distribution-test=C2=A0 046a93803a9e84...=C2=A0 ca=
+ talog...on-test<br>
+ &gt;&gt; &gt;=C2=A0 racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0st=
+ atic-link...lib<br>
+ &gt;&gt; &gt;=C2=A0 [223 auto-installed packages not shown]<br>
+ &gt;&gt; &gt; User-specific for installation &quot;development&quot;:<br>
+ &gt;&gt; &gt;=C2=A0 [none]<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; Collections:<br>
+ &gt;&gt; &gt; (&quot;/Users/soegaard/Library/Racket/development/collects&qu=
+ ot;<br>
+ &gt;&gt; &gt;=C2=A0 (non-existent-path))<br>
+ &gt;&gt; &gt; (&quot;/Users/soegaard/Dropbox/GitHub/racket/racket/collects&=
+ quot;<br>
+ &gt;&gt; &gt;=C2=A0 (&quot;.gitignore&quot; &quot;acks&quot; &quot;compiler=
+ &quot; &quot;data&quot; &quot;db&quot; &quot;dynext&quot; &quot;ffi&quot; &=
+ quot;file&quot;<br>
+ &gt;&gt; &gt; &quot;info&quot; &quot;info-domain&quot; &quot;json&quot; &qu=
+ ot;launcher&quot; &quot;net&quot; &quot;openssl&quot; &quot;pkg&quot; &quot=
+ ;planet&quot;<br>
+ &gt;&gt; &gt; &quot;racket&quot; &quot;raco&quot; &quot;reader&quot; &quot;=
+ realm&quot; &quot;s-exp&quot; &quot;setup&quot; &quot;syntax&quot; &quot;ve=
+ rsion&quot; &quot;xml&quot;))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; Recent Internal Errors:<br>
+ &gt;&gt; &gt; Computer Language: ((&quot;Determine language from source&quo=
+ t;) (#(#t print<br>
+ &gt;&gt; &gt; mixed-fraction-e #f #t debug) (default) #() &quot;#lang racke=
+ t\n&quot; #t #t ((test)<br>
+ &gt;&gt; &gt; (main)) #t))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; --<br>
+ &gt;&gt; Jay McCarthy<br>
+ &gt;&gt; Associate Professor<br>
+ &gt;&gt; PLT @ CS @ UMass Lowell<br>
+ &gt;&gt; <a href=3D"http://jeapostrophe.github.io" rel=3D"noreferrer" targe=
+ t=3D"_blank">http://jeapostrophe.github.io</a><br>
+ &gt;&gt;<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &quot;Wherefore, be not w=
+ eary in well-doing,<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0for ye are laying the foundation of a gr=
+ eat work.<br>
+ &gt;&gt; And out of small things proceedeth that which is great.&quot;<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0- D&amp;C 64:33<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; --<br>
+ &gt; --<br>
+ &gt; Jens Axel S=C3=B8gaard<br>
+ &gt;<br>
+ <br>
+ <br>
+ <br>
+ --<br>
+ Jay McCarthy<br>
+ Associate Professor<br>
+ PLT @ CS @ UMass Lowell<br>
+ <a href=3D"http://jeapostrophe.github.io" rel=3D"noreferrer" target=3D"_bla=
+ nk">http://jeapostrophe.github.io</a><br>
+ <br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&quot;Wherefore, be not weary in w=
+ ell-doing,<br>
+ =C2=A0 =C2=A0 =C2=A0 for ye are laying the foundation of a great work.<br>
+ And out of small things proceedeth that which is great.&quot;<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 - D&amp;C 64:33<br>
+ </div></div></blockquote></div><br><br clear=3D"all"><div><br></div>-- <br>=
+ <div class=3D"gmail_signature" data-smartmail=3D"gmail_signature">-- <br>Je=
+ ns Axel S=C3=B8gaard<br><br></div>
+ </div>
+ 
+ --001a1141bd7a89f606053506d635--

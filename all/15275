@@ -1,0 +1,837 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Mar 24 02:45:55 2016
+Received: from mail-ob0-f174.google.com (mail-ob0-f174.google.com [209.85.214.174])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u2O6jr8M005473
+	for <bugs@bugs.plt-scheme.org>; Thu, 24 Mar 2016 02:45:54 -0400
+Message-Id: <201603240645.u2O6jpkt005466@winooski.ccs.neu.edu>
+Date: Thu, 24 Mar 2016 02:45:51 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Nonlinear complexity in compiling complicated match patterns
+
+>Number:         15275
+>Category:       all
+>Synopsis:       Nonlinear complexity in compiling complicated match patterns
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Mar 24 02:48:02 -0400 2016
+>Last-Modified:  Sat Mar 26 00:44:01 -0400 2016
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.4.0.7
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36
+>Description:
+Compiling match forms with many nested list patterns is slow. It seems to grow quadratically with the number of nested patterns.
+>How-To-Repeat:
+#lang racket
+
+
+(define (nested-patterns n)
+  (cond
+    [(zero? n) #'(list)]
+    [else #`(list 'elem #,(nested-patterns (sub1 n)))]))
+
+
+(define (form n)
+  #`(define (f x)
+      (match x
+       [#,(nested-patterns n) (empty)])))
+
+
+(for ([i (in-range 5)])
+  (collect-garbage)
+  (time (expand (form 10)))
+  (collect-garbage)
+  (time (expand (form 20)))
+  (collect-garbage)
+  (time (expand (form 30)))
+  (collect-garbage)
+  (time (expand (form 40)))
+  (collect-garbage)
+  (time (expand (form 50))))
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/15275: Nonlinear complexity in compiling
+ complicated match patterns
+Date: Thu, 24 Mar 2016 00:05:05 -0700
+
+ --001a11c133c8e37111052ec61089
+ Content-Type: text/plain; charset=UTF-8
+ 
+ This actually looks like it is problem in let-values which is what match is
+ expanding into:
+ 
+ #lang racket
+ 
+ 
+ (define (nested-lets n)
+   (cond
+     [(zero? n) #'x]
+     [else #`(let-values ([(x) (car x)]) #,(nested-lets (sub1 n)))]))
+ 
+ 
+ (define (form n)
+   #`(define (f x)
+       #,(nested-lets n)))
+ 
+ (for ([i (in-range 5)])
+   (collect-garbage)
+   (time (expand (form 10)))
+   (collect-garbage)
+   (time (expand (form 20)))
+   (collect-garbage)
+   (time (expand (form 40)))
+   (collect-garbage)
+   (time (expand (form 80)))
+   (collect-garbage)
+   (time (expand (form 160)))
+   (collect-garbage)
+   (time (expand (form 320)))
+   (collect-garbage)
+   (time (expand (form 640))))
+ 
+ This is also growing quadratically.
+ 
+ or even this
+ 
+ #lang racket
+ 
+ 
+ (define (nested-lets n)
+   (cond
+     [(zero? n) #'x]
+     [else #`(let-values () #,(nested-lets (sub1 n)))]))
+ 
+ 
+ (define (form n)
+   #`(define (f x)
+       #,(nested-lets n)))
+ 
+ (for ([i (in-range 5)])
+   (collect-garbage)
+   (let ([f (form 10)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 20)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 40)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 80)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 160)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 320)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 640)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 1280)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 2560)])
+     (time (expand f))))
+ 
+ 
+ 
+ Which doesn't grow noticable till later but is also quadratic, (and I've
+ moved the form creation outside the timing).
+ 
+ Notably using (begin _) instead of (let-values () _) does not have this
+ quadratic behavior. Which seems to violate what a macro writer wants, they
+ would not want to specialize the empty binding case to optimize compile
+ time.
+ 
+ #lang racket
+ 
+ 
+ (define (nested-lets n)
+   (cond
+     [(zero? n) #'x]
+     [else #`(begin #,(nested-lets (sub1 n)))]))
+ 
+ 
+ (define (form n)
+   #`(define (f x)
+       #,(nested-lets n)))
+ 
+ (for ([i (in-range 5)])
+   (collect-garbage)
+   (let ([f (form 1000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 2000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 4000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 8000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 16000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 32000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 64000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 128000)])
+     (time (expand f)))
+   (collect-garbage)
+   (let ([f (form 256000)])
+     (time (expand f))))
+ 
+ 
+ 
+ On Wed, Mar 23, 2016 at 11:48 PM, <eric.n.dobson@gmail.com> wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15275
+ >
+ > Reported by Eric Dobson for release: 6.4.0.7
+ >
+ > *** Description:
+ > Compiling match forms with many nested list patterns is slow. It seems to
+ > grow quadratically with the number of nested patterns.
+ >
+ > *** How to repeat:
+ > #lang racket
+ >
+ >
+ > (define (nested-patterns n)
+ >   (cond
+ >     [(zero? n) #'(list)]
+ >     [else #`(list 'elem #,(nested-patterns (sub1 n)))]))
+ >
+ >
+ > (define (form n)
+ >   #`(define (f x)
+ >       (match x
+ >        [#,(nested-patterns n) (empty)])))
+ >
+ >
+ > (for ([i (in-range 5)])
+ >   (collect-garbage)
+ >   (time (expand (form 10)))
+ >   (collect-garbage)
+ >   (time (expand (form 20)))
+ >   (collect-garbage)
+ >   (time (expand (form 30)))
+ >   (collect-garbage)
+ >   (time (expand (form 40)))
+ >   (collect-garbage)
+ >   (time (expand (form 50))))
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2)
+ > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36
+ >
+ >
+ 
+ --001a11c133c8e37111052ec61089
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">This actually looks like it is problem in let-values which=
+  is what match is expanding into:<div><br></div><div><div>#lang racket</div=
+ ><div><br></div><div><br></div><div>(define (nested-lets n)</div><div>=C2=
+ =A0 (cond</div><div>=C2=A0 =C2=A0 [(zero? n) #&#39;x]</div><div>=C2=A0 =C2=
+ =A0 [else #`(let-values ([(x) (car x)]) #,(nested-lets (sub1 n)))]))</div><=
+ div><br></div><div><br></div><div>(define (form n)</div><div>=C2=A0 #`(defi=
+ ne (f x)</div><div>=C2=A0 =C2=A0 =C2=A0 #,(nested-lets n)))</div><div><br><=
+ /div><div>(for ([i (in-range 5)])</div><div>=C2=A0 (collect-garbage)</div><=
+ div>=C2=A0 (time (expand (form 10)))</div><div>=C2=A0 (collect-garbage)</di=
+ v><div>=C2=A0 (time (expand (form 20)))</div><div>=C2=A0 (collect-garbage)<=
+ /div><div>=C2=A0 (time (expand (form 40)))</div><div>=C2=A0 (collect-garbag=
+ e)</div><div>=C2=A0 (time (expand (form 80)))</div><div>=C2=A0 (collect-gar=
+ bage)</div><div>=C2=A0 (time (expand (form 160)))</div><div>=C2=A0 (collect=
+ -garbage)</div><div>=C2=A0 (time (expand (form 320)))</div><div>=C2=A0 (col=
+ lect-garbage)</div><div>=C2=A0 (time (expand (form 640))))</div></div><div>=
+ <br></div><div>This is also growing quadratically.</div><div><br></div><div=
+ >or even this</div><div><br></div><div><div>#lang racket</div><div><br></di=
+ v><div><br></div><div>(define (nested-lets n)</div><div>=C2=A0 (cond</div><=
+ div>=C2=A0 =C2=A0 [(zero? n) #&#39;x]</div><div>=C2=A0 =C2=A0 [else #`(let-=
+ values () #,(nested-lets (sub1 n)))]))</div><div><br></div><div><br></div><=
+ div>(define (form n)</div><div>=C2=A0 #`(define (f x)</div><div>=C2=A0 =C2=
+ =A0 =C2=A0 #,(nested-lets n)))</div><div><br></div><div>(for ([i (in-range =
+ 5)])</div><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (let ([f (form 10)=
+ ])</div><div>=C2=A0 =C2=A0 (time (expand f)))</div><div>=C2=A0 (collect-gar=
+ bage)</div><div>=C2=A0 (let ([f (form 20)])</div><div>=C2=A0 =C2=A0 (time (=
+ expand f)))</div><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (let ([f (f=
+ orm 40)])</div><div>=C2=A0 =C2=A0 (time (expand f)))</div><div>=C2=A0 (coll=
+ ect-garbage)</div><div>=C2=A0 (let ([f (form 80)])</div><div>=C2=A0 =C2=A0 =
+ (time (expand f)))</div><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (let=
+  ([f (form 160)])</div><div>=C2=A0 =C2=A0 (time (expand f)))</div><div>=C2=
+ =A0 (collect-garbage)</div><div>=C2=A0 (let ([f (form 320)])</div><div>=C2=
+ =A0 =C2=A0 (time (expand f)))</div><div>=C2=A0 (collect-garbage)</div><div>=
+ =C2=A0 (let ([f (form 640)])</div><div>=C2=A0 =C2=A0 (time (expand f)))</di=
+ v><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (let ([f (form 1280)])</di=
+ v><div>=C2=A0 =C2=A0 (time (expand f)))</div><div>=C2=A0 (collect-garbage)<=
+ /div><div>=C2=A0 (let ([f (form 2560)])</div><div>=C2=A0 =C2=A0 (time (expa=
+ nd f))))</div></div><div><br></div><div><br></div><div><br></div><div>Which=
+  doesn&#39;t grow noticable till later but is also quadratic, (and I&#39;ve=
+  moved the form creation outside the timing).</div><div><br></div><div>Nota=
+ bly using (begin _) instead of (let-values () _) does not have this quadrat=
+ ic behavior. Which seems to violate what a macro writer wants, they would n=
+ ot want to specialize the empty binding case to optimize compile time.</div=
+ ><div><br></div><div><div>#lang racket</div><div><br></div><div><br></div><=
+ div>(define (nested-lets n)</div><div>=C2=A0 (cond</div><div>=C2=A0 =C2=A0 =
+ [(zero? n) #&#39;x]</div><div>=C2=A0 =C2=A0 [else #`(begin #,(nested-lets (=
+ sub1 n)))]))</div><div><br></div><div><br></div><div>(define (form n)</div>=
+ <div>=C2=A0 #`(define (f x)</div><div>=C2=A0 =C2=A0 =C2=A0 #,(nested-lets n=
+ )))</div><div><br></div><div>(for ([i (in-range 5)])</div><div>=C2=A0 (coll=
+ ect-garbage)</div><div>=C2=A0 (let ([f (form 1000)])</div><div>=C2=A0 =C2=
+ =A0 (time (expand f)))</div><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 =
+ (let ([f (form 2000)])</div><div>=C2=A0 =C2=A0 (time (expand f)))</div><div=
+ >=C2=A0 (collect-garbage)</div><div>=C2=A0 (let ([f (form 4000)])</div><div=
+ >=C2=A0 =C2=A0 (time (expand f)))</div><div>=C2=A0 (collect-garbage)</div><=
+ div>=C2=A0 (let ([f (form 8000)])</div><div>=C2=A0 =C2=A0 (time (expand f))=
+ )</div><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (let ([f (form 16000)=
+ ])</div><div>=C2=A0 =C2=A0 (time (expand f)))</div><div>=C2=A0 (collect-gar=
+ bage)</div><div>=C2=A0 (let ([f (form 32000)])</div><div>=C2=A0 =C2=A0 (tim=
+ e (expand f)))</div><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (let ([f=
+  (form 64000)])</div><div>=C2=A0 =C2=A0 (time (expand f)))</div><div>=C2=A0=
+  (collect-garbage)</div><div>=C2=A0 (let ([f (form 128000)])</div><div>=C2=
+ =A0 =C2=A0 (time (expand f)))</div><div>=C2=A0 (collect-garbage)</div><div>=
+ =C2=A0 (let ([f (form 256000)])</div><div>=C2=A0 =C2=A0 (time (expand f))))=
+ </div></div><div><br></div><div><br></div></div><div class=3D"gmail_extra">=
+ <br><div class=3D"gmail_quote">On Wed, Mar 23, 2016 at 11:48 PM,  <span dir=
+ =3D"ltr">&lt;<a href=3D"mailto:eric.n.dobson@gmail.com" target=3D"_blank">e=
+ ric.n.dobson@gmail.com</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_=
+ quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1=
+ ex">A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D15=
+ 275" rel=3D"noreferrer" target=3D"_blank">http://bugs.racket-lang.org/query=
+ /?cmd=3Dview&amp;pr=3D15275</a><br>
+ <br>
+ Reported by Eric Dobson for release: 6.4.0.7<br>
+ <br>
+ *** Description:<br>
+ Compiling match forms with many nested list patterns is slow. It seems to g=
+ row quadratically with the number of nested patterns.<br>
+ <br>
+ *** How to repeat:<br>
+ #lang racket<br>
+ <br>
+ <br>
+ (define (nested-patterns n)<br>
+ =C2=A0 (cond<br>
+ =C2=A0 =C2=A0 [(zero? n) #&#39;(list)]<br>
+ =C2=A0 =C2=A0 [else #`(list &#39;elem #,(nested-patterns (sub1 n)))]))<br>
+ <br>
+ <br>
+ (define (form n)<br>
+ =C2=A0 #`(define (f x)<br>
+ =C2=A0 =C2=A0 =C2=A0 (match x<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0[#,(nested-patterns n) (empty)])))<br>
+ <br>
+ <br>
+ (for ([i (in-range 5)])<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (time (expand (form 10)))<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (time (expand (form 20)))<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (time (expand (form 30)))<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (time (expand (form 40)))<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (time (expand (form 50))))<br>
+ <br>
+ *** Environment:<br>
+ MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/537.=
+ 36 (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36<br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --001a11c133c8e37111052ec61089--
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15275: Nonlinear complexity in compiling complicated match patterns
+Date: Thu, 24 Mar 2016 18:24:23 -0500
+
+ It's possible that there's an issue with `match`, but I think this
+ example likely runs into quadratic behavior in the macro expander: the
+ expansion of nested `let`s is quadratic in the depth of the nesting.
+ 
+ Both the old and new macro expanders have this problem (as do others
+ that I tried). The details are different for each expander, of course.
+ I see more hope for the new expander than the old one, but I'm not yet
+ close to a solution for the new expander.
+ 
+ The most basic problem with the new expander is that each level of
+ `let` nesting introduces a scope, and checking an identifier's binding
+ takes time proportional to the size of its scope set. So, as more and
+ more scopes get added to the nested `let`s, more and more scopes must
+ be checked to resolve an individual binding, including the binding of
+ the `let` or `let-values` identifier itself. Possible solutions include
+ a different set of data structures for resolving a binding or an
+ optimization that avoids the creation of unnecessary scopes (e.g.,
+ because the symbols bound at each layer of nesting are distinct
+ already).
+ 
+ At Thu, 24 Mar 2016 02:48:02 -0400, eric.n.dobson@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15275
+ > 
+ > Reported by Eric Dobson for release: 6.4.0.7
+ > 
+ > *** Description:
+ > Compiling match forms with many nested list patterns is slow. It seems to grow 
+ > quadratically with the number of nested patterns.
+ > 
+ > *** How to repeat:
+ > #lang racket
+ > 
+ > 
+ > (define (nested-patterns n)
+ >   (cond
+ >     [(zero? n) #'(list)]
+ >     [else #`(list 'elem #,(nested-patterns (sub1 n)))]))
+ > 
+ > 
+ > (define (form n)
+ >   #`(define (f x)
+ >       (match x
+ >        [#,(nested-patterns n) (empty)])))
+ > 
+ > 
+ > (for ([i (in-range 5)])
+ >   (collect-garbage)
+ >   (time (expand (form 10)))
+ >   (collect-garbage)
+ >   (time (expand (form 20)))
+ >   (collect-garbage)
+ >   (time (expand (form 30)))
+ >   (collect-garbage)
+ >   (time (expand (form 40)))
+ >   (collect-garbage)
+ >   (time (expand (form 50))))
+ > 
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/537.36 
+ > (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15275: Nonlinear complexity in compiling
+ complicated match patterns
+Date: Thu, 24 Mar 2016 21:53:09 -0700
+
+ --001a11c124faeda3d7052ed8561d
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I have confirmed that this is actually a significant part of what is
+ causing the slowness I'm seeing.
+ 
+ I was able to change match and cond to not introduce let when it wasn't
+ needed and saw ~40% reduction in my extreme example and ~20% reduction on
+ the evaluation of my entire program (2.6 seconds -> 2.1 seconds).
+ 
+ Commit is here:
+ 
+ https://github.com/endobson/racket/commit/435c3913af81c3731969a04fb149a65f95e54416
+ 
+ Is it possible for let to optimize the case of (let-values () expr)  =>
+ (#%expression expr) before introducing the scope? I think would solve the
+ majority of the common cases (but maybe there is some example that this
+ breaks by not introducing the scope). If not should I put that commit
+ through the PR process and find other core macros that introduce
+ unnecessary lets?
+ 
+ I found that letrec-syntaxes+values expanded into empty let-values but that
+ was beyond my ability to change to see if it improved the situation any
+ more.
+ 
+ 
+ On Thu, Mar 24, 2016 at 4:24 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > It's possible that there's an issue with `match`, but I think this
+ > example likely runs into quadratic behavior in the macro expander: the
+ > expansion of nested `let`s is quadratic in the depth of the nesting.
+ >
+ > Both the old and new macro expanders have this problem (as do others
+ > that I tried). The details are different for each expander, of course.
+ > I see more hope for the new expander than the old one, but I'm not yet
+ > close to a solution for the new expander.
+ >
+ > The most basic problem with the new expander is that each level of
+ > `let` nesting introduces a scope, and checking an identifier's binding
+ > takes time proportional to the size of its scope set. So, as more and
+ > more scopes get added to the nested `let`s, more and more scopes must
+ > be checked to resolve an individual binding, including the binding of
+ > the `let` or `let-values` identifier itself. Possible solutions include
+ > a different set of data structures for resolving a binding or an
+ > optimization that avoids the creation of unnecessary scopes (e.g.,
+ > because the symbols bound at each layer of nesting are distinct
+ > already).
+ >
+ > At Thu, 24 Mar 2016 02:48:02 -0400, eric.n.dobson@gmail.com wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=15275
+ > >
+ > > Reported by Eric Dobson for release: 6.4.0.7
+ > >
+ > > *** Description:
+ > > Compiling match forms with many nested list patterns is slow. It seems
+ > to grow
+ > > quadratically with the number of nested patterns.
+ > >
+ > > *** How to repeat:
+ > > #lang racket
+ > >
+ > >
+ > > (define (nested-patterns n)
+ > >   (cond
+ > >     [(zero? n) #'(list)]
+ > >     [else #`(list 'elem #,(nested-patterns (sub1 n)))]))
+ > >
+ > >
+ > > (define (form n)
+ > >   #`(define (f x)
+ > >       (match x
+ > >        [#,(nested-patterns n) (empty)])))
+ > >
+ > >
+ > > (for ([i (in-range 5)])
+ > >   (collect-garbage)
+ > >   (time (expand (form 10)))
+ > >   (collect-garbage)
+ > >   (time (expand (form 20)))
+ > >   (collect-garbage)
+ > >   (time (expand (form 30)))
+ > >   (collect-garbage)
+ > >   (time (expand (form 40)))
+ > >   (collect-garbage)
+ > >   (time (expand (form 50))))
+ > >
+ > > *** Environment:
+ > > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2)
+ > AppleWebKit/537.36
+ > > (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36
+ >
+ 
+ --001a11c124faeda3d7052ed8561d
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I have confirmed that this is actually a significant part =
+ of what is causing the slowness I&#39;m seeing.<div><br></div><div>I was ab=
+ le to change match and cond to not introduce let when it wasn&#39;t needed =
+ and saw ~40% reduction in my extreme example and ~20% reduction on the eval=
+ uation of my entire program (2.6 seconds -&gt; 2.1 seconds).</div><div><br>=
+ </div><div>Commit is here:</div><div><br></div><div><a href=3D"https://gith=
+ ub.com/endobson/racket/commit/435c3913af81c3731969a04fb149a65f95e54416">htt=
+ ps://github.com/endobson/racket/commit/435c3913af81c3731969a04fb149a65f95e5=
+ 4416</a><br></div><div><br></div><div>Is it possible for let to optimize th=
+ e case of (let-values () expr) =C2=A0=3D&gt; (#%expression expr) before int=
+ roducing the scope? I think would solve the majority of the common cases (b=
+ ut maybe there is some example that this breaks by not introducing the scop=
+ e). If not should I put that commit through the PR process and find other c=
+ ore macros that introduce unnecessary lets?</div><div><br></div><div>I foun=
+ d that letrec-syntaxes+values expanded into empty let-values but that was b=
+ eyond my ability to change to see if it improved the situation any more.</d=
+ iv><div><br></div></div><div class=3D"gmail_extra"><br><div class=3D"gmail_=
+ quote">On Thu, Mar 24, 2016 at 4:24 PM, Matthew Flatt <span dir=3D"ltr">&lt=
+ ;<a href=3D"mailto:mflatt@cs.utah.edu" target=3D"_blank">mflatt@cs.utah.edu=
+ </a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" style=3D"margin=
+ :0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><span class=3D"im =
+ HOEnZb">It&#39;s possible that there&#39;s an issue with `match`, but I thi=
+ nk this<br>
+ example likely runs into quadratic behavior in the macro expander: the<br>
+ expansion of nested `let`s is quadratic in the depth of the nesting.<br>
+ <br>
+ Both the old and new macro expanders have this problem (as do others<br>
+ that I tried). The details are different for each expander, of course.<br>
+ I see more hope for the new expander than the old one, but I&#39;m not yet<=
+ br>
+ close to a solution for the new expander.<br>
+ <br>
+ The most basic problem with the new expander is that each level of<br>
+ `let` nesting introduces a scope, and checking an identifier&#39;s binding<=
+ br>
+ takes time proportional to the size of its scope set. So, as more and<br>
+ more scopes get added to the nested `let`s, more and more scopes must<br>
+ be checked to resolve an individual binding, including the binding of<br>
+ the `let` or `let-values` identifier itself. Possible solutions include<br>
+ a different set of data structures for resolving a binding or an<br>
+ optimization that avoids the creation of unnecessary scopes (e.g.,<br>
+ because the symbols bound at each layer of nesting are distinct<br>
+ already).<br>
+ <br>
+ At Thu, 24 Mar 2016 02:48:02 -0400, <a href=3D"mailto:eric.n.dobson@gmail.c=
+ om">eric.n.dobson@gmail.com</a> wrote:<br>
+ </span><div class=3D"HOEnZb"><div class=3D"h5">&gt; A new problem report is=
+  waiting at<br>
+ &gt;=C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D15275" rel=3D"noreferrer" target=3D"_blank">http://bugs.racket-lang=
+ .org/query/?cmd=3Dview&amp;pr=3D15275</a><br>
+ &gt;<br>
+ &gt; Reported by Eric Dobson for release: 6.4.0.7<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; Compiling match forms with many nested list patterns is slow. It seems=
+  to grow<br>
+ &gt; quadratically with the number of nested patterns.<br>
+ &gt;<br>
+ &gt; *** How to repeat:<br>
+ &gt; #lang racket<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; (define (nested-patterns n)<br>
+ &gt;=C2=A0 =C2=A0(cond<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0[(zero? n) #&#39;(list)]<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0[else #`(list &#39;elem #,(nested-patterns (sub1 n)=
+ ))]))<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; (define (form n)<br>
+ &gt;=C2=A0 =C2=A0#`(define (f x)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0(match x<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 [#,(nested-patterns n) (empty)])))<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; (for ([i (in-range 5)])<br>
+ &gt;=C2=A0 =C2=A0(collect-garbage)<br>
+ &gt;=C2=A0 =C2=A0(time (expand (form 10)))<br>
+ &gt;=C2=A0 =C2=A0(collect-garbage)<br>
+ &gt;=C2=A0 =C2=A0(time (expand (form 20)))<br>
+ &gt;=C2=A0 =C2=A0(collect-garbage)<br>
+ &gt;=C2=A0 =C2=A0(time (expand (form 30)))<br>
+ &gt;=C2=A0 =C2=A0(collect-garbage)<br>
+ &gt;=C2=A0 =C2=A0(time (expand (form 40)))<br>
+ &gt;=C2=A0 =C2=A0(collect-garbage)<br>
+ &gt;=C2=A0 =C2=A0(time (expand (form 50))))<br>
+ &gt;<br>
+ &gt; *** Environment:<br>
+ &gt; MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit=
+ /537.36<br>
+ &gt; (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36<br>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a11c124faeda3d7052ed8561d--
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15275: Nonlinear complexity in compiling
+ complicated match patterns
+Date: Fri, 25 Mar 2016 08:07:35 -0500
+
+ Couldn't `let/expression` get a single `body` that's a macro use, where
+ the macro expands to a `begin` with a definition and an expression? In
+ that case, using `#%expression` is not right.
+ 
+ I experimented with optimization that avoid adding scopes about a year
+ ago, and I didn't make progress when I tried. Maybe that was before
+ other things were right, though, and I'll try again.
+ 
+ Internal-definition contexts could introduce fewer scopes if, say, the
+ body is a single `#%expression` form. Would it be possible and
+ reasonable to add explicit `#%expression` wrappers in your use of
+ `match` to get faster expansion times?
+ 
+ At Thu, 24 Mar 2016 21:53:09 -0700, Eric Dobson wrote:
+ > I have confirmed that this is actually a significant part of what is
+ > causing the slowness I'm seeing.
+ > 
+ > I was able to change match and cond to not introduce let when it wasn't
+ > needed and saw ~40% reduction in my extreme example and ~20% reduction on
+ > the evaluation of my entire program (2.6 seconds -> 2.1 seconds).
+ > 
+ > Commit is here:
+ > 
+ > https://github.com/endobson/racket/commit/435c3913af81c3731969a04fb149a65f95e54
+ > 416
+ > 
+ > Is it possible for let to optimize the case of (let-values () expr)  =>
+ > (#%expression expr) before introducing the scope? I think would solve the
+ > majority of the common cases (but maybe there is some example that this
+ > breaks by not introducing the scope). If not should I put that commit
+ > through the PR process and find other core macros that introduce
+ > unnecessary lets?
+ > 
+ > I found that letrec-syntaxes+values expanded into empty let-values but that
+ > was beyond my ability to change to see if it improved the situation any
+ > more.
+ > 
+ > 
+ > On Thu, Mar 24, 2016 at 4:24 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > 
+ > > It's possible that there's an issue with `match`, but I think this
+ > > example likely runs into quadratic behavior in the macro expander: the
+ > > expansion of nested `let`s is quadratic in the depth of the nesting.
+ > >
+ > > Both the old and new macro expanders have this problem (as do others
+ > > that I tried). The details are different for each expander, of course.
+ > > I see more hope for the new expander than the old one, but I'm not yet
+ > > close to a solution for the new expander.
+ > >
+ > > The most basic problem with the new expander is that each level of
+ > > `let` nesting introduces a scope, and checking an identifier's binding
+ > > takes time proportional to the size of its scope set. So, as more and
+ > > more scopes get added to the nested `let`s, more and more scopes must
+ > > be checked to resolve an individual binding, including the binding of
+ > > the `let` or `let-values` identifier itself. Possible solutions include
+ > > a different set of data structures for resolving a binding or an
+ > > optimization that avoids the creation of unnecessary scopes (e.g.,
+ > > because the symbols bound at each layer of nesting are distinct
+ > > already).
+ > >
+ > > At Thu, 24 Mar 2016 02:48:02 -0400, eric.n.dobson@gmail.com wrote:
+ > > > A new problem report is waiting at
+ > > >   http://bugs.racket-lang.org/query/?cmd=view&pr=15275
+ > > >
+ > > > Reported by Eric Dobson for release: 6.4.0.7
+ > > >
+ > > > *** Description:
+ > > > Compiling match forms with many nested list patterns is slow. It seems
+ > > to grow
+ > > > quadratically with the number of nested patterns.
+ > > >
+ > > > *** How to repeat:
+ > > > #lang racket
+ > > >
+ > > >
+ > > > (define (nested-patterns n)
+ > > >   (cond
+ > > >     [(zero? n) #'(list)]
+ > > >     [else #`(list 'elem #,(nested-patterns (sub1 n)))]))
+ > > >
+ > > >
+ > > > (define (form n)
+ > > >   #`(define (f x)
+ > > >       (match x
+ > > >        [#,(nested-patterns n) (empty)])))
+ > > >
+ > > >
+ > > > (for ([i (in-range 5)])
+ > > >   (collect-garbage)
+ > > >   (time (expand (form 10)))
+ > > >   (collect-garbage)
+ > > >   (time (expand (form 20)))
+ > > >   (collect-garbage)
+ > > >   (time (expand (form 30)))
+ > > >   (collect-garbage)
+ > > >   (time (expand (form 40)))
+ > > >   (collect-garbage)
+ > > >   (time (expand (form 50))))
+ > > >
+ > > > *** Environment:
+ > > > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2)
+ > > AppleWebKit/537.36
+ > > > (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36
+ > >
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15275: Nonlinear complexity in compiling
+ complicated match patterns
+Date: Fri, 25 Mar 2016 09:10:13 -0400
+
+ On Fri, Mar 25, 2016 at 9:07 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >
+ > Internal-definition contexts could introduce fewer scopes if, say, the
+ > body is a single `#%expression` form. Would it be possible and
+ > reasonable to add explicit `#%expression` wrappers in your use of
+ > `match` to get faster expansion times?
+ 
+ `match` can both avoid generating `let` when not needed, and it can
+ wrap things in `#%expression` in some cases. I'll look into both of
+ those.
+ 
+ Sam
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15275: Nonlinear complexity in compiling
+ complicated match patterns
+Date: Fri, 25 Mar 2016 21:44:51 -0700
+
+ --001a11c125360bf32e052eec5779
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I have tested a couple of different match strategies to see if I could get
+ faster things. The best one seemed to be the third.
+ 
+ I was able to avoid the quadratic behavior by making it cps and not binding
+ all the temporaries over each part. Brief spot checking of the decompiled
+ code seemed that it gets inlined as expected. I'm going to try to see if I
+ can make it work in my actual program.
+ 
+ https://gist.github.com/endobson/3f1974886f373ad153b2
+ 
+ On Fri, Mar 25, 2016 at 6:10 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ wrote:
+ 
+ > On Fri, Mar 25, 2016 at 9:07 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > >
+ > > Internal-definition contexts could introduce fewer scopes if, say, the
+ > > body is a single `#%expression` form. Would it be possible and
+ > > reasonable to add explicit `#%expression` wrappers in your use of
+ > > `match` to get faster expansion times?
+ >
+ > `match` can both avoid generating `let` when not needed, and it can
+ > wrap things in `#%expression` in some cases. I'll look into both of
+ > those.
+ >
+ > Sam
+ >
+ 
+ --001a11c125360bf32e052eec5779
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I have tested a couple of different match strategies to se=
+ e if I could get faster things. The best one seemed to be the third.<div><b=
+ r></div><div>I was able to avoid the quadratic behavior by making it cps an=
+ d not binding all the temporaries over each part. Brief spot checking of th=
+ e decompiled code seemed that it gets inlined as expected. I&#39;m going to=
+  try to see if I can make it work in my actual program.</div><div><br></div=
+ ><div><a href=3D"https://gist.github.com/endobson/3f1974886f373ad153b2">htt=
+ ps://gist.github.com/endobson/3f1974886f373ad153b2</a><br></div></div><div =
+ class=3D"gmail_extra"><br><div class=3D"gmail_quote">On Fri, Mar 25, 2016 a=
+ t 6:10 AM, Sam Tobin-Hochstadt <span dir=3D"ltr">&lt;<a href=3D"mailto:samt=
+ h@cs.indiana.edu" target=3D"_blank">samth@cs.indiana.edu</a>&gt;</span> wro=
+ te:<br><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-=
+ left:1px #ccc solid;padding-left:1ex"><span class=3D"">On Fri, Mar 25, 2016=
+  at 9:07 AM, Matthew Flatt &lt;<a href=3D"mailto:mflatt@cs.utah.edu">mflatt=
+ @cs.utah.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt; Internal-definition contexts could introduce fewer scopes if, say, the=
+ <br>
+ &gt; body is a single `#%expression` form. Would it be possible and<br>
+ &gt; reasonable to add explicit `#%expression` wrappers in your use of<br>
+ &gt; `match` to get faster expansion times?<br>
+ <br>
+ </span>`match` can both avoid generating `let` when not needed, and it can<=
+ br>
+ wrap things in `#%expression` in some cases. I&#39;ll look into both of<br>
+ those.<br>
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br>
+ Sam<br>
+ </font></span></blockquote></div><br></div>
+ 
+ --001a11c125360bf32e052eec5779--

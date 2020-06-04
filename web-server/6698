@@ -1,0 +1,184 @@
+From nobody@champlain.ccs.neu.edu  Tue Feb 10 00:22:17 2004
+Received: (from nobody@localhost)
+	by champlain.ccs.neu.edu (8.9.3/8.9.3) id AAA18628
+	for bugs@plt-scheme.org; Tue, 10 Feb 2004 00:22:17 -0500
+Message-Id: <200402100522.AAA18628@champlain.ccs.neu.edu>
+Date: Tue, 10 Feb 2004 00:22:17 -0500
+From: phopkins@mac.com
+To: bugs@plt-scheme.org
+Subject: Imported modules leak among servlets
+
+>Number:         6698
+>Category:       web-server
+>Synopsis:       Imported modules leak among servlets
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Feb 10 00:25:00 -0500 2004
+>Closed-Date:    Wed Aug 24 13:41:22 -0400 2005
+>Last-Modified:  Wed Aug 24 13:41:22 -0400 2005
+>Originator:     Pete Hopkins
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        205
+>Environment:
+linux-other
+>Description:
+Definitions from imported modules can "leak" across servlets. For example, a servlet may require (lib "file.ss") and thus allow another servlet to access its defintions (e.g. explode-path).
+
+This can cause a problem because the leaking is not consistant. It depends on the order in which servlets are first loaded, so an erroneous servlet that does not import a library that it uses definitions from may work correctly in a test environment, but it may (and has... twice) suddenly cease to work (giving undefined identifier errors) in practice because the leakage suddenly did not occur.
+
+>How-To-Repeat:
+Create two servlets, test1.ss and test2.ss.
+
+test1.ss:
+
+(require (lib "unitsig.ss")
+         (lib "servlet-sig.ss" "web-server")
+         (lib "servlet-helpers.ss" "web-server"))
+
+
+(unit/sig ()
+  (import servlet^)
+  (report-errors-to-browser send/back)
+  (explode-path "/a/b/c/d"))
+
+
+test2.ss:
+
+(require (lib "unitsig.ss")
+         (lib "servlet-sig.ss" "web-server")
+         (lib "servlet-helpers.ss" "web-server")
+         (lib "file.ss"))
+
+
+(unit/sig ()
+  (import servlet^)
+  (report-errors-to-browser send/back)
+  (explode-path "/a/b/c/d"))
+
+
+
+Start a fresh instance of the webserver and access test1.ss. It will error with an undefined identifier. Now access test2.ss. It may start a file download (a consequence of feeding the result of explode-path to the browser) but, in any case, it won't give an error.
+
+Now go back and reload test1.ss. It will again give the error.
+
+Now, reload the servlets by going to /conf/refresh-servlets
+
+Finally, access test1.ss again. It will not error, but instead do the file downloading as test2.ss did.
+
+
+You can get similar behavior by starting a fresh web server and going to test2.ss before test1.ss.
+>Fix:
+>Release-Note:
+>Audit-Trail:
+From: Robby Findler <robby@cs.uchicago.edu>
+To: phopkins@mac.com
+Cc: bugs@plt-scheme.org, sk@cs.brown.edu, gregp@ccs.neu.edu
+Subject: Re: all/6698: Imported modules leak among servlets
+Date: Tue, 10 Feb 2004 07:04:06 -0600
+
+ Sad to say, but this is just the behavior of Scheme's toplevel. The
+ only way to really deal with this to use module based servlets.
+ 
+ Robby
+
+From: Pete Hopkins <phopkins@mac.com>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: sk@cs.brown.edu, gregp@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: all/6698: Imported modules leak among servlets
+Date: Tue, 10 Feb 2004 08:35:52 -0500
+
+ Unless they can be refreshed without restarting the web server (and I 
+ haven't been able to do that with modules), module-based servlets are 
+ impractical.
+ 
+ Behavior or not, it doesn't seem right to be able to run these 
+ incorrect programs under some circumstances. It's like a breach of 
+ lexical scoping rules.
+ 
+ On Feb 10, 2004, at 8:04 AM, Robby Findler wrote:
+ 
+ > Sad to say, but this is just the behavior of Scheme's toplevel. The
+ > only way to really deal with this to use module based servlets.
+ >
+ > Robby
+ 
+
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Pete Hopkins <phopkins@mac.com>
+Cc: sk@cs.brown.edu, gregp@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: all/6698: Imported modules leak among servlets
+Date: Tue, 10 Feb 2004 16:31:52 -0600
+
+ At Tue, 10 Feb 2004 08:35:52 -0500, Pete Hopkins wrote:
+ > Unless they can be refreshed without restarting the web server (and I 
+ > haven't been able to do that with modules), module-based servlets are 
+ > impractical.
+ 
+ That sounds like a bug. It's certainly possible for the web server to
+ be able to refresh module-based servlets by making new namespaces.
+ 
+ > Behavior or not, it doesn't seem right to be able to run these 
+ > incorrect programs under some circumstances. It's like a breach of 
+ > lexical scoping rules.
+ 
+ The toplevel isn't "lexical" in this sense. It's a special, funny
+ place. check out the mzscheme manual and r5rs for more details, but the
+ short version of the story is the toplevel works by banging variables
+ into some table somewhere. All toplevel (aka not lexically bound, aka
+ free) variables are compiled into "look up in the table". definitions
+ are compiled into "mutate the table". Voila. You get the mess you are
+ now experiencing.
+ 
+ Robby
+
+From: Greg Pettyjohn <gregp@ccs.neu.edu>
+To: Pete Hopkins <phopkins@mac.com>
+Cc: Robby Findler <robby@cs.uchicago.edu>, bugs@plt-scheme.org
+Subject: Re: all/6698: Imported modules leak among servlets
+Date: Thu, 12 Feb 2004 10:14:55 -0500
+
+ So what we need is a better refresh mechanism for servlets.
+ 
+ On Tuesday, February 10, 2004, at 08:35 AM, Pete Hopkins wrote:
+ 
+ > Unless they can be refreshed without restarting the web server (and I 
+ > haven't been able to do that with modules), module-based servlets are 
+ > impractical.
+ >
+ > Behavior or not, it doesn't seem right to be able to run these 
+ > incorrect programs under some circumstances. It's like a breach of 
+ > lexical scoping rules.
+ >
+ > On Feb 10, 2004, at 8:04 AM, Robby Findler wrote:
+ >
+ >> Sad to say, but this is just the behavior of Scheme's toplevel. The
+ >> only way to really deal with this to use module based servlets.
+ >>
+ >> Robby
+ 
+Responsible-Changed-From-To: eli->nobody
+Responsible-Changed-By: gnats@champlain.ccs.neu.edu
+Responsible-Changed-When: Fri, 26 Mar 2004 05:13:47 -0500
+Responsible-Changed-Why:
+
+
+Responsible changed from "nobody" to "gregp" by eli at Thu, 01 Apr 2004 21:11:14 -0500
+Reason: Web server bug
+
+View:
+  http://bugs.plt-scheme.org/query/?cmd=view+audit-trail&pr=6698
+
+Responsible changed from "gregp" to "jay" by eli at Sun, 17 Apr 2005 19:08:25 -0400
+Reason>>> jay replaces gregp
+
+State changed from "open" to "closed" by jay at Wed, 24 Aug 2005 13:41:22 -0400
+Reason>>> These test servlets no longer work and there appears to have been a fixed 
+committed without the bug report change.
+
+>Unformatted:

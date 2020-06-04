@@ -1,0 +1,239 @@
+From robby@cs.rice.edu  Sun Jan 16 16:13:03 2000
+Received: from localhost (cupertino.cs.rice.edu [128.42.2.124])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id QAA24673
+	for <plt-gnats>; Sun, 16 Jan 2000 16:13:03 -0600 (CST)
+Message-Id: <200001162213.QAA24673@cs.rice.edu>
+Date: Sun, 16 Jan 2000 16:13:03 -0600 (CST)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: button stays depressed / doesn't call callback
+
+>Number:         1333
+>Category:       mred
+>Synopsis:       button stays depressed / doesn't call callback
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sun Jan 16 17:15:03 -0500 2000
+>Last-Modified:  Sun Mar 28 02:41:34 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        102/6d4
+>Organization:
+titan
+>Environment:
+linux
+Tools: 
+Docs Installed:
+
+Collections:
+
+>Description:
+
+>How-To-Repeat:
+;; select embedded editor -> button is enabled
+;; click button -> button is stuck in down state forever; message box not shown
+
+(define bundle-pasteboard%
+  (class pasteboard% (frame bundle-manager)
+    (rename [super-on-focus on-focus])
+    (override
+      [on-focus
+       (lambda (on?)
+         (send button enable on?)
+         (super-on-focus on?))])
+    (sequence
+      (super-init))))
+
+(define text (make-object text%))
+(define frame (make-object frame% "frame" #f 400 400))
+
+[define button (make-object button% "Button" frame (lambda x (message-box "1" "2")))]
+[define canvas (make-object editor-canvas% frame text)]
+
+[define view (make-object bundle-pasteboard% frame frame)]
+[define snip (make-object editor-snip% view)]
+(send text insert snip)
+(send frame show #t)
+
+>Fix:
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1333: button stays depressed / doesn't call callback
+Date: Sun, 16 Jan 2000 14:32:59 -0800
+
+ Quoting robby@cs.rice.edu:
+ > >Synopsis:       button stays depressed / doesn't call callback
+ 
+ The bug is that the button's image stays depressed, right? The button
+ will always be disabled before the user can release the button (or
+ before that event can be processed), so the callback should never be
+ invoked.
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1333: button stays depressed / doesn't call callback
+Date: Sun, 16 Jan 2000 16:39:08 -0600
+
+ Matthew Flatt wrote:
+ > 
+ > Quoting robby@cs.rice.edu:
+ > > >Synopsis:       button stays depressed / doesn't call callback
+ > 
+ > The bug is that the button's image stays depressed, right? The button
+ > will always be disabled before the user can release the button (or
+ > before that event can be processed), so the callback should never be
+ > invoked.
+ 
+ Well, that depends on how you think about it, I guess. So, the act of
+ pressing the button shifts the focus which disables the button. I
+ would say that the button must have been pressed so the callback
+ should be called. I can see how you'd say that the release of the
+ button is the important step, but consider a pasteboard embedded in an
+ editor in an editor canvas in a frame with a button. Lets say that the
+ button only has meaning when one of the snips in the pasteboard is
+ selected, or the pasteboard itself is selected. So, I'd like to be
+ able to disable the button when it is not meaningful. Under your
+ suggestion is it possible to do that? 
+ 
+ Note: this calls the callback on the macintosh, which is another
+ reason to let it call the callback under X (I dont know what happens
+ under windows).
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1333: button stays depressed / doesn't call callback
+Date: Sun, 16 Jan 2000 15:30:45 -0800
+
+ Quoting Robert Bruce Findler:
+ > Well, that depends on how you think about it, I guess. So, the act of
+ > pressing the button shifts the focus which disables the button. I
+ > would say that the button must have been pressed so the callback
+ > should be called.
+ 
+ I would disagree. It's crucial that a callback *never* happens after a
+ button is disabled, even if it was in the process of being clicked.
+ Otherwise, programs will break. I certainly have written programs that
+ rely on this invariant. Probably DrScheme does, too. (I'm thinking of
+ the `Execute' button, but I'm unsure of the details.)
+ 
+ > I can see how you'd say that the release of the
+ > button is the important step, 
+ 
+ Right. If you move the mouse off the button before releasing, it isn't
+ pressed.
+ 
+ > So, I'd like to be able to disable the button when [some target
+ > doesn't have the keyboard focus]. Under your suggestion is it
+ > possible to do that?
+ 
+ No, not possible.
+ 
+ The example is an argument for not moving the focus to a button when
+ it's in the process of being clicked. But I'm leary of deviating from
+ the Windows/Motif convention, borken as it might be. Indeed, it could
+ be particularly difficult to avoid the default behavior under Windows.
+ 
+ > Note: this calls the callback on the macintosh, 
+ 
+ ... right, since a button never gets the focus on the Mac ...
+ 
+ > which is another reason to let it call the callback under X (I dont
+ > know what happens under windows).
+ 
+ ... but this seems like one of the things we'll never reconcile, at
+ least while keeping MrEd Windowsy on Windows and MacOSy on MacOS.
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1333: button stays depressed / doesn't call callback
+Date: Sun, 16 Jan 2000 22:13:44 -0600
+
+ Matthew Flatt wrote:
+ 
+ > Quoting Robert Bruce Findler:
+ > > Well, that depends on how you think about it, I guess. So, the act of
+ > > pressing the button shifts the focus which disables the button. I
+ > > would say that the button must have been pressed so the callback
+ > > should be called.
+ >
+ > I would disagree. It's crucial that a callback *never* happens after a
+ > button is disabled, even if it was in the process of being clicked.
+ > Otherwise, programs will break. I certainly have written programs that
+ > rely on this invariant. Probably DrScheme does, too. (I'm thinking of
+ > the `Execute' button, but I'm unsure of the details.)
+ >
+ 
+ Nope; DrScheme will be fine. Buttons are disabled during the button
+ itself's callback, and that is critical, but DrScheme works fine on the
+ mac :)
+ 
+ 
+ >
+ > > I can see how you'd say that the release of the
+ > > button is the important step,
+ >
+ > Right. If you move the mouse off the button before releasing, it isn't
+ > pressed.
+ >
+ > > So, I'd like to be able to disable the button when [some target
+ > > doesn't have the keyboard focus]. Under your suggestion is it
+ > > possible to do that?
+ >
+ > No, not possible.
+ >
+ > The example is an argument for not moving the focus to a button when
+ > it's in the process of being clicked. But I'm leary of deviating from
+ > the Windows/Motif convention, borken as it might be. Indeed, it could
+ > be particularly difficult to avoid the default behavior under Windows.
+ >
+ > > Note: this calls the callback on the macintosh,
+ >
+ > ... right, since a button never gets the focus on the Mac ...
+ >
+ > > which is another reason to let it call the callback under X (I dont
+ > > know what happens under windows).
+ >
+ > ... but this seems like one of the things we'll never reconcile, at
+ > least while keeping MrEd Windowsy on Windows and MacOSy on MacOS.
+ 
+ Yeah, I guess that I am willing to accept this. I will just have to have a
+ bit less responsive GUI, or I will figure out some better way of setting
+ things up.
+ 
+ Seems like there are whole bunch of concerns and intracacies that need to
+ be explained somewhere sometime! Maybe worth a chapter in the how to
+ program with mzscheme book.
+ 
+ Robby
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Jan 17 19:09:23 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Jan 17 19:09:26 2000
+State-Changed-Why:
+Fixed in 102/7.
+
+ 
+>Unformatted:

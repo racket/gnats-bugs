@@ -1,0 +1,166 @@
+From robby@cs.rice.edu  Fri Dec 12 14:49:37 1997
+Received: from australia.cs.rice.edu (australia.cs.rice.edu [128.42.1.176]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id OAA09261 for <plt-gnats@cs.rice.edu>; Fri, 12 Dec 1997 14:49:37 -0600 (CST)
+Message-Id: <199712122049.OAA05601@australia.cs.rice.edu>
+Date: Fri, 12 Dec 1997 14:49:36 -0600 (CST)
+From: Robert Bruce Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: mred, eventspaces, and cpu time
+X-Send-Pr-Version: 3.101
+
+>Number:         393
+>Category:       mred
+>Synopsis:       mred, eventspaces, and cpu time
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Dec 12 15:50:01 -0500 1997
+>Last-Modified:  Sun Mar 28 02:36:09 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        unknown
+>Organization:
+titan
+>Environment:
+	
+>Description:
+It seems like mred takes a lot of extra cpu time when there are several
+eventspaces around. I created several eventspaces, one per frame and then
+just brought each frame to the front, one after another (mildly quickly)
+and mred stayed at 20% cpu. 
+
+When I did that with 1 eventspace, it was at about 5% cpu. 
+
+(I originally noticed this in mzos. One countdown and one mred and the cpu
+is about 20 percent. However, either one countdown or one mred and the cpu
+is negligible)
+
+>How-To-Repeat:
+
+I did this:
+
+(parameterize ([wx:current-eventspace (wx:make-eventspace)])
+  (mred:edit-file "1.ss"))
+(parameterize ([wx:current-eventspace (wx:make-eventspace)])
+  (mred:edit-file "2.ss"))
+(parameterize ([wx:current-eventspace (wx:make-eventspace)])
+  (mred:edit-file "3.ss"))
+(parameterize ([wx:current-eventspace (wx:make-eventspace)])
+  (mred:edit-file "4.ss"))
+(parameterize ([wx:current-eventspace (wx:make-eventspace)])
+  (mred:edit-file "5.ss"))
+
+and compared with this:
+
+(mred:edit-file "1.ss")
+(mred:edit-file "2.ss")
+(mred:edit-file "3.ss")
+(mred:edit-file "4.ss")
+(mred:edit-file "5.ss")
+
+>Fix:
+	
+>Release-Note:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: ptg->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Dec 12 19:05:22 1997
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Dec 12 19:07:34 1997
+State-Changed-Why:
+
+Yes - more eventspaces use extra resources in the same way that more
+threads use extra resources (in exactly the same way in this case,
+actually, since threads are responsible for the difference). I could
+hack in optimizations all day, but there are more worthwhile projects.
+
+
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: mredengine/393: mred, eventspaces, and cpu time
+Date: Fri, 12 Dec 1997 19:13:03 -0600 (CST)
+
+ Matthew Flatt writes:
+ > Yes - more eventspaces use extra resources in the same way that more
+ > threads use extra resources (in exactly the same way in this case,
+ > actually, since threads are responsible for the difference). I could
+ > hack in optimizations all day, but there are more worthwhile projects.
+ 
+ Well, in this case, I think it's more extreme than you realize. MzOS is
+ useless, since I can only run one program in it at a time.
+ 
+ In any case this is not the same thing as threads. I also tried my
+ experiment (earlier in the pr) with threads. I created about 20 threads
+ that sleep 5 and then count down from 1000. Those threads took up no time,
+ unlike the 5 eventspaces.
+ 
+ However, I do understand that you have prioities. Perhaps "suspended" is a
+ better state than "closed" for this pr.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: mredengine/393: mred, eventspaces, and cpu time
+Date: Fri, 12 Dec 1997 19:19:40 -0600 (CST)
+
+ Said Robert Bruce Findler:
+ >  Well, in this case, I think it's more extreme than you realize. MzOS is
+ >  useless, since I can only run one program in it at a time.
+ 
+ I don't understand - 5% to 20% is only a factor of four. The cost
+ doesn't seem to be linear in the number of programs, 5 (and I wouldn't
+ expect it to be). What happens when you run 10 eventspaces?
+ 
+ Matthew
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: mredengine/393: mred, eventspaces, and cpu time
+Date: Fri, 12 Dec 1997 20:23:07 -0600 (CST)
+
+ Matthew Flatt writes:
+ > Said Robert Bruce Findler:
+ > >  Well, in this case, I think it's more extreme than you realize. MzOS is
+ > >  useless, since I can only run one program in it at a time.
+ > 
+ > I don't understand - 5% to 20% is only a factor of four. The cost
+ > doesn't seem to be linear in the number of programs, 5 (and I wouldn't
+ > expect it to be). What happens when you run 10 eventspaces?
+ 
+ So, my new test is compare several os countdowns doing nothing with several
+ mzos countdowns doing nothing. The delay is (sleep 5).
+ 
+ In all of these tests, I didn't touch the computer, I just let it run for a 
+ while and looked at top.
+ 
+ With 3 in sunos, the cpu is between 2 and 3% each. Also, with 10 in sunos,
+ each is between 2 and 3 percent each.
+ 
+ mzos:
+ countdowns   time
+ 1            2-3%
+ 2            12-13%
+ 3            10%-40%
+ 
+ So, I think that this test is not very useful. 
+ 
+ Just for kicks, I turned the autosaving delay on my mred to 300 seconds and
+ ran four mred's in mzos. The cpu time was between two and three
+ percent. So, it may be just a constant factor extra work with a lot of
+ noise.
+ 
+ Robby
+>Unformatted:

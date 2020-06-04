@@ -1,0 +1,197 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Nov 18 09:17:40 2008
+Received: from an-out-0708.google.com (an-out-0708.google.com [209.85.132.247])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id mAIEHWGG015756
+	for <bugs@bugs.plt-scheme.org>; Tue, 18 Nov 2008 09:17:32 -0500
+Message-Id: <200811181417.mAIEHPMF015748@champlain.ccs.neu.edu>
+Date: Tue, 18 Nov 2008 09:17:25 -0500
+From: john@johnnowak.com
+To: bugs@plt-scheme.org
+Subject: src-pos does not work in parser
+
+>Number:         9924
+>Category:       parser-tools
+>Synopsis:       src-pos does not work in parser
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Nov 18 09:20:01 -0500 2008
+>Closed-Date:    Tue Feb 26 15:23:14 -0500 2013
+>Last-Modified:  Tue Feb 26 15:23:14 -0500 2013
+>Originator:     John Nowak
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.2
+>Environment:
+mac-i386-osx
+>Description:
+It seems that adding (src-pos) to a parser declaration has no effect. It will still expect only tokens of type symbol or type struct:token rather than the correct type of struct:position-token. 
+>How-To-Repeat:
+; Try this -- call READ-FN-DEF and enter ': sq dup * ;' or something (without the quotes).
+
+#lang scheme/base
+
+(require parser-tools/lex
+         (prefix-in : parser-tools/lex-sre)
+         parser-tools/yacc)
+
+(provide read-fn-def)
+
+; ?port:Input -> r=[Sym | Num | r]?
+(define (read-fn-def [port (current-input-port)])
+  (parse (λ () (lex port))))
+
+; - - -
+
+(define-empty-tokens ops (TERM |:| |[| |]| |_| |,|))
+(define-tokens vals (ID INT REAL))
+
+(define-lex-abbrevs
+  (white whitespace)
+  (other (:or #\! #\@ #\# #\$ #\% #\^ #\& #\* #\- #\'
+              #\~ #\` #\+ #\= #\/ #\| #\< #\> #\? #\\))
+  (id    (:+ (:or alphabetic numeric other)))
+  (nat   (:+ numeric))
+  (int   (:: (:? #\-) nat))
+  (real  (:: int #\. (:? nat))))
+
+(define lex
+  (lexer-src-pos
+   ((eof) 'TERM)
+   (";"   'TERM)
+   (white (lex input-port))
+   (int   (token-INT  (string->number lexeme)))
+   (real  (token-REAL (string->number lexeme)))
+   (id    (token-ID   (string->symbol lexeme)))
+   (":"   '|:|)
+   ("["   '|[|)
+   ("]"   '|]|)
+   ("_"   (token-ID 'null))
+   (","   (token-ID 'cons))))
+
+(define parse
+  (parser
+   (src-pos)
+   (start fndef)
+   (end   TERM)
+   (tokens ops vals)
+   (error (λ (a b c d e) (raise (list a b c d e))))
+   (grammar
+    (fndef [(|:| ID cat) (cons $2 $3)])
+    (cat   [(catr) (reverse $1)])  
+    (catr  [() '()]
+           [(catr atom) (cons $2 $1)])
+    (atom  [(ID)    $1]
+           [(quote) $1]
+           [(INT)   $1]
+           [(REAL)  $1])
+    (quote [(|[| cat |]|) $2]))))
+
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@hashcollision.org>
+To: sowens@racket-lang.org, john@johnnowak.com, bugs@racket-lang.org,
+        mflatt@racket-lang.org
+Cc: 
+Subject: Re: parser-tools/9924: src-pos does not work in parser
+Date: Tue, 26 Feb 2013 13:01:32 -0700
+
+ Hi John,
+ 
+ 
+ Apologies for the _very_ late response to this bug report.
+ 
+ 
+ It turns out that the error message is technically correct, but your
+ assumption is off: it's not 'parser' that is the cause of the problem,
+ but rather your lexer.
+ 
+ 
+ The buggy rule for handling whitespace is incorrectly wrapping tokens
+ twice in a position-token:
+ 
+ ------------
+ (define lex
+   (lexer-src-pos
+    ((eof) 'TERM)
+    (";"   'TERM)
+    (white (lex input-port))             ;; <-- problematic line here
+    (int   (token-INT  (string->number lexeme)))
+    (real  (token-REAL (string->number lexeme)))
+    (id    (token-ID   (string->symbol lexeme)))
+    (":"   '|:|)
+    ("["   '|[|)
+    ("]"   '|]|)
+    ("_"   (token-ID 'null))
+    (","   (token-ID 'cons))))
+ ------------
+ 
+ The reason is because lex is returning a position token, and then
+ because we're in a lexer-src-pos, there's an implicit wrapping of a
+ position-token around each action of the lexer.  The parser sees this
+ double-wrapped value at some point, and errors out.  What you want,
+ instead, is to use return-without-pos here so that there's no
+ double-wrapping of the position-token structure, like this:
+ 
+ ------------
+ (define lex
+   (lexer-src-pos
+    ((eof) 'TERM)
+    (";"   'TERM)
+    (white (return-without-pos (lex input-port)))
+    (int   (token-INT  (string->number lexeme)))
+    (real  (token-REAL (string->number lexeme)))
+    (id    (token-ID   (string->symbol lexeme)))
+    (":"   '|:|)
+    ("["   '|[|)
+    ("]"   '|]|)
+    ("_"   (token-ID 'null))
+    (","   (token-ID 'cons))))
+ ------------
+ 
+ 
+ 
+ This is _really_ bug-prone.  Also, it is bad that the error message is
+ not pointing in a way that's helpful in seeing the double-wrapping
+ problem.
+ 
+ I will modify parser-tools so it produce a more precise error
+ messages.  Here is the change I'll make:
+ 
+     https://github.com/dyoo/racket/commit/f365bf62cbd11b74e5b1d4252297163bad54413e
+ 
+ 
+ With this change, your buggy program shows a much better error message:
+ 
+ ------------
+ parser: contract violation
+   expected: well-formed-position-token?
+   given: (position-token (position-token (token 'ID 'sq) (position 3
+ #f #f) (position 5 #f #f)) (position 2 #f #f) (position 3 #f #f))
+ ------------
+ 
+ where the double-wrapping problem is more obvious.
+ 
+ 
+ I'll push this change upstream after running some tests to make sure I
+ haven't broken anything, and then close this bug report.
+ 
+ 
+ Thanks again, and apologies for the long wait.
+
+----------
+A commit by dyoo@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/9b86d4452f
+  | Modify the src-pos error reporting in parser-tools to better show the token context.
+  | 
+  | Addresses PR 9924.
+
+
+State changed from "open" to "closed" by dyoo at Tue, 26 Feb 2013 15:23:14 -0500
+Reason>>> Problem explained, and patch 
+f365bf62cbd11b74e5b1d4252297163bad54413e made to make the error 
+condition a little more obvious.
+

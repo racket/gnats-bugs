@@ -1,0 +1,301 @@
+From apache@plt-scheme.org Tue Dec  5 14:36:59 2006
+Received: from py-out-1112.google.com (py-out-1112.google.com [64.233.166.179])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id kB5JarTm026195
+	for <bugs@bugs.plt-scheme.org>; Tue, 5 Dec 2006 14:36:54 -0500
+Message-Id: <200612051936.kB5JaqYH026189@champlain.ccs.neu.edu>
+Date: Tue, 5 Dec 2006 14:36:52 -0500
+From: eli@barzilay.org
+To: bugs@plt-scheme.org
+Subject: Non-built-in language not preserved
+
+>Number:         8420
+>Category:       drscheme
+>Synopsis:       Non-built-in language not preserved
+>Class:          doc-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Dec 05 14:40:01 -0500 2006
+>Closed-Date:    Tue Dec 05 20:40:47 -0500 2006
+>Last-Modified:  Tue Dec 05 20:45:01 -0500 2006
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        360
+>Environment:
+unix "Linux winooski.ccs.neu.edu 2.6.18-1.2849.fc6xen #1 SMP Fri Nov 10 13:56:52 EST 2006 i686 i686 i386 GNU/Linux" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+(("/home/eli/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 64516096
+
+Collections:
+(("/home/eli/scheme/my-plt" "pics") ("/home/eli/.plt-scheme/360/collects" "info-domain" "CSU660") ("/home/eli/plt/collects" "icons" "syntax-color" "trace" "tex2page" "slideshow" "texpict" "syntax" "eopl" "launcher" "teachpack" "plot" "algol60" "web-server" "graphics" "compiler" "planet" "profjWizard" "lazy" "openssl" "games" "swindle" "mrlib" "info-domain" "framework" "lang" "help" "hierlist" "profjBoxes" "readline" "config" "errortrace" "drscheme" "parser-tools" "mztake" "profj" "htdp" "string-constants" "dynext" "browser" "mred" "mzlib" "frtime" "embedded-gui" "slatex" "htdch" "srfi" "stepper" "defaults" "macro-debugger" "mzscheme" "preprocessor" "ffi" "test-suite" "version" "html" "sgl" "net" "make" "xml" "afm" "setup" "r5rs" "slibinit"))
+Teachpack filenames: ()
+Computer Language: (("Initial language" "No language chosen") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+When I use my course language with DrScheme, it does not preserve
+the chosen language when I quit.  IIRC, the new language
+identifying code should use the language position numbers, which
+are saved in my preference:
+
+   (drscheme:language-settings ((-500 -1000 420) #6(#t current-print mixed-fraction-e #t #t test-coverage)))
+>How-To-Repeat:
+(To get my code: http://csu660.barzilay.org/csu660.plt)
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@cs.uchicago.edu>
+To: eli@barzilay.org, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 16:31:08 -0600
+
+ At Tue, 5 Dec 2006 14:40:01 -0500, eli@barzilay.org wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8420
+ > 
+ > Reported by Eli Barzilay for release: 360
+ > 
+ > *** Description:
+ > When I use my course language with DrScheme, it does not preserve
+ > the chosen language when I quit.  IIRC, the new language
+ > identifying code should use the language position numbers, which
+ > are saved in my preference:
+ > 
+ >    (drscheme:language-settings ((-500 -1000 420) #6(#t current-print mixed-fraction-e #t 
+ > #t test-coverage)))
+ 
+ None of the teaching languages are "built in" and yet they work ...
+ perhaps your language has a bug?
+ 
+ Does the preference file have the right numbers in it? Does your
+ language always use the same numbers?
+ 
+ Robby
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 19:49:40 -0500
+
+ On Dec  5, Robby Findler wrote:
+ > [...]
+ > Does the preference file have the right numbers in it? Does your
+ > language always use the same numbers?
+ 
+ That was the problem.  I used a global counter, and every time that a
+ new language object was generated, it created its own counter, which
+ is in the code snippet below.  I changed it to generate the numbers
+ like this:
+ 
+   (define place (counter))
+   (define/public (get-language-numbers)
+     `(-500 -1000 ,place))
+ 
+ and things worked.
+ 
+ So one thing that I see that is missing, is to document this
+ restriction (not returning different values) -- but I think that a
+ better way is to make the DrScheme code call the method once and save
+ the result.  Then there is no problem with such confusing mistakes.
+ 
+ 
+ (module langs mzscheme
+   ...
+   (define counter (let ([c 1]) (lambda () (begin0 c (set! c (add1 c))))))
+   (provide tool@)
+   (define tool@
+     (unit/sig drscheme:tool-exports^ (import drscheme:tool^)
+       (define (language% place lang-module lang-name url)
+         (class (drscheme:language:module-based-language->language-mixin
+                 (drscheme:language:simple-module-based-language->module-based-language-mixin
+                  (class* object%
+                          (drscheme:language:simple-module-based-language<%>)
+                    (define/public (get-language-numbers)
+                      `(-500 -1000 ,(counter)))
+                    ...)))
+           ...))
+       (define (add-languages)
+         (for-each (lambda (args)
+                     (drscheme:language-configuration:add-language
+                      (make-object ((drscheme:language:get-default-mixin)
+                                    (apply language% args)))))
+                   (#%info-lookup 'extra-languages)))
+       (define phase1 void)
+       (define phase2 add-languages))))
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 19:02:25 -0600
+
+ Making drscheme do caching is a pain -- I'd have to proxy the  
+ language object all over the place.
+ 
+ (Note that the value needs to be examined multiple times.)
+ 
+ Ideally, there'd be a contract on it.
+ 
+ Robby
+ 
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 20:31:51 -0500
+
+ On Dec  5, Robby Findler wrote:
+ > Making drscheme do caching is a pain -- I'd have to proxy the
+ > language object all over the place.
+ > 
+ > (Note that the value needs to be examined multiple times.)
+ 
+ I'm surprised.  Wouldn't it be as easy as adding this:
+ 
+   (define cached-numbers #f)
+   (define/private (get-language-numbers*)
+     (unless cached-numbers
+       (set! cached-numbers (send this get-language-numbers)))
+     cached-numbers)
+ 
+ to the base class?  Even simpler:
+ 
+   (define cached-numbers (delay (send this get-language-numbers)))
+   (define/private (get-language-numbers*)
+     (force cached-numbers))
+ 
+ 
+ > Ideally, there'd be a contract on it.
+ 
+ (I don't get that.  A proper contract will need to do the caching
+ anyway, right?  -- I'd turn such a contract the other way, and make it
+ assign blame for the calling party if it was called twice.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 19:35:15 -0600
+
+ A private method is not good enough. Good see the code yourself.
+ 
+ At Tue, 5 Dec 2006 20:31:51 -0500, Eli Barzilay wrote:
+ > On Dec  5, Robby Findler wrote:
+ > > Making drscheme do caching is a pain -- I'd have to proxy the
+ > > language object all over the place.
+ > > 
+ > > (Note that the value needs to be examined multiple times.)
+ > 
+ > I'm surprised.  Wouldn't it be as easy as adding this:
+ > 
+ >   (define cached-numbers #f)
+ >   (define/private (get-language-numbers*)
+ >     (unless cached-numbers
+ >       (set! cached-numbers (send this get-language-numbers)))
+ >     cached-numbers)
+ > 
+ > to the base class?  Even simpler:
+ > 
+ >   (define cached-numbers (delay (send this get-language-numbers)))
+ >   (define/private (get-language-numbers*)
+ >     (force cached-numbers))
+ > 
+ > 
+ > > Ideally, there'd be a contract on it.
+ > 
+ > (I don't get that.  A proper contract will need to do the caching
+ > anyway, right?  -- I'd turn such a contract the other way, and make it
+ > assign blame for the calling party if it was called twice.)
+ > 
+ > -- 
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                   http://www.barzilay.org/                 Maze is Life!
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 19:35:38 -0600
+
+ PS: contracts have proxy built in. So, in some sense, yes. It would be
+ a way to leverage the proxy in the contract.
+ 
+ At Tue, 5 Dec 2006 20:31:51 -0500, Eli Barzilay wrote:
+ > On Dec  5, Robby Findler wrote:
+ > > Making drscheme do caching is a pain -- I'd have to proxy the
+ > > language object all over the place.
+ > > 
+ > > (Note that the value needs to be examined multiple times.)
+ > 
+ > I'm surprised.  Wouldn't it be as easy as adding this:
+ > 
+ >   (define cached-numbers #f)
+ >   (define/private (get-language-numbers*)
+ >     (unless cached-numbers
+ >       (set! cached-numbers (send this get-language-numbers)))
+ >     cached-numbers)
+ > 
+ > to the base class?  Even simpler:
+ > 
+ >   (define cached-numbers (delay (send this get-language-numbers)))
+ >   (define/private (get-language-numbers*)
+ >     (force cached-numbers))
+ > 
+ > 
+ > > Ideally, there'd be a contract on it.
+ > 
+ > (I don't get that.  A proper contract will need to do the caching
+ > anyway, right?  -- I'd turn such a contract the other way, and make it
+ > assign blame for the calling party if it was called twice.)
+ > 
+ > -- 
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                   http://www.barzilay.org/                 Maze is Life!
+
+Class changed from "sw-bug" to "doc-bug" by robby at Tue, 05 Dec 2006 20:40:47 -0500
+Reason>>> docs bug
+
+State changed from "open" to "closed" by robby at Tue, 05 Dec 2006 20:40:47 -0500
+Reason>>> added note to docs (see email transcript).
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 20:42:29 -0500
+
+ On Dec  5, Robby Findler wrote:
+ > A private method is not good enough. Good see the code yourself.
+ 
+ OK, I will do that later this evening.
+ 
+ 
+ On Dec  5, Robby Findler wrote:
+ > I added a note to the docs (but the note seems pretty obvious when
+ > you read the docs so I put it in parens).
+ 
+ (That's perfectly fine...)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8420: Non-built-in language not preserved
+Date: Tue, 5 Dec 2006 19:39:54 -0600
+
+ I added a note to the docs (but the note seems pretty obvious when you
+ read the docs so I put it in parens).
+ 
+ Robby

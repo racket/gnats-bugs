@@ -1,0 +1,196 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jun 23 22:35:49 2008
+Received: from gv-out-0910.google.com (gv-out-0910.google.com [216.239.58.184])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m5O2Zfar010185
+	for <bugs@bugs.plt-scheme.org>; Mon, 23 Jun 2008 22:35:41 -0400
+Message-Id: <200806240235.m5O2Zcjt010179@champlain.ccs.neu.edu>
+Date: Mon, 23 Jun 2008 22:35:38 -0400
+From: sbloch@adelphi.edu
+To: bugs@plt-scheme.org
+Subject: interaction of stop-when and redraw handler
+
+>Number:         9539
+>Category:       htdp
+>Synopsis:       interaction of stop-when and redraw handler
+>Class:          change-request
+>Responsible:    matthias
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jun 23 22:36:01 -0400 2008
+>Closed-Date:    Fri Feb 03 17:41:41 -0500 2012
+>Last-Modified:  Fri Feb 03 17:41:41 -0500 2012
+>Originator:     Stephen Bloch
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0.1
+>Environment:
+macosx "Darwin Canterbury 8.11.0 Darwin Kernel Version 8.11.0: Wed Oct 10 18:26:00 PDT 2007; root:xnu-792.24.17~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 203814820
+
+Collections:
+(("/Users/teeb/Library/PLT Scheme/4.0.1/collects" "installed-teachpacks") ("/Applications/PLT Scheme v4.0.1/collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Intermediate Student with lambda") (#(#t constructor repeating-decimal #f #t none) #f ((lib "tiles.ss" "installed-teachpacks") (lib "401-world.ss" "installed-teachpacks"))))
+>Description:
+I suggest that, in world.ss, the stop-when callback be checked BEFORE calling the redraw callback, in case the stopping condition is something that could cause the redraw callback to crash.
+>How-To-Repeat:
+I tried to redefine run-movie more simply as
+
+(define (run-movie movie)
+  (check-arg 'run-movie (list? movie) "list (of images)" "first" movie)
+  (for-each (lambda (cand)
+              (check-image 'run-movie cand "first" "list of images"))
+            movie)
+  (let* ([fst (car movie)]
+         [wdt (image-width fst)]
+         [hgt (image-height fst)])
+    (big-bang wdt hgt 1/27 movie)
+    (on-redraw car)
+    (on-tick-event cdr)
+    (stop-when null?)))
+
+
+Here's my fix:
+(define-callback redraw "redraw function" (f) ()
+  (with-handlers ([exn:break? break-handler][exn? exn-handler])
+    (if (stop-when-callback)
+        (callback-stop!)
+        (let* ((result (f the-world))
+               (fname (object-name f))
+               (tname (if fname fname 'your-redraw-function)))
+          (if (image? result)
+              (check-result tname scene? "scene" result
+                            (format "image with pinhole at (~s,~s)"
+                                    (pinhole-x result) (pinhole-y result)))
+              (check-result tname (lambda (x) (image? x)) "scene" result))
+          (update-frame result)
+          )
+        )))
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: sbloch@adelphi.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, samth@plt-scheme.org, ryanc@plt-scheme.org,
+        gcooper@plt-scheme.org
+Subject: Re: [plt-bug] all/9539: interaction of stop-when and redraw handler
+Date: Mon, 23 Jun 2008 22:38:54 -0400
+
+ Nope, the redraw callback must be able to create an image for all  
+ worlds so that when the world ends, you can still send some  
+ information to the, eh, universe.
+ 
+ I'll clarify the docs.
+ 
+ 
+ 
+ On Jun 23, 2008, at 10:36 PM, sbloch@adelphi.edu wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=9539
+ >
+ > Reported by Stephen Bloch for release: 4.0.1
+ >
+ > *** Description:
+ > I suggest that, in world.ss, the stop-when callback be checked  
+ > BEFORE calling the redraw callback, in case the stopping condition  
+ > is something that could cause the redraw callback to crash.
+ >
+ > *** How to repeat:
+ > I tried to redefine run-movie more simply as
+ >
+ > (define (run-movie movie)
+ >   (check-arg 'run-movie (list? movie) "list (of images)" "first"  
+ > movie)
+ >   (for-each (lambda (cand)
+ >               (check-image 'run-movie cand "first" "list of images"))
+ >             movie)
+ >   (let* ([fst (car movie)]
+ >          [wdt (image-width fst)]
+ >          [hgt (image-height fst)])
+ >     (big-bang wdt hgt 1/27 movie)
+ >     (on-redraw car)
+ >     (on-tick-event cdr)
+ >     (stop-when null?)))
+ >
+ >
+ > Here's my fix:
+ > (define-callback redraw "redraw function" (f) ()
+ >   (with-handlers ([exn:break? break-handler][exn? exn-handler])
+ >     (if (stop-when-callback)
+ >         (callback-stop!)
+ >         (let* ((result (f the-world))
+ >                (fname (object-name f))
+ >                (tname (if fname fname 'your-redraw-function)))
+ >           (if (image? result)
+ >               (check-result tname scene? "scene" result
+ >                             (format "image with pinhole at (~s,~s)"
+ >                                     (pinhole-x result) (pinhole-y  
+ > result)))
+ >               (check-result tname (lambda (x) (image? x)) "scene"  
+ > result))
+ >           (update-frame result)
+ >           )
+ >         )))
+ >
+ > *** Environment:
+ > macosx "Darwin Canterbury 8.11.0 Darwin Kernel Version 8.11.0: Wed  
+ > Oct 10 18:26:00 PDT 2007; root:xnu-792.24.17~1/RELEASE_PPC Power  
+ > Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 203814820
+ >
+ > Collections:
+ > (("/Users/teeb/Library/PLT Scheme/4.0.1/collects" "installed- 
+ > teachpacks") ("/Applications/PLT Scheme v4.0.1/collects" "afm"  
+ > "algol60" "browser" "combinator-parser" "compiler" "config"  
+ > "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace"  
+ > "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger"  
+ > "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain"  
+ > "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib"  
+ > "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools"  
+ > "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline"  
+ > "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl"  
+ > "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle"  
+ > "syntax" "syntax-color" "teachpack" "test-box-recovery" "test- 
+ > engine" "tex2page" "texpict" "trace" "typed-scheme" "version" "web- 
+ > server" "wxme" "xml"))
+ > Computer Language: (("Teaching Languages" "How to Design Programs"  
+ > "Intermediate Student with lambda") (#(#t constructor repeating- 
+ > decimal #f #t none) #f ((lib "tiles.ss" "installed-teachpacks")  
+ > (lib "401-world.ss" "installed-teachpacks"))))
+ >
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Stephen Bloch <sbloch@adelphi.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9539: interaction of stop-when and redraw handler
+Date: Tue, 24 Jun 2008 10:47:20 -0400
+
+ On Jun 23, 2008, at 10:38 PM, Matthias Felleisen wrote:
+ 
+ >> (define (run-movie movie)
+ >>   (check-arg 'run-movie (list? movie) "list (of images)" "first"  
+ >> movie)
+ >>   (for-each (lambda (cand)
+ >>               (check-image 'run-movie cand "first" "list of images"))
+ >>             movie)
+ >>   (let* ([fst (car movie)]
+ >>          [wdt (image-width fst)]
+ >>          [hgt (image-height fst)])
+ >>     (big-bang wdt hgt 1/27 movie)
+ >>     (on-redraw car)
+ >>     (on-tick-event cdr)
+ >>     (stop-when null?)))
+ 
+ 
+ Use (stop-when (compose null? cdr)) instead. 
+
+State changed from "open" to "closed" by samth at Fri, 03 Feb 2012 17:41:41 -0500
+Reason>>> This is the intended behavior.
+

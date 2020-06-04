@@ -1,0 +1,309 @@
+From apache@plt-scheme.org Wed Feb 15 19:46:17 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k1G0kFip020609
+	for <bugs@plt-scheme.org>; Wed, 15 Feb 2006 19:46:15 -0500
+Message-Id: <200602160046.k1G0kFgA020607@champlain.ccs.neu.edu>
+Date: Wed, 15 Feb 2006 19:46:15 -0500
+From: eggert@ucla.edu
+To: bugs@plt-scheme.org
+Subject: plt-scheme 301 won't build on Solaris Sparc with recent GCC or Sun C
+
+>Number:         7895
+>Category:       mzscheme
+>Synopsis:       plt-scheme 301 won't build on Solaris Sparc with recent GCC or Sun C
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          suspended
+>Confidential:   no
+>Arrival-Date:   Wed Feb 15 19:50:00 -0500 2006
+>Closed-Date:    
+>Last-Modified:  Thu Jul 06 15:12:41 -0400 2006
+>Originator:     Paul Eggert
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301
+>Environment:
+solaris-8
+>Description:
+This is a followup to PR#7867.  The problem is that the source code relies on lvalue casts, which have always been nonportable, and are not part of the C Standard.  Older versions of GCC used to support lvalue casts, but newer ones don't.  Another user tells me the new Sun C compiler (Sun C 5.8) doesn't support them either.
+
+By the way, what is the bug in Solaris qsort that the code is talking about?  Lots of times people think they have a bug in qsort, when it's actually a bug in the calling code.
+
+Anyway, here is a patch to my_qsort.c that works around the problem,
+and lets me build on Solaris:
+
+--- my_qsort.c-bak	2006-01-11 01:15:37.000000000 -0800
++++ my_qsort.c	2006-02-15 16:27:27.125006000 -0800
+@@ -1,25 +1,31 @@
+ 
+-#if defined(sparc) || defined(__sparc) || defined(__sparc__)
++#if defined(sun) || defined(__sun) || defined(__sun__)
+ /* Sun's qsort() is broken. */
+ 
+ #define MAXSTACK 100
+ 
+ static void exchange(void *a, void *b, size_t size) {
+     size_t i;
++    int *ai = (int *) a;
++    int *bi = (int *) b;
++    char *ac;
++    char *bc;
+ 
+     /******************
+      *  exchange a,b  *
+      ******************/
+ 
+     for (i = sizeof(int); i <= size; i += sizeof(int)) {
+-        int t = *((int *)a);
+-        *(((int *)a)++) = *((int *)b);
+-        *(((int *)b)++) = t;
++        int t = *ai;
++        *ai++ = *bi;
++        *bi++ = t;
+     }
++    ac = (char *) ai;
++    bc = (char *) bi;
+     for (i = i - sizeof(int) + 1; i <= size; i++) {
+-        char t = *((char *)a);
+-        *(((char *)a)++) = *((char *)b);
+-        *(((char *)b)++) = t;
++        char t = *ac;
++        *ac++ = *bc;
++        *bc++ = t;
+     }
+ }
+ 
+>How-To-Repeat:
+Configure and build plt-scheme using GCC 4.0.2 on Solaris 8.  The output will end something like this:
+
+./u/cs/fac/eggert/junk/plt/src/lt/libtool --mode=compile gcc -m64 -g -O2      -D\
+MZ_NO_ICONV -I./.. -I./../include -c ./regexp.c -o regexp.lo
+ gcc -m64 -g -O2 -DMZ_NO_ICONV -I./.. -I./../include -c ./regexp.c  -fPIC -DPIC\
+ -o .libs/regexp.o
+In file included from ./regexp.c:1926:
+./../gc2/my_qsort.c: In function 'exchange':
+./../gc2/my_qsort.c:16: error: invalid lvalue in increment
+./../gc2/my_qsort.c:17: error: invalid lvalue in increment
+./../gc2/my_qsort.c:21: error: invalid lvalue in increment
+./../gc2/my_qsort.c:22: error: invalid lvalue in increment
+
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eggert@ucla.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7895: plt-scheme 301 won't build on Solaris Sparc with recent GCC or Sun C
+Date: Wed, 15 Feb 2006 20:04:28 -0700
+
+ At Wed, 15 Feb 2006 19:50:03 -0500, eggert@ucla.edu wrote:
+ > By the way, what is the bug in Solaris qsort that the code is talking about?  
+ > Lots of times people think they have a bug in qsort, when it's actually a bug 
+ > in the calling code.
+ 
+ I forget exactly, but somehow qsort would read past the end of the
+ array. I think the item size and array size had to be just right.
+ 
+ It wouldn't write past the end of the array; just read. I remember
+ reproducing the problem in a small program by mmapping a page in the
+ middle of nowhere. qsort worked right if the array was well inside the
+ page (sorting the last element correctly, and not inserting any bogus
+ elements), but if the array was aligned at the end of the page, qsort
+ crashed trying to read from the following (unmapped) page.
+ 
+ Thanks for the patch!
+ 
+ Matthew
+ 
+From: Paul Eggert <eggert@CS.UCLA.EDU>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7895: plt-scheme 301 won't build on Solaris Sparc with
+ recent GCC or Sun C
+Date: Thu, 16 Feb 2006 00:19:31 -0800
+
+ Matthew Flatt <mflatt@cs.utah.edu> writes:
+ 
+ > I forget exactly, but somehow qsort would read past the end of the
+ > array.
+ 
+ Hmm, could that test case be resurrected from email archives or whatever?
+ Every time I've tried to track down a supposed bug in Solaris qsort,
+ it's turned out to be user error.
+ 
+ I took a quick look at the uses of qsort in PLT-301, and found several
+ "user errors" that might explain the problem.  compact.c, newgc.c, and
+ regexp.c all use invalid comparison functions, which do not conform to
+ the C standard.  The C standard says that a comparison function must
+ define a consistent total order, and must return zero when two values
+ compare equal.  (See
+ <http://www.opengroup.org/onlinepubs/000095399/functions/qsort.html>.)
+ However, the comparison functions in question don't do that: they
+ return 1 when two values are equal.  This is incorrect, and Solaris
+ qsort is therefore entitled to dump core.
+ 
+ Some lesser problems: regexp.c uses 'sizeof(unsigned long)' where it
+ should use 'sizeof(unsigned int)'.  regexp.c also is confused about
+ the length of range_array: range_array contains 2 * range_len
+ integers, not range_len integers, but in several places the code
+ forgets to multiply by 2.  These appear to be cut-and-paste errors as
+ I suspect the code originally was stolen from compact.c or newgc.c
+ where multiplication by 2 wasn't needed.
+ 
+ Here are some proposed patches for these problems.  If you can't
+ recall exactly what the Solaris bug was, I suggest dropping my_qsort
+ entirely.  That is, I suspect that my_qsort will not be needed at all
+ once these patches are applied.  I can supply a further patch along
+ these lines if you like.
+ 
+ --- plt/src/mzscheme/gc2/alloc_cache.c-bak	2006-01-11 01:15:37.000000000 -0800
+ +++ plt/src/mzscheme/gc2/alloc_cache.c	2006-02-15 23:59:44.359011000 -0800
+ @@ -27,8 +27,10 @@ static int compare_free_block(const void
+  {
+    if ((unsigned long)((Free_Block *)a)->start < (unsigned long)((Free_Block *)b)->start)
+      return -1;
+ -  else
+ +  else {
+ +    /* The two values cannot possibly be equal, so return '>'.  */
+      return 1;
+ +  }
+  }
+  
+  static void collapse_adjacent_pages(void)
+ --- plt/src/mzscheme/gc2/compact.c-bak	2006-01-11 01:15:37.000000000 -0800
+ +++ plt/src/mzscheme/gc2/compact.c	2006-02-16 00:01:56.797001000 -0800
+ @@ -503,10 +503,9 @@ static int nothing_new = 0;
+  
+  static int compare_roots(const void *a, const void *b)
+  {
+ -  if (*(unsigned long *)a < *(unsigned long *)b)
+ -    return -1;
+ -  else
+ -    return 1;
+ +  unsigned long av = *(unsigned long *)a;
+ +  unsigned long bv = *(unsigned long *)b;
+ +  return av < bv ? -1 : av > bv;
+  }
+  
+  static void sort_and_merge_roots()
+ --- plt/src/mzscheme/gc2/newgc.c-bak	2006-01-11 01:15:37.000000000 -0800
+ +++ plt/src/mzscheme/gc2/newgc.c	2006-02-16 00:03:01.303014000 -0800
+ @@ -741,10 +741,9 @@ static int nothing_new = 0;
+  
+  static int compare_roots(const void *a, const void *b)
+  {
+ -  if(*(unsigned long*)a < *(unsigned long*)b)
+ -    return -1;
+ -  else 
+ -    return 1;
+ +  unsigned long av = *(unsigned long *)a;
+ +  unsigned long bv = *(unsigned long *)b;
+ +  return av < bv ? -1 : av > bv;
+  }
+  
+  static void sort_and_merge_roots()
+ --- plt/src/mzscheme/src/regexp.c-bak	2006-01-11 01:15:34.000000000 -0800
+ +++ plt/src/mzscheme/src/regexp.c	2006-02-15 23:48:31.995000000 -0800
+ @@ -1930,10 +1930,9 @@ END_XFORM_SKIP;
+  
+  static int compare_ranges(const void *a, const void *b)
+  {
+ -  if (*(unsigned int *)a < *(unsigned int *)b)
+ -    return -1;
+ -  else
+ -    return 1;
+ +  unsigned int av = *(unsigned int *)a;
+ +  unsigned int bv = *(unsigned int *)b;
+ +  return av < bv ? -1 : av > bv;
+  }
+  
+  /* For allocating the traslated string, as we go. When writing an
+ @@ -2287,10 +2286,10 @@ static int translate(unsigned char *s, i
+  	  range_array[rp+1] = hi;
+  	}
+  	/* Sort the ranges by the starting index. */
+ -	my_qsort(range_array, range_len >> 1, 2 * sizeof(unsigned long), compare_ranges);
+ +	my_qsort(range_array, range_len, 2 * sizeof (unsigned int), compare_ranges);
+  	
+  	/* If a range starts below 128, fill in the simple array */
+ -	for (rp = 0; rp < range_len; rp += 2) {
+ +	for (rp = 0; rp < 2 * range_len; rp += 2) {
+  	  if (range_array[rp] < 128) {
+  	    for (p = range_array[rp]; p < 128; p++) {
+  	      simple_on[p] = 1;
+ @@ -2339,7 +2338,7 @@ static int translate(unsigned char *s, i
+  	  } else
+  	    did_alt = 1;
+  	  last_end = 128;
+ -	  for (rp = 0; rp < range_len; rp += 2) {
+ +	  for (rp = 0; rp < 2 * range_len; rp += 2) {
+  	    if (range_array[rp] > last_end) {
+  	      r = add_range(r, &j, &rs, last_end, range_array[rp] - 1, did_alt);
+  	      did_alt = 0;
+ @@ -2390,7 +2389,7 @@ static int translate(unsigned char *s, i
+  	    did_alt = 0;
+  	  } else
+  	    did_alt = 1;
+ -	  for (rp = 0; rp < range_len; rp += 2) {
+ +	  for (rp = 0; rp < 2 * range_len; rp += 2) {
+  	    r = add_range(r, &j, &rs, range_array[rp], range_array[rp+1], did_alt);
+  	    did_alt = 0;
+  	  }
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Paul Eggert <eggert@CS.UCLA.EDU>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7895: plt-scheme 301 won't build on Solaris Sparc with
+ recent GCC or Sun C
+Date: Thu, 16 Feb 2006 05:43:32 -0700
+
+ At Thu, 16 Feb 2006 00:19:31 -0800, Paul Eggert wrote:
+ > Matthew Flatt <mflatt@cs.utah.edu> writes:
+ > 
+ > > I forget exactly, but somehow qsort would read past the end of the
+ > > array.
+ > 
+ > Hmm, could that test case be resurrected from email archives or whatever?
+ > Every time I've tried to track down a supposed bug in Solaris qsort,
+ > it's turned out to be user error.
+ 
+ Sorry - I tried to dig it out of old archives, and I couldn't find it.
+ I should have kept better track.
+ 
+ > I took a quick look at the uses of qsort in PLT-301, and found several
+ > "user errors" that might explain the problem.  compact.c, newgc.c, and
+ > regexp.c all use invalid comparison functions, which do not conform to
+ > the C standard.
+ 
+ The "regexp.c" code (relatively new) had tons of problems. Thanks for
+ pointing me that way.
+ 
+ In the use of qsort in "compact.c" and "newgc.c", the values can never
+ be equal (else many other disasterous things can happen).
+ 
+ The use of qsort that originally triggered my suspicion is long gone.
+ 
+ I'm pretty sure my test involved distinct objects, so it wasn't an
+ issue with the comparison function returning non-zero for equal
+ objects. Also, at the time, I thought that a qsort() bug was unlikely
+ --- I've never found a non-floating-point bug in any other C library
+ --- so I spent a lot of time on my test case and convincing myself that
+ it really was a problem. Finally, the problem only appeared under
+ certain alignment and page-mapping conditions, which explained why the
+ bug could exist without others seeing it all the time. I might have
+ been wrong, but I still doubt it. In any case, this was about a decade
+ ago; if there was a problem, it's probably long-since fixed.
+ 
+ Thanks very much for your help,
+ Matthew
+ 
+
+Responsible changed from "nobody" to "mflatt" by eli at Thu, 16 Mar 2006 01:13:57 -0500
+Reason>>> (to be closed)
+
+
+State changed from "open" to "suspended" by mflatt at Thu, 06 Jul 2006 15:12:41 -0400
+Reason>>> Problem is fixed, though probably my_qsort isn't
+needed anymore
+

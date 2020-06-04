@@ -1,0 +1,280 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jan 11 17:32:49 2016
+Received: from mail-io0-f180.google.com (mail-io0-f180.google.com [209.85.223.180])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u0BMWkI4026480
+	for <bugs@bugs.plt-scheme.org>; Mon, 11 Jan 2016 17:32:47 -0500
+Message-Id: <201601112232.u0BMWi26026473@winooski.ccs.neu.edu>
+Date: Mon, 11 Jan 2016 17:32:44 -0500
+From: norman@astro.gla.ac.uk
+To: bugs@racket-lang.org
+Subject: Typed racket: (or 1 #f) does not produce 1 -- over-enthusiastic typing?
+
+>Number:         15217
+>Category:       typed-scheme
+>Synopsis:       Typed racket: (or 1 #f) does not produce 1 -- over-enthusiastic typing?
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Jan 11 17:36:01 -0500 2016
+>Last-Modified:  Wed May 11 15:41:43 -0400 2016
+>Originator:     Norman Gray
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.3
+>Environment:
+macosx "Darwin coricopat.local 14.5.0 Darwin Kernel Version 14.5.0: Tue Sep  1 21:23:09 PDT 2015; root:xnu-2782.50.1~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 535130164
+raco pkg (show):
+Installation-wide:
+ Package            Checksum     Source
+ main-distribution  46973fb2...  catalog main-distribution
+ racket-lib         1f53b49c...  catalog racket-lib
+ [186 auto-installed packages not shown]
+User-specific for installation "6.3":
+ [none]
+
+
+
+Collections:
+("/Users/norman/Library/Racket/6.3/collects"
+ (non-existent-path))
+("/Data/LocalApplications/Racket/6.3/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test)) #t))
+>Description:
+Consider the following:
+
+    #lang typed/racket
+    ;#lang typed/racket/no-check  ; <-- this works as expected
+
+    (: func (case->
+               ([#:as (U Integer False)] -> Any)
+               (Integer [#:as (U Integer False)] -> Any)))
+    (define (func (arg1 #f) #:as (opt-arg #f))
+      (cond (arg1 (or arg1 #f)); <-- removing this expression means things work as expected
+            (else
+             (eprintf "func: opt-arg=~s, so (or ~s #f) -> ~s~%"
+                      opt-arg opt-arg (or opt-arg #f))
+             (or opt-arg #f))))
+
+    (func #:as 1)
+    (func 1)
+
+When run...
+
+    % racket -v
+    Welcome to Racket v6.3.
+    % racket test.rkt
+    func: opt-arg=1, so (or 1 #f) -> #f
+    #f
+    1
+    %
+
+That is, in the first case (or 1 #f) appears to evaluate to #f, not 1 as expected.  Very much not as expected.
+
+If I replace the definition with
+
+    (define (func (arg1 #f) #:as (opt-arg : (U Integer False) #f))
+      ...)
+
+then this works as expected.  That is, TR appears to be typing opt-arg, within the function, as False, and rewriting the (or opt-arg #f) accordingly.  It's not doing the same with the (arg1 (or arg1 #f)) clause.
+
+Given that I've typed the func function before defining it, and have typed the #:as argument as (U Integer False), I would not expect to have to repeat myself in the function definition.
+
+Related, perhaps: If I declare the type of 'func' as follows:
+
+    (: func (case->
+               ([#:as Integer] -> Any)
+               (Integer [#:as Integer] -> Any)))
+
+Then the default opt-arg value does not match the function type.  This does not produce any error or warning, and this suggests to me that this declaration is not being examined when the function is defined.  I would have expected this to be caught as a type error.
+
+That said, the following program 'works'
+
+#lang typed/racket
+
+(: f ([#:o Integer] -> Any))
+(define (f #:o (opt-arg #f))
+  (or opt-arg #f))
+(f #:o 1) ; --> 1
+
+So it's not just a matter of 'type of optional arguments is too narrow'.
+
+Also, this program has the same glaring type error in it.
+
+----
+
+What _may_ be a related issue is that, if I try the program at the top in DrRacket with the 'Debug' button, I get an error message:
+
+Welcome to DrRacket, version 6.3 [3m].
+Language: typed/racket [custom]; memory limit: 128 MB.
+exception raised by error display handler: normalize-path: element within the input path is not a directory or does not exist
+  element: /home/ryan; original exception raised: expr-syntax-object-iterator: unknown expr: (quote-syntax (:-internal func (case-> ((#:as Integer) -> Any) (Bytes (#:as Integer) -> Any))) #:local)
+
+
+But this may be a separate issue, because if I put the smaller program, above, into DrRacket, and press Debug, I get
+
+    ../../Data/LocalApplications/Racket/6.3/share/pkgs/drracket/gui-debugger/annotator.rkt:227:6: expr-syntax-object-iterator: unknown expr: (quote-syntax (:-internal f ((#:o Integer) -> Any)) #:local)
+
+I don't know if this is related, but I wouldn't have expected to see a /home/ryan above.  Additionally, doing
+
+    find /Data/LocalApplications/Racket/6.3 -type f | xargs grep /home/ryan
+
+...I get _lots_ of matches.  Is there a possible build glitch here?
+
+----
+
+I'm on OS X, 10.10.5
+
+The same thing happens as far back as Racket 5.3.6, which is the earliest I have to hand.
+
+(I posted a description of this to users@racket-lang.org, but later realised it was more appropriate that it be posted as a bug report from DrRacket)
+>How-To-Repeat:
+See the program at the top of the 'Description'. I would expect the two expressions in this to evaluate to 1 and 1, whereas they in fact evaluate to #f and 1.
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Norman Gray <norman@astro.gla.ac.uk>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15217: Typed racket: (or 1 #f) does not produce
+ 1 -- over-enthusiastic typing?
+Date: Mon, 11 Jan 2016 17:46:35 -0500
+
+ This is definitely a bug in the type checking of optional and keyword
+ arguments when they're combined. The issues with syntax object and
+ /home/ryan seem like build issues, but they aren't causing this, since
+ I see it too.
+ 
+ Sam
+ 
+ On Mon, Jan 11, 2016 at 5:36 PM,  <norman@astro.gla.ac.uk> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15217
+ >
+ > Reported by Norman Gray for release: 6.3
+ >
+ > *** Description:
+ > Consider the following:
+ >
+ >     #lang typed/racket
+ >     ;#lang typed/racket/no-check  ; <-- this works as expected
+ >
+ >     (: func (case->
+ >                ([#:as (U Integer False)] -> Any)
+ >                (Integer [#:as (U Integer False)] -> Any)))
+ >     (define (func (arg1 #f) #:as (opt-arg #f))
+ >       (cond (arg1 (or arg1 #f)); <-- removing this expression means things work as expected
+ >             (else
+ >              (eprintf "func: opt-arg=~s, so (or ~s #f) -> ~s~%"
+ >                       opt-arg opt-arg (or opt-arg #f))
+ >              (or opt-arg #f))))
+ >
+ >     (func #:as 1)
+ >     (func 1)
+ >
+ > When run...
+ >
+ >     % racket -v
+ >     Welcome to Racket v6.3.
+ >     % racket test.rkt
+ >     func: opt-arg=1, so (or 1 #f) -> #f
+ >     #f
+ >     1
+ >     %
+ >
+ > That is, in the first case (or 1 #f) appears to evaluate to #f, not 1 as expected.  Very much not as expected.
+ >
+ > If I replace the definition with
+ >
+ >     (define (func (arg1 #f) #:as (opt-arg : (U Integer False) #f))
+ >       ...)
+ >
+ > then this works as expected.  That is, TR appears to be typing opt-arg, within the function, as False, and rewriting the (or opt-arg #f) accordingly.  It's not doing the same with the (arg1 (or arg1 #f)) clause.
+ >
+ > Given that I've typed the func function before defining it, and have typed the #:as argument as (U Integer False), I would not expect to have to repeat myself in the function definition.
+ >
+ > Related, perhaps: If I declare the type of 'func' as follows:
+ >
+ >     (: func (case->
+ >                ([#:as Integer] -> Any)
+ >                (Integer [#:as Integer] -> Any)))
+ >
+ > Then the default opt-arg value does not match the function type.  This does not produce any error or warning, and this suggests to me that this declaration is not being examined when the function is defined.  I would have expected this to be caught as a type error.
+ >
+ > That said, the following program 'works'
+ >
+ > #lang typed/racket
+ >
+ > (: f ([#:o Integer] -> Any))
+ > (define (f #:o (opt-arg #f))
+ >   (or opt-arg #f))
+ > (f #:o 1) ; --> 1
+ >
+ > So it's not just a matter of 'type of optional arguments is too narrow'.
+ >
+ > Also, this program has the same glaring type error in it.
+ >
+ > ----
+ >
+ > What _may_ be a related issue is that, if I try the program at the top in DrRacket with the 'Debug' button, I get an error message:
+ >
+ > Welcome to DrRacket, version 6.3 [3m].
+ > Language: typed/racket [custom]; memory limit: 128 MB.
+ > exception raised by error display handler: normalize-path: element within the input path is not a directory or does not exist
+ >   element: /home/ryan; original exception raised: expr-syntax-object-iterator: unknown expr: (quote-syntax (:-internal func (case-> ((#:as Integer) -> Any) (Bytes (#:as Integer) -> Any))) #:local)
+ >
+ >
+ > But this may be a separate issue, because if I put the smaller program, above, into DrRacket, and press Debug, I get
+ >
+ >     ../../Data/LocalApplications/Racket/6.3/share/pkgs/drracket/gui-debugger/annotator.rkt:227:6: expr-syntax-object-iterator: unknown expr: (quote-syntax (:-internal f ((#:o Integer) -> Any)) #:local)
+ >
+ > I don't know if this is related, but I wouldn't have expected to see a /home/ryan above.  Additionally, doing
+ >
+ >     find /Data/LocalApplications/Racket/6.3 -type f | xargs grep /home/ryan
+ >
+ > ...I get _lots_ of matches.  Is there a possible build glitch here?
+ >
+ > ----
+ >
+ > I'm on OS X, 10.10.5
+ >
+ > The same thing happens as far back as Racket 5.3.6, which is the earliest I have to hand.
+ >
+ > (I posted a description of this to users@racket-lang.org, but later realised it was more appropriate that it be posted as a bug report from DrRacket)
+ >
+ > *** How to repeat:
+ > See the program at the top of the 'Description'. I would expect the two expressions in this to evaluate to 1 and 1, whereas they in fact evaluate to #f and 1.
+ >
+ > *** Environment:
+ > macosx "Darwin coricopat.local 14.5.0 Darwin Kernel Version 14.5.0: Tue Sep  1 21:23:09 PDT 2015; root:xnu-2782.50.1~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 535130164
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package            Checksum     Source
+ >  main-distribution  46973fb2...  catalog main-distribution
+ >  racket-lib         1f53b49c...  catalog racket-lib
+ >  [186 auto-installed packages not shown]
+ > User-specific for installation "6.3":
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/Users/norman/Library/Racket/6.3/collects"
+ >  (non-existent-path))
+ > ("/Data/LocalApplications/Racket/6.3/collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >
+ > Recent Internal Errors:
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test)) #t))
+ >
+ 
+

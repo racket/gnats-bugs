@@ -1,0 +1,165 @@
+From apache@plt-scheme.org Mon Apr  5 17:32:39 2004
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id i35LWYDU007892
+	for <bugs@plt-scheme.org>; Mon, 5 Apr 2004 17:32:34 -0400
+Message-Id: <200404052132.i35LWYj1007890@champlain.ccs.neu.edu>
+Date: Mon, 5 Apr 2004 17:32:34 -0400
+From: lucier@math.purdue.edu
+To: bugs@plt-scheme.org
+Subject: Inefficient rational arithmetic
+
+>Number:         6798
+>Category:       mzscheme
+>Synopsis:       Inefficient rational arithmetic
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Apr 05 17:35:00 -0400 2004
+>Last-Modified:  Thu Sep 16 13:06:04 -0400 2004
+>Originator:     Brad Lucier
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        206p1
+>Environment:
+mac-ppc-osx
+>Description:
+> (define (fib-ratio n)
+  (if (= n 1)
+      1
+      (+ 1 (/ (fib-ratio (- n 1))))))
+> (define (fib n)
+  (numerator (fib-ratio n)))
+> (define a (time (fib 10000)))
+cpu time: 3490 real time: 4782 gc time: 20
+> (define a (time (fib 100000)))
+^Cuser break
+
+The first one should take < .1 seconds; I lost patience with the second one after several minutes.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt at Mon, 05 Apr 2004 21:30:50 -0400
+Reason>>> mz
+
+State changed from "open" to "analyzed" by mflatt at Mon, 05 Apr 2004 21:30:50 -0400
+Reason>>> Hi Brad,
+
+In the rational division function, checking
+for a simple inverse (i.e., the first argument
+is 1) improved the time by your predicted factor
+of 35, so I imagine that was the problem.
+
+The second one takes about 56 times as long
+as the first one. Does that sound right?
+
+Thanks very much for the report,
+Matthew
+
+From: Bradley Lucier <lucier@math.purdue.edu>
+To: bugs@plt-scheme.org
+Cc: Bradley Lucier <lucier@math.purdue.edu>, mflatt@cs.utah.edu,
+        nobody@plt-scheme.org, sk@cs.brown.edu
+Subject: Re: mzscheme/6798 Inefficient rational arithmetic
+Date: Mon, 5 Apr 2004 22:26:13 -0500
+
+ On Apr 5, 2004, at 8:30 PM, mflatt@cs.utah.edu wrote:
+ 
+ >
+ > Responsible changed from "nobody" to "mflatt" by mflatt at Mon, 05 Apr 
+ > 2004 21:30:50 -0400
+ > Reason>>> mz
+ >
+ > State changed from "open" to "analyzed" by mflatt at Mon, 05 Apr 2004 
+ > 21:30:50 -0400
+ > Reason>>> Hi Brad,
+ >
+ > In the rational division function, checking
+ > for a simple inverse (i.e., the first argument
+ > is 1) improved the time by your predicted factor
+ > of 35, so I imagine that was the problem.
+ 
+ I haven't looked at the code so I can't say.  (I should have said what 
+ kind of machine I expected it to run on, I guess. ;-)
+ 
+ > The second one takes about 56 times as long
+ > as the first one. Does that sound right?
+ 
+ Yes, here's what I get for beta Gambit on a 2GHz PowerPC:
+ 
+ [xsun21:~/programs/gambc40b4/lib] lucier% gsi -:m10000
+ loading ~lucier/local/gambit/gambcext
+ Gambit Version 4.0 beta 4
+ 
+  >  (define (fib-ratio n)
+    (if (= n 1)
+        1
+        (+ 1 (/ (fib-ratio (- n 1))))))
+  > (define (fib n)
+    (numerator (fib-ratio n)))
+  >  (define a (time (fib 10000)))
+ (time (fib 10000))
+      54 ms real time
+      40 ms cpu time (20 user, 20 system)
+      1 collection accounting for 2 ms real time (0 user, 0 system)
+      15378648 bytes allocated
+      no minor faults
+      no major faults
+  >  (define a (time (fib 100000)))
+ (time (fib 100000))
+      4276 ms real time
+      3450 ms cpu time (3300 user, 150 system)
+      71 collections accounting for 1939 ms real time (1570 user, 50 
+ system)
+      625661136 bytes allocated
+      no minor faults
+      no major faults
+ 
+ The first part of the section in Knuth, Volume 2, that deals with 
+ rational arithmetic has basically the following algorithms that I think 
+ deal with all the possible special cases that come up.
+ 
+ (define-prim (##ratnum.+ x y)
+    (let ((p (macro-ratnum-numerator x))
+          (q (macro-ratnum-denominator x))
+          (r (macro-ratnum-numerator y))
+          (s (macro-ratnum-denominator y)))
+      (let ((d1 (##gcd q s)))
+        (if (##eq? d1 1)
+          (macro-ratnum-make (##+ (##* p s)
+                                  (##* r q))
+                             (##* q s))
+          (let* ((s-prime (##quotient s d1))
+                 (t (##+ (##* p s-prime)
+                         (##* r (##quotient q d1))))
+                 (d2 (##gcd d1 t))
+                 (num (##quotient t d2))
+                 (den (##* (##quotient q d2)
+                           s-prime)))
+            (if (##eq? den 1)
+              num
+              (macro-ratnum-make num den)))))))
+ 
+ (define-prim (##ratnum.* x y)
+    (let ((p (macro-ratnum-numerator x))
+          (q (macro-ratnum-denominator x))
+          (r (macro-ratnum-numerator y))
+          (s (macro-ratnum-denominator y)))
+      (if (##eq? x y)
+        (macro-ratnum-make (##* p p) (##* q q))     ; already in lowest 
+ form
+        (let* ((gcd-ps (##gcd p s))
+               (gcd-rq (##gcd r q))
+               (num (##* (##quotient p gcd-ps) (##quotient r gcd-rq)))
+               (den (##* (##quotient q gcd-rq) (##quotient s gcd-ps))))
+          (if (##eq? den 1)
+            num
+            (macro-ratnum-make num den))))))
+ 
+
+State changed from "analyzed" to "closed" by mflatt at Thu, 16 Sep 2004 13:06:04 -0400
+Reason>>> Fixed (a while back).
+

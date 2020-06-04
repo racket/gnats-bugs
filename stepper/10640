@@ -1,0 +1,260 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Dec  4 10:47:13 2009
+Received: from mail-yw0-f176.google.com (mail-yw0-f176.google.com [209.85.211.176])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id nB4Fl8bR018924
+	for <bugs@bugs.plt-scheme.org>; Fri, 4 Dec 2009 10:47:08 -0500
+Message-Id: <200912041547.nB4Fl6da018917@champlain.ccs.neu.edu>
+Date: Fri, 4 Dec 2009 10:47:06 -0500
+From: matthias@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: stepper internally fails on simple world program
+
+>Number:         10640
+>Category:       stepper
+>Synopsis:       stepper internally fails on simple world program
+>Class:          sw-bug
+>Responsible:    clements
+>Severity:       serious
+>Priority:       medium
+>State:          analyzed
+>Confidential:   no
+>Arrival-Date:   Fri Dec 04 10:48:01 -0500 2009
+>Closed-Date:    
+>Last-Modified:  Thu Oct 07 19:20:01 -0400 2010
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.3.3-svn29nov2009
+>Environment:
+macosx "Darwin africa.local 10.2.0 Darwin Kernel Version 10.2.0: Tue Nov  3 10:37:10 PST 2009; root:xnu-1486.2.11~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 159068836
+
+Collections:
+(("/Users/matthias/0Unison/collects/" ".DS_Store" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web") ("/Users/matthias/Library/PLT Scheme/4.2.3.3/collects" non-existent-path) ("/Users/matthias/plt/collects" ".svn" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "reader" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper!
+ " "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Beginning Student") (#(#t constructor repeating-decimal #f #t none) #f ()))
+>Description:
+try to step program below, it fails with "annotate/inner: this region of code is still under construction"
+>How-To-Repeat:
+(require 2htdp/universe)
+
+(define (change-cat-dir a-world a-key) a-world)
+
+(define (render w) (empty-scene 200 200))
+
+(define (main debug?)
+  (big-bang 0
+            (on-key change-cat-dir)
+            (on-draw render)))
+
+(main false) 
+>Fix:
+>Audit-Trail:
+From: John Clements <clements@brinckerhoff.org>
+To: matthias@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10640: stepper internally fails on simple world program
+Date: Mon, 7 Dec 2009 16:59:24 -0800
+
+ On Dec 4, 2009, at 7:48 AM, matthias@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10640
+ >=20
+ > Reported by matthias for release: 4.2.3.3-svn29nov2009
+ >=20
+ > *** Description:
+ > try to step program below, it fails with "annotate/inner: this region =
+ of code is still under construction"
+ 
+ 
+ The problem here is that the expanded version of 'big-bang' now includes =
+ all kinds of stuff that the old htdp/world.ss didn't. Here's what it =
+ looks like:
+ 
+ (let* ([esp (make-eventspace)]
+                 [thd (eventspace-handler-thread esp)])
+            (with-handlers ((exn:break? (lambda (x) (break-thread thd))))
+              (parameterize ([current-eventspace esp])
+                (let ([o (new (if #,rec? aworld% world%) [world0 w] =
+ #,@args)])
+                  (send o last)))))
+ 
+ It turns out that all of the eventspace stuff is pretty easy to hide by =
+ moving it into a helper function.  The more difficult problem is how to =
+ deal with stepping through the expansion of the class system stuff.
+ 
+ The simple solution from the stepper's standpoint would be to go back to =
+ a world where the expansion of
+ 
+  (big-bang 0
+            (on-key change-cat-dir)
+            (on-draw render)))
+ 
+ is something like
+ 
+ (big-bang-helper 0 (list (list 'on-key change-cat-dir) (list 'on-draw =
+ render)))
+ 
+ .=20
+ 
+ Of course, this costs you the nice part of the current setup, where =
+ universe.ss doesn't actually have to know what arguments the world% =
+ requires.
+ 
+ There are a number of other unsatisfying solutions:
+ 
+ 1) Move the eventspace wrapping into a helper function, and have the =
+ stepper not annotate the call to "send" (which turns out to be a =
+ problem, since it uses multiple values).  This has the drawback that =
+ you're stepping through the expansion of "instantiate". Yuck.
+ 2) Tell the stepper not to annotate *any* of this expression.  This has =
+ the severe drawback that you won't see any steps involved in =
+ right-hand-sides to big-bang arguments.
+ 
+ I'm leaning toward number 1. Let me know if you think number 2 is better =
+ or if you have a better suggestion altogether.
+ 
+ John
+ 
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: John Clements <clements@brinckerhoff.org>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10640: stepper internally fails on simple world program
+Date: Wed, 2 Jun 2010 13:28:01 -0400
+
+ On Dec 7, 2009, at 7:59 PM, John Clements wrote:
+ 
+ > The problem here is that the expanded version of 'big-bang' now  
+ > includes all kinds of stuff that the old htdp/world.ss didn't.  
+ > Here's what it looks like:
+ >
+ > (let* ([esp (make-eventspace)]
+ >                [thd (eventspace-handler-thread esp)])
+ >           (with-handlers ((exn:break? (lambda (x) (break-thread  
+ > thd))))
+ >             (parameterize ([current-eventspace esp])
+ >               (let ([o (new (if #,rec? aworld% world%) [world0 w]  
+ > #,@args)])
+ >                 (send o last)))))
+ >
+ > It turns out that all of the eventspace stuff is pretty easy to hide  
+ > by moving it into a helper function.  The more difficult problem is  
+ > how to deal with stepping through the expansion of the class system  
+ > stuff.
+ >
+ > The simple solution from the stepper's standpoint would be to go  
+ > back to a world where the expansion of
+ >
+ > (big-bang 0
+ >           (on-key change-cat-dir)
+ >           (on-draw render)))
+ >
+ > is something like
+ >
+ > (big-bang-helper 0 (list (list 'on-key change-cat-dir) (list 'on- 
+ > draw render)))
+ >
+ > .
+ >
+ > Of course, this costs you the nice part of the current setup, where  
+ > universe.ss doesn't actually have to know what arguments the world%  
+ > requires.
+ 
+ 
+ John, if I gave you this much, what would stepping look like? What I  
+ mean is, I could design a helper function
+ 
+   big-bang-aux
+ 
+ that consumes an arbitrary number of arguments and then sets up the  
+ eventspace, creates the object, etc. I do NOT want to change the pre- 
+ processing that happens up to that point.
+ 
+ To wit, here is some of the preprocessing:
+ 
+ (define-syntax (big-bang stx)
+    (define world0 "big-bang needs at least an initial world")
+    (syntax-case stx ()
+      [(big-bang) (raise-syntax-error #f world0 stx)]
+      [(big-bang w clause ...)
+       (let* ([rec? #'#f]
+              [->rec?
+               (lambda (kw E)
+                 (when (free-identifier=? kw #'record?)
+                   (syntax-case E ()
+                     [(V) (set! rec? #'V)]
+                     [_ (err '#'record? stx)])))]
+              [args
+               (->args 'big-bang stx (syntax w) (syntax (clause ...))  
+ AllSpec WldSpec ->rec? "world")])
+ 
+         #` ... here is where the let* goes ...]))
+ 
+ -- Matthias
+ 
+ 
+ 
+ 
+ > There are a number of other unsatisfying solutions:
+ >
+ > 1) Move the eventspace wrapping into a helper function, and have the  
+ > stepper not annotate the call to "send" (which turns out to be a  
+ > problem, since it uses multiple values).  This has the drawback that  
+ > you're stepping through the expansion of "instantiate". Yuck.
+ > 2) Tell the stepper not to annotate *any* of this expression.  This  
+ > has the severe drawback that you won't see any steps involved in  
+ > right-hand-sides to big-bang arguments.
+ >
+ > I'm leaning toward number 1. Let me know if you think number 2 is  
+ > better or if you have a better suggestion altogether.
+ >
+ > John
+ >
+ 
+
+
+Responsible changed from "clements" to "matthias" by clements at Sat, 25 Sep 2010 20:16:36 -0400
+Reason>>> matthias volunteers to rewrite relevant big-bang definition
+
+
+State changed from "open" to "analyzed" by matthias at Thu, 30 Sep 2010 14:14:20 -0400
+Reason>>> .
+
+
+Responsible changed from "matthias" to "clements" by matthias at Thu, 07 Oct 2010 18:51:59 -0400
+Reason>>> I have done my part: 
+
+[:~/plt] matthias% git push
+Counting objects: 25, done.
+Delta compression using up to 2 threads.
+Compressing objects: 100% (13/13), done.
+Writing objects: 100% (13/13), 4.07 KiB, done.
+Total 13 (delta 12), reused 0 (delta 0)
+*** this is push #21197 ***
+To git:plt
+   db00461..8ef8964  master -> master
+
+From: John Clements <clements@brinckerhoff.org>
+To: bugs@racket-lang.org, Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: 
+Subject: Re: [racket-bug] stepper/10640 stepper internally fails on simple world program
+Date: Thu, 7 Oct 2010 16:18:17 -0700
+
+ On Oct 7, 2010, at 3:51 PM, matthias@racket-lang.org wrote:
+ 
+ >=20
+ > Responsible changed from "matthias" to "clements" by matthias at Thu, =
+ 07 Oct 2010 18:51:59 -0400
+ > Reason>>> I have done my part:=20
+ 
+ Yep.  I don't expect to have time to look at this until next Tuesday, =
+ but you never know...
+ 
+ Many thanks.
+ 
+ John
+ 

@@ -1,0 +1,284 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Oct 19 19:56:07 2008
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.237])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m9JNtxDX016580
+	for <bugs@bugs.plt-scheme.org>; Sun, 19 Oct 2008 19:55:59 -0400
+Message-Id: <200810192355.m9JNtusl016574@champlain.ccs.neu.edu>
+Date: Sun, 19 Oct 2008 19:55:56 -0400
+From: dvanhorn@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: time-apply: wrong type in Typed Scheme
+
+>Number:         9847
+>Category:       typed-scheme
+>Synopsis:       time-apply: wrong type in Typed Scheme
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Oct 19 20:00:01 -0400 2008
+>Closed-Date:    Wed Jan 06 19:56:48 -0500 2010
+>Last-Modified:  Wed Jan 06 19:56:48 -0500 2010
+>Originator:     David Van Horn
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.1.3-svn14oct2008
+>Environment:
+macosx "Darwin david-van-horns-computer.local 8.10.1 Darwin Kernel Version 8.10.1: Wed May 23 16:33:00 PDT 2007; root:xnu-792.22.5~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 228443068
+
+Collections:
+(("/Users/dvanhorn/Library/PLT Scheme/4.1.1.3/collects" non-existent-path) ("/sw/collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "little-helper" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed-scheme" "version" "waterworld" "web-server" "wxme" !
+ "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n"))
+>Description:
+time-apply is given the same type as apply in Typed Scheme:
+
+> apply
+- : (All (a b) ((a* -> b) (Listof a) -> b))
+> time-apply
+- : (All (a b) ((a* -> b) (Listof a) -> b))
+
+But this is an incorrect type for time-apply.  Supposing for simplicity
+that b is single valued, then the correct type is:
+
+(All (a b) ((a* -> b) (Listof a) -> (values (Listof b) Number Number Number)))
+
+If b is mult-valued, I'm not sure how to write the correct type.
+
+In any case, time-apply and the time form are unusable in TS.
+
+
+Furthermore, what's remarkable, and surely a bug in Typed Scheme is that
+this type checks with time-apply's incorrect type:
+
+#lang typed-scheme
+(time-apply + (list 1 2))
+
+Thus Number = (Values (Listof Number) Number Number Number)
+
+Also, something weird is going on with multiple values since this
+fails:
+
+(call-with-values (lambda () (time-apply + (list 1 2)))
+                  (lambda: ([v : (Listof Number)]
+                            [cpu : Number] 
+                            [user : Number]
+                            [gc : Number]) 'whatever))
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: David Van Horn <dvanhorn@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: Sam TH <samth@ccs.neu.edu>
+Subject: Re: [plt-bug] all/9847: time-apply: wrong type in Typed Scheme
+Date: Sun, 19 Oct 2008 21:36:25 -0400
+
+ Now that I see the List type constructor (undocumented), perhaps the 
+ right type for time-apply is:
+ 
+ (All (a b ...) ((a* -> (values b ... b)) (Listof a) ->
+    (values (List b ... b) Number Number Number)))
+ 
+ [I may not have the subscripting of b's right, but you get the idea.]
+ 
+ David
+From: Eli Barzilay <eli@barzilay.org>
+To: dvanhorn@ccs.neu.edu, bugs@plt-scheme.org, samth@plt-scheme.org
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [plt-bug] all/9847: time-apply: wrong type in Typed Scheme
+Date: Sun, 19 Oct 2008 23:06:40 -0400
+
+ [Adding Matthias for the discussion on `apply's type, the last item
+ below.]
+ 
+ 
+ On Oct 19, dvanhorn@ccs.neu.edu wrote:
+ > time-apply is given the same type as apply in Typed Scheme:
+ > 
+ > > apply
+ > - : (All (a b) ((a* -> b) (Listof a) -> b))
+ > > time-apply
+ > - : (All (a b) ((a* -> b) (Listof a) -> b))
+ > 
+ > But this is an incorrect type for time-apply.
+ 
+ Actually I'm the one who added the type for it, in a (clearly failing)
+ attempt to make `time' usable in my course.
+ 
+ The thing is that it's tricky to even get a restricted version in.
+ Misc notes about this issue:
+ 
+ * The expansion of `time' uses `apply' from the #%kernel module.  I
+   added a type for that, making it the same as the usual `apply'.
+   (This is mainly so it's there when you get to deal with the
+   problem.)
+ 
+ * The type of apply should really make it possible to use multiple
+   arguments (as in (apply + 1 2 (list 4 5))), since it's pretty common
+   to do so.  (This is unrelated to `time-apply' which doesn't allow
+   it.)
+ 
+ * Also, the scheme/base `apply' accepts keywords.
+ 
+ * What's more important is that the `*' is not working right.  For
+   example, (apply values (list 1 2 3)) doesn't work.
+ 
+ * I don't know how a correct type should be written -- or even *if* it
+   could be written.  The thing is that (ignoring the keywords) it
+   requires two ...s, something like this (which is clearly incorrect
+   syntax at the moment):
+ 
+     apply: (All (A ... B ... C)
+              ((A ... B ... -> C) A ... (List B ...) -> C))
+ 
+   `time-apply' makes the first ... unnecessary, but adds another:
+ 
+     time-apply: (All (A ... B ...)
+                   ((A ... -> (Values B ...))
+                    -> (Values B ... Number Number Number)))
+ 
+ * I worry that this will require yet another special case.  ("Worry",
+   because it sounds to me like such special cases diminish the
+   usefulness of the whole thing, and because it's a question whether
+   `time-apply' justifies a special case, which means that it might not
+   be available because of that.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: David Van Horn <dvanhorn@ccs.neu.edu>, bugs@plt-scheme.org,
+        Sam TH <samth@plt-scheme.org>,
+        Stevie Strickland <sstrickl@ccs.neu.edu>
+Subject: Re: [plt-bug] all/9847: time-apply: wrong type in Typed Scheme
+Date: Mon, 20 Oct 2008 08:39:02 -0400
+
+ On Oct 19, 2008, at 11:06 PM, Eli Barzilay wrote:
+ 
+ >    apply: (All (A ... B ... C)
+ >              ((A ... B ... -> C) A ... (List B ...) -> C))
+ 
+ 
+ Giving a type for a very general version of apply is just damn hard.  
+ In a sense, you'd like to provide _one_ sequence of types for _both_  
+ the sequence of individual arguments and its continuation in the  
+ list. Then the function has just this type sequence as a domain. Our  
+ syntax doesn't allow this. It doesn't allow the above either.
+ 
+ We should survey what others have done, but I doubt they got even as  
+ close as we did here.
+ 
+ -- Matthias
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: David Van Horn <dvanhorn@ccs.neu.edu>, bugs@plt-scheme.org,
+        Sam TH <samth@plt-scheme.org>,
+        Stevie Strickland <sstrickl@ccs.neu.edu>
+Subject: Re: [plt-bug] all/9847: time-apply: wrong type in Typed Scheme
+Date: Mon, 20 Oct 2008 09:21:16 -0400
+
+ On Oct 20, Matthias Felleisen wrote:
+ > 
+ > On Oct 19, 2008, at 11:06 PM, Eli Barzilay wrote:
+ > 
+ > >    apply: (All (A ... B ... C)
+ > >              ((A ... B ... -> C) A ... (List B ...) -> C))
+ > 
+ > 
+ > Giving a type for a very general version of apply is just damn hard.
+ > In a sense, you'd like to provide _one_ sequence of types for _both_
+ > the sequence of individual arguments and its continuation in the
+ > list. Then the function has just this type sequence as a domain. Our
+ > syntax doesn't allow this. It doesn't allow the above either.
+ > 
+ > We should survey what others have done, but I doubt they got even as  
+ > close as we did here.
+ 
+ Well, yes -- even without it it would be not a big deal *if* `list*'
+ works corrcetly, so you can transform your code like:
+ 
+   (apply f x ... xs) -> (apply f (list* x ... xs))
+ 
+ but (a) given that `list*' is a special case I'm not sure that this
+ will work, (b) if it does work, then `apply' can probably be easily
+ special-cased to typecheck as if you have the `list*' and the problem
+ is solved modulo not being able to specify two ...s, and (c) it still
+ leaves a proper type for `time-apply' dangling (and,I suspect, likely
+ to be left as is).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Sam TH" <samth@plt-scheme.org>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "David Van Horn" <dvanhorn@ccs.neu.edu>, bugs@plt-scheme.org,
+        "Stevie Strickland" <sstrickl@ccs.neu.edu>
+Subject: Re: [plt-bug] all/9847: time-apply: wrong type in Typed Scheme
+Date: Mon, 20 Oct 2008 09:26:22 -0400
+
+ Since Eli seems worried about this, I want to reassure everyone that
+ I'll try to make `time-apply' and `time' work correctly, even if it
+ requires a new special case - it should be pretty easy.
+ 
+ Giving the most general type to `time-apply' is extremely difficult,
+ as Matthias says.
+ 
+ sam th
+ 
+ On Mon, Oct 20, 2008 at 9:21 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Oct 20, Matthias Felleisen wrote:
+ >>
+ >> On Oct 19, 2008, at 11:06 PM, Eli Barzilay wrote:
+ >>
+ >> >    apply: (All (A ... B ... C)
+ >> >              ((A ... B ... -> C) A ... (List B ...) -> C))
+ >>
+ >>
+ >> Giving a type for a very general version of apply is just damn hard.
+ >> In a sense, you'd like to provide _one_ sequence of types for _both_
+ >> the sequence of individual arguments and its continuation in the
+ >> list. Then the function has just this type sequence as a domain. Our
+ >> syntax doesn't allow this. It doesn't allow the above either.
+ >>
+ >> We should survey what others have done, but I doubt they got even as
+ >> close as we did here.
+ >
+ > Well, yes -- even without it it would be not a big deal *if* `list*'
+ > works corrcetly, so you can transform your code like:
+ >
+ >  (apply f x ... xs) -> (apply f (list* x ... xs))
+ >
+ > but (a) given that `list*' is a special case I'm not sure that this
+ > will work, (b) if it does work, then `apply' can probably be easily
+ > special-cased to typecheck as if you have the `list*' and the problem
+ > is solved modulo not being able to specify two ...s, and (c) it still
+ > leaves a proper type for `time-apply' dangling (and,I suspect, likely
+ > to be left as is).
+ >
+ > --
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                  http://www.barzilay.org/                 Maze is Life!
+ >
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+
+Responsible changed from "nobody" to "samth" by samth at Tue, 21 Oct 2008 16:33:31 -0400
+Reason>>> ts
+
+
+
+State changed from "open" to "closed" by samth at Wed, 06 Jan 2010 19:56:48 -0500
+Reason>>> Fixed.  The current state isn't perfect, but we need to make
+(List a ...) work to make it better.
+

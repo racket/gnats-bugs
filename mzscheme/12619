@@ -1,0 +1,93 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Mar  4 04:47:50 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q249lkpO024485
+	for <bugs@bugs.plt-scheme.org>; Sun, 4 Mar 2012 04:47:46 -0500
+Message-Id: <201203040947.q249li0F024479@champlain.ccs.neu.edu>
+Date: Sun, 4 Mar 2012 04:47:44 -0500
+From: BrianDamgaard@jubii.dk
+To: bugs@racket-lang.org
+Subject: Embarrassing crashes 2 of 2 - Racket crashes in "write" function
+
+>Number:         12619
+>Category:       mzscheme
+>Synopsis:       Embarrassing crashes 2 of 2 - Racket crashes in "write" function
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Mar 04 04:48:01 -0500 2012
+>Last-Modified:  Sun Mar 04 08:37:05 -0500 2012
+>Originator:     Brian Damgaard
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 443586944
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("C:\\Users\\Brian\\AppData\\Roaming\\Racket\\5.2.1\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Compilers\\Scheme\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+Racket crashes inside its "write" function when it's given a very deeply nested tree as input.
+
+It's one thing that user programs can make the system crash if they go to extremes, but it's not good enough that heavy-duty built-in library functions like "write" break so easily.
+>How-To-Repeat:
+; Run the following program.
+; Racket crashes inside its "write" function when N = 10 million, whereas it runs correctly with N = 1 million.
+; When the "equal?" test is enabled, Racket instead crashes already there, and never reaches the "write" crash.
+
+#lang racket
+(require r5rs) ; mutable pairs
+
+(define (iota count) 
+; produces a list of n consequtive integers starting from 0
+  (let f ( [countdown count] [result '()] )
+    (if (> countdown 0) 
+        (f (- countdown 1)(cons (- countdown 1) result))
+        result )))
+
+(define (cdr-list->car-list list)
+; destructively turns a normal cdr-linked list into a car-linked list  
+  (let ((result list))
+    (do ((this list (car this)))
+
+        ((not (pair? this)) result)
+         
+        (let ((item (car this)))
+           (set-car! this (cdr this))
+           (set-cdr! this item)))))
+
+(define N 10000000)
+(define A '())
+(define B '())
+
+(time
+ (display "create lists..........: ")
+ (set! A (cdr-list->car-list (iota N)))
+ (set! B (cdr-list->car-list (iota N)))
+)
+(time
+  (display "equal? test...........: ")
+  ; (equal? A B) ; Crashes when N = 10 million. 
+) 
+(time
+  (display "garbage collection...: ")
+  (collect-garbage)
+)
+(time
+  (display "write file...........: ")
+  (with-output-to-file "C:\\Temp\\t2.txt" #:exists 'replace
+    (lambda () (write A))) ; Crashes when N = 10 million.
+)
+>Fix:

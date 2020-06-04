@@ -1,0 +1,194 @@
+From jacobm@rice.edu  Thu Nov  1 12:02:21 2001
+Return-Path: <jacobm@rice.edu>
+Received: from localhost (localhost [127.0.0.1])
+	by cs.rice.edu (Postfix) with ESMTP id 56D6818E4
+	for <plt-gnats@cs.rice.edu>; Thu,  1 Nov 2001 12:02:21 -0600 (CST)
+Message-Id: <20011101180217.D3D2218DF@cs.rice.edu>
+Date: Thu,  1 Nov 2001 12:02:17 -0600 (CST)
+From: jacobm@rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: mzlib's compile-file does not properly compile top-level requires
+
+>Number:         2132
+>Category:       mzscheme
+>Synopsis:       mzlib's compile-file does not properly compile top-level requires
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Nov  1 18:15:01 GMT 2001
+>Closed-Date:    Thu Nov 08 20:31:45 EST 2001
+>Last-Modified:  Thu Nov 08 20:31:45 EST 2001
+>Originator:     Jacob Matthews
+>Release:        199.27d6
+>Organization:
+titan
+>Environment:
+unix "SunOS patty.cs.rice.edu 5.8 Generic_108528-10 sun4u sparc SUNW,Sun-Blade-100" (sparc-solaris) (get-display-depth) = 24
+Tools: "collection-path: collection \"drscheme\" does not have sub-collection: \"tools\" in: \"/home/jacobm/plt-neu/plt/collects/drscheme\""
+Docs Installed:
+("help" "teachpack" "icons" "r5rs" "mzscheme" "mred" "drscheme" "misclib" "framework" "tools" "mzc" "insidemz" "mzlib")
+Collections: 
+(("/home/jacobm/plt-neu/plt/collects" ("CVS" "doc" "server" "browser" "compiler" "debug" "defaults" "drjava" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "readline" "setup" "slatex" "srpersist" "stepper" "string-constants" "syntax" "tests" "texpict" "userspce" "xml")) ("/home/jacobm/collects" ("cgi-compiler" "magic")))
+Human Language: English
+>Description:
+The function compile-file in collects/mzlib/compile.ss does not properly compile files 
+that perform a top-level require and then refer to one of the variables imported by that
+statement -- all such variables behave as though they were unbound.
+>How-To-Repeat:
+1. Create a file called "test.ss" with the following contents:
+(require (lib "pretty.ss"))
+(pretty-print "Here I am!")
+
+2. At the REPL, run the following commands:
+
+> (require (lib "compile.ss"))
+> (compile-file "test.ss" "test.zo")
+> 
+
+3. At the command prompt, run:
+mzscheme -mvf test.ss
+Reference to undefined identifier: pretty-print
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: jacobm@rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2132: mzlib's compile-file does not properly compile top-level requires
+Date: Thu, 01 Nov 2001 10:18:13 -0800
+
+ You need to combine that stuff with:
+ 
+   eval-compile-time-part-of-top-level
+ 
+ You might try creating a new namespace for each file that is compiled
+ and using that procedure to bang on the namespace while expanding the
+ expressions in the file.
+ 
+ Or, maybe Matthew will work that into compile-file himself. But, just
+ so you know, that isn't being call, which is why it doesn't work.
+ 
+ Robby
+
+From: Jacob Matthews <jacobm@alumni.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: <plt-gnats@cs.rice.edu>
+Subject: Re: all/2132: mzlib's compile-file does not properly compile top-level
+ requires
+Date: Thu, 1 Nov 2001 13:26:51 -0600 (CST)
+
+ I don't know nearly enough about the interactions between namespaces and
+ compilation or evaluation to know whether this works generally or just in
+ the test case I submitted, but I modified compile-file as follows:
+ 
+ in the original file (collects/mzlib/compile.ss) on line 42 there is a
+ loop that reads:
+ 
+ (let loop ()
+   (let ([r (read-syntax src in)])
+     (unless (eof-object? r)
+       (write (compile (filter r)) out)
+       (loop))))
+ 
+ i changed it to read:
+ 
+ (parameterize ([current-namespace (make-namespace)])
+   (let loop ()
+     (let ([r (read-syntax src in)])
+       (unless (eof-object? r)
+         (eval-compile-time-part-of-top-level (expand r))
+         (write (compile (filter r)) out)
+         (loop)))))
+ 
+ After the change, compile-file now appears to build the correct semantics
+ into the file it produces. Is my "fix" actually a fix or is there some
+ deeper interaction that I'm missing?
+ 
+ -jacob
+ 
+ On Thu, 1 Nov 2001, Robert Bruce Findler wrote:
+ 
+ > You need to combine that stuff with:
+ >
+ >   eval-compile-time-part-of-top-level
+ >
+ > You might try creating a new namespace for each file that is compiled
+ > and using that procedure to bang on the namespace while expanding the
+ > expressions in the file.
+ >
+ > Or, maybe Matthew will work that into compile-file himself. But, just
+ > so you know, that isn't being call, which is why it doesn't work.
+ >
+ > Robby
+ >
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Jacob Matthews <jacobm@alumni.rice.edu>
+Cc: <plt-gnats@cs.rice.edu>, mflatt@cs.utah.edu
+Subject: Re: all/2132: mzlib's compile-file does not properly compile top-level
+ requires
+Date: Thu, 01 Nov 2001 11:35:48 -0800
+
+ Quoting Jacob Matthews:
+ > i changed it to read:
+ > 
+ > (parameterize ([current-namespace (make-namespace)])
+ >   (let loop ()
+ >     (let ([r (read-syntax src in)])
+ >       (unless (eof-object? r)
+ >         (eval-compile-time-part-of-top-level (expand r))
+ >         (write (compile (filter r)) out)
+ >         (loop)))))
+ 
+ That looks almost right. I'm not sure how the `filter' argument is
+ used (it isn't documented), but you probably want to do this:
+ 
+ (parameterize ([current-namespace (make-namespace)])
+   (let loop ()
+     (let ([r (read-syntax src in)])
+       (unless (eof-object? r)
+         (let ([expanded (expand (filter r))])
+           (eval-compile-time-part-of-top-level expanded)
+           (write (compile expanded) out))
+         (loop)))))
+ 
+ that change also avoids re-expansion.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Jacob Matthews <jacobm@alumni.rice.edu>
+Cc: Robert Bruce Findler <robby@cs.rice.edu>, <plt-gnats@cs.rice.edu>
+Subject: Re: all/2132: mzlib's compile-file does not properly compile top-level
+ requires
+Date: Thu, 1 Nov 2001 13:14:48 -0700 (MST)
+
+ Don't change `compile-file'. It's meant for compiling module files.
+ 
+ Instead, use the `compile-zos' function from the "compiler"
+ collection's "compiler.ss" library. I've just cleaned up the doc.txt
+ documentation and exp-tagged it.
+ 
+ (I've also modified the docs for `compile-file' to point to
+ `compile-zos'.)
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Thu Nov  8 20:31:44 2001
+Responsible-Changed-Why:
+    mzlib
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Thu Nov  8 20:31:44 2001
+State-Changed-Why:
+    improved mzlib docs, "compiler" collection docs
+>Unformatted:
+

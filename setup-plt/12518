@@ -1,0 +1,1446 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Jan 28 19:22:19 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q0T0MGtI001523
+	for <bugs@bugs.plt-scheme.org>; Sat, 28 Jan 2012 19:22:16 -0500
+Message-Id: <201201290022.q0T0MENU001517@champlain.ccs.neu.edu>
+Date: Sat, 28 Jan 2012 19:22:14 -0500
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: `images' build is a major bottleneck
+
+>Number:         12518
+>Category:       setup-plt
+>Synopsis:       `images' build is a major bottleneck
+>Class:          sw-bug
+>Responsible:    ntoronto
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Jan 28 19:24:01 -0500 2012
+>Last-Modified:  Wed Feb 08 18:48:02 -0500 2012
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Any
+>Description:
+Running a setup got to a point where it seemed to be stuck for a long
+time, with only one core (out of four) being at a 100%.  Looking at
+the output, it seems that `images' is the bottleneck, with all cores
+waiting for it to finish (and this happens after a good amount of
+time).  Below is the last line that I had for each core at the point
+where it was stuck with a single core:
+
+  raco setup: 0 [...]
+  raco setup: 0 making: drracket
+  raco setup: 2 [...]
+  raco setup: 2 making: gui-debugger/icons
+  raco setup: 1 [...]
+  raco setup: 1 making: icons
+  raco setup: 1 making: icons/private
+  raco setup: 1 making: images
+  raco setup: 3 [...]
+  raco setup: 3 making: macro-debugger
+
+Also, looking at the graph at the bottom of
+  http://drdr.racket-lang.org/24212/src/build/make-install
+it looks like a build is taking almost twice the time it took not too
+long ago.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: eli@barzilay.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sat, 28 Jan 2012 21:19:41 -0700
+
+ On 01/28/2012 05:24 PM, eli@barzilay.org wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12518
+ >
+ > Reported by Eli Barzilay for release: HEAD
+ >
+ > *** Description:
+ > Running a setup got to a point where it seemed to be stuck for a long
+ > time, with only one core (out of four) being at a 100%.  Looking at
+ > the output, it seems that `images' is the bottleneck, with all cores
+ > waiting for it to finish (and this happens after a good amount of
+ > time).  Below is the last line that I had for each core at the point
+ > where it was stuck with a single core:
+ >
+ >    raco setup: 0 [...]
+ >    raco setup: 0 making: drracket
+ >    raco setup: 2 [...]
+ >    raco setup: 2 making: gui-debugger/icons
+ >    raco setup: 1 [...]
+ >    raco setup: 1 making: icons
+ >    raco setup: 1 making: icons/private
+ >    raco setup: 1 making: images
+ >    raco setup: 3 [...]
+ >    raco setup: 3 making: macro-debugger
+ 
+ Same problem here, on 8 cores. This is where they get stuck:
+ 
+ raco setup: 2 making: drracket
+ raco setup: 4 making: gui-debugger
+ raco setup: 0 making: images
+ raco setup: 6 making: macro-debugger
+ raco setup: 7 making: scribble/tools/private
+ raco setup: 3 making: scribblings/tools
+ raco setup: 1 making: stepper
+ raco setup: 5 making: tests/macro-debugger
+ 
+ I don't know about scribble, but I think we can assume the rest are 
+ waiting for images. They're the early adopters.
+ 
+ It's almost certainly type checking that takes most of the time. When I 
+ ported to Typed Racket, I had to split up the `flomap' and `deep-flomap' 
+ modules to keep from having to wait a minute or more before testing 
+ every change. Before porting, it was taking 10-15 seconds.
+ 
+ So should we call "images" a Typed Racket efficiency test case?
+ 
+ For now, is there a way to visit it as early as possible in the walk 
+ over the dependency graph? It only depends on racket and typed-racket.
+ 
+ When I started to collect timings for "images/private", which is almost 
+ all TR code, versus the rest of it, I discovered something weird. It 
+ seems that compiling "images/private" first manually makes the entire 
+ thing take less time.
+ 
+ First, all of "images":
+ 
+ neil@schroder:~/plt/collects/images$ find . -name 'compiled' -exec rm 
+ -rf \{\} \;
+ 
+ neil@schroder:~/plt/bin$ time ./raco setup --no-docs -l images
+ ...
+ raco setup: --- parallel build using 8 processes ---
+ raco setup: 7 making: images
+ raco setup: 7 making: images/scribblings
+ raco setup: 7 making: images/icons
+ raco setup: 7 making: images/icons/private
+ ...
+ real	2m25.441s
+ user	2m35.570s
+ sys	0m3.370s
+ 
+ 
+ Now with "images/private" first:
+ 
+ neil@schroder:~/plt/collects/images$ find . -name 'compiled' -exec rm 
+ -rf \{\} \;
+ 
+ neil@schroder:~/plt/bin$ time ./raco setup --no-docs -l images/private
+ ...
+ real	1m13.332s
+ user	1m46.640s
+ sys	0m3.120s
+ 
+ neil@schroder:~/plt/bin$ time ./raco setup --no-docs -l images
+ ...
+ raco setup: --- parallel build using 8 processes ---
+ raco setup: 7 making: images
+ raco setup: 7 making: images/scribblings
+ raco setup: 7 making: images/icons
+ raco setup: 7 making: images/icons/private
+ ...
+ real	0m4.874s
+ user	0m16.200s
+ sys	0m2.070s
+ 
+ 
+ The latter's user total is just over 2 minutes, versus 2:35. This is 
+ consistent over several tries.
+ 
+ Neil ⊥
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: eli@barzilay.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 09:28:26 -0500
+
+ On Sat, Jan 28, 2012 at 11:19 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >
+ > It's almost certainly type checking that takes most of the time. When I
+ > ported to Typed Racket, I had to split up the `flomap' and `deep-flomap'
+ > modules to keep from having to wait a minute or more before testing every
+ > change. Before porting, it was taking 10-15 seconds.
+ >
+ > So should we call "images" a Typed Racket efficiency test case?
+ 
+ Can you use `raco make -v' to determine which files take a long time?
+ I'll take a look at the slow ones.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: eli@barzilay.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 10:12:34 -0700
+
+ On 01/29/2012 07:28 AM, Sam Tobin-Hochstadt wrote:
+ > On Sat, Jan 28, 2012 at 11:19 PM, Neil Toronto<neil.toronto@gmail.com>  wrote:
+ >>
+ >> It's almost certainly type checking that takes most of the time. When I
+ >> ported to Typed Racket, I had to split up the `flomap' and `deep-flomap'
+ >> modules to keep from having to wait a minute or more before testing every
+ >> change. Before porting, it was taking 10-15 seconds.
+ >>
+ >> So should we call "images" a Typed Racket efficiency test case?
+ >
+ > Can you use `raco make -v' to determine which files take a long time?
+ > I'll take a look at the slow ones.
+ 
+ I don't think concentrating on the slow ones will help in this case. 
+ Compile times apparently scale linearly with code size. Evidence:
+ 
+ #lang racket
+ 
+ (require plot)
+ 
+ ;; per-file compile times for raco make -v, on a linearization of the
+ ;; dependency graph; sizes are in bytes
+ (define time-size-data
+    '(#(1.192 3493)    ; flomap-convert.rkt
+      #(1.410 1536)    ; deep-flomap-parameters.rkt
+      #(1.453 283)     ; deep-flomap.rkt
+      #(1.549 3183)    ; flonum.rkt
+      #(1.637 1021)    ; flomap.rkt
+      #(2.532 2662)    ; flomap-stats.rkt
+      #(2.825 2873)    ; flomap-effects.rkt
+      #(5.033 5149)    ; flomap-composite.rkt
+      #(6.595 7256)    ; flomap-struct.rkt
+      #(7.047 3583)    ; flomap-gradient.rkt
+      #(7.302 4604)    ; flomap-transform.rkt
+      #(7.898 10669)   ; flomap-resize.rkt
+      #(15.522 14575)  ; flomap-blur.rkt
+      #(22.687 5208)   ; flomap-pointwise.rkt
+      #(23.125 22013)  ; deep-flomap-struct.rkt
+      #(29.138 24442)  ; deep-flomap-render.rkt
+      ))
+ 
+ (parameterize ([plot-y-ticks  (bit/byte-ticks)]
+                 [plot-x-ticks  (time-ticks)])
+    (plot (list (lines time-size-data)
+                (points time-size-data)
+                (point-label #(22.687 5208) "flomap-pointwise.rkt"
+                             #:anchor 'right)
+                (point-label #(1.453 283) "deep-flomap.rkt"
+                             #:anchor 'top-left))
+          #:y-label "Size" #:x-label "Time"))
+ 
+ There's noise in the data for small files, but the trend is clear in the 
+ large ones. There's one apparent outlier: "flomap-pointwise.rkt". But 
+ this uses a macro to lift flonum ops from `racket/flonum' to flomaps. I 
+ don't know what its size is after expansion, but it's undoubtedly large.
+ 
+ Linear is good news. The only problem is the large-ish constant. :)
+ 
+ Neil ⊥
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 11:16:46 -0600
+
+ On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > There's noise in the data for small files, but the trend is clear in the
+ > large ones. There's one apparent outlier: "flomap-pointwise.rkt". But this
+ > uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ > know what its size is after expansion, but it's undoubtedly large.
+ 
+ This is a common reason why compilation is slow and the common way to
+ fix it is to change the expansion to generate less code (often by
+ generating calls to functions that does whatever the code was doing
+ before).
+ 
+ Robby
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 15:19:53 -0700
+
+ On 01/29/2012 10:16 AM, Robby Findler wrote:
+ > On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>  wrote:
+ >> There's noise in the data for small files, but the trend is clear in the
+ >> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But this
+ >> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >> know what its size is after expansion, but it's undoubtedly large.
+ >
+ > This is a common reason why compilation is slow and the common way to
+ > fix it is to change the expansion to generate less code (often by
+ > generating calls to functions that does whatever the code was doing
+ > before).
+ 
+ Right. Further, in this case, the macros don't actually make things 
+ readable or more maintainable. I could easily have done it with 
+ higher-order functions. But for performance, they're critical. Lifted 
+ flonum ops are the most basic operations on flomaps, and they're used 
+ everywhere. They have to be fast.
+ 
+ More particularly, the only reason for syntactic abstraction is to 
+ inline the lifted flonum ops. If they're inlined, Racket's compiler will 
+ do everything unboxed. On my computer, it speeds up adding two flomaps 
+ 3.5-4x.
+ 
+ If I expected Racket's compiler to inline them in the near future, I 
+ might be willing to take a performance hit now. But in this case, 
+ inlining would require the compiler to apply a HOF.
+ 
+ Neil ⊥
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: eli@barzilay.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 17:52:37 -0500
+
+ On Sun, Jan 29, 2012 at 12:12 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > I don't know what its size is after expansion, but it's undoubtedly large.
+ 
+ You can see this in the size of the zo files.  Here are the three
+ biggest in that directory:
+ 
+   58188 2012-01-28 10:27 compiled/flomap-blur_rkt.zo
+  119484 2012-01-29 17:40 compiled/flomap-pointwise_rkt.zo
+  123890 2012-01-28 10:29 compiled/deep-flomap-struct_rkt.zo
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 16:58:49 -0600
+
+ The compiler already does lots of inlining.
+ 
+ Robby
+ 
+ On Sun, Jan 29, 2012 at 4:19 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >>
+ >> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >>  wrote:
+ >>>
+ >>> There's noise in the data for small files, but the trend is clear in the
+ >>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>> this
+ >>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >>> know what its size is after expansion, but it's undoubtedly large.
+ >>
+ >>
+ >> This is a common reason why compilation is slow and the common way to
+ >> fix it is to change the expansion to generate less code (often by
+ >> generating calls to functions that does whatever the code was doing
+ >> before).
+ >
+ >
+ > Right. Further, in this case, the macros don't actually make things readable
+ > or more maintainable. I could easily have done it with higher-order
+ > functions. But for performance, they're critical. Lifted flonum ops are the
+ > most basic operations on flomaps, and they're used everywhere. They have to
+ > be fast.
+ >
+ > More particularly, the only reason for syntactic abstraction is to inline
+ > the lifted flonum ops. If they're inlined, Racket's compiler will do
+ > everything unboxed. On my computer, it speeds up adding two flomaps 3.5-4x.
+ >
+ > If I expected Racket's compiler to inline them in the near future, I might
+ > be willing to take a performance hit now. But in this case, inlining would
+ > require the compiler to apply a HOF.
+ >
+ > Neil ⊥
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 18:05:08 -0500
+
+ On Sun, Jan 29, 2012 at 5:58 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > The compiler already does lots of inlining.
+ 
+ I think Neil is saying that, experimentally, the compiler doesn't
+ inline the relevant code in this case.  I've certainly encountered
+ other cases where replacing functions with macros produced substantial
+ speedups (you can see one here [1]).
+ 
+ [1] https://github.com/plt/racket/blob/master/collects/tests/racket/benchmarks/shootout/mandelbrot-futures.rkt#L33
+ 
+ >
+ > Robby
+ >
+ > On Sun, Jan 29, 2012 at 4:19 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >> On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >>>
+ >>> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >>>  wrote:
+ >>>>
+ >>>> There's noise in the data for small files, but the trend is clear in the
+ >>>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>>> this
+ >>>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >>>> know what its size is after expansion, but it's undoubtedly large.
+ >>>
+ >>>
+ >>> This is a common reason why compilation is slow and the common way to
+ >>> fix it is to change the expansion to generate less code (often by
+ >>> generating calls to functions that does whatever the code was doing
+ >>> before).
+ >>
+ >>
+ >> Right. Further, in this case, the macros don't actually make things readable
+ >> or more maintainable. I could easily have done it with higher-order
+ >> functions. But for performance, they're critical. Lifted flonum ops are the
+ >> most basic operations on flomaps, and they're used everywhere. They have to
+ >> be fast.
+ >>
+ >> More particularly, the only reason for syntactic abstraction is to inline
+ >> the lifted flonum ops. If they're inlined, Racket's compiler will do
+ >> everything unboxed. On my computer, it speeds up adding two flomaps 3.5-4x.
+ >>
+ >> If I expected Racket's compiler to inline them in the near future, I might
+ >> be willing to take a performance hit now. But in this case, inlining would
+ >> require the compiler to apply a HOF.
+ >>
+ >> Neil ⊥
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 17:11:44 -0600
+
+ Right, sorry I wasn't particularly clear. I'm saying that that looks
+ like a job for the compiler, not for macros. I can appreciate that
+ sometimes macros can help, because they can be more carefully
+ targeted. But in this case, it sounds like the macros are also hurting
+ substantially.
+ 
+ Robby
+ 
+ On Sun, Jan 29, 2012 at 5:05 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Sun, Jan 29, 2012 at 5:58 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> The compiler already does lots of inlining.
+ >
+ > I think Neil is saying that, experimentally, the compiler doesn't
+ > inline the relevant code in this case.  I've certainly encountered
+ > other cases where replacing functions with macros produced substantial
+ > speedups (you can see one here [1]).
+ >
+ > [1] https://github.com/plt/racket/blob/master/collects/tests/racket/benchmarks/shootout/mandelbrot-futures.rkt#L33
+ >
+ >>
+ >> Robby
+ >>
+ >> On Sun, Jan 29, 2012 at 4:19 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >>> On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >>>>
+ >>>> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >>>>  wrote:
+ >>>>>
+ >>>>> There's noise in the data for small files, but the trend is clear in the
+ >>>>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>>>> this
+ >>>>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >>>>> know what its size is after expansion, but it's undoubtedly large.
+ >>>>
+ >>>>
+ >>>> This is a common reason why compilation is slow and the common way to
+ >>>> fix it is to change the expansion to generate less code (often by
+ >>>> generating calls to functions that does whatever the code was doing
+ >>>> before).
+ >>>
+ >>>
+ >>> Right. Further, in this case, the macros don't actually make things readable
+ >>> or more maintainable. I could easily have done it with higher-order
+ >>> functions. But for performance, they're critical. Lifted flonum ops are the
+ >>> most basic operations on flomaps, and they're used everywhere. They have to
+ >>> be fast.
+ >>>
+ >>> More particularly, the only reason for syntactic abstraction is to inline
+ >>> the lifted flonum ops. If they're inlined, Racket's compiler will do
+ >>> everything unboxed. On my computer, it speeds up adding two flomaps 3.5-4x.
+ >>>
+ >>> If I expected Racket's compiler to inline them in the near future, I might
+ >>> be willing to take a performance hit now. But in this case, inlining would
+ >>> require the compiler to apply a HOF.
+ >>>
+ >>> Neil ⊥
+ >
+ >
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 18:23:41 -0500
+
+ I'm still not quite sure what you're saying.  Are you just saying that
+ it would be great if the compiler did this automatically (which I of
+ course agree with)?  Or that Neil shouldn't use macros here because of
+ the compilation time issues (which I would disagree with -- plot
+ shouldn't be slower at runtime because TR is slow at compile time)?
+ 
+ On Sun, Jan 29, 2012 at 6:11 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Right, sorry I wasn't particularly clear. I'm saying that that looks
+ > like a job for the compiler, not for macros. I can appreciate that
+ > sometimes macros can help, because they can be more carefully
+ > targeted. But in this case, it sounds like the macros are also hurting
+ > substantially.
+ >
+ > Robby
+ >
+ > On Sun, Jan 29, 2012 at 5:05 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> On Sun, Jan 29, 2012 at 5:58 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> The compiler already does lots of inlining.
+ >>
+ >> I think Neil is saying that, experimentally, the compiler doesn't
+ >> inline the relevant code in this case.  I've certainly encountered
+ >> other cases where replacing functions with macros produced substantial
+ >> speedups (you can see one here [1]).
+ >>
+ >> [1] https://github.com/plt/racket/blob/master/collects/tests/racket/benchmarks/shootout/mandelbrot-futures.rkt#L33
+ >>
+ >>>
+ >>> Robby
+ >>>
+ >>> On Sun, Jan 29, 2012 at 4:19 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >>>> On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >>>>>
+ >>>>> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >>>>>  wrote:
+ >>>>>>
+ >>>>>> There's noise in the data for small files, but the trend is clear in the
+ >>>>>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>>>>> this
+ >>>>>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >>>>>> know what its size is after expansion, but it's undoubtedly large.
+ >>>>>
+ >>>>>
+ >>>>> This is a common reason why compilation is slow and the common way to
+ >>>>> fix it is to change the expansion to generate less code (often by
+ >>>>> generating calls to functions that does whatever the code was doing
+ >>>>> before).
+ >>>>
+ >>>>
+ >>>> Right. Further, in this case, the macros don't actually make things readable
+ >>>> or more maintainable. I could easily have done it with higher-order
+ >>>> functions. But for performance, they're critical. Lifted flonum ops are the
+ >>>> most basic operations on flomaps, and they're used everywhere. They have to
+ >>>> be fast.
+ >>>>
+ >>>> More particularly, the only reason for syntactic abstraction is to inline
+ >>>> the lifted flonum ops. If they're inlined, Racket's compiler will do
+ >>>> everything unboxed. On my computer, it speeds up adding two flomaps 3.5-4x.
+ >>>>
+ >>>> If I expected Racket's compiler to inline them in the near future, I might
+ >>>> be willing to take a performance hit now. But in this case, inlining would
+ >>>> require the compiler to apply a HOF.
+ >>>>
+ >>>> Neil ⊥
+ >>
+ >>
+ >>
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 16:30:06 -0700
+
+ On 01/29/2012 03:19 PM, Neil Toronto wrote:
+ > On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >> wrote:
+ >>> There's noise in the data for small files, but the trend is clear in the
+ >>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>> this
+ >>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >>> know what its size is after expansion, but it's undoubtedly large.
+ >>
+ >> This is a common reason why compilation is slow and the common way to
+ >> fix it is to change the expansion to generate less code (often by
+ >> generating calls to functions that does whatever the code was doing
+ >> before).
+ >
+ > Right. Further, in this case, the macros don't actually make things
+ > readable or more maintainable. I could easily have done it with
+ > higher-order functions. But for performance, they're critical. Lifted
+ > flonum ops are the most basic operations on flomaps, and they're used
+ > everywhere. They have to be fast.
+ >
+ > More particularly, the only reason for syntactic abstraction is to
+ > inline the lifted flonum ops. If they're inlined, Racket's compiler will
+ > do everything unboxed. On my computer, it speeds up adding two flomaps
+ > 3.5-4x.
+ >
+ > If I expected Racket's compiler to inline them in the near future, I
+ > might be willing to take a performance hit now. But in this case,
+ > inlining would require the compiler to apply a HOF.
+ 
+ Have you tried using 'begin-encourage-inline' to see if the compiler 
+ does the inlining you want then?
+ 
+ Ryan
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 17:47:42 -0600
+
+ I don't know how much slower plot would be. I also don't know how much
+ faster the compile time would be. I also don't know why TR is involved
+ here (if the problem is generating lots of code due to Neil's inlining
+ macros -- unless maybe his macros are generating TR code?). I also
+ don't know if just a few uses of the macro-based inlining would be
+ enough (that seems like something worth thinking about at least).
+ 
+ Robby
+ 
+ On Sun, Jan 29, 2012 at 5:23 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > I'm still not quite sure what you're saying.  Are you just saying that
+ > it would be great if the compiler did this automatically (which I of
+ > course agree with)?  Or that Neil shouldn't use macros here because of
+ > the compilation time issues (which I would disagree with -- plot
+ > shouldn't be slower at runtime because TR is slow at compile time)?
+ >
+ > On Sun, Jan 29, 2012 at 6:11 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> Right, sorry I wasn't particularly clear. I'm saying that that looks
+ >> like a job for the compiler, not for macros. I can appreciate that
+ >> sometimes macros can help, because they can be more carefully
+ >> targeted. But in this case, it sounds like the macros are also hurting
+ >> substantially.
+ >>
+ >> Robby
+ >>
+ >> On Sun, Jan 29, 2012 at 5:05 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >>> On Sun, Jan 29, 2012 at 5:58 PM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>> The compiler already does lots of inlining.
+ >>>
+ >>> I think Neil is saying that, experimentally, the compiler doesn't
+ >>> inline the relevant code in this case.  I've certainly encountered
+ >>> other cases where replacing functions with macros produced substantial
+ >>> speedups (you can see one here [1]).
+ >>>
+ >>> [1] https://github.com/plt/racket/blob/master/collects/tests/racket/benchmarks/shootout/mandelbrot-futures.rkt#L33
+ >>>
+ >>>>
+ >>>> Robby
+ >>>>
+ >>>> On Sun, Jan 29, 2012 at 4:19 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >>>>> On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >>>>>>
+ >>>>>> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >>>>>>  wrote:
+ >>>>>>>
+ >>>>>>> There's noise in the data for small files, but the trend is clear in the
+ >>>>>>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>>>>>> this
+ >>>>>>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >>>>>>> know what its size is after expansion, but it's undoubtedly large.
+ >>>>>>
+ >>>>>>
+ >>>>>> This is a common reason why compilation is slow and the common way to
+ >>>>>> fix it is to change the expansion to generate less code (often by
+ >>>>>> generating calls to functions that does whatever the code was doing
+ >>>>>> before).
+ >>>>>
+ >>>>>
+ >>>>> Right. Further, in this case, the macros don't actually make things readable
+ >>>>> or more maintainable. I could easily have done it with higher-order
+ >>>>> functions. But for performance, they're critical. Lifted flonum ops are the
+ >>>>> most basic operations on flomaps, and they're used everywhere. They have to
+ >>>>> be fast.
+ >>>>>
+ >>>>> More particularly, the only reason for syntactic abstraction is to inline
+ >>>>> the lifted flonum ops. If they're inlined, Racket's compiler will do
+ >>>>> everything unboxed. On my computer, it speeds up adding two flomaps 3.5-4x.
+ >>>>>
+ >>>>> If I expected Racket's compiler to inline them in the near future, I might
+ >>>>> be willing to take a performance hit now. But in this case, inlining would
+ >>>>> require the compiler to apply a HOF.
+ >>>>>
+ >>>>> Neil ⊥
+ >>>
+ >>>
+ >>>
+ >>> --
+ >>> sam th
+ >>> samth@ccs.neu.edu
+ >
+ >
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Ryan Culpepper <ryan@cs.utah.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 16:48:54 -0700
+
+ On 01/29/2012 04:30 PM, Ryan Culpepper wrote:
+ > On 01/29/2012 03:19 PM, Neil Toronto wrote:
+ >> On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >>> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >>> wrote:
+ >>>> There's noise in the data for small files, but the trend is clear in
+ >>>> the
+ >>>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>>> this
+ >>>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I
+ >>>> don't
+ >>>> know what its size is after expansion, but it's undoubtedly large.
+ >>>
+ >>> This is a common reason why compilation is slow and the common way to
+ >>> fix it is to change the expansion to generate less code (often by
+ >>> generating calls to functions that does whatever the code was doing
+ >>> before).
+ >>
+ >> Right. Further, in this case, the macros don't actually make things
+ >> readable or more maintainable. I could easily have done it with
+ >> higher-order functions. But for performance, they're critical. Lifted
+ >> flonum ops are the most basic operations on flomaps, and they're used
+ >> everywhere. They have to be fast.
+ >>
+ >> More particularly, the only reason for syntactic abstraction is to
+ >> inline the lifted flonum ops. If they're inlined, Racket's compiler will
+ >> do everything unboxed. On my computer, it speeds up adding two flomaps
+ >> 3.5-4x.
+ >>
+ >> If I expected Racket's compiler to inline them in the near future, I
+ >> might be willing to take a performance hit now. But in this case,
+ >> inlining would require the compiler to apply a HOF.
+ >
+ > Have you tried using 'begin-encourage-inline' to see if the compiler
+ > does the inlining you want then?
+ 
+ The flonum ops I'm lifting are the ones from racket/flonum, which I 
+ didn't define. :)
+ 
+ There's some confusion here, because I've been using the word 
+ "inlining". What I really mean is partial application. (I don't know a 
+ more specific term for it.)
+ 
+ Suppose I define
+ 
+ (define (flvector+ v1 v2)
+    (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+      (fl+ x y)))
+ 
+ to add flvectors pointwise. Then I realize I need flvector-, flvector*, 
+ flvector/, etc., etc. To abstract all those, I write
+ 
+ (define ((flvector-lift2 f) v1 v2)
+    (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+      (f x y)))
+ 
+ (define flvector+ (flvector-lift2 fl+))
+ (define flvector- (flvector-lift2 fl-))
+ (define flvector* (flvector-lift2 fl*))
+ (define flvector/ (flvector-lift2 fl/))
+ 
+ Then Racket's JIT will always box `x' and `y' and unbox the result of (f 
+ x y), because the compiler will never flag `f' as a flonum op.
+ 
+ If compilation meant executing top-level defines, or if it did some kind 
+ of type inference or could use information from Typed Racket, it could 
+ optimize this. But it doesn't, so I wrote a macro.
+ 
+ Neil ⊥
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 18:56:33 -0500
+
+ The reason TR is involved is that the relevant module is written in
+ `typed/racket/base'.  Using `typed/racket/base/no-check', compile time
+ is under a second.
+ 
+ On Sun, Jan 29, 2012 at 6:47 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > I don't know how much slower plot would be. I also don't know how much
+ > faster the compile time would be. I also don't know why TR is involved
+ > here (if the problem is generating lots of code due to Neil's inlining
+ > macros -- unless maybe his macros are generating TR code?). I also
+ > don't know if just a few uses of the macro-based inlining would be
+ > enough (that seems like something worth thinking about at least).
+ >
+ > Robby
+ >
+ > On Sun, Jan 29, 2012 at 5:23 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> I'm still not quite sure what you're saying.  Are you just saying that
+ >> it would be great if the compiler did this automatically (which I of
+ >> course agree with)?  Or that Neil shouldn't use macros here because of
+ >> the compilation time issues (which I would disagree with -- plot
+ >> shouldn't be slower at runtime because TR is slow at compile time)?
+ >>
+ >> On Sun, Jan 29, 2012 at 6:11 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> Right, sorry I wasn't particularly clear. I'm saying that that looks
+ >>> like a job for the compiler, not for macros. I can appreciate that
+ >>> sometimes macros can help, because they can be more carefully
+ >>> targeted. But in this case, it sounds like the macros are also hurting
+ >>> substantially.
+ >>>
+ >>> Robby
+ >>>
+ >>> On Sun, Jan 29, 2012 at 5:05 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >>>> On Sun, Jan 29, 2012 at 5:58 PM, Robby Findler
+ >>>> <robby@eecs.northwestern.edu> wrote:
+ >>>>> The compiler already does lots of inlining.
+ >>>>
+ >>>> I think Neil is saying that, experimentally, the compiler doesn't
+ >>>> inline the relevant code in this case.  I've certainly encountered
+ >>>> other cases where replacing functions with macros produced substantial
+ >>>> speedups (you can see one here [1]).
+ >>>>
+ >>>> [1] https://github.com/plt/racket/blob/master/collects/tests/racket/benchmarks/shootout/mandelbrot-futures.rkt#L33
+ >>>>
+ >>>>>
+ >>>>> Robby
+ >>>>>
+ >>>>> On Sun, Jan 29, 2012 at 4:19 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >>>>>> On 01/29/2012 10:16 AM, Robby Findler wrote:
+ >>>>>>>
+ >>>>>>> On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto<neil.toronto@gmail.com>
+ >>>>>>>  wrote:
+ >>>>>>>>
+ >>>>>>>> There's noise in the data for small files, but the trend is clear in the
+ >>>>>>>> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But
+ >>>>>>>> this
+ >>>>>>>> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >>>>>>>> know what its size is after expansion, but it's undoubtedly large.
+ >>>>>>>
+ >>>>>>>
+ >>>>>>> This is a common reason why compilation is slow and the common way to
+ >>>>>>> fix it is to change the expansion to generate less code (often by
+ >>>>>>> generating calls to functions that does whatever the code was doing
+ >>>>>>> before).
+ >>>>>>
+ >>>>>>
+ >>>>>> Right. Further, in this case, the macros don't actually make things readable
+ >>>>>> or more maintainable. I could easily have done it with higher-order
+ >>>>>> functions. But for performance, they're critical. Lifted flonum ops are the
+ >>>>>> most basic operations on flomaps, and they're used everywhere. They have to
+ >>>>>> be fast.
+ >>>>>>
+ >>>>>> More particularly, the only reason for syntactic abstraction is to inline
+ >>>>>> the lifted flonum ops. If they're inlined, Racket's compiler will do
+ >>>>>> everything unboxed. On my computer, it speeds up adding two flomaps 3.5-4x.
+ >>>>>>
+ >>>>>> If I expected Racket's compiler to inline them in the near future, I might
+ >>>>>> be willing to take a performance hit now. But in this case, inlining would
+ >>>>>> require the compiler to apply a HOF.
+ >>>>>>
+ >>>>>> Neil ⊥
+ >>>>
+ >>>>
+ >>>>
+ >>>> --
+ >>>> sam th
+ >>>> samth@ccs.neu.edu
+ >>
+ >>
+ >>
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Ryan Culpepper <ryan@cs.utah.edu>, Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        eli@barzilay.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 18:22:27 -0600
+
+ On Sun, Jan 29, 2012 at 5:48 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > Suppose I define
+ >
+ > (define (flvector+ v1 v2)
+ >  (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+ >    (fl+ x y)))
+ >
+ > to add flvectors pointwise. Then I realize I need flvector-, flvector*,
+ > flvector/, etc., etc. To abstract all those, I write
+ >
+ > (define ((flvector-lift2 f) v1 v2)
+ >  (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+ >    (f x y)))
+ >
+ > (define flvector+ (flvector-lift2 fl+))
+ > (define flvector- (flvector-lift2 fl-))
+ > (define flvector* (flvector-lift2 fl*))
+ > (define flvector/ (flvector-lift2 fl/))
+ >
+ > Then Racket's JIT will always box `x' and `y' and unbox the result of (f x
+ > y), because the compiler will never flag `f' as a flonum op.
+ 
+ Well, the compiler might have decided to inline the call to
+ flvector-lift2. (I see that it currently doesn't.)
+ 
+ > If compilation meant executing top-level defines, or if it did some kind of
+ > type inference or could use information from Typed Racket, it could optimize
+ > this. But it doesn't, so I wrote a macro.
+ 
+ But the difference in .zo size between the file below and the one
+ where define-syntax-rule is replaced by define is only 489 bytes, so
+ is it possible something else is going on?
+ 
+ Robby
+ 
+ #lang racket
+ (require racket/flonum)
+ (define-syntax-rule (flvector-lift2 f)
+   (λ (v1 v2)
+     (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+       (f x y))))
+ 
+ (define flvector+ (flvector-lift2 fl+))
+ (define flvector- (flvector-lift2 fl-))
+ (define flvector* (flvector-lift2 fl*))
+ (define flvector/ (flvector-lift2 fl/))
+ 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryan@cs.utah.edu>, Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        eli@barzilay.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 19:43:27 -0700
+
+ On 01/29/2012 05:22 PM, Robby Findler wrote:
+ > On Sun, Jan 29, 2012 at 5:48 PM, Neil Toronto<neil.toronto@gmail.com>  wrote:
+ >> Suppose I define
+ >>
+ >> (define (flvector+ v1 v2)
+ >>   (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+ >>     (fl+ x y)))
+ >>
+ >> to add flvectors pointwise. Then I realize I need flvector-, flvector*,
+ >> flvector/, etc., etc. To abstract all those, I write
+ >>
+ >> (define ((flvector-lift2 f) v1 v2)
+ >>   (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+ >>     (f x y)))
+ >>
+ >> (define flvector+ (flvector-lift2 fl+))
+ >> (define flvector- (flvector-lift2 fl-))
+ >> (define flvector* (flvector-lift2 fl*))
+ >> (define flvector/ (flvector-lift2 fl/))
+ >>
+ >> Then Racket's JIT will always box `x' and `y' and unbox the result of (f x
+ >> y), because the compiler will never flag `f' as a flonum op.
+ >
+ > Well, the compiler might have decided to inline the call to
+ > flvector-lift2. (I see that it currently doesn't.)
+ 
+ Oh, right, of course. *forehead slap*
+ 
+ Anyway, it would be harder to get it to inline `flomap-lift2', which is 
+ larger: it checks sizes, and allows arguments of type (U Real flomap). 
+ Two flomap arguments can have the same number of components, or one of 
+ them can have just one component. So it has a few cases to check.
+ 
+ > But the difference in .zo size between the file below and the one
+ > where define-syntax-rule is replaced by define is only 489 bytes, so
+ > is it possible something else is going on?
+ 
+ It's probably just the sizes of the resulting functions and the 
+ complexities of the types. There are 16 uses of `inline-flomap-lift' and 
+ 6 uses of `inline-flomap-lift2'.
+ 
+ Did you have a "possible something else" in mind?
+ 
+ Neil ⊥
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Ryan Culpepper <ryan@cs.utah.edu>, Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        eli@barzilay.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Sun, 29 Jan 2012 20:52:34 -0600
+
+ On Sun, Jan 29, 2012 at 8:43 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > On 01/29/2012 05:22 PM, Robby Findler wrote:
+ >>
+ >> On Sun, Jan 29, 2012 at 5:48 PM, Neil Toronto<neil.toronto@gmail.com>
+ >>  wrote:
+ >>>
+ >>> Suppose I define
+ >>>
+ >>> (define (flvector+ v1 v2)
+ >>>  (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+ >>>    (fl+ x y)))
+ >>>
+ >>> to add flvectors pointwise. Then I realize I need flvector-, flvector*,
+ >>> flvector/, etc., etc. To abstract all those, I write
+ >>>
+ >>> (define ((flvector-lift2 f) v1 v2)
+ >>>  (for/flvector ([x  (in-flvector v1)] [y  (in-flvector v2)])
+ >>>    (f x y)))
+ >>>
+ >>> (define flvector+ (flvector-lift2 fl+))
+ >>> (define flvector- (flvector-lift2 fl-))
+ >>> (define flvector* (flvector-lift2 fl*))
+ >>> (define flvector/ (flvector-lift2 fl/))
+ >>>
+ >>> Then Racket's JIT will always box `x' and `y' and unbox the result of (f
+ >>> x
+ >>> y), because the compiler will never flag `f' as a flonum op.
+ >>
+ >>
+ >> Well, the compiler might have decided to inline the call to
+ >> flvector-lift2. (I see that it currently doesn't.)
+ >
+ >
+ > Oh, right, of course. *forehead slap*
+ >
+ > Anyway, it would be harder to get it to inline `flomap-lift2', which is
+ > larger: it checks sizes, and allows arguments of type (U Real flomap). Two
+ > flomap arguments can have the same number of components, or one of them can
+ > have just one component. So it has a few cases to check.
+ >
+ >
+ >> But the difference in .zo size between the file below and the one
+ >> where define-syntax-rule is replaced by define is only 489 bytes, so
+ >> is it possible something else is going on?
+ >
+ >
+ > It's probably just the sizes of the resulting functions and the complexities
+ > of the types. There are 16 uses of `inline-flomap-lift' and 6 uses of
+ > `inline-flomap-lift2'.
+ >
+ > Did you have a "possible something else" in mind?
+ 
+ No, I was just hedging. :)
+ 
+ But it seems easy to turn define-syntax-rule's into define's and see
+ if the resulting times/.zo file sizes improve enough (assuming that's
+ how you've set this up).
+ 
+ Robby
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, eli@barzilay.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Wed, 1 Feb 2012 11:49:44 -0500
+
+ I have added this suggestion to the Performance section in the Style guide: 
+ 
+  http://www.ccs.neu.edu/home/matthias/Style/style/Language_and_Performance.html
+ 
+ 
+ 
+ On Jan 29, 2012, at 12:16 PM, Robby Findler wrote:
+ 
+ > On Sun, Jan 29, 2012 at 11:12 AM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >> There's noise in the data for small files, but the trend is clear in the
+ >> large ones. There's one apparent outlier: "flomap-pointwise.rkt". But this
+ >> uses a macro to lift flonum ops from `racket/flonum' to flomaps. I don't
+ >> know what its size is after expansion, but it's undoubtedly large.
+ > 
+ > This is a common reason why compilation is slow and the common way to
+ > fix it is to change the expansion to generate less code (often by
+ > generating calls to functions that does whatever the code was doing
+ > before).
+ > 
+ > Robby
+ 
+ 
+
+Responsible changed from "nobody" to "ntoronto" by samth at Wed, 01 Feb 2012 17:19:29 -0500
+Reason>>> images
+
+From: Neil Toronto <neil.toronto@gmail.com>
+To: bugs@racket-lang.org
+Cc: samth@racket-lang.org, ntoronto@racket-lang.org, nobody@racket-lang.org,
+        eli@racket-lang.org, eli@barzilay.org
+Subject: Re: [racket-bug] misc/12518 `images' build is a major bottleneck
+Date: Wed, 01 Feb 2012 22:21:13 -0700
+
+ I just watched a build in which `images' took way more time than the 2 
+ minutes I measured before. Between this and the fact that `typed-racket' 
+ is apparently built *after* `images', it seems that building `images' is 
+ in fact building `typed-racket'.
+ 
+ Neil ⊥
+ 
+ On 02/01/2012 03:19 PM, samth@racket-lang.org wrote:
+ >
+ > Responsible changed from "nobody" to "ntoronto" by samth at Wed, 01 Feb 2012 17:19:29 -0500
+ > Reason>>>  images
+ >
+ >
+ > View:
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12518
+ >
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: bugs@racket-lang.org, samth@racket-lang.org, ntoronto@racket-lang.org
+Subject: Re: [racket-bug] misc/12518 `images' build is a major bottleneck
+Date: Thu, 2 Feb 2012 00:24:19 -0500
+
+ Just now, Neil Toronto wrote:
+ > I just watched a build in which `images' took way more time than the
+ > 2 minutes I measured before. Between this and the fact that
+ > `typed-racket' is apparently built *after* `images', it seems that
+ > building `images' is in fact building `typed-racket'.
+ 
+ There's a verbose flag somewhere that should make it show which files
+ are being compiled.
+ 
+ But this bug should stay unassigned, sounds like TR has a good part of
+ the blame, and even more importantly its the parallel build code that
+ completely fails to do things right (I don't think that it even tries
+ to find a good order).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org, samth@racket-lang.org, ntoronto@racket-lang.org
+Subject: Re: [racket-bug] misc/12518 `images' build is a major bottleneck
+Date: Wed, 01 Feb 2012 22:50:37 -0700
+
+ On 02/01/2012 10:24 PM, Eli Barzilay wrote:
+ > Just now, Neil Toronto wrote:
+ >> I just watched a build in which `images' took way more time than the
+ >> 2 minutes I measured before. Between this and the fact that
+ >> `typed-racket' is apparently built *after* `images', it seems that
+ >> building `images' is in fact building `typed-racket'.
+ >
+ > There's a verbose flag somewhere that should make it show which files
+ > are being compiled.
+ 
+ I tried that and couldn't make sense of the output. But I did verify 
+ that the "typed-racket/compiled" directory is being created before Typed 
+ Racket is apparently built. And of course, everything it depends on that 
+ hasn't already been built.
+ 
+ Maybe Kevin should take a look at this.
+ 
+ Neil ⊥
+From: Eli Barzilay <eli@barzilay.org>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: bugs@racket-lang.org, samth@racket-lang.org, ntoronto@racket-lang.org
+Subject: Re: [racket-bug] misc/12518 `images' build is a major bottleneck
+Date: Thu, 2 Feb 2012 00:52:00 -0500
+
+ Just now, Neil Toronto wrote:
+ > On 02/01/2012 10:24 PM, Eli Barzilay wrote:
+ > > Just now, Neil Toronto wrote:
+ > >> I just watched a build in which `images' took way more time than the
+ > >> 2 minutes I measured before. Between this and the fact that
+ > >> `typed-racket' is apparently built *after* `images', it seems that
+ > >> building `images' is in fact building `typed-racket'.
+ > >
+ > > There's a verbose flag somewhere that should make it show which files
+ > > are being compiled.
+ > 
+ > I tried that and couldn't make sense of the output.
+ 
+ You can also try with `-j 1'.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: bugs@racket-lang.org, ntoronto@racket-lang.org, nobody@racket-lang.org,
+        eli@racket-lang.org, eli@barzilay.org
+Subject: Re: [racket-bug] misc/12518 `images' build is a major bottleneck
+Date: Thu, 2 Feb 2012 09:07:42 -0500
+
+ On Thu, Feb 2, 2012 at 12:21 AM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > I just watched a build in which `images' took way more time than the 2
+ > minutes I measured before. Between this and the fact that `typed-racket' is
+ > apparently built *after* `images', it seems that building `images' is in
+ > fact building `typed-racket'.
+ 
+ `setup-plt' builds the dependencies of files before the files
+ themselves, and (mostly) uses alphabetical order otherwise, so this is
+ unsurprising.
+ 
+ > Neil ⊥
+ >
+ >
+ > On 02/01/2012 03:19 PM, samth@racket-lang.org wrote:
+ >>
+ >>
+ >> Responsible changed from "nobody" to "ntoronto" by samth at Wed, 01 Feb
+ >> 2012 17:19:29 -0500
+ >> Reason>>>  images
+ >>
+ >>
+ >> View:
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=12518
+ >>
+ >
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, ntoronto@racket-lang.org, nobody@racket-lang.org,
+        eli@racket-lang.org, eli@barzilay.org
+Subject: Re: [racket-bug] misc/12518 `images' build is a major bottleneck
+Date: Fri, 03 Feb 2012 13:06:02 -0700
+
+ On 02/02/2012 07:07 AM, Sam Tobin-Hochstadt wrote:
+ > On Thu, Feb 2, 2012 at 12:21 AM, Neil Toronto<neil.toronto@gmail.com>  wrote:
+ >> I just watched a build in which `images' took way more time than the 2
+ >> minutes I measured before. Between this and the fact that `typed-racket' is
+ >> apparently built *after* `images', it seems that building `images' is in
+ >> fact building `typed-racket'.
+ >
+ > `setup-plt' builds the dependencies of files before the files
+ > themselves, and (mostly) uses alphabetical order otherwise, so this is
+ > unsurprising.
+ 
+ Ah. I had been laboring under the delusion that it calculated a 
+ dependency graph and then had a bunch of processes walk it 
+ simultaneously. So... it doesn't. Thanks for clearing that up.
+ 
+ Let me sum up the problem I noticed, then.
+ 
+ Currently, to keep the build nicely parallelizable, we should write 
+ collects so that they depend only on collects that are alphabetically 
+ earlier. Because `images' doesn't do that, compiling it ends up 
+ compiling a bunch of later things, such as typed-racket and all of its 
+ dependencies. This effectively sequences a large portion of the build. 
+ Is that right?
+ 
+ Neil ⊥
+From: Eli Barzilay <eli@barzilay.org>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        ntoronto@racket-lang.org
+Subject: Re: [racket-bug] misc/12518 `images' build is a major bottleneck
+Date: Fri, 3 Feb 2012 15:43:23 -0500
+
+ 30 minutes ago, Neil Toronto wrote:
+ > On 02/02/2012 07:07 AM, Sam Tobin-Hochstadt wrote:
+ > > On Thu, Feb 2, 2012 at 12:21 AM, Neil Toronto<neil.toronto@gmail.com>  wrote:
+ > >> I just watched a build in which `images' took way more time than
+ > >> the 2 minutes I measured before. Between this and the fact that
+ > >> `typed-racket' is apparently built *after* `images', it seems
+ > >> that building `images' is in fact building `typed-racket'.
+ > >
+ > > `setup-plt' builds the dependencies of files before the files
+ > > themselves, and (mostly) uses alphabetical order otherwise, so
+ > > this is unsurprising.
+ > 
+ > Ah. I had been laboring under the delusion that it calculated a
+ > dependency graph and then had a bunch of processes walk it
+ > simultaneously. So... it doesn't. Thanks for clearing that up.
+ 
+ And the fact that it doesn't is exactly why this bug is really not
+ yours.
+ 
+ 
+ > Let me sum up the problem I noticed, then.
+ > 
+ > Currently, to keep the build nicely parallelizable, we should write
+ > collects so that they depend only on collects that are
+ > alphabetically earlier. Because `images' doesn't do that, compiling
+ > it ends up compiling a bunch of later things, such as typed-racket
+ > and all of its dependencies. This effectively sequences a large
+ > portion of the build.  Is that right?
+ 
+ It's not just that -- it's the fact that the multiple cores choose
+ what to compile in this naive alphabetical way which leads to such a
+ huge bottleneck.  Alphabetical order could work only if you'd made
+ separate collections for each module, and then make sure that they're
+ sorted alphabetically in the the right order.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Wed, 8 Feb 2012 18:28:09 -0500
+
+ More than a week ago, Neil Toronto wrote:
+ > 
+ > There's noise in the data for small files, but the trend is clear in
+ > the large ones. There's one apparent outlier:
+ > "flomap-pointwise.rkt". But this uses a macro to lift flonum ops
+ > from `racket/flonum' to flomaps. I don't know what its size is after
+ > expansion, but it's undoubtedly large.
+ > 
+ > Linear is good news. The only problem is the large-ish constant. :)
+ 
+ I originally intended to re-move this PR so that nobody owns it since
+ I worry that it'll get forgotten.  But last evening I realized that
+ things are getting insane: I intended to do some hacking (which I told
+ Robby that I'll do), and started with updating my tree.  When I woke
+ up two hours later, I realized that this is not the first time it
+ happens, so things are getting pretty bad around this issue.  (No, it
+ didn't take two hours to build -- but it is long enough that I
+ inevitably crash every time I try a build.)
+ 
+ So I'll leave this particular bug with you, and will file a few other
+ bugs for the other aspects of this.  I don't think that this is
+ deserved, but you happened to construct a particularly bad combination
+ that makes things bad enough to the point where I'd like to see the
+ code revised to not use TR.  IIUC, any optimization benefits apply to
+ compile-time uses in the tree, and these benefits are not worth the
+ pain.
+ 
+ The TLDR version: on winooski, if you switch away from TR, the
+ compilation time drops as follows:
+ 
+    cores    cur   if-dropped
+ 
+    -j 1    1018s   709s
+    -j 4     794s   288s
+ 
+ This is a rough timing -- the last column also has the
+ "insert-large-letters" converted to not use TR, and dropped the honu
+ collection too.  The difference is obviously significant, way more
+ than those optimizations.
+ 
+ For more details and the tree that I made to not use TR:
+ 
+   http://tmp.barzilay.org/L/
+ 
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Wed, 8 Feb 2012 18:42:57 -0500
+
+ On Wed, Feb 8, 2012 at 6:28 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >  IIUC, any optimization benefits apply to
+ > compile-time uses in the tree, and these benefits are not worth the
+ > pain.
+ 
+ I want to 100% reject the idea that the point of Typed Racket is
+ "optimization benefits".  Typed Racket is about type checking, with
+ optimization as an additional benefit.
+ 
+ Also, the problem here seems to be entirely about parallelization --
+ something about Typed Racket is serializing the build.  We should fix
+ that, and not the symptoms.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12518: `images' build is a major bottleneck
+Date: Wed, 8 Feb 2012 18:45:41 -0500
+
+ Just now, Sam Tobin-Hochstadt wrote:
+ > On Wed, Feb 8, 2012 at 6:28 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > >  IIUC, any optimization benefits apply to
+ > > compile-time uses in the tree, and these benefits are not worth the
+ > > pain.
+ > 
+ > I want to 100% reject the idea that the point of Typed Racket is
+ > "optimization benefits".  Typed Racket is about type checking, with
+ > optimization as an additional benefit.
+ 
+ OK, reject away.  The bottom line is huge times.
+ 
+ 
+ > Also, the problem here seems to be entirely about parallelization --
+ > something about Typed Racket is serializing the build.  We should fix
+ > that, and not the symptoms.
+ 
+ The build is one problem.  TR is another problem.  I'll file two PRs
+ about both.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 

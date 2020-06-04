@@ -1,0 +1,1493 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jan 27 08:16:05 2009
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.234])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n0RDFvhe007108
+	for <bugs@bugs.plt-scheme.org>; Tue, 27 Jan 2009 08:15:57 -0500
+Message-Id: <200901271315.n0RDFqDx007102@champlain.ccs.neu.edu>
+Date: Tue, 27 Jan 2009 08:15:52 -0500
+From: sstrickl@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Redex: More issues in rendering metafunctions
+
+>Number:         10042
+>Category:       redex
+>Synopsis:       Redex: More issues in rendering metafunctions
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jan 27 08:20:01 -0500 2009
+>Last-Modified:  Sun Mar 15 22:24:02 -0400 2009
+>Originator:     Stevie Strickland
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.4.2-svn26jan2009
+>Environment:
+macosx "Darwin Bonn.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 193499884
+
+Collections:
+(("/Users/sstrickl/Library/PLT Scheme/4.1.4.2/collects" non-existent-path) ("/Users/sstrickl/plt/collects" ".svn" "2htdp" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "waterworld" !
+ "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+The first problem is that "where" clauses in metafunctions are not rendered.  I'm betting this is related to the bug I already submitted about term-let clauses.
+
+The second is that the side-conditions, which _are_ rendered, have no way of being rendered in a up-down fashion.  They're always rendered left-right, which is problematic if you have a good number of them on a clause or two (which I do).  It'd be nice to have something akin to the reduction-relation renderer's 'compact-vertical style here.
+
+Also the side-conditions are cut off if too long in the 'up-down style (though if they were laid out vertically, this would likely be much less of an issue).
+
+Code to illustrate the issues listed here is given in the "steps to reproduce" section.
+>How-To-Repeat:
+#lang scheme
+
+(require redex)
+
+(define-language unit-lang
+  [x variable-not-otherwise-mentioned]
+  [b #t #f]
+  [u (unit (import x ...)
+           (export x ...)
+           (define x e) ...
+           e)]
+  [e x u b])
+
+(define-metafunction unit-lang
+  no-overlap? : (x ...) -> b
+  [(no-overlap? (x_1 ... x x_2 ... x x_3 ...)) #f]
+  [(no-overlap? (x ...)) #t])
+
+(define-metafunction unit-lang
+  subset? : (x ...) (x ...) -> b
+  [(subset? (x ...) ()) #t]
+  [(subset? (x_1 ... x x_2 ...) (x x_3 ...))
+   (subset? (x_1 ... x_2 ...) (x_3 ...))]
+  [(subset? (x_1 ...) (x_2 ...)) #f])
+
+(define-metafunction unit-lang
+  check-units : e -> e
+  [(check-units (unit (import x_i ...)
+                      (export x_e ...)
+                      (define x_d e_d) ...
+                      e_b))
+   (unit (import x_i ...)
+         (export x_e ...)
+         (define x_f (check-units e_d)) ...
+         (check-units e_b))
+   (where (x_f ...) (x_d ...))
+   (side-condition (term (distinct? (x_i ... x_e ...))))
+   (side-condition (term (distinct? (x_d ...))))
+   (side-condition (term (subset? (x_d ...) (x_e ...))))]
+  [(check-units b) b])
+
+(render-metafunction check-units)
+(metafunction-pict-style 'up-down)
+(render-metafunction check-units)
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: sstrickl@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering 
+	metafunctions
+Date: Wed, 4 Feb 2009 18:29:37 -0600
+
+ On Tue, Jan 27, 2009 at 7:20 AM,  <sstrickl@ccs.neu.edu> wrote:
+ > The first problem is that "where" clauses in metafunctions are not render=
+ ed.  I'm betting this is related to the bug I already submitted about term-=
+ let clauses.
+ >
+ > The second is that the side-conditions, which _are_ rendered, have no way=
+  of being rendered in a up-down fashion.  They're always rendered left-righ=
+ t, which is problematic if you have a good number of them on a clause or tw=
+ o (which I do).  It'd be nice to have something akin to the reduction-relat=
+ ion renderer's 'compact-vertical style here.
+ >
+ > Also the side-conditions are cut off if too long in the 'up-down style (t=
+ hough if they were laid out vertically, this would likely be much less of a=
+ n issue).
+ 
+ The where bit is fixed. I'm not seeing the cutting off problem.
+ 
+ I'll change the 'up-down style to render the
+ side-conditions/wheres/term-lets vertically. Does that seem ok?
+ 
+ Robby
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering  metafunctions
+Date: Wed, 4 Feb 2009 19:38:02 -0500
+
+ --Apple-Mail-2--63471424
+ Content-Type: text/plain;
+ 	charset=UTF-8;
+ 	format=flowed;
+ 	delsp=yes
+ Content-Transfer-Encoding: quoted-printable
+ 
+ On Feb 4, 2009, at 7:29 PM, Robby Findler wrote:
+ > On Tue, Jan 27, 2009 at 7:20 AM,  <sstrickl@ccs.neu.edu> wrote:
+ >> The first problem is that "where" clauses in metafunctions are not =20=
+ 
+ >> rendered.  I'm betting this is related to the bug I already =20
+ >> submitted about term-let clauses.
+ >>
+ >> The second is that the side-conditions, which _are_ rendered, have =20=
+ 
+ >> no way of being rendered in a up-down fashion.  They're always =20
+ >> rendered left-right, which is problematic if you have a good number =20=
+ 
+ >> of them on a clause or two (which I do).  It'd be nice to have =20
+ >> something akin to the reduction-relation renderer's 'compact-=20
+ >> vertical style here.
+ >>
+ >> Also the side-conditions are cut off if too long in the 'up-down =20
+ >> style (though if they were laid out vertically, this would likely =20
+ >> be much less of an issue).
+ >
+ > The where bit is fixed. I'm not seeing the cutting off problem.
+ >
+ > I'll change the 'up-down style to render the
+ > side-conditions/wheres/term-lets vertically. Does that seem ok?
+ 
+ Hmmm.  It'd be better if I could get a left-right version that does =20
+ the side-conditions/etc. up-down, since my metafunctions fit well in =20
+ the left-right version (and would be ridiculously long vertically in =20
+ the top-down version), except for the where clauses.
+ 
+ (i.e. something very similar to 'compact-vertical on the reduction =20
+ relation side, which I am using there)
+ 
+ BTW, I see some major text overlapping in cases like the following.  =20
+ Are you seeing it?  I've attached an .eps file showing what I'm getting.
+ 
+ Thanks for taking some time to look at these issues!
+ 
+ Stevie
+ 
+ #lang scheme
+ 
+ (require redex)
+ 
+ (define-language core-lang
+    (x variable-not-otherwise-mentioned)
+    (d (define x e))
+    (e x (e e) (=CE=BB (x) e)))
+ 
+ (define-metafunction core-lang
+    rename-defs : (d ...) ((x x) ...) (d ...) -> (d ...)
+    [(rename-defs () ((x_1 x_2) ...) (d ...)) (d ...)]
+    [(rename-defs ((define x_d e_d) d_old ...)
+                  ((x_o1 x_n1) ... (x_d x_new) (x_o2 x_n2) ...) =20
+ (d_new ...))
+     (rename-defs (d_old ...) ((x_o1 x_n1) ... (x_d x_new) (x_o2 =20
+ x_n2) ...)
+                  (d_new ... (define x_new e_new)))
+     (where e_new e_d)]
+    [(rename-defs ((define x_d e_d) d_old ...) ((x_1 x_2) ...) =20
+ (d_new ...))
+     (rename-defs (d_old ...) ((x_1 x_2) ...)
+                  (d_new ... (define x_d e_new)))
+     (where e_new (msubst e_d ((x_1 x_2) ...)))])
+ 
+ (render-metafunction rename-defs)
+ 
+ 
+ --Apple-Mail-2--63471424
+ Content-Disposition: inline;
+ 	filename=rename-defs.eps
+ Content-Type: application/postscript;
+ 	x-unix-mode=0644;
+ 	name="rename-defs.eps"
+ Content-Transfer-Encoding: 7bit
+ 
+ %!PS-Adobe-2.0 EPSF-2.0
+ %%Creator: PLT Scheme
+ %%CreationDate: 
+ %%For: sstrickl@Macintosh (Stevie Strickland)
+ %%BoundingBox:  00016  00703  00541  00775
+ %%Pages:  00001
+ %%DocumentFonts: Times-Roman Times-Italic Helvetica                
+ %%EndComments
+ 
+ /ellipsedict 8 dict def
+ ellipsedict /mtrx matrix put
+ /ellipse
+ { ellipsedict begin
+   /endangle exch def
+   /startangle exch def
+   /yrad exch def
+   /xrad exch def
+   /y exch def
+   /x exch def
+   /savematrix mtrx currentmatrix def
+   x y translate
+   xrad yrad scale
+   0 0 1 endangle startangle arcn
+   savematrix setmatrix
+   end
+   } def
+ 1 1 1 setrgbcolor
+ 0 setlinewidth
+ [] 0 setdash
+ 1 setlinecap
+ 1 setlinejoin
+ 0 0 0 setrgbcolor
+ %%Page: 1
+ %%BeginPageSetup
+ 16 16 translate
+ 0.800000 0.800000 scale
+ 2 setlinecap
+ %%EndPageSetup
+ 0 0 0 setrgbcolor
+ /Helvetica findfont
+ 14 scalefont setfont
+ 0 948.750000 moveto
+ 0 -13.216 rmoveto
+ (rename-defs) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 78.582001 948.078000 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 81.582001 948.078000 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 86.244001 948.078000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 90.906001 948.078000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 95.568001 948.078000 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 102.568001 948.078000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 107.230001 948.078000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 111.892002 948.554001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 118.108002 941.738001 moveto
+ 0 -7.44 rmoveto
+ (1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 122.108002 948.078000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 125.608002 948.554001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 131.824002 941.738001 moveto
+ 0 -7.44 rmoveto
+ (2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 135.824002 948.078000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 140.486002 948.078000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 143.986002 948.078000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 154.486002 948.078000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 159.148002 948.078000 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 166.148002 948.078000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 170.810002 948.554001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 177.810002 948.078000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 181.310002 948.078000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 191.810002 948.078000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 199.472003 948.078000 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 196.472003 948.078000 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 204.134003 948.078000 moveto
+ 0 -12.544 rmoveto
+ 328.638004 948.078000 moveto
+ 0 -12.544 rmoveto
+ ( = ) show
+ 345.534004 948.078000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 350.196004 948.554001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 357.196004 948.078000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 360.696004 948.078000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 371.196004 948.078000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 0 930.468000 moveto
+ 0 -13.216 rmoveto
+ (rename-defs) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 78.582001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 81.582001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 86.244001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 90.906001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 95.568001 930.468000 moveto
+ 0 -13.216 rmoveto
+ (de) show
+ <ae> show
+ (ne) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 133.704003 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 137.204003 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 143.420003 923.456001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 147.420003 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 150.920003 930.272001 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 157.136003 923.456001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 161.136003 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 165.798003 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 169.298003 930.272001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 176.298003 923.456001 moveto
+ 0 -7.44 rmoveto
+ (old) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 186.522003 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 190.022003 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 200.522003 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 205.184003 929.796000 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 86.244001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 90.906001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 95.568001 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 101.784001 923.456001 moveto
+ 0 -7.44 rmoveto
+ (o1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 109.784001 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 113.284001 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 119.500001 923.456001 moveto
+ 0 -7.44 rmoveto
+ (n1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 127.500001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 132.162002 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 135.662002 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 146.162002 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 149.662002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 154.324002 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 160.540002 923.456001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 164.540002 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 168.040002 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 174.256002 923.456001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 187.144001 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 191.806002 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 195.306002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 199.968002 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 206.184002 923.456001 moveto
+ 0 -7.44 rmoveto
+ (o2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 214.184002 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 217.684002 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 223.900002 923.456001 moveto
+ 0 -7.44 rmoveto
+ (n2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 231.900002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 236.562002 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 240.062002 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 250.562002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 255.224002 929.796000 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 262.224002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 266.886003 930.272001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 273.886003 923.456001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 286.774002 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 290.274002 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 300.774002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 308.436002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 305.436002 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 313.098002 929.796000 moveto
+ 0 -12.544 rmoveto
+ 328.638004 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( = ) show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 345.534004 930.468000 moveto
+ 0 -13.216 rmoveto
+ (rename-defs) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 424.116005 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 427.116005 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 431.778005 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 436.440005 930.272001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 443.440005 923.456001 moveto
+ 0 -7.44 rmoveto
+ (old) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 453.664005 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 457.164005 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 467.664005 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 472.326005 929.796000 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 479.326005 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 483.988006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 488.650006 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 494.866006 923.456001 moveto
+ 0 -7.44 rmoveto
+ (o1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 502.866006 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 506.366006 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 512.582006 923.456001 moveto
+ 0 -7.44 rmoveto
+ (n1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 520.582006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 525.244006 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 528.744006 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 539.244006 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 542.744006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 547.406006 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 553.622006 923.456001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 557.622006 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 561.122006 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 567.338006 923.456001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 580.226006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 584.888006 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 588.388006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 593.050006 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 599.266006 923.456001 moveto
+ 0 -7.44 rmoveto
+ (o2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 607.266006 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 610.766006 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 616.982007 923.456001 moveto
+ 0 -7.44 rmoveto
+ (n2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 624.982007 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 629.644007 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 633.144007 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 643.644007 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 648.306007 929.796000 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 431.778005 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 436.440005 930.272001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 443.440005 923.456001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 456.328005 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 459.828005 929.796000 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 470.328005 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 473.828005 929.796000 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 478.490005 930.468000 moveto
+ 0 -13.216 rmoveto
+ (de) show
+ <ae> show
+ (ne) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 516.626007 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 520.126007 930.272001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 526.342007 923.456001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 539.230006 929.796000 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 542.730006 930.272001 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 548.946006 923.456001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 561.834006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 566.496006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 574.158006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 571.158006 929.796000 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 578.820006 929.796000 moveto
+ 0 -12.544 rmoveto
+ 0 911.710000 moveto
+ 0 -12.544 rmoveto
+ ( where ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 41.202000 912.186001 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 47.418000 905.370001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 60.305999 911.710000 moveto
+ 0 -12.544 rmoveto
+ ( = ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 75.201999 912.186001 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 81.417999 905.370001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 0 894.128000 moveto
+ 0 -13.216 rmoveto
+ (rename-defs) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 78.582001 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 81.582001 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 86.244001 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 90.906001 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 95.568001 894.128000 moveto
+ 0 -13.216 rmoveto
+ (de) show
+ <ae> show
+ (ne) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 133.704003 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 137.204003 893.932001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 143.420003 887.116001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 147.420003 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 150.920003 893.932001 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 157.136003 887.116001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 161.136003 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 165.798003 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 169.298003 893.932001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 176.298003 887.116001 moveto
+ 0 -7.44 rmoveto
+ (old) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 186.522003 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 190.022003 893.456001 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 200.522003 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 205.184003 893.456001 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 212.184003 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 216.846004 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 221.508004 893.932001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 227.724004 887.116001 moveto
+ 0 -7.44 rmoveto
+ (1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 231.724004 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 235.224004 893.932001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 241.440004 887.116001 moveto
+ 0 -7.44 rmoveto
+ (2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 245.440004 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 250.102004 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 253.602004 893.456001 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 264.102004 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 268.764004 893.456001 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 275.764004 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 280.426004 893.932001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 287.426004 887.116001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 300.314004 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 303.814004 893.456001 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 314.314004 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 321.976004 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 318.976004 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 326.638004 893.456001 moveto
+ 0 -12.544 rmoveto
+ 328.638004 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( = ) show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 345.534004 894.128000 moveto
+ 0 -13.216 rmoveto
+ (rename-defs) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 424.116005 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 427.116005 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5b> show
+ 431.778005 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 436.440005 893.932001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 443.440005 887.116001 moveto
+ 0 -7.44 rmoveto
+ (old) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 453.664005 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 457.164005 893.456001 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 467.664005 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 472.326005 893.456001 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 479.326005 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 483.988006 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 488.650006 893.932001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 494.866006 887.116001 moveto
+ 0 -7.44 rmoveto
+ (1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 498.866006 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 502.366006 893.932001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 508.582006 887.116001 moveto
+ 0 -7.44 rmoveto
+ (2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 512.582006 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 517.244006 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 520.744006 893.456001 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 531.244006 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 535.906006 893.456001 moveto
+ 0 -12.544 rmoveto
+ (, ) show
+ 431.778005 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 436.440005 893.932001 moveto
+ 0 -13.02 rmoveto
+ (d) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 443.440005 887.116001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 456.328005 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 459.828005 893.456001 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 470.328005 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 473.828005 893.456001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 478.490005 894.128000 moveto
+ 0 -13.216 rmoveto
+ (de) show
+ <ae> show
+ (ne) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 516.626007 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 520.126007 893.932001 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 526.342007 887.116001 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 530.342007 893.456001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 533.842007 893.932001 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 540.058007 887.116001 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 552.946006 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 557.608006 893.456001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 565.270007 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 562.270007 893.456001 moveto
+ 0 -12.544 rmoveto
+ <5d> show
+ 569.932007 893.456001 moveto
+ 0 -12.544 rmoveto
+ 0 875.174001 moveto
+ 0 -12.544 rmoveto
+ ( where ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 41.202000 875.650002 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 47.418000 868.834002 moveto
+ 0 -7.44 rmoveto
+ (new) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 60.305999 875.174001 moveto
+ 0 -12.544 rmoveto
+ ( = ) show
+ 75.201999 875.174001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Helvetica findfont
+ 14 scalefont setfont
+ 79.863999 875.846001 moveto
+ 0 -13.216 rmoveto
+ (msubst) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 124.986001 875.174001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 128.486001 875.650002 moveto
+ 0 -13.02 rmoveto
+ (e) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 134.702001 868.834002 moveto
+ 0 -7.44 rmoveto
+ (d) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 138.702001 875.174001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 142.202001 875.174001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ 146.864001 875.174001 moveto
+ 0 -12.544 rmoveto
+ <28> show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 151.526001 875.650002 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 157.742002 868.834002 moveto
+ 0 -7.44 rmoveto
+ (1) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 161.742002 875.174001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ /Times-Italic findfont
+ 14 scalefont setfont
+ 165.242002 875.650002 moveto
+ 0 -13.02 rmoveto
+ (x) show
+ /Times-Italic findfont
+ 8 scalefont setfont
+ 171.458002 868.834002 moveto
+ 0 -7.44 rmoveto
+ (2) show
+ /Times-Roman findfont
+ 14 scalefont setfont
+ 175.458002 875.174001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 180.120002 875.174001 moveto
+ 0 -12.544 rmoveto
+ ( ) show
+ 183.620002 875.174001 moveto
+ 0 -12.544 rmoveto
+ (...) show
+ 194.120002 875.174001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ 198.782002 875.174001 moveto
+ 0 -12.544 rmoveto
+ <29> show
+ showpage
+ 
+ --Apple-Mail-2--63471424
+ Content-Type: text/plain;
+ 	charset=US-ASCII;
+ 	format=flowed
+ Content-Transfer-Encoding: 7bit
+ 
+ 
+ 
+ --Apple-Mail-2--63471424--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering 
+	metafunctions
+Date: Wed, 4 Feb 2009 19:15:28 -0600
+
+ On Wed, Feb 4, 2009 at 6:38 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ > On Feb 4, 2009, at 7:29 PM, Robby Findler wrote:
+ >>
+ >> On Tue, Jan 27, 2009 at 7:20 AM,  <sstrickl@ccs.neu.edu> wrote:
+ >>>
+ >>> The first problem is that "where" clauses in metafunctions are not
+ >>> rendered.  I'm betting this is related to the bug I already submitted about
+ >>> term-let clauses.
+ >>>
+ >>> The second is that the side-conditions, which _are_ rendered, have no way
+ >>> of being rendered in a up-down fashion.  They're always rendered left-right,
+ >>> which is problematic if you have a good number of them on a clause or two
+ >>> (which I do).  It'd be nice to have something akin to the reduction-relation
+ >>> renderer's 'compact-vertical style here.
+ >>>
+ >>> Also the side-conditions are cut off if too long in the 'up-down style
+ >>> (though if they were laid out vertically, this would likely be much less of
+ >>> an issue).
+ >>
+ >> The where bit is fixed. I'm not seeing the cutting off problem.
+ >>
+ >> I'll change the 'up-down style to render the
+ >> side-conditions/wheres/term-lets vertically. Does that seem ok?
+ >
+ > Hmmm.  It'd be better if I could get a left-right version that does the
+ > side-conditions/etc. up-down, since my metafunctions fit well in the
+ > left-right version (and would be ridiculously long vertically in the
+ > top-down version), except for the where clauses.
+ >
+ > (i.e. something very similar to 'compact-vertical on the reduction relation
+ > side, which I am using there)
+ 
+ I've added /vertical-side-condition variants to both styles.
+ 
+ And yeah, I'm seeing the overlapping problem. I"ll look into it.
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering 
+	metafunctions
+Date: Wed, 4 Feb 2009 19:52:13 -0600
+
+ On Wed, Feb 4, 2009 at 6:38 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ > BTW, I see some major text overlapping in cases like the following.  Are you
+ > seeing it?  I've attached an .eps file showing what I'm getting.
+ 
+ (Some repeat here, because I missed a bugs cc earlier).
+ 
+ I've fixed some of the overlapping problems, specifically in the
+ argument list to a metafunction. As I just sit and think about it,
+ tho, it seems possible that if you have something special installed to
+ rewrite lw structs yourself, you could also end up with overlap where
+ you didn't before. I'm not sure about that, tho.
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering 
+	metafunctions
+Date: Wed, 4 Feb 2009 19:57:19 -0600
+
+ Oh, unquote could have the same problems, thanks!
+ 
+ (I'll have to look at this tomrrow, tho.)
+ 
+ Robby
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering  metafunctions
+Date: Wed, 4 Feb 2009 20:55:40 -0500
+
+ On Feb 4, 2009, at 8:52 PM, Robby Findler wrote:
+ > On Wed, Feb 4, 2009 at 6:38 PM, Stevie Strickland <sstrickl@ccs.neu.edu 
+ > > wrote:
+ >> BTW, I see some major text overlapping in cases like the  
+ >> following.  Are you
+ >> seeing it?  I've attached an .eps file showing what I'm getting.
+ >
+ > (Some repeat here, because I missed a bugs cc earlier).
+ >
+ > I've fixed some of the overlapping problems, specifically in the
+ > argument list to a metafunction. As I just sit and think about it,
+ > tho, it seems possible that if you have something special installed to
+ > rewrite lw structs yourself, you could also end up with overlap where
+ > you didn't before. I'm not sure about that, tho.
+ 
+ Unfortunately that's not the issue here, as I don't have a custom  
+ unquote rewriter.  I ended up refactoring my semantics so that I  
+ didn't need one (well, I would for the delta function if I typeset it,  
+ but it's not necessary here.)
+ 
+ Stevie
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering 
+	metafunctions
+Date: Thu, 5 Feb 2009 08:22:47 -0600
+
+ Okay, I don't see any overlaps or weird extra spaces in the code you
+ sent now (and searching around in the code I think I've fixed all of
+ the places -- the overlaps were a consistent issue in a few places).
+ 
+ Robby
+
+State changed from "open" to "closed" by sstrickl at Thu, 05 Feb 2009 09:35:48 -0500
+Reason>>> I've verified that I no longer see any of these problems.
+
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering  metafunctions
+Date: Thu, 5 Feb 2009 09:34:53 -0500
+
+ On Feb 5, 2009, at 9:22 AM, Robby Findler wrote:
+ > Okay, I don't see any overlaps or weird extra spaces in the code you
+ > sent now (and searching around in the code I think I've fixed all of
+ > the places -- the overlaps were a consistent issue in a few places).
+ 
+ And I don't see any now in the paper I'm working on.  Thanks so much,  
+ Robby!
+ 
+ Stevie
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10042: Redex: More issues in rendering 
+	metafunctions
+Date: Thu, 5 Feb 2009 08:46:57 -0600
+
+ Let me know if you run into other problems typesetting the paper. It
+ wouldn't be hard for me to give you finer-grained control over the
+ large-scale layout of the metafunctions and reduction-relations (ie
+ given the pieces (lhs, rhs, side-conditions) put them together using
+ the slideshow primitives), for example.
+ 
+ Robby
+ 
+ On Thu, Feb 5, 2009 at 8:34 AM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ > On Feb 5, 2009, at 9:22 AM, Robby Findler wrote:
+ >>
+ >> Okay, I don't see any overlaps or weird extra spaces in the code you
+ >> sent now (and searching around in the code I think I've fixed all of
+ >> the places -- the overlaps were a consistent issue in a few places).
+ >
+ > And I don't see any now in the paper I'm working on.  Thanks so much, Robby!
+ >
+ > Stevie
+ >
+

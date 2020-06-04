@@ -1,0 +1,682 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Mar  2 10:16:29 2010
+Received: from mail-gy0-f172.google.com (mail-gy0-f172.google.com [209.85.160.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o22FGRwW010466
+	for <bugs@bugs.plt-scheme.org>; Tue, 2 Mar 2010 10:16:27 -0500
+Message-Id: <201003021516.o22FGMh5010457@champlain.ccs.neu.edu>
+Date: Tue, 2 Mar 2010 10:16:22 -0500
+From: samth@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: repeatable crash with futures
+
+>Number:         10798
+>Category:       mzscheme
+>Synopsis:       repeatable crash with futures
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Mar 02 10:20:02 -0500 2010
+>Closed-Date:    Tue Mar 02 13:03:16 -0500 2010
+>Last-Modified:  Tue Mar 02 13:04:01 -0500 2010
+>Originator:     Sam TH
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.4.5-svn2mar2010
+>Environment:
+unix "Linux punge 2.6.31-16-generic #53-Ubuntu SMP Tue Dec 8 04:01:29 UTC 2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 106522784
+
+Collections:
+(("/home/samth/.plt-scheme/4.2.4.5/collects" non-existent-path) ("/home/samth/sw/plt-trunk/collects" "honu" "eopl" "tests" "typed" "test-engine" "errortrace" "sgl" "plot" "combinator-parser" "mzcom" "test-box-recovery" "version" ".svn" "defaults" "deinprogramm" "s-exp" "handin-client" "srpersist" "launcher" "scriblib" "browser" "unstable" "r5rs" "gui-debugger" "at-exp" "swindle" "scheme" "reader" "frtime" "meta" "file" "slatex" "net" "wxme" "syntax" "scribblings" "parser-tools" "ffi" "hierlist" "handin-server" "2htdp" "framework" "openssl" "dynext" "slideshow" "games" "xml" "texpict" "graphics" "mzscheme" "profile" "help" "web-server" "trace" "make" "algol60" "mzlib" "icons" "plai" "sirmail" "lazy" "mrlib" "setup" "string-constants" "syntax-color" "r6rs" "repos-time-stamp" "drscheme" "lang" "afm" "planet" "typed-scheme" "info-domain" "config" "guibuilder" "stepper" "mred" "embedded-gui" "preprocessor" "readline" "htdp" "compiler" "srfi" "waterworld" "macro-debugger" "html" "!
+ scribble" "mysterx" "redex" "rnrs" "teachpack" "tex2page" "schemeunit"))
+Computer Language: (("Determine language from source") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+>Description:
+Apply this diff to tests/mzscheme/benchmarks/shootout/spectralnorm.ss:
+
+--- spectralnorm.ss	2010-03-02 10:04:17.000000000 -0500
++++ spectralnorm-par.ss	2010-03-02 10:04:40.000000000 -0500
+@@ -6,6 +6,7 @@
+ 
+ #lang scheme/base
+ (require scheme/cmdline
++         scheme/future
+          scheme/flonum)
+ 
+ (define (Approximate n)
+@@ -32,9 +33,13 @@
+                      (fl/ (->fl (+ i (+ j 1))) 2.0)) 
+                 (->fl (+ i 1)))))
+ 
++(define-syntax-rule (for/par b . body)
++  (let ([futs (for/list b (future (lambda () . body)))])
++    (for ([f (in-list futs)]) (touch f))))
++
+ ;; multiply vector v by matrix A
+ (define (MultiplyAv n v Av)
+-  (for ([i (in-range n)])
++  (for/par ([i (in-range n)])
+     (flvector-set! Av i 
+                    (for/fold ([r 0.0])
+                        ([j (in-range n)])
+
+Run with command line argument 1000:
+[samth@punge:~/sw/plt-trunk/collects/tests/mzscheme/benchmarks/shootout] mzscheme spectralnorm-par.ss 1000
+
+Get (repeatable) crash:
+SIGSEGV ?????? SI_CODE 128 fault on addr (nil)
+Aborted
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Jay McCarthy <jay.mccarthy@gmail.com>
+To: samth@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10798: repeatable crash with futures
+Date: Tue, 2 Mar 2010 09:04:56 -0700
+
+ The random-future test has found this same error before:
+ 
+ http://drdr.plt-scheme.org/18413/collects/tests/future/random-future.ss
+ 
+ On Tue, Mar 2, 2010 at 8:20 AM,  <samth@ccs.neu.edu> wrote:
+ > A new problem report is waiting at
+ > =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10798
+ >
+ > Reported by Sam TH for release: 4.2.4.5-svn2mar2010
+ >
+ > *** Description:
+ > Apply this diff to tests/mzscheme/benchmarks/shootout/spectralnorm.ss:
+ >
+ > --- spectralnorm.ss =C2=A0 =C2=A0 2010-03-02 10:04:17.000000000 -0500
+ > +++ spectralnorm-par.ss 2010-03-02 10:04:40.000000000 -0500
+ > @@ -6,6 +6,7 @@
+ >
+ > =C2=A0#lang scheme/base
+ > =C2=A0(require scheme/cmdline
+ > + =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/future
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0scheme/flonum)
+ >
+ > =C2=A0(define (Approximate n)
+ > @@ -32,9 +33,13 @@
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0(fl/ (->fl (+ i (+ j 1))) 2.0))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (->fl (+ i 1)))))
+ >
+ > +(define-syntax-rule (for/par b . body)
+ > + =C2=A0(let ([futs (for/list b (future (lambda () . body)))])
+ > + =C2=A0 =C2=A0(for ([f (in-list futs)]) (touch f))))
+ > +
+ > =C2=A0;; multiply vector v by matrix A
+ > =C2=A0(define (MultiplyAv n v Av)
+ > - =C2=A0(for ([i (in-range n)])
+ > + =C2=A0(for/par ([i (in-range n)])
+ > =C2=A0 =C2=A0 (flvector-set! Av i
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(for=
+ /fold ([r 0.0])
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0([j (in-range n)])
+ >
+ > Run with command line argument 1000:
+ > [samth@punge:~/sw/plt-trunk/collects/tests/mzscheme/benchmarks/shootout] =
+ mzscheme spectralnorm-par.ss 1000
+ >
+ > Get (repeatable) crash:
+ > SIGSEGV ?????? SI_CODE 128 fault on addr (nil)
+ > Aborted
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > unix "Linux punge 2.6.31-16-generic #53-Ubuntu SMP Tue Dec 8 04:01:29 UTC=
+  2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) =3D 24
+ > Human Language: english
+ > (current-memory-use) 106522784
+ >
+ > Collections:
+ > (("/home/samth/.plt-scheme/4.2.4.5/collects" non-existent-path) ("/home/s=
+ amth/sw/plt-trunk/collects" "honu" "eopl" "tests" "typed" "test-engine" "er=
+ rortrace" "sgl" "plot" "combinator-parser" "mzcom" "test-box-recovery" "ver=
+ sion" ".svn" "defaults" "deinprogramm" "s-exp" "handin-client" "srpersist" =
+ "launcher" "scriblib" "browser" "unstable" "r5rs" "gui-debugger" "at-exp" "=
+ swindle" "scheme" "reader" "frtime" "meta" "file" "slatex" "net" "wxme" "sy=
+ ntax" "scribblings" "parser-tools" "ffi" "hierlist" "handin-server" "2htdp"=
+  "framework" "openssl" "dynext" "slideshow" "games" "xml" "texpict" "graphi=
+ cs" "mzscheme" "profile" "help" "web-server" "trace" "make" "algol60" "mzli=
+ b" "icons" "plai" "sirmail" "lazy" "mrlib" "setup" "string-constants" "synt=
+ ax-color" "r6rs" "repos-time-stamp" "drscheme" "lang" "afm" "planet" "typed=
+ -scheme" "info-domain" "config" "guibuilder" "stepper" "mred" "embedded-gui=
+ " "preprocessor" "readline" "htdp" "compiler" "srfi" "waterworld" "macro-de=
+ bugger" "html" "!
+ > =C2=A0scribble" "mysterx" "redex" "rnrs" "teachpack" "tex2page" "schemeun=
+ it"))
+ > Computer Language: (("Determine language from source") (#(#t write mixed-=
+ fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+ >
+ >
+ 
+ 
+ 
+ --=20
+ Jay McCarthy <jay@cs.byu.edu>
+ Assistant Professor / Brigham Young University
+ http://teammccarthy.org/jay
+ 
+ "The glory of God is Intelligence" - D&C 93
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Jay McCarthy <jay.mccarthy@gmail.com>, samth@ccs.neu.edu,
+        bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10798: repeatable crash with futures
+Date: Tue, 2 Mar 2010 09:26:03 -0700
+
+ This example still crashes. I'm looking at it.
+ 
+ At Tue, 2 Mar 2010 10:25:01 -0600, Robby Findler wrote:
+ > Matthew has, I believe, fixed at least one of these bugs last night or
+ > this morning or yestereday morning or... recently or something. Things
+ > are a bit of blur to me. But worth trying the latest svn.
+ >=20
+ > Robby
+ >=20
+ > On Tue, Mar 2, 2010 at 10:04 AM, Jay McCarthy <jay.mccarthy@gmail.com> wr=
+ ote:
+ > > The random-future test has found this same error before:
+ > >
+ > > http://drdr.plt-scheme.org/18413/collects/tests/future/random-future.ss=
+ 
+ > >
+ > > On Tue, Mar 2, 2010 at 8:20 AM, =C2=A0<samth@ccs.neu.edu> wrote:
+ > >> A new problem report is waiting at
+ > >> =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10798
+ > >>
+ > >> Reported by Sam TH for release: 4.2.4.5-svn2mar2010
+ > >>
+ > >> *** Description:
+ > >> Apply this diff to tests/mzscheme/benchmarks/shootout/spectralnorm.ss:=
+ 
+ > >>
+ > >> --- spectralnorm.ss =C2=A0 =C2=A0 2010-03-02 10:04:17.000000000 -0500
+ > >> +++ spectralnorm-par.ss 2010-03-02 10:04:40.000000000 -0500
+ > >> @@ -6,6 +6,7 @@
+ > >>
+ > >> =C2=A0#lang scheme/base
+ > >> =C2=A0(require scheme/cmdline
+ > >> + =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/future
+ > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0scheme/flonum)
+ > >>
+ > >> =C2=A0(define (Approximate n)
+ > >> @@ -32,9 +33,13 @@
+ > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0(fl/ (->fl (+ i (+ j 1))) 2.0))
+ > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (->fl (+ i 1))=
+ )))
+ > >>
+ > >> +(define-syntax-rule (for/par b . body)
+ > >> + =C2=A0(let ([futs (for/list b (future (lambda () . body)))])
+ > >> + =C2=A0 =C2=A0(for ([f (in-list futs)]) (touch f))))
+ > >> +
+ > >> =C2=A0;; multiply vector v by matrix A
+ > >> =C2=A0(define (MultiplyAv n v Av)
+ > >> - =C2=A0(for ([i (in-range n)])
+ > >> + =C2=A0(for/par ([i (in-range n)])
+ > >> =C2=A0 =C2=A0 (flvector-set! Av i
+ > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(=
+ for/fold ([r 0.0])
+ > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0([j (in-range n)])
+ > >>
+ > >> Run with command line argument 1000:
+ > >> [samth@punge:~/sw/plt-trunk/collects/tests/mzscheme/benchmarks/shootou=
+ t]=20
+ > mzscheme spectralnorm-par.ss 1000
+ > >>
+ > >> Get (repeatable) crash:
+ > >> SIGSEGV ?????? SI_CODE 128 fault on addr (nil)
+ > >> Aborted
+ > >>
+ > >> *** How to repeat:
+ > >>
+ > >>
+ > >> *** Environment:
+ > >> unix "Linux punge 2.6.31-16-generic #53-Ubuntu SMP Tue Dec 8 04:01:29 =
+ UTC=20
+ > 2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) =3D 24
+ > >> Human Language: english
+ > >> (current-memory-use) 106522784
+ > >>
+ > >> Collections:
+ > >> (("/home/samth/.plt-scheme/4.2.4.5/collects" non-existent-path)=20
+ > ("/home/samth/sw/plt-trunk/collects" "honu" "eopl" "tests" "typed"=20
+ > "test-engine" "errortrace" "sgl" "plot" "combinator-parser" "mzcom"=20
+ > "test-box-recovery" "version" ".svn" "defaults" "deinprogramm" "s-exp"=20=
+ 
+ > "handin-client" "srpersist" "launcher" "scriblib" "browser" "unstable" "r=
+ 5rs"=20
+ > "gui-debugger" "at-exp" "swindle" "scheme" "reader" "frtime" "meta" "file=
+ "=20
+ > "slatex" "net" "wxme" "syntax" "scribblings" "parser-tools" "ffi" "hierli=
+ st"=20
+ > "handin-server" "2htdp" "framework" "openssl" "dynext" "slideshow" "games=
+ "=20
+ > "xml" "texpict" "graphics" "mzscheme" "profile" "help" "web-server" "trac=
+ e"=20
+ > "make" "algol60" "mzlib" "icons" "plai" "sirmail" "lazy" "mrlib" "setup"=
+ =20
+ > "string-constants" "syntax-color" "r6rs" "repos-time-stamp" "drscheme" "l=
+ ang"=20
+ > "afm" "planet" "typed-scheme" "info-domain" "config" "guibuilder" "steppe=
+ r"=20
+ > "mred" "embedded-gui" "preprocessor" "readline" "htdp" "compiler" "srfi"=
+ =20
+ > "waterworld" "macro-debugger" "html" "!
+ > >> =C2=A0scribble" "mysterx" "redex" "rnrs" "teachpack" "tex2page" "schem=
+ eunit"))
+ > >> Computer Language: (("Determine language from source") (#(#t write=20
+ > mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+ > >>
+ > >>
+ > >
+ > >
+ > >
+ > > --
+ > > Jay McCarthy <jay@cs.byu.edu>
+ > > Assistant Professor / Brigham Young University
+ > > http://teammccarthy.org/jay
+ > >
+ > > "The glory of God is Intelligence" - D&C 93
+ > >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Jay McCarthy <jay.mccarthy@gmail.com>
+Cc: samth@ccs.neu.edu, bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10798: repeatable crash with futures
+Date: Tue, 2 Mar 2010 10:25:01 -0600
+
+ Matthew has, I believe, fixed at least one of these bugs last night or
+ this morning or yestereday morning or... recently or something. Things
+ are a bit of blur to me. But worth trying the latest svn.
+ 
+ Robby
+ 
+ On Tue, Mar 2, 2010 at 10:04 AM, Jay McCarthy <jay.mccarthy@gmail.com> wrot=
+ e:
+ > The random-future test has found this same error before:
+ >
+ > http://drdr.plt-scheme.org/18413/collects/tests/future/random-future.ss
+ >
+ > On Tue, Mar 2, 2010 at 8:20 AM, =C2=A0<samth@ccs.neu.edu> wrote:
+ >> A new problem report is waiting at
+ >> =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10798
+ >>
+ >> Reported by Sam TH for release: 4.2.4.5-svn2mar2010
+ >>
+ >> *** Description:
+ >> Apply this diff to tests/mzscheme/benchmarks/shootout/spectralnorm.ss:
+ >>
+ >> --- spectralnorm.ss =C2=A0 =C2=A0 2010-03-02 10:04:17.000000000 -0500
+ >> +++ spectralnorm-par.ss 2010-03-02 10:04:40.000000000 -0500
+ >> @@ -6,6 +6,7 @@
+ >>
+ >> =C2=A0#lang scheme/base
+ >> =C2=A0(require scheme/cmdline
+ >> + =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/future
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0scheme/flonum)
+ >>
+ >> =C2=A0(define (Approximate n)
+ >> @@ -32,9 +33,13 @@
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0(fl/ (->fl (+ i (+ j 1))) 2.0))
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (->fl (+ i 1))))=
+ )
+ >>
+ >> +(define-syntax-rule (for/par b . body)
+ >> + =C2=A0(let ([futs (for/list b (future (lambda () . body)))])
+ >> + =C2=A0 =C2=A0(for ([f (in-list futs)]) (touch f))))
+ >> +
+ >> =C2=A0;; multiply vector v by matrix A
+ >> =C2=A0(define (MultiplyAv n v Av)
+ >> - =C2=A0(for ([i (in-range n)])
+ >> + =C2=A0(for/par ([i (in-range n)])
+ >> =C2=A0 =C2=A0 (flvector-set! Av i
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(fo=
+ r/fold ([r 0.0])
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0([j (in-range n)])
+ >>
+ >> Run with command line argument 1000:
+ >> [samth@punge:~/sw/plt-trunk/collects/tests/mzscheme/benchmarks/shootout]=
+  mzscheme spectralnorm-par.ss 1000
+ >>
+ >> Get (repeatable) crash:
+ >> SIGSEGV ?????? SI_CODE 128 fault on addr (nil)
+ >> Aborted
+ >>
+ >> *** How to repeat:
+ >>
+ >>
+ >> *** Environment:
+ >> unix "Linux punge 2.6.31-16-generic #53-Ubuntu SMP Tue Dec 8 04:01:29 UT=
+ C 2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) =3D 24
+ >> Human Language: english
+ >> (current-memory-use) 106522784
+ >>
+ >> Collections:
+ >> (("/home/samth/.plt-scheme/4.2.4.5/collects" non-existent-path) ("/home/=
+ samth/sw/plt-trunk/collects" "honu" "eopl" "tests" "typed" "test-engine" "e=
+ rrortrace" "sgl" "plot" "combinator-parser" "mzcom" "test-box-recovery" "ve=
+ rsion" ".svn" "defaults" "deinprogramm" "s-exp" "handin-client" "srpersist"=
+  "launcher" "scriblib" "browser" "unstable" "r5rs" "gui-debugger" "at-exp" =
+ "swindle" "scheme" "reader" "frtime" "meta" "file" "slatex" "net" "wxme" "s=
+ yntax" "scribblings" "parser-tools" "ffi" "hierlist" "handin-server" "2htdp=
+ " "framework" "openssl" "dynext" "slideshow" "games" "xml" "texpict" "graph=
+ ics" "mzscheme" "profile" "help" "web-server" "trace" "make" "algol60" "mzl=
+ ib" "icons" "plai" "sirmail" "lazy" "mrlib" "setup" "string-constants" "syn=
+ tax-color" "r6rs" "repos-time-stamp" "drscheme" "lang" "afm" "planet" "type=
+ d-scheme" "info-domain" "config" "guibuilder" "stepper" "mred" "embedded-gu=
+ i" "preprocessor" "readline" "htdp" "compiler" "srfi" "waterworld" "macro-d=
+ ebugger" "html" "!
+ >> =C2=A0scribble" "mysterx" "redex" "rnrs" "teachpack" "tex2page" "schemeu=
+ nit"))
+ >> Computer Language: (("Determine language from source") (#(#t write mixed=
+ -fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+ >>
+ >>
+ >
+ >
+ >
+ > --
+ > Jay McCarthy <jay@cs.byu.edu>
+ > Assistant Professor / Brigham Young University
+ > http://teammccarthy.org/jay
+ >
+ > "The glory of God is Intelligence" - D&C 93
+ >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Jay McCarthy <jay.mccarthy@gmail.com>, samth@ccs.neu.edu,
+        bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10798: repeatable crash with futures
+Date: Tue, 2 Mar 2010 09:59:55 -0700
+
+ I think the main problem is now fixed. Out of many tries after the
+ latest repair, though, I still saw one crash.
+ 
+ At Tue, 2 Mar 2010 09:26:03 -0700, Matthew Flatt wrote:
+ > This example still crashes. I'm looking at it.
+ >=20
+ > At Tue, 2 Mar 2010 10:25:01 -0600, Robby Findler wrote:
+ > > Matthew has, I believe, fixed at least one of these bugs last night or
+ > > this morning or yestereday morning or... recently or something. Things
+ > > are a bit of blur to me. But worth trying the latest svn.
+ > >=20
+ > > Robby
+ > >=20
+ > > On Tue, Mar 2, 2010 at 10:04 AM, Jay McCarthy <jay.mccarthy@gmail.com> =
+ wrote:
+ > > > The random-future test has found this same error before:
+ > > >
+ > > > http://drdr.plt-scheme.org/18413/collects/tests/future/random-future.=
+ ss
+ > > >
+ > > > On Tue, Mar 2, 2010 at 8:20 AM, =C2=A0<samth@ccs.neu.edu> wrote:
+ > > >> A new problem report is waiting at
+ > > >> =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10798
+ > > >>
+ > > >> Reported by Sam TH for release: 4.2.4.5-svn2mar2010
+ > > >>
+ > > >> *** Description:
+ > > >> Apply this diff to tests/mzscheme/benchmarks/shootout/spectralnorm.s=
+ s:
+ > > >>
+ > > >> --- spectralnorm.ss =C2=A0 =C2=A0 2010-03-02 10:04:17.000000000 -050=
+ 0
+ > > >> +++ spectralnorm-par.ss 2010-03-02 10:04:40.000000000 -0500
+ > > >> @@ -6,6 +6,7 @@
+ > > >>
+ > > >> =C2=A0#lang scheme/base
+ > > >> =C2=A0(require scheme/cmdline
+ > > >> + =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/future
+ > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0scheme/flonum)
+ > > >>
+ > > >> =C2=A0(define (Approximate n)
+ > > >> @@ -32,9 +33,13 @@
+ > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0(fl/ (->fl (+ i (+ j 1))) 2.0))
+ > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (->fl (+ i 1=
+ )))))
+ > > >>
+ > > >> +(define-syntax-rule (for/par b . body)
+ > > >> + =C2=A0(let ([futs (for/list b (future (lambda () . body)))])
+ > > >> + =C2=A0 =C2=A0(for ([f (in-list futs)]) (touch f))))
+ > > >> +
+ > > >> =C2=A0;; multiply vector v by matrix A
+ > > >> =C2=A0(define (MultiplyAv n v Av)
+ > > >> - =C2=A0(for ([i (in-range n)])
+ > > >> + =C2=A0(for/par ([i (in-range n)])
+ > > >> =C2=A0 =C2=A0 (flvector-set! Av i
+ > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0(for/fold ([r 0.0])
+ > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0([j (in-range n)])
+ > > >>
+ > > >> Run with command line argument 1000:
+ > > >> [samth@punge:~/sw/plt-trunk/collects/tests/mzscheme/benchmarks/shoot=
+ out]=20
+ > > mzscheme spectralnorm-par.ss 1000
+ > > >>
+ > > >> Get (repeatable) crash:
+ > > >> SIGSEGV ?????? SI_CODE 128 fault on addr (nil)
+ > > >> Aborted
+ > > >>
+ > > >> *** How to repeat:
+ > > >>
+ > > >>
+ > > >> *** Environment:
+ > > >> unix "Linux punge 2.6.31-16-generic #53-Ubuntu SMP Tue Dec 8 04:01:2=
+ 9 UTC=20
+ > > 2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) =3D 24
+ > > >> Human Language: english
+ > > >> (current-memory-use) 106522784
+ > > >>
+ > > >> Collections:
+ > > >> (("/home/samth/.plt-scheme/4.2.4.5/collects" non-existent-path)=20
+ > > ("/home/samth/sw/plt-trunk/collects" "honu" "eopl" "tests" "typed"=20
+ > > "test-engine" "errortrace" "sgl" "plot" "combinator-parser" "mzcom"=20
+ > > "test-box-recovery" "version" ".svn" "defaults" "deinprogramm" "s-exp"=
+ =20
+ > > "handin-client" "srpersist" "launcher" "scriblib" "browser" "unstable"=
+ =20
+ > "r5rs"=20
+ > > "gui-debugger" "at-exp" "swindle" "scheme" "reader" "frtime" "meta" "fi=
+ le"=20
+ > > "slatex" "net" "wxme" "syntax" "scribblings" "parser-tools" "ffi" "hier=
+ list"=20
+ > > "handin-server" "2htdp" "framework" "openssl" "dynext" "slideshow" "gam=
+ es"=20
+ > > "xml" "texpict" "graphics" "mzscheme" "profile" "help" "web-server" "tr=
+ ace"=20
+ > > "make" "algol60" "mzlib" "icons" "plai" "sirmail" "lazy" "mrlib" "setup=
+ "=20
+ > > "string-constants" "syntax-color" "r6rs" "repos-time-stamp" "drscheme"=
+ =20
+ > "lang"=20
+ > > "afm" "planet" "typed-scheme" "info-domain" "config" "guibuilder" "step=
+ per"=20
+ > > "mred" "embedded-gui" "preprocessor" "readline" "htdp" "compiler" "srfi=
+ "=20
+ > > "waterworld" "macro-debugger" "html" "!
+ > > >> =C2=A0scribble" "mysterx" "redex" "rnrs" "teachpack" "tex2page" "sch=
+ emeunit"))
+ > > >> Computer Language: (("Determine language from source") (#(#t write=
+ =20
+ > > mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+ > > >>
+ > > >>
+ > > >
+ > > >
+ > > >
+ > > > --
+ > > > Jay McCarthy <jay@cs.byu.edu>
+ > > > Assistant Professor / Brigham Young University
+ > > > http://teammccarthy.org/jay
+ > > >
+ > > > "The glory of God is Intelligence" - D&C 93
+ > > >
+
+State changed from "open" to "closed" by mflatt at Tue, 02 Mar 2010 13:03:16 -0500
+Reason>>> fixed relevant bugs
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>,
+        Jay McCarthy <jay.mccarthy@gmail.com>, samth@ccs.neu.edu,
+        bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10798: repeatable crash with futures
+Date: Tue, 2 Mar 2010 11:01:37 -0700
+
+ I think I've now fixed that other crash, too.
+ 
+ At Tue, 2 Mar 2010 09:59:55 -0700, Matthew Flatt wrote:
+ > I think the main problem is now fixed. Out of many tries after the
+ > latest repair, though, I still saw one crash.
+ >=20
+ > At Tue, 2 Mar 2010 09:26:03 -0700, Matthew Flatt wrote:
+ > > This example still crashes. I'm looking at it.
+ > >=20
+ > > At Tue, 2 Mar 2010 10:25:01 -0600, Robby Findler wrote:
+ > > > Matthew has, I believe, fixed at least one of these bugs last night o=
+ r
+ > > > this morning or yestereday morning or... recently or something. Thing=
+ s
+ > > > are a bit of blur to me. But worth trying the latest svn.
+ > > >=20
+ > > > Robby
+ > > >=20
+ > > > On Tue, Mar 2, 2010 at 10:04 AM, Jay McCarthy <jay.mccarthy@gmail.com=
+ >=20
+ > wrote:
+ > > > > The random-future test has found this same error before:
+ > > > >
+ > > > > http://drdr.plt-scheme.org/18413/collects/tests/future/random-futur=
+ e.ss
+ > > > >
+ > > > > On Tue, Mar 2, 2010 at 8:20 AM, =C2=A0<samth@ccs.neu.edu> wrote:
+ > > > >> A new problem report is waiting at
+ > > > >> =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10798
+ > > > >>
+ > > > >> Reported by Sam TH for release: 4.2.4.5-svn2mar2010
+ > > > >>
+ > > > >> *** Description:
+ > > > >> Apply this diff to tests/mzscheme/benchmarks/shootout/spectralnorm=
+ .ss:
+ > > > >>
+ > > > >> --- spectralnorm.ss =C2=A0 =C2=A0 2010-03-02 10:04:17.000000000 -0=
+ 500
+ > > > >> +++ spectralnorm-par.ss 2010-03-02 10:04:40.000000000 -0500
+ > > > >> @@ -6,6 +6,7 @@
+ > > > >>
+ > > > >> =C2=A0#lang scheme/base
+ > > > >> =C2=A0(require scheme/cmdline
+ > > > >> + =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/future
+ > > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0scheme/flonum)
+ > > > >>
+ > > > >> =C2=A0(define (Approximate n)
+ > > > >> @@ -32,9 +33,13 @@
+ > > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0(fl/ (->fl (+ i (+ j 1))) 2.0))
+ > > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (->fl (+ i=
+  1)))))
+ > > > >>
+ > > > >> +(define-syntax-rule (for/par b . body)
+ > > > >> + =C2=A0(let ([futs (for/list b (future (lambda () . body)))])
+ > > > >> + =C2=A0 =C2=A0(for ([f (in-list futs)]) (touch f))))
+ > > > >> +
+ > > > >> =C2=A0;; multiply vector v by matrix A
+ > > > >> =C2=A0(define (MultiplyAv n v Av)
+ > > > >> - =C2=A0(for ([i (in-range n)])
+ > > > >> + =C2=A0(for/par ([i (in-range n)])
+ > > > >> =C2=A0 =C2=A0 (flvector-set! Av i
+ > > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0(for/fold ([r 0.0])
+ > > > >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0([j (in-range n)])
+ > > > >>
+ > > > >> Run with command line argument 1000:
+ > > > >>=20
+ > [samth@punge:~/sw/plt-trunk/collects/tests/mzscheme/benchmarks/shootout]=
+ =20
+ > > > mzscheme spectralnorm-par.ss 1000
+ > > > >>
+ > > > >> Get (repeatable) crash:
+ > > > >> SIGSEGV ?????? SI_CODE 128 fault on addr (nil)
+ > > > >> Aborted
+ > > > >>
+ > > > >> *** How to repeat:
+ > > > >>
+ > > > >>
+ > > > >> *** Environment:
+ > > > >> unix "Linux punge 2.6.31-16-generic #53-Ubuntu SMP Tue Dec 8 04:01=
+ :29=20
+ > UTC=20
+ > > > 2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) =3D 24
+ > > > >> Human Language: english
+ > > > >> (current-memory-use) 106522784
+ > > > >>
+ > > > >> Collections:
+ > > > >> (("/home/samth/.plt-scheme/4.2.4.5/collects" non-existent-path)=20=
+ 
+ > > > ("/home/samth/sw/plt-trunk/collects" "honu" "eopl" "tests" "typed"=20=
+ 
+ > > > "test-engine" "errortrace" "sgl" "plot" "combinator-parser" "mzcom"=
+ =20
+ > > > "test-box-recovery" "version" ".svn" "defaults" "deinprogramm" "s-exp=
+ "=20
+ > > > "handin-client" "srpersist" "launcher" "scriblib" "browser" "unstable=
+ "=20
+ > > "r5rs"=20
+ > > > "gui-debugger" "at-exp" "swindle" "scheme" "reader" "frtime" "meta" "=
+ file"=20
+ > > > "slatex" "net" "wxme" "syntax" "scribblings" "parser-tools" "ffi"=20
+ > "hierlist"=20
+ > > > "handin-server" "2htdp" "framework" "openssl" "dynext" "slideshow" "g=
+ ames"=20
+ > > > "xml" "texpict" "graphics" "mzscheme" "profile" "help" "web-server"=
+ =20
+ > "trace"=20
+ > > > "make" "algol60" "mzlib" "icons" "plai" "sirmail" "lazy" "mrlib" "set=
+ up"=20
+ > > > "string-constants" "syntax-color" "r6rs" "repos-time-stamp" "drscheme=
+ "=20
+ > > "lang"=20
+ > > > "afm" "planet" "typed-scheme" "info-domain" "config" "guibuilder"=20
+ > "stepper"=20
+ > > > "mred" "embedded-gui" "preprocessor" "readline" "htdp" "compiler" "sr=
+ fi"=20
+ > > > "waterworld" "macro-debugger" "html" "!
+ > > > >> =C2=A0scribble" "mysterx" "redex" "rnrs" "teachpack" "tex2page"=20=
+ 
+ > "schemeunit"))
+ > > > >> Computer Language: (("Determine language from source") (#(#t write=
+ =20
+ > > > mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+ > > > >>
+ > > > >>
+ > > > >
+ > > > >
+ > > > >
+ > > > > --
+ > > > > Jay McCarthy <jay@cs.byu.edu>
+ > > > > Assistant Professor / Brigham Young University
+ > > > > http://teammccarthy.org/jay
+ > > > >
+ > > > > "The glory of God is Intelligence" - D&C 93
+ > > > >

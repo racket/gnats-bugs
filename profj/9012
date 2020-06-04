@@ -1,0 +1,605 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Oct 19 16:23:02 2007
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.185])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l9JKN13o012426
+	for <bugs@bugs.plt-scheme.org>; Fri, 19 Oct 2007 16:23:02 -0400
+Message-Id: <200710192022.l9JKMrBW012420@champlain.ccs.neu.edu>
+Date: Fri, 19 Oct 2007 16:22:53 -0400
+From: vkp@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Yet another syntax error infinite loop in ProfessorJ
+
+>Number:         9012
+>Category:       profj
+>Synopsis:       Yet another syntax error infinite loop in ProfessorJ
+>Class:          sw-bug
+>Responsible:    kathyg
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Oct 19 16:25:01 -0400 2007
+>Closed-Date:    Tue Dec 06 14:11:40 -0500 2011
+>Last-Modified:  Tue Dec 06 14:11:40 -0500 2011
+>Originator:     Viera Proulx
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        371.3-svn4oct2007
+>Environment:
+macosx "Darwin viera-proulxs-computer.local 8.10.1 Darwin Kernel Version 8.10.1: Wed May 23 16:33:00 PDT 2007; root:xnu-792.22.5~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Applications/PLT Scheme v371.3/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-intermediate-access" "profj-advanced"))
+Human Language: english
+(current-memory-use) 167178924
+
+Collections:
+(("/Users/vkp/Library/PLT Scheme/371.3/collects" non-existent-path) ("/Applications/PLT Scheme v371.3/collects" "afm" "algol60" "big" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "tex2page" "texpict" "trace" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Experimental Languages" "ProfessorJ" "Intermediate") ((field) (#f) (#t) (#f) (#t) (#t)))
+>Description:
+run the code below in Professorj Intermediate
+>How-To-Repeat:
+/*
+Author: Viera K. Proulx
+Date: June 26, 2006
+
+A program to implement the game of 'Chicken".
+The scene shows a traffic lane of cars moving at a constant speed.
+A yellow chicken controlled by the arrow keys tries to cross the road.
+When the chicken is hit by a car or when it safely reached the other end, 
+a new chicken enters the game.
+
+Pedogogical opportunities:
+- The classes that implement the list of autos provide a motivation for
+  abstract classes - the code for generating a new random auto is repeated
+  in both subclasses.
+- The list of autos represents a queue - new cars are added at the end and
+  those that traversed the scene are removed from the front. A motivation
+  for discussing queues, their implementation, using mutable structures.
+- The program illustrates the difficulty of testing a program with random 
+  behavior yet the included tests actually provide accurate report of the 
+  behavior (the failed tests shows that the new auto has been properly 
+  constructed).
+- Students can extend the program to include several lanes of traffic,
+  even reversing the direction of travel in some of the lanes.
+- Allowing the cars to travel at different speeds should be considered as 
+  a problem to tackle apart from the interactions with the chicken. This 
+  leads to observing the 'traffic jam' behavior (see Mitch Resnick's 
+  Turtles, Termites, and Traffic Jams).
+*/
+
+import draw.*;
+import java.util.Random;
+
+
+/*----------------------------------------------------------------------------*/
+// to represent a chicken in the game of chicken and autos
+class Chicken{
+  int x;
+  int y;
+  
+  Chicken(int x, int y){
+    this.x = x;
+    this.y = y;
+  }
+
+  // produce a chick moved in response to the arrow keys
+  Chicken moveChick(String ke){
+    if (ke.equals("left"))
+      return new Chicken(x - 5, y);
+    else if (ke.equals("right"))
+      return new Chicken(x + 5, y);
+    else if (ke.equals("up"))
+      return new Chicken(x, y - 5);
+    else if (ke.equals("down"))
+      return new Chicken(x, y + 5);
+    else 
+      return this;
+  }
+
+  // draw this chicken in the given canvas 
+  boolean draw(Canvas canvas){
+    return canvas.drawDisk(new Posn(this.x, this.y), 5, new Yellow());
+  }
+
+  // is this chicken overlapping the given bounds?
+  boolean isWithin(int x1, int y1, int x2, int y2){
+    return (this.x + 5 >= x1) 
+        && (this.x - 5 <= x2) 
+        && (this.y + 5 >= y1) 
+        && (this.y - 5 <= y2);
+  }
+
+  // did this chicken safely cross the road?
+  boolean isHome(int height) {
+    return this.y < 10;  // we will worry later about crossing one lane, etc.
+  }
+}
+
+
+/*----------------------------------------------------------------------------*/
+// to represent an auto in the game of chickens and autos
+class Auto{
+  int x;
+  int y;
+  Color c;
+
+  Auto(int x, int y, Color c) {
+    this.x = x;
+    this.y = y;
+    this.c = c;
+  }
+
+  // produce a new auto from this by moving it dx ahead
+  Auto move(int dx){
+    return new Auto(this.x + dx, this.y, this.c);
+  }
+
+  // is this auto out of bounds for the given width?
+  boolean outOfBounds(int width){
+    return x > width;
+  }
+
+  // draw this auto in the given canvas
+  boolean draw(Canvas canvas){
+    return canvas.drawRect(new Posn(x, y - 5), 20, 10, this.c);
+  }
+
+  // did this car hit the given chicken?
+  boolean hitChick(Chicken chick){
+    return chick.isWithin(this.x, this.y - 5, this.x + 20, this.y + 5);
+  }  
+}
+
+
+/*----------------------------------------------------------------------------*/
+// to represent a list of autos
+interface ListofAutos {
+
+  // produce a list of autos moved by dx to the right
+  ListofAutos move(int dx);
+
+  // produce a new list of autos by adding a new auto to this list
+  ListofAutos add(Auto a);
+
+  // produce a list of autos by removing first auto, if it is out of bounds
+  ListofAutos removeOOB(int width);
+
+  // produce a new list of autos by moving all, removing the out-of-bound
+  // and adding a new one at random
+  ListofAutos advance(int width, int dx);
+
+  // did any of the autos in this list hit the given chicken?
+  boolean hitChick(Chicken chick);
+
+  // draw this list of autos on the given canvas
+  boolean drawAutos(Canvas canvas);
+}
+
+
+/*----------------------------------------------------------------------------*/
+// to represent an empty list of autos
+class MTAutos implements ListofAutos {
+
+  MTAutos() {
+  }
+
+  // produce a list of autos moved by dx to the right
+  ListofAutos move(int dx){
+    return this;
+  }
+
+  // produce a new list of autos by adding a new auto to this list
+  ListofAutos add(Auto a){
+    return new ConsAutos(a, this);
+  }
+
+  // produce a list of autos by removing first auto, if it is out of bounds
+  ListofAutos removeOOB(int width){
+    return this;
+  }
+
+  // produce a new list of autos by moving all, removing the out-of-bound
+  // and adding a new one at random
+  ListofAutos advance(int width, int dx){
+    if (randomInt(4) == 0)  // one in 4 chances auto will be added
+      return this.add(new Auto(0, 50, this.randomColor(this.randomInt(4))));
+    else return this;
+  }
+
+  // did any of the autos in this list hit the given chicken?
+  boolean hitChick(Chicken chick){
+    return false;
+  }
+
+  // draw this list of autos on the given canvas
+  boolean drawAutos(Canvas canvas) {
+    return true;
+  }
+
+  // produce a random number between 0 and n - 1
+  int randomInt(int n){
+    return new Random().nextInt() % n;
+  }
+
+  // produce the color of choice: 0 = red, 1 = blue, 2 = green, 3 = black
+  Color randomColor(int n){
+    if (n == 0)
+      return new Red();
+    else if (n == 1)
+      return new Blue();
+    else if (n == 2)
+      return new Green();
+    else if (n == 3)
+      return new Black();
+    else
+      return new White();
+  }
+}
+
+
+/*----------------------------------------------------------------------------*/
+// to represent a nonempty list of autos
+class ConsAutos implements ListofAutos {
+  Auto first;
+  ListofAutos rest;
+
+  ConsAutos(Auto first, ListofAutos rest) {
+    this.first = first;
+    this.rest = rest;
+  }
+
+  // produce a list of autos moved by dx to the right
+  ListofAutos move(int dx){
+    return new ConsAutos(this.first.move(dx), this.rest.move(dx));
+  }
+
+  // produce a new list of autos by adding a new auto to this list
+  ListofAutos add(Auto a){
+    return new ConsAutos(a, this);
+  }
+
+  // produce a list of autos by removing first auto, if it is out of bounds
+  ListofAutos removeOOB(int width){
+    if (this.first.outOfBounds(width)) 
+      return this.rest;
+    else
+      return this;
+  }
+
+  // produce a new list of autos by moving all, removing the out-of-bound
+  // and adding a new one at random
+  ListofAutos advance(int width, int dx){
+    if (randomInt(4) == 0)  // one in 4 chances auto will be added
+      return this.move(dx).removeOOB(width).
+                  add(new Auto(0, 50, this.randomColor(this.randomInt(4))));
+    else 
+      return this.move(dx).removeOOB(width);
+  }
+
+  // did any of the autos in this list hit the given chicken?
+  boolean hitChick(Chicken chick){
+    return this.first.hitChick(chick)
+        || this.rest.hitChick(chick);
+
+  }
+
+  // draw this list of autos on the given canvas
+  boolean drawAutos(Canvas canvas) {
+    return this.first.draw(canvas)
+        && this.rest.drawAutos(canvas);
+  }
+
+  // produce a random number between 0 and n - 1
+  int randomInt(int n){
+    return new Random().nextInt() % n;
+  }
+
+  // produce the color of choice: 0 = red, 1 = blue, 2 = green, 3 = black
+  Color randomColor(int n){
+    if (n == 0)
+      return new Red();
+    else if (n == 1)
+      return new Blue();
+    else if (n == 2)
+      return new Green();
+    else if (n == 3)
+      return new Black();
+    else
+      return new White();
+  }
+}
+
+
+
+// to represent a the Chicken game world
+class ChickenWorld extends World {
+  ListofAutos autos;
+  Chicken chick;
+
+  Color BACKG = new Black();
+  int HEIGHT = 100;
+  int WIDTH = 400;
+  int UP = -1;
+  int DOWN = 1;
+
+  ChickenWorld(ListofAutos autos, Chicken chick) {
+    this.autos = autos;
+    this.chick = chick;
+  }
+
+  // draw this game world
+  boolean draw() {
+    return this.drawScene()
+        && this.autos.drawAutos(this.theCanvas)
+        && this.chick.draw(this.theCanvas);
+  }
+
+  // erase this game world
+  boolean erase() {
+    return this.drawScene();
+  }
+
+  // draw the background
+  boolean drawScene() {
+    return this.theCanvas.drawRect(new Posn(0, 0), 
+                                   this.WIDTH, this.HEIGHT, this.BACKG)
+        && this.theCanvas.drawRect(new Posn(0, 40), this.WIDTH, 20,
+                                   new White());
+  }
+
+  // produce a new game world from this game world 
+  // by moving the chicken in response to a key event
+  World onKeyEvent(String ke) {
+    return new ChickenWorld(this.autos, this.chick.moveChick(ke));
+  }
+
+  // produce a new game world from this game world as it changes at each tick
+  // if chick is hit or reaches home, start a new one, also move all autos 
+  World onTick() {
+    if (this.autos.hitChick(this.chick))
+      return new ChickenWorld(this.autos.advance(this.WIDTH, 20), 
+                              new Chicken(this.WIDTH / 2, this.HEIGHT - 10));
+    else if (this.chick.isHome(this.HEIGHT))
+      return new ChickenWorld(this.autos.advance(this.WIDTH, 20),  
+                              new Chicken((this.WIDTH / 2), (this.HEIGHT - 10)));
+    else
+      return new ChickenWorld(this.autos.advance(this.WIDTH, 20), this.chick);
+  }
+}
+
+/*
+//                                                               
+//                                                               
+//                                    +++-                       
+// +@@@@                              :+++                       
+// ++                                   ++                       
+// ++     @-  @  -@@@   ++++@  ++&@+    ++    +@@-   +@@+        
+// +@++:  :@ ++     ++  @+@+++ +@ -@    ++   ++ -@  ++           
+// ++      +@+    -+&+  & @ ++ +-  @-   ++   @+++@  -@+-         
+// ++      +@+   &+ ++  & @ ++ +   @-   ++   @+---    +@+        
+// ++     -@ @+  @- ++  & @ ++ ++  @    ++   ++        -@        
+// +@@@@- @   @- +@@+@+ + @ ++ +@@@-    ++    +@@@  +@@@-        
+//                             +                                 
+//                             &-                                
+*/
+// Examples of data and tests of all methods
+class Examples {
+  Examples() {}
+
+  Canvas canvas = new Canvas(300, 100);
+
+  Chicken chick1 = new Chicken(200, 80);
+  Chicken chick2 = new Chicken(200, 0);
+
+
+  /*--------------------------------------------------------------------------*/
+  // test moveChick method in the class Chicken
+  boolean testMoveChick = 
+      (check this.chick1.moveChick("left") expect new Chicken(195, 80)) &&
+      (check this.chick1.moveChick("right") expect new Chicken(205,80)) &&
+      (check this.chick1.moveChick("up") expect new Chicken(200, 75)) &&
+      (check this.chick1.moveChick("down") expect new Chicken(200, 85)) &&
+      (check this.chick1.moveChick("out") expect new Chicken(200, 80));
+
+  // test draw method in the class Chicken
+  boolean testDrawChicken = 
+      this.canvas.show() &&
+      (check this.chick1.draw(this.canvas) expect true);
+
+  // test isWithin method in the class Chicken
+  boolean testIsWithin = 
+      // right edge
+      (check this.chick1.isWithin(204, 100, 224, 110) expect false) &&
+      (check this.chick1.isWithin(204,  80, 224,  85) expect true) &&
+      (check this.chick1.isWithin(204,   5, 224,  15) expect false) &&
+
+      // left edge
+      (check this.chick1.isWithin(176, 100, 196, 110) expect false) &&
+      (check this.chick1.isWithin(176,  80, 196,  85) expect true) &&
+      (check this.chick1.isWithin(176,   5, 196,  15) expect false) &&
+
+      // top edge
+      (check this.chick1.isWithin(150, 70, 170, 76) expect false) &&
+      (check this.chick1.isWithin(190, 70, 210, 76) expect true) &&
+      (check this.chick1.isWithin(250, 70, 270, 76) expect false) &&
+
+      // bottom edge
+      (check this.chick1.isWithin(150, 84, 170, 90) expect false) &&
+      (check this.chick1.isWithin(190, 84, 210, 90) expect true) &&
+      (check this.chick1.isWithin(250, 84, 270, 90) expect false);
+
+  // test isHome method in the class Chicken
+  boolean testIsHome = 
+      (check this.chick1.isHome(80) expect false) &&
+      (check this.chick2.isHome(80) expect true);
+
+  /*--------------------------------------------------------------------------*/
+  // tests for the methods in the class Auto  
+  Auto auto1 = new Auto(0, 50, new Red());
+  Auto auto2 = new Auto(190, 80, new Green());
+
+  // test move method in the class Auto
+  boolean testMove = 
+      (check this.auto1.move(10) expect new Auto(10, 50, new Red())) &&
+      (check this.auto2.move(10) expect new Auto(200, 80, new Green()));
+
+  // test outOfBounds method in the class Auto
+  boolean testOutOfBounds = 
+      (check this.auto1.outOfBounds(190) expect false) &&
+      (check this.auto2.outOfBounds(189) expect true);
+   
+  // test draw method in the class Auto
+  boolean testDrawAuto = 
+      (check this.auto1.draw(this.canvas) expect true) &&
+      (check this.auto2.draw(this.canvas) expect true);
+
+  // test hitChick method in the class Auto
+  boolean testHitChick = 
+      (check this.auto2.hitChick(new Chicken(240,  80)) expect false) &&
+
+      // left
+      (check this.auto2.hitChick(new Chicken(185,  60)) expect false) &&
+      (check this.auto2.hitChick(new Chicken(185,  80)) expect true) &&
+      (check this.auto2.hitChick(new Chicken(185, 100)) expect false) &&
+
+      // right
+      (check this.auto2.hitChick(new Chicken(215,  60)) expect false) &&
+      (check this.auto2.hitChick(new Chicken(215,  80)) expect true) &&
+      (check this.auto2.hitChick(new Chicken(215, 100)) expect false) &&
+
+      // top
+      (check this.auto2.hitChick(new Chicken(180,  70)) expect false) &&
+      (check this.auto2.hitChick(new Chicken(200,  70)) expect true) &&
+      (check this.auto2.hitChick(new Chicken(220,  70)) expect false) &&
+
+      // bottom
+      (check this.auto2.hitChick(new Chicken(180,  90)) expect false) &&
+      (check this.auto2.hitChick(new Chicken(200,  90)) expect true) &&
+      (check this.auto2.hitChick(new Chicken(220,  90)) expect false);
+  
+  /*--------------------------------------------------------------------------*/
+  // tests for the methods in the classes that represent a list of autos   
+  ListofAutos autos0 = new MTAutos();
+  ListofAutos autos1 = new ConsAutos(this.auto1, this.autos0);
+  ListofAutos autos2 = new ConsAutos(this.auto2, this.autos1);
+
+  Auto auto1moved = new Auto(5, 50, new Red());
+  Auto auto2moved = new Auto(195, 80, new Green());
+  ListofAutos autos1moved = new ConsAutos(this.auto1moved, autos0);
+  ListofAutos autos2moved = new ConsAutos(this.auto2moved, 
+                              new ConsAutos(this.auto1moved, autos0));
+
+  // test the method move in the classes that represent a list of autos   
+  // ListofAutos move(int dx)
+  boolean testMoveAutos = 
+      (check this.autos0.move(5) expect this.autos0) &&
+      (check this.autos2.move(5) expect this.autos2moved);
+  
+
+  // test the method add in the classes that represent a list of autos   
+  boolean testAdd = 
+      (check this.autos0.add(this.auto1) expect this.autos1) &&
+      (check this.autos1.add(this.auto2) expect this.autos2);
+  
+
+  // test the methodremoveOOB in the classes that represent a list of autos   
+  boolean testRemoveOOB = 
+      (check this.autos0.removeOOB(20) expect this.autos0) &&
+      (check this.autos1.removeOOB(-1) expect this.autos0) &&
+      (check this.autos1.removeOOB(180) expect this.autos1) &&
+      (check this.autos2.removeOOB(180) expect this.autos1);
+
+
+  // test the method advance in the classes that represent a list of autos   
+  // these tests will fail when a new auto is added (1 in 4 chance)
+  // the failed test will show the neww added auto
+
+  // nothing happens to the empty list (except maybe a new auto added)
+  boolean testAdvance1 =
+      (check this.autos0.advance(180, 5) expect this.autos0);
+  // just move - no autos are removed
+  boolean testAdvance2 =
+      (check this.autos2.advance(280, 5) expect this.autos2moved);
+  // move autos and remove one that is out of bounds
+  boolean testAdvance3 =
+      (check this.autos2.advance(180, 5) expect this.autos1moved);
+
+  // test the method hitChick in the classes that represent a list of autos   
+  boolean testHitChickAutos = 
+      (check this.autos0.hitChick(this.chick1) expect false) &&
+      (check this.autos1.hitChick(this.chick1) expect false) &&
+      (check this.autos1.hitChick(new Chicken(10, 50)) expect true) &&
+      (check this.autos2.hitChick(this.chick1) expect true) &&
+      (check this.autos2.hitChick(new Chicken(50, 50)) expect false);
+
+  // test the method drawAutos in the classes that represent a list of autos   
+  boolean testDrawAutos = 
+      (check this.autos0.drawAutos(this.canvas) expect true) &&
+      (check this.autos2moved.drawAutos(this.canvas) expect true);
+
+
+  /*--------------------------------------------------------------------------*/
+  // test the methods in the class ChickenWorld
+  ChickenWorld chickworld = new ChickenWorld(this.autos2, this.chick1);
+
+  // test the method onKeyEvent in the class ChickenWorld
+  boolean testOnKeyEvent =
+      (check this.chickworld.onKeyEvent("left") 
+          expect new ChickenWorld(this.autos2, new Chicken(195, 80))) &&
+      (check this.chickworld.onKeyEvent("right") 
+          expect new ChickenWorld(this.autos2, new Chicken(205,80))) &&
+      (check this.chickworld.onKeyEvent("up") 
+          expect new ChickenWorld(this.autos2, new Chicken(200, 75))) &&
+      (check this.chickworld.onKeyEvent("down") 
+          expect new ChickenWorld(this.autos2, new Chicken(200, 85))) &&
+      (check this.chickworld.onKeyEvent("out") 
+          expect new ChickenWorld(this.autos2, new Chicken(200, 80)));
+
+  // test the method onTick in the class ChickenWorld
+  // these tests will fail when a new auto is added (1 in 4 chance)
+  // the failed test will show the neww added auto
+
+  // nothing happens to the empty list (except maybe a new auto added)
+  boolean testOnTick1 =
+      check (new ChickenWorld(this.autos0, new Chicken(195, 80))).onTick() 
+         expect new ChickenWorld(this.autos0, new Chicken(195, 80));
+  // just move - no autos are removed
+  boolean testOnTick2 =
+      check (new ChickenWorld(this.autos2, new Chicken(195, 20))).onTick() 
+         expect new ChickenWorld(this.autos2.move(20), new Chicken(195, 20));
+  // just move - no autos are removed, but the chicken is hit
+  boolean testOnTick3 =
+      check (new ChickenWorld(this.autos2, new Chicken(195, 80))).onTick() 
+         expect new ChickenWorld(this.autos2.move(20), new Chicken(200, 90));
+  // move autos and remove one that is out of bounds
+  boolean testOnTick4 =
+      check (new ChickenWorld(
+               new ConsAutos(new Auto(405, 80, new Blue()), this.autos2), 
+               new Chicken(195, 20))).onTick() 
+         expect new ChickenWorld(this.autos2.move(20), new Chicken(195, 20));
+  // move autos and remove one that is out of bounds and the chicken is hit
+  boolean testOnTick5 =
+      check (new ChickenWorld(
+               new ConsAutos(new Auto(405, 80, new Blue()), this.autos2), 
+               new Chicken(195, 80))).onTick() 
+         expect new ChickenWorld(this.autos2.move(20), new Chicken(200, 90));
+
+  /*--------------------------------------------------------------------------*/
+  // It is time to play the game...
+  ChickenWorld cw = new ChickenWorld(new MTAutos(), new Chicken(200, 90));
+
+  // play the game
+  boolean playGame(double speed){
+    return 
+      this.cw.bigBang(this.cw.WIDTH, 
+                          this.cw.HEIGHT, speed) && 
+      this.cw.draw();
+  }
+
+  boolean go = this.playGame(0.1);
+}
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by eli at Tue, 06 Dec 2011 14:11:40 -0500
+Reason>>> ProfessorJ is no longer distributed with Racket.
+

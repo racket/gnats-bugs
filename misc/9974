@@ -1,0 +1,137 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Dec 14 13:45:46 2008
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.234])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id mBEIjXGZ029007
+	for <bugs@bugs.plt-scheme.org>; Sun, 14 Dec 2008 13:45:33 -0500
+Message-Id: <200812141845.mBEIjPv2029001@champlain.ccs.neu.edu>
+Date: Sun, 14 Dec 2008 13:45:26 -0500
+From: godless@users.sf.net
+To: bugs@plt-scheme.org
+Subject: Type error in errortrace (patch included)
+
+>Number:         9974
+>Category:       misc
+>Synopsis:       Type error in errortrace (patch included)
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Dec 14 13:48:01 -0500 2008
+>Last-Modified:  Sat Feb 04 17:32:01 -0500 2012
+>Originator:     Rent-a-slave
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0.1
+>Environment:
+unix "Linux cpe-71-72-214-60 2.6.22-2-686 #1 SMP Fri Aug 31 00:24:01 UTC 2007 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 16
+Human Language: english
+(current-memory-use) 75744440
+
+Collections:
+(("/home/godless/.plt-scheme/4.0.1/collects" non-existent-path) ("/usr/lib/plt/collects" "rnrs" "mrlib" "swindle" "slideshow" "gui-debugger" "frtime" "htdch" "hierlist" "framework" "config" "net" "macro-debugger" "xml" "readline" "html" "texpict" "lang" "slatex" "eopl" "scribblings" "drscheme" "string-constants" "browser" "games" "info-domain" "launcher" "syntax" "s-exp" "file" "mysterx" "syntax-color" "compiler" "stepper" "parser-tools" "graphics" "typed-scheme" "mzlib" "test-box-recovery" "mzcom" "srfi" "dynext" "preprocessor" "r5rs" "htdp" "combinator-parser" "icons" "ffi" "algol60" "scheme" "teachpack" "help" "embedded-gui" "sgl" "mzscheme" "r6rs" "wxme" "profj" "scribble" "mred" "make" "afm" "setup" "planet" "test-engine" "defaults" "tests" "tex2page" "openssl" "trace" "web-server" "lazy" "errortrace" "plot" "version"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #()))
+>Description:
+There are two bugs in the library "errortrace-lib.ss". The first one occurs on line 98, and is a type error:
+
+(hash-table-map cmss (lambda (ks v)
+					   (cons v 
+						 (map (lambda (k)
+							(let ([v (cdr (hash-table-get profile-info k))])
+							  (list (vector-ref v 2)
+                                                                (vector-ref v 3))))
+						      ks))))
+
+The type of (hash-table-get profile-info k) is vector, so "cdr"
+is invalid.  The program seems to work correctly if the term
+(cdr (hash-table-get profile-info k)) is replaced with simply
+(hash-table-get profile-info k). Perhaps profile-info used to
+be an alist?
+
+Fixing that bug, it becomes possible to see that the output of
+the errortrace library is unhelpful:
+
+=========================================================
+time = 12 : no. = 20000 : #f in #<syntax>
+  20000 VIA 40 <- 1076
+=========================================================
+
+The code causing this bug is on line 288:
+
+(printf "time = ~a : no. = ~a : ~e in ~s~n"
+                 (cadr c) (car c) (caddr c) (cadddr c))
+
+Replacing (cadddr c) with (syntax-object->datum (cadddr c))
+results in output that is better than useless.
+
+The following "diff" output can be used to apply the changes
+automatically:
+
+*** errortrace-lib.ss	2008-12-14 13:34:19.000000000 -0500
+--- errortrace-fixed.ss	2008-12-14 13:41:47.000000000 -0500
+***************
+*** 96,100 ****
+  					   (cons v 
+  						 (map (lambda (k)
+! 							(let ([v (cdr (hash-table-get profile-info k))])
+  							  (list (vector-ref v 2)
+                                                                  (vector-ref v 3))))
+--- 96,100 ----
+  					   (cons v 
+  						 (map (lambda (k)
+! 							(let ([v (hash-table-get profile-info k)])
+  							  (list (vector-ref v 2)
+                                                                  (vector-ref v 3))))
+***************
+*** 287,291 ****
+           (printf "=========================================================~n")
+           (printf "time = ~a : no. = ~a : ~e in ~s~n"
+!                  (cadr c) (car c) (caddr c) (cadddr c))
+           ;; print call paths
+           (when paths?
+--- 287,291 ----
+           (printf "=========================================================~n")
+           (printf "time = ~a : no. = ~a : ~e in ~s~n"
+!                  (cadr c) (car c) (caddr c) (syntax-object->datum (cadddr c)))
+           ;; print call paths
+           (when paths?
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by samth at Fri, 03 Feb 2012 19:18:15 -0500
+Reason>>> errortrace
+
+From: J Phelps <phelpsj@nuvox.net>
+To: bugs@racket-lang.org
+Cc: 
+Subject: Re: misc/9974 Type error in errortrace (patch included)
+Date: Sat, 4 Feb 2012 17:29:42 -0500
+
+ On Fri, Feb 03, 2012 at 07:18:15PM -0500, samth@racket-lang.org wrote:
+ > 
+ > Responsible changed from "nobody" to "mflatt" by samth at Fri, 03 Feb 2012 19:18:15 -0500
+ > Reason>>> errortrace
+ > 
+ > 
+ > View:
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=9974
+ 
+ 
+ In the 3 years since this bug was originally submitted, I have created
+ a forked version of the errortrace library. My version, among other
+ things, fixes the bug where the time taken by a function is attributed
+ not only to that function, but to all the functions above it on the
+ call stack. My version pinpoints exactly which function spent the time.
+ 
+ The alternate version also reports the per-profile-point amount of time
+ spent in the garbage collector.
+ 
+ Some of the alternate profiler had to be rewritten in C to get acceptible
+ performance. 
+ 
+ I have uploaded my work here:
+ 
+ 	https://bitbucket.org/edsacks/alternate-errortrace
+ 
+ 

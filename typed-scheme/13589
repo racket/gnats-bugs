@@ -1,0 +1,441 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Mar 10 17:52:33 2013
+Received: from mail-ob0-f179.google.com (mail-ob0-f179.google.com [209.85.214.179])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r2ALqU7c001090
+	for <bugs@bugs.plt-scheme.org>; Sun, 10 Mar 2013 17:52:30 -0400
+Message-Id: <201303102152.r2ALqRQS001080@champlain.ccs.neu.edu>
+Date: Sun, 10 Mar 2013 17:52:27 -0400
+From: asumu@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: TR: thread type unsoundness
+
+>Number:         13589
+>Category:       typed-scheme
+>Synopsis:       TR: thread type unsoundness
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Mar 10 17:56:01 -0400 2013
+>Last-Modified:  Tue Mar 26 02:16:11 -0400 2013
+>Originator:     Asumu Takikawa
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.3.7--2013-03-09(5954f62a/d)
+>Environment:
+unix "Linux porco 3.5.0-17-generic #28-Ubuntu SMP Tue Oct 9 19:31:23 UTC 2012 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 598284880
+Links: (links) = ("pict-utils" "x11-racket" "rwind" "drracket-vim-tool" "wffi"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+Planet2 (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.3.7):
+ [none]
+
+
+
+Collections:
+("/home/asumu/plt/racket-git/add-on/5.3.3.7/collects"
+ ("info-domain"))
+("/home/asumu/plt/racket-git/collects"
+ ("icons" "mzcom" "parser-tools" "images" "mred" "wxme" "picturing-programs" "stepper" "planet" "defaults" "r6rs" "scheme" "framework" "drracket" "rnrs" "lang" "xrepl" "unstable" "tests" "plot" "teachpack" "config" "help" "plai" "mzlib" "slatex" "graphics" "version" "profile" "handin-client" "errortrace" "browser" "repo-time-stamp" "embedded-gui" "html" "xml" "racket" "launcher" "games" "hierlist" "realm" "eopl" "typed-racket" "macro-debugger" "algol60" "slideshow" "drscheme" "rackunit" ".gitignore" "handin-server" "info-domain" "syntax-color" "file" "preprocessor" "datalog" "gui-debugger" "make" "r5rs" "deinprogramm" "sgl" "raco" "web-server" "at-exp" "net" "frtime" "test-engine" "trace" "scriblib" "htdp" "mrlib" "redex" "syntax" "future-visualizer" "mysterx" "typed-scheme" "swindle" "2htdp" "compatibility" "srfi" "scribble" "ffi" "string-constants" "planet2" "reader" "schemeunit" "db" "lazy" "texpict" "dynext" "mzscheme" "s-exp" "json" "openssl" "data" "setup" "compiler" "!
+ meta" "readline" "typed" "math" "honu" "scribblings" "racklog"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t ((main) (test))))
+>Description:
+Consider the following example:
+
+#lang racket
+
+(module a racket
+  (define t (thread (λ () (displayln ((thread-receive) 'foo)))))
+  (provide t))
+
+(module b typed/racket
+  (require/typed (submod ".." a)
+                 [t Thread])
+  (thread-send t (λ: ([x : Flonum]) (* x 5.3))))
+
+(require 'b)
+
+Since the type of a thread is just `Thread`, the type of its
+mailbox is not specified. Since threads don't have contract protection,
+and since `thread-send` is allowed to send `Any`-thing to mailboxes, you
+can get arbitrary behavior with untyped threads.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13589: TR: thread type unsoundness
+Date: Sun, 10 Mar 2013 18:14:07 -0400
+
+ On Sun, Mar 10, 2013 at 5:56 PM,  <asumu@ccs.neu.edu> wrote:
+ > Since threads don't have contract protection,
+ > and since `thread-send` is allowed to send `Any`-thing to mailboxes, you
+ > can get arbitrary behavior with untyped threads.
+ 
+ Oh yuck.
+ 
+ Matthew, what do you think about adding thread chaperones, which would
+ restrict `thread-send`?
+ 
+ Asumu, is this something you could implement?
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: asumu@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13589: TR: thread type unsoundness
+Date: Sun, 10 Mar 2013 18:54:29 -0400
+
+ Beautiful. Every channel of communication .. 
+ 
+ 
+ 
+ On Mar 10, 2013, at 5:56 PM, asumu@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=13589
+ > 
+ > Reported by Asumu Takikawa for release: 5.3.3.7--2013-03-09(5954f62a/d)
+ > 
+ > *** Description:
+ > Consider the following example:
+ > 
+ > #lang racket
+ > 
+ > (module a racket
+ >  (define t (thread (λ () (displayln ((thread-receive) 'foo)))))
+ >  (provide t))
+ > 
+ > (module b typed/racket
+ >  (require/typed (submod ".." a)
+ >                 [t Thread])
+ >  (thread-send t (λ: ([x : Flonum]) (* x 5.3))))
+ > 
+ > (require 'b)
+ > 
+ > Since the type of a thread is just `Thread`, the type of its
+ > mailbox is not specified. Since threads don't have contract protection,
+ > and since `thread-send` is allowed to send `Any`-thing to mailboxes, you
+ > can get arbitrary behavior with untyped threads.
+ > 
+ > *** How to repeat:
+ > 
+ > 
+ > *** Environment:
+ > unix "Linux porco 3.5.0-17-generic #28-Ubuntu SMP Tue Oct 9 19:31:23 UTC 2012 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 598284880
+ > Links: (links) = ("pict-utils" "x11-racket" "rwind" "drracket-vim-tool" "wffi"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+ > Planet2 (show):
+ > Installation-wide:
+ > [none]
+ > User-specific, all-version:
+ > [none]
+ > User-specific, version-specific (5.3.3.7):
+ > [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/home/asumu/plt/racket-git/add-on/5.3.3.7/collects"
+ > ("info-domain"))
+ > ("/home/asumu/plt/racket-git/collects"
+ > ("icons" "mzcom" "parser-tools" "images" "mred" "wxme" "picturing-programs" "stepper" "planet" "defaults" "r6rs" "scheme" "framework" "drracket" "rnrs" "lang" "xrepl" "unstable" "tests" "plot" "teachpack" "config" "help" "plai" "mzlib" "slatex" "graphics" "version" "profile" "handin-client" "errortrace" "browser" "repo-time-stamp" "embedded-gui" "html" "xml" "racket" "launcher" "games" "hierlist" "realm" "eopl" "typed-racket" "macro-debugger" "algol60" "slideshow" "drscheme" "rackunit" ".gitignore" "handin-server" "info-domain" "syntax-color" "file" "preprocessor" "datalog" "gui-debugger" "make" "r5rs" "deinprogramm" "sgl" "raco" "web-server" "at-exp" "net" "frtime" "test-engine" "trace" "scriblib" "htdp" "mrlib" "redex" "syntax" "future-visualizer" "mysterx" "typed-scheme" "swindle" "2htdp" "compatibility" "srfi" "scribble" "ffi" "string-constants" "planet2" "reader" "schemeunit" "db" "lazy" "texpict" "dynext" "mzscheme" "s-exp" "json" "openssl" "data" "setup" "compiler" "!
+ > meta" "readline" "typed" "math" "honu" "scribblings" "racklog"))
+ > 
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t ((main) (test))))
+ > 
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13589: TR: thread type unsoundness
+Date: Sun, 10 Mar 2013 18:09:08 -0500
+
+ --f46d0447886dc20f4904d79a244a
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ :)
+ 
+ 
+ On Sun, Mar 10, 2013 at 5:54 PM, Matthias Felleisen <matthias@ccs.neu.edu>w=
+ rote:
+ 
+ >
+ > Beautiful. Every channel of communication ..
+ >
+ >
+ >
+ > On Mar 10, 2013, at 5:56 PM, asumu@ccs.neu.edu wrote:
+ >
+ > > A new problem report is waiting at
+ > >  http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D13589
+ > >
+ > > Reported by Asumu Takikawa for release: 5.3.3.7--2013-03-09(5954f62a/d)
+ > >
+ > > *** Description:
+ > > Consider the following example:
+ > >
+ > > #lang racket
+ > >
+ > > (module a racket
+ > >  (define t (thread (=CE=BB () (displayln ((thread-receive) 'foo)))))
+ > >  (provide t))
+ > >
+ > > (module b typed/racket
+ > >  (require/typed (submod ".." a)
+ > >                 [t Thread])
+ > >  (thread-send t (=CE=BB: ([x : Flonum]) (* x 5.3))))
+ > >
+ > > (require 'b)
+ > >
+ > > Since the type of a thread is just `Thread`, the type of its
+ > > mailbox is not specified. Since threads don't have contract protection,
+ > > and since `thread-send` is allowed to send `Any`-thing to mailboxes, yo=
+ u
+ > > can get arbitrary behavior with untyped threads.
+ > >
+ > > *** How to repeat:
+ > >
+ > >
+ > > *** Environment:
+ > > unix "Linux porco 3.5.0-17-generic #28-Ubuntu SMP Tue Oct 9 19:31:23 UT=
+ C
+ > 2012 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) =3D 32
+ > > Human Language: english
+ > > (current-memory-use) 598284880
+ > > Links: (links) =3D ("pict-utils" "x11-racket" "rwind" "drracket-vim-too=
+ l"
+ > "wffi"); (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:u=
+ ser?
+ > #f #:root? #t) =3D ()
+ > > Planet2 (show):
+ > > Installation-wide:
+ > > [none]
+ > > User-specific, all-version:
+ > > [none]
+ > > User-specific, version-specific (5.3.3.7):
+ > > [none]
+ > >
+ > >
+ > >
+ > > Collections:
+ > > ("/home/asumu/plt/racket-git/add-on/5.3.3.7/collects"
+ > > ("info-domain"))
+ > > ("/home/asumu/plt/racket-git/collects"
+ > > ("icons" "mzcom" "parser-tools" "images" "mred" "wxme"
+ > "picturing-programs" "stepper" "planet" "defaults" "r6rs" "scheme"
+ > "framework" "drracket" "rnrs" "lang" "xrepl" "unstable" "tests" "plot"
+ > "teachpack" "config" "help" "plai" "mzlib" "slatex" "graphics" "version"
+ > "profile" "handin-client" "errortrace" "browser" "repo-time-stamp"
+ > "embedded-gui" "html" "xml" "racket" "launcher" "games" "hierlist" "realm=
+ "
+ > "eopl" "typed-racket" "macro-debugger" "algol60" "slideshow" "drscheme"
+ > "rackunit" ".gitignore" "handin-server" "info-domain" "syntax-color" "fil=
+ e"
+ > "preprocessor" "datalog" "gui-debugger" "make" "r5rs" "deinprogramm" "sgl=
+ "
+ > "raco" "web-server" "at-exp" "net" "frtime" "test-engine" "trace"
+ > "scriblib" "htdp" "mrlib" "redex" "syntax" "future-visualizer" "mysterx"
+ > "typed-scheme" "swindle" "2htdp" "compatibility" "srfi" "scribble" "ffi"
+ > "string-constants" "planet2" "reader" "schemeunit" "db" "lazy" "texpict"
+ > "dynext" "mzscheme" "s-exp" "json" "openssl" "data" "setup" "compiler" "!
+ > > meta" "readline" "typed" "math" "honu" "scribblings" "racklog"))
+ > >
+ > > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t ((main=
+ )
+ > (test))))
+ > >
+ >
+ >
+ 
+ --f46d0447886dc20f4904d79a244a
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">:)</div><div class=3D"gmail_extra"><br><br><div class=3D"g=
+ mail_quote">On Sun, Mar 10, 2013 at 5:54 PM, Matthias Felleisen <span dir=
+ =3D"ltr">&lt;<a href=3D"mailto:matthias@ccs.neu.edu" target=3D"_blank">matt=
+ hias@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><br>
+ Beautiful. Every channel of communication ..<br>
+ <div class=3D"HOEnZb"><div class=3D"h5"><br>
+ <br>
+ <br>
+ On Mar 10, 2013, at 5:56 PM, <a href=3D"mailto:asumu@ccs.neu.edu">asumu@ccs=
+ .neu.edu</a> wrote:<br>
+ <br>
+ &gt; A new problem report is waiting at<br>
+ &gt; =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13589" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D13589</a><br>
+ &gt;<br>
+ &gt; Reported by Asumu Takikawa for release: 5.3.3.7--2013-03-09(5954f62a/d=
+ )<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; Consider the following example:<br>
+ &gt;<br>
+ &gt; #lang racket<br>
+ &gt;<br>
+ &gt; (module a racket<br>
+ &gt; =C2=A0(define t (thread (=CE=BB () (displayln ((thread-receive) &#39;f=
+ oo)))))<br>
+ &gt; =C2=A0(provide t))<br>
+ &gt;<br>
+ &gt; (module b typed/racket<br>
+ &gt; =C2=A0(require/typed (submod &quot;..&quot; a)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 [t Thread])<br=
+ >
+ &gt; =C2=A0(thread-send t (=CE=BB: ([x : Flonum]) (* x 5.3))))<br>
+ &gt;<br>
+ &gt; (require &#39;b)<br>
+ &gt;<br>
+ &gt; Since the type of a thread is just `Thread`, the type of its<br>
+ &gt; mailbox is not specified. Since threads don&#39;t have contract protec=
+ tion,<br>
+ &gt; and since `thread-send` is allowed to send `Any`-thing to mailboxes, y=
+ ou<br>
+ &gt; can get arbitrary behavior with untyped threads.<br>
+ &gt;<br>
+ &gt; *** How to repeat:<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; *** Environment:<br>
+ &gt; unix &quot;Linux porco 3.5.0-17-generic #28-Ubuntu SMP Tue Oct 9 19:31=
+ :23 UTC 2012 x86_64 GNU/Linux&quot; (x86_64-linux/3m) (get-display-depth) =
+ =3D 32<br>
+ &gt; Human Language: english<br>
+ &gt; (current-memory-use) 598284880<br>
+ &gt; Links: (links) =3D (&quot;pict-utils&quot; &quot;x11-racket&quot; &quo=
+ t;rwind&quot; &quot;drracket-vim-tool&quot; &quot;wffi&quot;); (links #:use=
+ r? #f) =3D (); (links #:root? #t) =3D (); (links #:user? #f #:root? #t) =3D=
+  ()<br>
+ 
+ &gt; Planet2 (show):<br>
+ &gt; Installation-wide:<br>
+ &gt; [none]<br>
+ &gt; User-specific, all-version:<br>
+ &gt; [none]<br>
+ &gt; User-specific, version-specific (5.3.3.7):<br>
+ &gt; [none]<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; Collections:<br>
+ &gt; (&quot;/home/asumu/plt/racket-git/add-on/<a href=3D"http://5.3.3.7/col=
+ lects" target=3D"_blank">5.3.3.7/collects</a>&quot;<br>
+ &gt; (&quot;info-domain&quot;))<br>
+ &gt; (&quot;/home/asumu/plt/racket-git/collects&quot;<br>
+ &gt; (&quot;icons&quot; &quot;mzcom&quot; &quot;parser-tools&quot; &quot;im=
+ ages&quot; &quot;mred&quot; &quot;wxme&quot; &quot;picturing-programs&quot;=
+  &quot;stepper&quot; &quot;planet&quot; &quot;defaults&quot; &quot;r6rs&quo=
+ t; &quot;scheme&quot; &quot;framework&quot; &quot;drracket&quot; &quot;rnrs=
+ &quot; &quot;lang&quot; &quot;xrepl&quot; &quot;unstable&quot; &quot;tests&=
+ quot; &quot;plot&quot; &quot;teachpack&quot; &quot;config&quot; &quot;help&=
+ quot; &quot;plai&quot; &quot;mzlib&quot; &quot;slatex&quot; &quot;graphics&=
+ quot; &quot;version&quot; &quot;profile&quot; &quot;handin-client&quot; &qu=
+ ot;errortrace&quot; &quot;browser&quot; &quot;repo-time-stamp&quot; &quot;e=
+ mbedded-gui&quot; &quot;html&quot; &quot;xml&quot; &quot;racket&quot; &quot=
+ ;launcher&quot; &quot;games&quot; &quot;hierlist&quot; &quot;realm&quot; &q=
+ uot;eopl&quot; &quot;typed-racket&quot; &quot;macro-debugger&quot; &quot;al=
+ gol60&quot; &quot;slideshow&quot; &quot;drscheme&quot; &quot;rackunit&quot;=
+  &quot;.gitignore&quot; &quot;handin-server&quot; &quot;info-domain&quot; &=
+ quot;syntax-color&quot; &quot;file&quot; &quot;preprocessor&quot; &quot;dat=
+ alog&quot; &quot;gui-debugger&quot; &quot;make&quot; &quot;r5rs&quot; &quot=
+ ;deinprogramm&quot; &quot;sgl&quot; &quot;raco&quot; &quot;web-server&quot;=
+  &quot;at-exp&quot; &quot;net&quot; &quot;frtime&quot; &quot;test-engine&qu=
+ ot; &quot;trace&quot; &quot;scriblib&quot; &quot;htdp&quot; &quot;mrlib&quo=
+ t; &quot;redex&quot; &quot;syntax&quot; &quot;future-visualizer&quot; &quot=
+ ;mysterx&quot; &quot;typed-scheme&quot; &quot;swindle&quot; &quot;2htdp&quo=
+ t; &quot;compatibility&quot; &quot;srfi&quot; &quot;scribble&quot; &quot;ff=
+ i&quot; &quot;string-constants&quot; &quot;planet2&quot; &quot;reader&quot;=
+  &quot;schemeunit&quot; &quot;db&quot; &quot;lazy&quot; &quot;texpict&quot;=
+  &quot;dynext&quot; &quot;mzscheme&quot; &quot;s-exp&quot; &quot;json&quot;=
+  &quot;openssl&quot; &quot;data&quot; &quot;setup&quot; &quot;compiler&quot=
+ ; &quot;!<br>
+ 
+ &gt; meta&quot; &quot;readline&quot; &quot;typed&quot; &quot;math&quot; &qu=
+ ot;honu&quot; &quot;scribblings&quot; &quot;racklog&quot;))<br>
+ &gt;<br>
+ &gt; Computer Language: ((&quot;Determine language from source&quot;) (#(#t=
+  print mixed-fraction-e #f #t debug) (default) #() &quot;#lang racket\n&quo=
+ t; #f #t ((main) (test))))<br>
+ &gt;<br>
+ <br>
+ </div></div></blockquote></div><br></div>
+ 
+ --f46d0447886dc20f4904d79a244a--
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13589: TR: thread type unsoundness
+Date: Mon, 11 Mar 2013 12:07:25 -0400
+
+ On 2013-03-10 18:14:07 -0400, Sam Tobin-Hochstadt wrote:
+ > Matthew, what do you think about adding thread chaperones, which would
+ > restrict `thread-send`?
+ 
+ I think it would also have to interpose on `thread-receive` too. In the
+ example, the send is in typed code and so the thread would be
+ unchaperoned. The receive would be working in a chaperoned thread.
+ 
+ BTW: we probably also need contracts for channels too. Right now
+      TR refuses to let you import channels from untyped code because
+      there are no contracts for them.
+ 
+ > Asumu, is this something you could implement?
+ 
+ I could look into it, but it'll be in a few weeks.
+ 
+ Cheers,
+ Asumu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13589: TR: thread type unsoundness
+Date: Wed, 13 Mar 2013 23:14:33 -0700
+
+ I don't get how thread chaperones would help. Can you explain where in
+ the example the thread would get wrapped with a chaperone?
+ 
+ I think the solution is to wrap thread-send in TR's environment just
+ like default-continuation-prompt-tag.
+ 
+ On Mon, Mar 11, 2013 at 9:07 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2013-03-10 18:14:07 -0400, Sam Tobin-Hochstadt wrote:
+ >> Matthew, what do you think about adding thread chaperones, which would
+ >> restrict `thread-send`?
+ >
+ > I think it would also have to interpose on `thread-receive` too. In the
+ > example, the send is in typed code and so the thread would be
+ > unchaperoned. The receive would be working in a chaperoned thread.
+ >
+ > BTW: we probably also need contracts for channels too. Right now
+ >      TR refuses to let you import channels from untyped code because
+ >      there are no contracts for them.
+ >
+ >> Asumu, is this something you could implement?
+ >
+ > I could look into it, but it'll be in a few weeks.
+ >
+ > Cheers,
+ > Asumu
+

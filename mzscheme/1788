@@ -1,0 +1,170 @@
+From nobody@cs.rice.edu  Tue Nov 28 09:33:41 2000
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id JAA14171
+	for <plt-gnats@cs.rice.edu>; Tue, 28 Nov 2000 09:33:41 -0600 (CST)
+Message-Id: <200011281533.JAA20381@web.cs.rice.edu>
+Date: Tue, 28 Nov 2000 09:33:40 -0600 (CST)
+From: md284@cam.ac.uk
+Reply-To: md284@cam.ac.uk
+To: plt-gnats@cs.rice.edu
+Subject: GC_root_size incorrect => segfaul 
+
+>Number:         1788
+>Category:       mzscheme
+>Synopsis:       GC_root_size incorrect => segfaul
+>Confidential:   no
+>Severity:       serious
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Nov 28 15:45:01 GMT 2000
+>Last-Modified:  Wed Jan  3 10:03:16 CST 2001
+>Originator:     Mark DePristo
+>Organization:
+titan
+>Release:        103
+>Environment:
+Linux
+>Description:
+I am using MzScheme to run a (reasonably) large program that clusters 
+loop fragments in protein structures.  Due the computational intensity
+of this system, it is critically necessary to use mzc to improve performance
+of some parts of the system.  However, when I use mzc to compile these 
+subsystems, mzscheme crashes after several minutes of computation with a
+SEGFAULT.  Because of the difficulty reproducing the error and large size
+of the input data, I cannot submit an entire system to demonstrate the
+bug.  However, I guess that this bug is due to a problem with GC.  I 
+discovered that several functions, when natively compiled and then loaded 
+with (require-library) produce a GC_root_size incorrect error when 
+(dump-memory-stats) is called.  I've isolated two pieces of code that 
+yield this error:
+
+(define id (lambda (x) x))
+
+and
+
+
+(define (my-format format-str . objs)
+  (letrec ((len   (string-length format-str))
+	   (c     (lambda (i) (string-ref format-str i)))
+	   (number-substring (lambda (str start)
+			       (let loop ((i start))
+				 (if (char-numeric? (string-ref str i))
+				     (loop (+ i 1))
+				     (substring str start i)))))
+	   (with-extras  (lambda (op i obj)
+			   (if (and (< i len) (char=? (c i) #\^))
+			       (let* ((output (open-output-string))
+				      (str    (begin (op obj output) (get-output-string output)))
+				      (size   (string->number (number-substring format-str (+ i 1)))))
+				 (cond ((<= (string-length str) size)
+					(op str)
+					(display (make-string (- size (string-length str)) #\SPACE)))
+				       (else 
+					(op (substring str 0 size))))
+				 (+ i 1 (string-length (number->string size))))
+			       (begin (op obj) i))))
+	   (pop-obj (lambda ()
+		      (let ((obj (car objs)))
+			(set! objs (cdr objs))
+			obj)))
+	   (loop (lambda (i)
+		   (cond ((= i len) #f)
+			 ((char=? (string-ref format-str i) #\~)
+			  (case (string-ref format-str (+ i 1))
+			    ((#\A) (loop (with-extras display (+ i 2) (pop-obj))))
+			    ((#\W) (loop (with-extras write (+ i 2) (pop-obj))))
+			    ((#\~) (display "~") (loop (+ i 2)))
+			    ((#\%) (newline) (loop (+ i 2)))))
+			 (else
+			  (display (string-ref format-str i))
+			  (loop (+ i 1)))))))
+    (loop 0)))
+		        
+
+
+>How-To-Repeat:
+I use the following to compile with mzc:
+
+    mzc --collection-extension ++ccf -g --ccf-show utils
+
+Where foo.scm is the only file in the collection and the info.ss file 
+is essentially blank.
+
+When compiling foo.scm with id only, we get:
+
+Process scheme finished
+Welcome to MzScheme version 103, Copyright (c) 1995-2000 PLT (Matthew Flatt)
+> (require-library "foo.scm" "utils")
+> (dump-memory-stats)
+Begin Dump
+***Static roots:
+From 0x80ae300 to 0x80e1148 
+From 0x40023df4 to 0x40023f9c  (temporary)
+From 0x40043530 to 0x400436c8  (temporary)
+From 0x4015fde0 to 0x401682e8  (temporary)
+From 0x400165a0 to 0x40016c50  (temporary)
+From 0x4001aee8 to 0x4001aef5 
+Total size: 245069
+GC_root_size incorrect: 245061!!
+
+and with my-format:
+
+Total size: 245154
+GC_root_size incorrect: 245150!!
+
+>Fix:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: md284@cam.ac.uk
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1788: GC_root_size incorrect => segfaul 
+Date: Tue, 28 Nov 2000 10:31:25 -0700 (MST)
+
+ Quoting md284@cam.ac.uk:
+ > I am using MzScheme to run a (reasonably) large program that clusters 
+ > loop fragments in protein structures.  Due the computational intensity
+ > of this system, it is critically necessary to use mzc to improve performance
+ > of some parts of the system.  However, when I use mzc to compile these 
+ > subsystems, mzscheme crashes after several minutes of computation with a
+ > SEGFAULT. 
+ 
+ You are probably running into a bug that we recently discovered in
+ MzScheme's run-time support for mzc-compiled code.
+ 
+ If a garbage collection occurs at just the wrong time, the bug can
+ crash mzc-compiled code containing a tail call to any of the following:
+ 
+      1. another mzc-compiled procedure or a primitive procedure, 
+         when providing 5 or more arguments
+ 
+      2. a bytecode-compiled procedure with a "rest arg"
+ 
+      3. a continuation, when providing more than one argument
+ 
+ One possible solution is to download version 103.5 via anonymous CVS:
+ 
+    http://www.cs.utah.edu/plt/anoncvs/
+ 
+ If you'd prefer to stick with 103 (or avoid CVS), then I can probably
+ put together a patch.
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Wed Dec  6 07:11:40 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Jan  3 10:03:14 2001
+State-Changed-Why:
+
+
+ 
+>Unformatted:

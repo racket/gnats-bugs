@@ -1,0 +1,278 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Jul 23 01:00:27 2011
+Received: from mail-vw0-f44.google.com (mail-vw0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p6N50OXP014300
+	for <bugs@bugs.plt-scheme.org>; Sat, 23 Jul 2011 01:00:24 -0400
+Message-Id: <201107230455.p6N4tCZ2014102@champlain.ccs.neu.edu>
+Date: Sat, 23 Jul 2011 00:55:12 -0400
+From: nadeem@acm.org
+To: bugs@racket-lang.org
+Subject: very weird race condition (?) with make-temporary-file in windows
+
+>Number:         12074
+>Category:       all
+>Synopsis:       very weird race condition (?) with make-temporary-file in windows
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Jul 23 01:04:01 -0400 2011
+>Closed-Date:    Sat Jul 23 22:19:25 -0400 2011
+>Last-Modified:  Sat Nov 19 21:51:06 -0500 2011
+>Originator:     Nadeem Abdul Hamid
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.1.2.3--2011-07-19(d9ae1d0/a)
+>Environment:
+windows "Windows NT 6.0 (Build 6002) Service Pack 2" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 138845716
+
+Collections:
+("C:\\Users\\Nadeem\\AppData\\Roaming\\Racket\\5.1.2.3\\collects"
+ (non-existent-path))
+("C:\\Program Files (x86)\\Racket-5.1.2.3\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+This is a very weird problem that seems to happen with high probability in Windows when I try to make two temporary files with content copied from another file (or from two different files - doesn't matter). It doesn't always happen on every run (see code below), but it definitely only happens when the directory (third argument to make-temporary-file) does not exist at the point the program runs.
+>How-To-Repeat:
+Here's the code I run:
+
+#lang racket
+
+(define (check/make-dir dir-path)
+  (when (not (directory-exists? dir-path))
+    (make-directory dir-path)
+    ))
+
+(define (thunk)
+  (define dir "c:\\Users\\Nadeem\\Desktop\\yo")
+  (check/make-dir dir)
+  (define plt "c:\\Users\\Nadeem\\Desktop\\racketui.plt")
+  (make-temporary-file "~a.sav" plt dir)
+  (make-temporary-file "~a.sav" plt dir))
+
+(thunk)
+
+Now, if the "yo" directory does *not* exist to begin with, then *sometimes*, the following error happens:
+
+copy-file: copy failed; cannot copy: c:\Users\Nadeem\Desktop\racketui.plt to: c:\Users\Nadeem\Desktop\yo\13113964151311396415336.sav
+
+and the second (make-temporary-file ...) expression is highlighted. Looking in the "yo" directory, what has happened is that the first make-temporary-file already created a file with the name indicated in the error. Now, this never happened to me with the program I was working with on Mac OS X, but it has happened repeated on this Windows Vista machine (though not always reliably reproduceable -- sometimes I have to exit DrRacket, delete the "yo" directory, then open the program again and run it to get it to happen). Also, it doesn't happen if I'm not copying a file at the same time as making the temporary file (i.e. if the second parameter is #f). It also never seems to happen if all the expressions are at the top level (i.e. not bundled up in the thunk). Also, as noted already, it never happens if the "yo" directory already exists. Have fun... :-)
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: nadeem@acm.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12074: very weird race condition (?) with
+ make-temporary-file in windows
+Date: Sat, 23 Jul 2011 07:23:49 -0500
+
+ Oh, actually the docs say that copy-file is supposed to raise an
+ exn:fail:filesystem:exists? exception, so I guess that that's the bug
+ (that it doesn't in this case).
+ 
+ Robby
+ 
+ On Sat, Jul 23, 2011 at 7:20 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Looking at the code in collects/racket/file.rkt, it seems like maybe
+ > copy-file is not raising a exn:fail:filesystem? exception. I'm not
+ > sure if it should be, or if the with-handlers expression there should
+ > have a more general predicate, tho, so I didn't try to fix things.
+ >
+ > Robby
+ >
+ > On Sat, Jul 23, 2011 at 12:04 AM,  <nadeem@acm.org> wrote:
+ >> A new problem report is waiting at
+ >>  http://bugs.racket-lang.org/query/?cmd=view&pr=12074
+ >>
+ >> Reported by Nadeem Abdul Hamid for release: 5.1.2.3--2011-07-19(d9ae1d0/a)
+ >>
+ >> *** Description:
+ >> This is a very weird problem that seems to happen with high probability in Windows when I try to make two temporary files with content copied from another file (or from two different files - doesn't matter). It doesn't always happen on every run (see code below), but it definitely only happens when the directory (third argument to make-temporary-file) does not exist at the point the program runs.
+ >>
+ >> *** How to repeat:
+ >> Here's the code I run:
+ >>
+ >> #lang racket
+ >>
+ >> (define (check/make-dir dir-path)
+ >>  (when (not (directory-exists? dir-path))
+ >>    (make-directory dir-path)
+ >>    ))
+ >>
+ >> (define (thunk)
+ >>  (define dir "c:\\Users\\Nadeem\\Desktop\\yo")
+ >>  (check/make-dir dir)
+ >>  (define plt "c:\\Users\\Nadeem\\Desktop\\racketui.plt")
+ >>  (make-temporary-file "~a.sav" plt dir)
+ >>  (make-temporary-file "~a.sav" plt dir))
+ >>
+ >> (thunk)
+ >>
+ >> Now, if the "yo" directory does *not* exist to begin with, then *sometimes*, the following error happens:
+ >>
+ >> copy-file: copy failed; cannot copy: c:\Users\Nadeem\Desktop\racketui.plt to: c:\Users\Nadeem\Desktop\yo\13113964151311396415336.sav
+ >>
+ >> and the second (make-temporary-file ...) expression is highlighted. Looking in the "yo" directory, what has happened is that the first make-temporary-file already created a file with the name indicated in the error. Now, this never happened to me with the program I was working with on Mac OS X, but it has happened repeated on this Windows Vista machine (though not always reliably reproduceable -- sometimes I have to exit DrRacket, delete the "yo" directory, then open the program again and run it to get it to happen). Also, it doesn't happen if I'm not copying a file at the same time as making the temporary file (i.e. if the second parameter is #f). It also never seems to happen if all the expressions are at the top level (i.e. not bundled up in the thunk). Also, as noted already, it never happens if the "yo" directory already exists. Have fun... :-)
+ >>
+ >> *** Environment:
+ >> windows "Windows NT 6.0 (Build 6002) Service Pack 2" (win32\i386\3m) (get-display-depth) = 32
+ >> Human Language: english
+ >> (current-memory-use) 138845716
+ >>
+ >> Collections:
+ >> ("C:\\Users\\Nadeem\\AppData\\Roaming\\Racket\\5.1.2.3\\collects"
+ >>  (non-existent-path))
+ >> ("C:\\Program Files (x86)\\Racket-5.1.2.3\\collects"
+ >>  ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+ >>
+ >> Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+ >>
+ >>
+ >
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: nadeem@acm.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12074: very weird race condition (?) with
+ make-temporary-file in windows
+Date: Sat, 23 Jul 2011 07:20:35 -0500
+
+ Looking at the code in collects/racket/file.rkt, it seems like maybe
+ copy-file is not raising a exn:fail:filesystem? exception. I'm not
+ sure if it should be, or if the with-handlers expression there should
+ have a more general predicate, tho, so I didn't try to fix things.
+ 
+ Robby
+ 
+ On Sat, Jul 23, 2011 at 12:04 AM,  <nadeem@acm.org> wrote:
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=12074
+ >
+ > Reported by Nadeem Abdul Hamid for release: 5.1.2.3--2011-07-19(d9ae1d0/a)
+ >
+ > *** Description:
+ > This is a very weird problem that seems to happen with high probability in Windows when I try to make two temporary files with content copied from another file (or from two different files - doesn't matter). It doesn't always happen on every run (see code below), but it definitely only happens when the directory (third argument to make-temporary-file) does not exist at the point the program runs.
+ >
+ > *** How to repeat:
+ > Here's the code I run:
+ >
+ > #lang racket
+ >
+ > (define (check/make-dir dir-path)
+ >  (when (not (directory-exists? dir-path))
+ >    (make-directory dir-path)
+ >    ))
+ >
+ > (define (thunk)
+ >  (define dir "c:\\Users\\Nadeem\\Desktop\\yo")
+ >  (check/make-dir dir)
+ >  (define plt "c:\\Users\\Nadeem\\Desktop\\racketui.plt")
+ >  (make-temporary-file "~a.sav" plt dir)
+ >  (make-temporary-file "~a.sav" plt dir))
+ >
+ > (thunk)
+ >
+ > Now, if the "yo" directory does *not* exist to begin with, then *sometimes*, the following error happens:
+ >
+ > copy-file: copy failed; cannot copy: c:\Users\Nadeem\Desktop\racketui.plt to: c:\Users\Nadeem\Desktop\yo\13113964151311396415336.sav
+ >
+ > and the second (make-temporary-file ...) expression is highlighted. Looking in the "yo" directory, what has happened is that the first make-temporary-file already created a file with the name indicated in the error. Now, this never happened to me with the program I was working with on Mac OS X, but it has happened repeated on this Windows Vista machine (though not always reliably reproduceable -- sometimes I have to exit DrRacket, delete the "yo" directory, then open the program again and run it to get it to happen). Also, it doesn't happen if I'm not copying a file at the same time as making the temporary file (i.e. if the second parameter is #f). It also never seems to happen if all the expressions are at the top level (i.e. not bundled up in the thunk). Also, as noted already, it never happens if the "yo" directory already exists. Have fun... :-)
+ >
+ > *** Environment:
+ > windows "Windows NT 6.0 (Build 6002) Service Pack 2" (win32\i386\3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 138845716
+ >
+ > Collections:
+ > ("C:\\Users\\Nadeem\\AppData\\Roaming\\Racket\\5.1.2.3\\collects"
+ >  (non-existent-path))
+ > ("C:\\Program Files (x86)\\Racket-5.1.2.3\\collects"
+ >  ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+ >
+ >
+ 
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sat, 23 Jul 2011 22:19:25 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c9d4e0fb8c
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sat, 23 Jul 2011 22:19:25 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c9d4e0fb8c
+From: Nadeem Abdul Hamid <nadeem@acm.org>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org,
+        Matthew Flatt <mflatt@cs.utah.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>
+Cc: 
+Subject: Re: [racket-bug] all/12074: very weird race condition (?) with
+ make-temporary-file in windows
+Date: Sat, 19 Nov 2011 21:15:21 -0500
+
+ This problem,
+   http://bugs.racket-lang.org/query/?cmd=view&pr=12074
+ is now occurring on Mac OS X. The following program, if the 'yo'
+ directory exists, regularly produces (though not with every run) an
+ error like "copy-file: destination already exists; cannot copy:
+ /Users/nhamid/Desktop/projects.txt to:
+ /Users/nhamid/Desktop/yo/13217551971321755197113.sav (File exists;
+ errno=17)":
+ 
+ #lang racket
+ (define (check/make-dir dir-path)
+   (when (not (directory-exists? dir-path))
+     (make-directory dir-path)
+     ))
+ (define (thunk)
+   (define dir "/Users/nhamid/Desktop/yo")
+   (check/make-dir dir)
+   (define plt "/Users/nhamid/Desktop/projects.txt")
+   (make-temporary-file "~a.sav" plt dir)
+   (make-temporary-file "~a.sav" plt dir))
+ (thunk)
+ 
+ 
+ 
+ 
+ On Sat, Jul 23, 2011 at 1:04 AM,  <bugs@racket-lang.org> wrote:
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/12074'.
+ > You can check on the status of your problem report at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=12074
+ >
+ > If you wish to provide further information regarding this problem
+ > you can do so as a reply to this message.  (But please make sure
+ > that your mailer replies to both "bugs" and "bug-notification".)
+ >
+ >
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Nadeem Abdul Hamid <nadeem@acm.org>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org,
+        Robby Findler <robby@eecs.northwestern.edu>
+Subject: Re: [racket-bug] all/12074: very weird race condition (?) with
+ make-temporary-file in windows
+Date: Sat, 19 Nov 2011 19:43:36 -0700
+
+ At Sat, 19 Nov 2011 21:15:21 -0500, Nadeem Abdul Hamid wrote:
+ > This problem,
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=12074
+ > is now occurring on Mac OS X.
+ 
+ I reimplemented `copy-file' for v5.2 on Unix and Mac OS X, and I didn't
+ get the `exn:fail:filesysten:exists?' part right.
+ 
+ I'll push a repair. Unfortunately, it means that `make-temporary-file'
+ is broken in the current release, at least when a source file is
+ provided.
+ 
+
+----------
+A commit by mflatt@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/d416dfaa8c

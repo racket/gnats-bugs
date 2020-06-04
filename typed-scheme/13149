@@ -1,0 +1,120 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Sep 30 14:34:20 2012
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q8UIYFDB023351
+	for <bugs@bugs.plt-scheme.org>; Sun, 30 Sep 2012 14:34:15 -0400
+Message-Id: <201209301834.q8UIYCCh023346@champlain.ccs.neu.edu>
+Date: Sun, 30 Sep 2012 14:34:12 -0400
+From: tonyg@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: struct-copy in Typed Racket with require'd struct definition does not work
+
+>Number:         13149
+>Category:       typed-scheme
+>Synopsis:       struct-copy in Typed Racket with require'd struct definition does not work
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Sep 30 14:36:01 -0400 2012
+>Closed-Date:    Thu Sep 12 03:26:27 -0400 2013
+>Last-Modified:  Thu Sep 12 03:26:27 -0400 2013
+>Originator:     Tony Garnock-Jones
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.24--2012-09-29(60a0358/a)
+>Environment:
+macosx "Darwin skip.local 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 16:33:36 PDT 2011; root:xnu-1504.15.3~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 411937596
+Links: (links) = ("racket-matrix"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/tonyg/Library/Racket/5.3.0.24/collects"
+ (non-existent-path))
+("/usr/local/Racket v5.3.0.24/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #t ((main) (test))))
+>Description:
+The program in "steps to reproduce" gives the following error:
+
+struct-copy-fault-submodule.rkt:9:24: struct-copy: accessor name not associated with the given structure type
+  at: x-y
+  in: (struct-copy x (x 123) (y 345))
+  context...:
+   /usr/local/Racket/collects/racket/private/define-struct.rkt:711:2
+   success
+   /usr/local/Racket/collects/typed-racket/typed-racket.rkt:38:4
+   standard-module-name-resolver
+
+The expected behaviour is the same as the equivalent untyped program, i.e. a plain old struct-copy operation.
+
+The same problem crops up with separate files holding the providing and requiring modules:
+
+;; struct-copy-fault-provider.rkt
+#lang typed/racket/base
+(provide (struct-out x))
+(struct: x ([y : Integer]) #:prefab)
+(struct-copy x (x 123) [y 234])
+
+;; struct-copy-fault-requirer.rkt 
+#lang typed/racket/base
+(require "struct-copy-fault-provider.rkt")
+(struct-copy x (x 123) [y 345])
+>How-To-Repeat:
+#lang typed/racket/base
+
+(module struct-exporter typed/racket/base
+  (provide (struct-out x))
+  (struct: x ([y : Integer]) #:prefab)
+  (struct-copy x (x 123) [y 234]))
+
+(require 'struct-exporter)
+(struct-copy x (x 123) [y 345])
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: tonyg@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13149: struct-copy in Typed Racket with
+ require'd struct definition does not work
+Date: Sun, 30 Sep 2012 20:52:16 -0400
+
+ On Sun, Sep 30, 2012 at 2:36 PM,  <tonyg@ccs.neu.edu> wrote:
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13149
+ 
+ This appears to be a bug in `struct-copy` itself.  The below is a
+ program the simulates what TR is doing when building the static
+ structure info but without using TR.  I think it should work, but it
+ doesn't; it gives the same error Tony gets with TR:
+ 
+ #lang racket/load
+ (module m1 racket
+   (define-struct x (y))
+   (require (for-syntax racket/struct-info))
+   (define-syntax x-y*
+     (make-rename-transformer (syntax-property #'-x-y
+ 'not-free-identifier=? #t)))
+   (define (-x-y v) (x-y v))
+   (define-syntax -x
+     (make-struct-info (λ () (list #'struct:x #'make-x #'x? (list
+ #'-x-y) (list #f) #t))))
+   (define-syntax x*
+     (make-rename-transformer (syntax-property #'-x 'not-free-identifier=? #t)))
+   (provide make-x
+            (rename-out [x-y* x-y]
+                        [x* x])))
+ (module m2 racket
+   (require 'm1)
+   (struct-copy x (make-x 1) [y 2]))
+ (require 'm2)
+ 
+
+
+State changed from "open" to "closed" by guest at Thu, 12 Sep 2013 03:26:27 -0400
+Reason>>> Closed by commit 9586dca.
+

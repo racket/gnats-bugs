@@ -1,0 +1,314 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Oct  6 11:30:12 2009
+Received: from mail-yw0-f178.google.com (mail-yw0-f178.google.com [209.85.211.178])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n96FU7xs020649
+	for <bugs@bugs.plt-scheme.org>; Tue, 6 Oct 2009 11:30:07 -0400
+Message-Id: <200910061530.n96FU4Qa020642@champlain.ccs.neu.edu>
+Date: Tue, 6 Oct 2009 11:30:04 -0400
+From: matthias@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: performance bug in drscheme involving coverage highlighting
+
+>Number:         10512
+>Category:       drscheme
+>Synopsis:       performance bug in drscheme involving coverage highlighting
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Oct 06 11:32:01 -0400 2009
+>Last-Modified:  Sun Oct 11 16:30:57 -0400 2009
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.2.4-svn5oct2009
+>Environment:
+macosx "Darwin antarctica.local 9.8.0 Darwin Kernel Version 9.8.0: Wed Jul 15 16:55:01 PDT 2009; root:xnu-1228.15.4~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 131990484
+
+Collections:
+(("/Users/matthias/0Unison/collects/" ".DS_Store" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web") ("/Users/matthias/Library/PLT Scheme/4.2.2.4/collects" non-existent-path) ("/Users/matthias/plt/collects" ".DS_Store" ".svn" "2htdp" "afm" "algol60" "at-exp" "big" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "doc" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "honu-module" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "little-helper" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "reader" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "!
+ scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "test-suite" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Beginning Student") (#(#t constructor repeating-decimal #f #t none) #f ()))
+>Description:
+Open a fresh Scheme. Take your function (freehand-drawing), paste it 10 times in the editor, renaming each copy. Don't launch any of them. Execute the editor. The whole text is highlighted, ok ? Then at the toplevel, type (+ 1 2), you get 3 immediately but the prompt 3 seconds after (on my machine). Now, type a space in the editor, so the text is no more highlighted. Then ask (+ 1 2) at the toplevel, you get 3 and the prompt immediately.
+
+
+reported by Jean-Paul Roy
+I confirmed it with my variation of his program: 
+>How-To-Repeat:
+(require 2htdp/universe)
+
+(define (freehand-drawing.v1)
+ (local [(define SIZE 200)
+         (define-struct world (px py img))   ; previous x/y
+         (define (next m)
+           m)
+         (define (draw m)
+           (world-img m))
+         (define (mouse m x y evt)
+           (cond ((mouse=? evt "drag")
+                  (make-world x y
+                              (add-line (world-img m)
+                                        (world-px m) (world-py m)
+                                        x y
+                                        "black")))
+                 (else (make-world x y (world-img m)))))]
+   (big-bang (make-world 0 0 (empty-scene SIZE SIZE))
+             (on-tick next)   ; nothing great on the frequency
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v2)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v3)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v4)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v5)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v6)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v7)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v8)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v9)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m))
+             (on-draw draw)
+             (on-mouse mouse))))
+
+(define (freehand-drawing.v10)
+ (local [;; World = (cons M [Listof M])
+         ;; M     = (cons Posn [Listof Posn])
+         (define SIZE 200)
+         ;; (define (next m) m) ;; I don't see a need for using clock ticks 
+         (define (draw m)
+           (foldl (lambda (m s)
+                    (draw-acc s (rest m) (posn-x (first m)) (posn-y (first m))))
+                  (empty-scene SIZE SIZE)
+                  m))
+         (define (draw-acc s lop x- y-)
+           (cond
+             [(empty? lop) s]
+             [else (local ((define x (posn-x (first lop)))
+                           (define y (posn-y (first lop))))
+                     (add-line (draw-acc s (rest lop) x y)  x- y- x y "black"))]))
+         (define (mouse m x y evt)
+           (local ((define p (make-posn x y)))
+             (cond ((mouse=? evt "drag") (cons (cons p (first m)) (rest m)))
+                   (else (cons (list p) m)))))]
+   (big-bang (list (list (make-posn 0 0)))
+             (on-tick (lambda (m) m)) 
+             (on-draw draw)
+             (on-mouse mouse))))
+>Fix:

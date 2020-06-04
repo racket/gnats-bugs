@@ -1,0 +1,414 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jun 15 17:00:33 2009
+Received: from qw-out-2122.google.com (qw-out-2122.google.com [74.125.92.24])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n5FL0QHK001987
+	for <bugs@bugs.plt-scheme.org>; Mon, 15 Jun 2009 17:00:26 -0400
+Message-Id: <200906152100.n5FL0KiN001980@champlain.ccs.neu.edu>
+Date: Mon, 15 Jun 2009 17:00:20 -0400
+From: eddieSull@hotmail.com
+To: bugs@plt-scheme.org
+Subject: Within DrScheme, make-evaluator can't "require" a file saved in editor format.
+
+>Number:         10306
+>Category:       misc
+>Synopsis:       Within DrScheme, make-evaluator can't "require" a file saved in editor format.
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Jun 15 17:04:01 -0400 2009
+>Last-Modified:  Sat Feb 04 02:56:01 -0500 2012
+>Originator:     Eddie Sullivan
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 130026596
+
+Collections:
+(("C:\\Documents and Settings\\Ed\\Application Data\\PLT Scheme\\4.2\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+When run inside DrScheme, a call to make-evaluator fails with an error like the following if the require'd file is in the plt scheme editor format:
+
+open-output-file: `write' access denied for C:\DOCUME~1\Ed\LOCALS~1\Temp\mztmp1245099649-440866153
+
+Here's the code:
+#lang scheme
+(require scheme/sandbox)
+(make-evaluator 'scheme
+                #:requires (list (string->path "util.scm")))
+
+where util.scm has some kind of non-text element, like a comment box or an image. Even just an otherwise-blank file with a comment box will cause the error.
+>How-To-Repeat:
+See description.
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: eddieSull@hotmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10306: Within DrScheme, make-evaluator can't "require" a file saved in editor format.
+Date: Mon, 15 Jun 2009 18:04:24 -0400
+
+ On Jun 15, eddieSull@hotmail.com wrote:
+ > When run inside DrScheme, a call to make-evaluator fails with an
+ > error like the following if the require'd file is in the plt scheme
+ > editor format:
+ > 
+ > open-output-file: `write' access denied for
+ > C:\DOCUME~1\Ed\LOCALS~1\Temp\mztmp1245099649-440866153
+ > 
+ > Here's the code:
+ > #lang scheme
+ > (require scheme/sandbox)
+ > (make-evaluator 'scheme
+ >                 #:requires (list (string->path "util.scm")))
+ > 
+ > where util.scm has some kind of non-text element, like a comment box
+ > or an image. Even just an otherwise-blank file with a comment box
+ > will cause the error.
+ 
+ Looks like the wxme reader tries to write a temporary file -- is it
+ needed?  It does seem to happen in DrScheme only for some reason, so
+ perhaps it's DrScheme that is trying to use a temporary file.
+ 
+ Also, the error message I'm getting is different:
+ 
+   exception raised by error display handler: directory-exists?:
+   `exists' access denied for /; original exception raised:
+   open-output-file: `write' access denied for
+   /var/tmp/mztmp12451030261245103026412
+ 
+ so it seems that DrScheme's error display handler is doing something
+ with paths that the sandbox forbids.  The way to fix this would be to
+ grab the original security guard and use it inside the handler.
+ 
+ Eddie: The only workaround I can think of for now would be to allow
+ access to the problematic path, you can specify a regexp that allows
+ only files that begin with "mztmp", but this is still a security hole.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: eddieSull@hotmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10306: Within DrScheme, make-evaluator can't
+ "require" a file saved in editor format.
+Date: Sun, 20 Nov 2011 18:57:49 -0500
+
+ I just tried this again, and it behaves much more strangely now.
+ 
+ In DrRacket, I get the error:
+  file-or-directory-modify-seconds: `read' access denied for
+ /home/samth/.racket/racket-prefs.rktd
+ 
+ At the shell, I get:
+ 
+ $ r /tmp/x.rkt
+ path-add-suffix: expects type <path (for any system) or valid-path
+ string> as 1st argument, given: #f; other arguments were: #".zo"
+ 
+ This is with the precise reproduction recipe from the report.
+ 
+ On Mon, Jun 15, 2009 at 5:04 PM,  <eddieSull@hotmail.com> wrote:
+ >
+ > *** Description:
+ > When run inside DrScheme, a call to make-evaluator fails with an error like the following if the require'd file is in the plt scheme editor format:
+ >
+ > open-output-file: `write' access denied for C:\DOCUME~1\Ed\LOCALS~1\Temp\mztmp1245099649-440866153
+ >
+ > Here's the code:
+ > #lang scheme
+ > (require scheme/sandbox)
+ > (make-evaluator 'scheme
+ >                #:requires (list (string->path "util.scm")))
+ >
+ > where util.scm has some kind of non-text element, like a comment box or an image. Even just an otherwise-blank file with a comment box will cause the error.
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: eddieSull@hotmail.com, bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10306: Within DrScheme, make-evaluator can't
+ "require" a file saved in editor format.
+Date: Sun, 20 Nov 2011 18:05:50 -0600
+
+ On Sun, Nov 20, 2011 at 5:57 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > I just tried this again, and it behaves much more strangely now.
+ >
+ > In DrRacket, I get the error:
+ >  file-or-directory-modify-seconds: `read' access denied for
+ > /home/samth/.racket/racket-prefs.rktd
+ 
+ This is probably because the comment-boxes look at the preferences
+ when they are created. I'm not sure that's a problem with the comment
+ boxes.
+ 
+ > At the shell, I get:
+ >
+ > $ r /tmp/x.rkt
+ > path-add-suffix: expects type <path (for any system) or valid-path
+ > string> as 1st argument, given: #f; other arguments were: #".zo"
+ 
+ This one I don't get.
+ 
+ > This is with the precise reproduction recipe from the report.
+ >
+ > On Mon, Jun 15, 2009 at 5:04 PM,  <eddieSull@hotmail.com> wrote:
+ >>
+ >> *** Description:
+ >> When run inside DrScheme, a call to make-evaluator fails with an error like the following if the require'd file is in the plt scheme editor format:
+ >>
+ >> open-output-file: `write' access denied for C:\DOCUME~1\Ed\LOCALS~1\Temp\mztmp1245099649-440866153
+ >>
+ >> Here's the code:
+ >> #lang scheme
+ >> (require scheme/sandbox)
+ >> (make-evaluator 'scheme
+ >>                #:requires (list (string->path "util.scm")))
+ >>
+ >> where util.scm has some kind of non-text element, like a comment box or an image. Even just an otherwise-blank file with a comment box will cause the error.
+ >
+ >
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ >
+ 
+
+Responsible changed from "nobody" to "eli" by samth at Fri, 03 Feb 2012 18:16:57 -0500
+Reason>>> sandbox -- please reassign if you know who is more responsible
+
+
+Responsible changed from "eli" to "robby" by eli at Fri, 03 Feb 2012 20:54:39 -0500
+Reason>>> See reply.
+
+From: Eli Barzilay <eli@barzilay.org>
+To: bugs@racket-lang.org, Robby Findler <robby@eecs.northwestern.edu>
+Cc: samth@racket-lang.org, eddieSull@hotmail.com
+Subject: Re: [racket-bug] misc/10306 Within DrScheme, make-evaluator can't "require" a file saved in editor format.
+Date: Fri, 3 Feb 2012 20:52:39 -0500
+
+ Two hours ago, samth@racket-lang.org wrote:
+ > 
+ > Responsible changed from "nobody" to "eli" by samth at Fri, 03 Feb 2012 18:16:57 -0500
+ > Reason>>> sandbox -- please reassign if you know who is more responsible
+ > 
+ > 
+ > View:
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=10306
+ 
+ I'm going to move it over to Robby.
+ 
+ To explain, I did this:
+ 
+   --- x1.rkt ---
+   #lang racket
+   (provide x)
+   (define x <<1 2/3>>) ; a number snip
+ 
+   --- x2.rkt ---
+   #lang racket
+   (require racket/sandbox)
+   ((make-evaluator 'scheme
+                    #:requires (list (string->path "x1.rkt")))
+    'x)
+ 
+ Now, running "racket x2.rkt" works fine and shows 5/3.
+ 
+ In DrRacket, I see this when I run the second file:
+ 
+   ...racket/snip/private/load-one.rkt:21:2:
+   standard-module-name-resolver: collection not found:
+   "drscheme/private" in any of: (#<path:/home/eli/src/plt/collects>)
+ 
+ I first thought that this is some bug with the path, but grepping the
+ tree I've seen some file that registers mappings between old paths and
+ new ones.  So for some reason that doesn't work in drr.
+ 
+ There's a second part to this problem (which is likely similar to the
+ original report) -- I fixed the wxme file directly to avoid the above
+ problem.  Now, running it I get:
+ 
+   .../racket/file.rkt:323:0: file-or-directory-modify-seconds: `read'
+   access denied for /home/eli/.racket/racket-prefs.rktd
+ 
+ But this is the intended behavior.  So my guess is that this is not
+ really a problem: drracket probably has some good reason to read the
+ preferences, and that's correctly forbidden by the sandbox.  But this
+ is just a guess -- perhaps that preference is not really needed...
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org, samth@racket-lang.org, eddieSull@hotmail.com
+Subject: Re: [racket-bug] misc/10306 Within DrScheme, make-evaluator can't
+ "require" a file saved in editor format.
+Date: Fri, 3 Feb 2012 19:56:57 -0600
+
+ On Fri, Feb 3, 2012 at 7:52 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > Two hours ago, samth@racket-lang.org wrote:
+ >>
+ >> Responsible changed from "nobody" to "eli" by samth at Fri, 03 Feb 2012 18:16:57 -0500
+ >> Reason>>> sandbox -- please reassign if you know who is more responsible
+ >>
+ >>
+ >> View:
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=10306
+ >
+ > I'm going to move it over to Robby.
+ >
+ > To explain, I did this:
+ >
+ >  --- x1.rkt ---
+ >  #lang racket
+ >  (provide x)
+ >  (define x <<1 2/3>>) ; a number snip
+ >
+ >  --- x2.rkt ---
+ >  #lang racket
+ >  (require racket/sandbox)
+ >  ((make-evaluator 'scheme
+ >                   #:requires (list (string->path "x1.rkt")))
+ >   'x)
+ >
+ > Now, running "racket x2.rkt" works fine and shows 5/3.
+ >
+ > In DrRacket, I see this when I run the second file:
+ >
+ >  ...racket/snip/private/load-one.rkt:21:2:
+ >  standard-module-name-resolver: collection not found:
+ >  "drscheme/private" in any of: (#<path:/home/eli/src/plt/collects>)
+ >
+ > I first thought that this is some bug with the path, but grepping the
+ > tree I've seen some file that registers mappings between old paths and
+ > new ones.  So for some reason that doesn't work in drr.
+ 
+ Did you try to eliminate the sandbox from the equation (just have
+ calls in racket's namespace/etc prims)?
+ 
+ > There's a second part to this problem (which is likely similar to the
+ > original report) -- I fixed the wxme file directly to avoid the above
+ > problem.  Now, running it I get:
+ >
+ >  .../racket/file.rkt:323:0: file-or-directory-modify-seconds: `read'
+ >  access denied for /home/eli/.racket/racket-prefs.rktd
+ >
+ > But this is the intended behavior.  So my guess is that this is not
+ > really a problem: drracket probably has some good reason to read the
+ > preferences, and that's correctly forbidden by the sandbox.  But this
+ > is just a guess -- perhaps that preference is not really needed...
+ 
+ It could be trying to figure out how to display the snip, I guess.
+ 
+ I don't see why this should be good behavior, and there are lots of
+ things that will break if reading preferences are not allowed.
+ 
+ Is there a general rule here? Or perhaps again, an example that
+ doesn't involve the sandbox?
+ 
+ Robby
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@racket-lang.org, samth@racket-lang.org, eddieSull@hotmail.com
+Subject: Re: [racket-bug] misc/10306 Within DrScheme, make-evaluator can't
+ "require" a file saved in editor format.
+Date: Sat, 4 Feb 2012 02:55:36 -0500
+
+ 6 hours ago, Robby Findler wrote:
+ > On Fri, Feb 3, 2012 at 7:52 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > > Two hours ago, samth@racket-lang.org wrote:
+ > >>
+ > >> Responsible changed from "nobody" to "eli" by samth at Fri, 03 Feb 2012 18:16:57 -0500
+ > >> Reason>>> sandbox -- please reassign if you know who is more responsible
+ > >>
+ > >>
+ > >> View:
+ > >>   http://bugs.racket-lang.org/query/?cmd=view&pr=10306
+ > >
+ > > I'm going to move it over to Robby.
+ > >
+ > > To explain, I did this:
+ > >
+ > >  --- x1.rkt ---
+ > >  #lang racket
+ > >  (provide x)
+ > >  (define x <<1 2/3>>) ; a number snip
+ > >
+ > >  --- x2.rkt ---
+ > >  #lang racket
+ > >  (require racket/sandbox)
+ > >  ((make-evaluator 'scheme
+ > >                   #:requires (list (string->path "x1.rkt")))
+ > >   'x)
+ > >
+ > > Now, running "racket x2.rkt" works fine and shows 5/3.
+ > >
+ > > In DrRacket, I see this when I run the second file:
+ > >
+ > >  ...racket/snip/private/load-one.rkt:21:2:
+ > >  standard-module-name-resolver: collection not found:
+ > >  "drscheme/private" in any of: (#<path:/home/eli/src/plt/collects>)
+ > >
+ > > I first thought that this is some bug with the path, but grepping the
+ > > tree I've seen some file that registers mappings between old paths and
+ > > new ones.  So for some reason that doesn't work in drr.
+ > 
+ > Did you try to eliminate the sandbox from the equation (just have
+ > calls in racket's namespace/etc prims)?
+ 
+ #lang racket/base
+ (require racket/gui/base)
+ (parameterize* ([current-namespace  (make-gui-namespace)]
+                 [current-eventspace (make-eventspace)])
+   (queue-callback (λ () (eval `(require "x1.rkt")))))
+ 
+ 
+ > > There's a second part to this problem (which is likely similar to the
+ > > original report) -- I fixed the wxme file directly to avoid the above
+ > > problem.  Now, running it I get:
+ > >
+ > >  .../racket/file.rkt:323:0: file-or-directory-modify-seconds: `read'
+ > >  access denied for /home/eli/.racket/racket-prefs.rktd
+ > >
+ > > But this is the intended behavior.  So my guess is that this is not
+ > > really a problem: drracket probably has some good reason to read the
+ > > preferences, and that's correctly forbidden by the sandbox.  But this
+ > > is just a guess -- perhaps that preference is not really needed...
+ > 
+ > It could be trying to figure out how to display the snip, I guess.
+ > 
+ > I don't see why this should be good behavior, and there are lots of
+ > things that will break if reading preferences are not allowed.
+ 
+ We've talked about it multiple times in the past -- preferences should
+ not be readable by default both because sandboxed code should not be
+ allowed to read/write personal information, and because you want
+ different sandboxes to be completely independent of each other and of
+ your own environment.
+ 
+ 
+ > Is there a general rule here? Or perhaps again, an example that
+ > doesn't involve the sandbox?
+ 
+ An example of what?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 

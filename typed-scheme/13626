@@ -1,0 +1,191 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Mar 24 13:28:26 2013
+Received: from mail-ob0-f173.google.com (mail-ob0-f173.google.com [209.85.214.173])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r2OHSNn4021667
+	for <bugs@bugs.plt-scheme.org>; Sun, 24 Mar 2013 13:28:23 -0400
+Message-Id: <201303241728.r2OHSJuR021661@champlain.ccs.neu.edu>
+Date: Sun, 24 Mar 2013 13:28:19 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: cast is unsound in TR
+
+>Number:         13626
+>Category:       typed-scheme
+>Synopsis:       cast is unsound in TR
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Mar 24 13:32:01 -0400 2013
+>Closed-Date:    Thu Jun 09 11:20:38 -0400 2016
+>Last-Modified:  Thu Jun 09 11:20:38 -0400 2016
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+Cast is unsound in TR, it doesn't check that the new type doesn't violate assumptions that held with the old type.
+>How-To-Repeat:
+#lang typed/racket
+
+(: v Boolean)
+(define v #f)
+(: f (Boolean -> Boolean))
+(define (f x)
+  (set! v x)
+  x)
+
+v
+(f #t)
+v
+((cast f (String -> String)) "hello")
+v
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13626: cast is unsound in TR
+Date: Sun, 24 Mar 2013 14:16:19 -0400
+
+ I think this means we need to generate two contracts in `cast` -- one
+ for the old type, one for the new.
+ 
+ On Sun, Mar 24, 2013 at 1:32 PM,  <eric.n.dobson@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13626
+ >
+ > Reported by Eric Dobson for release: 5.3.2.3
+ >
+ > *** Description:
+ > Cast is unsound in TR, it doesn't check that the new type doesn't violate assumptions that held with the old type.
+ >
+ > *** How to repeat:
+ > #lang typed/racket
+ >
+ > (: v Boolean)
+ > (define v #f)
+ > (: f (Boolean -> Boolean))
+ > (define (f x)
+ >   (set! v x)
+ >   x)
+ >
+ > v
+ > (f #t)
+ > v
+ > ((cast f (String -> String)) "hello")
+ > v
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13626: cast is unsound in TR
+Date: Sun, 24 Mar 2013 11:26:19 -0700
+
+ I agree. I was having trouble coming up with an example where it would
+ be useful, but I finally did. As in most cases where both contracts
+ would pass it would be a subtype and thus no contracts would be
+ necessary.
+ 
+ #lang typed/racket
+ 
+ (: b (Boxof (U #f Symbol)))
+ (define b (box #f))
+ 
+ (: c (Boxof Symbol))
+ (define c (cast b (Boxof Symbol)))
+ 
+ We cannot statically do this check, but it is possible to use c in a
+ safe manner.
+ 
+ On Sun, Mar 24, 2013 at 11:16 AM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > I think this means we need to generate two contracts in `cast` -- one
+ > for the old type, one for the new.
+ >
+ > On Sun, Mar 24, 2013 at 1:32 PM,  <eric.n.dobson@gmail.com> wrote:
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=13626
+ >>
+ >> Reported by Eric Dobson for release: 5.3.2.3
+ >>
+ >> *** Description:
+ >> Cast is unsound in TR, it doesn't check that the new type doesn't violate assumptions that held with the old type.
+ >>
+ >> *** How to repeat:
+ >> #lang typed/racket
+ >>
+ >> (: v Boolean)
+ >> (define v #f)
+ >> (: f (Boolean -> Boolean))
+ >> (define (f x)
+ >>   (set! v x)
+ >>   x)
+ >>
+ >> v
+ >> (f #t)
+ >> v
+ >> ((cast f (String -> String)) "hello")
+ >> v
+ >>
+ >> *** Environment:
+ >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >>
+
+From: Alex Knauth <alexander@knauth.org>
+To: bugs <bugs@racket-lang.org>, Eric Dobson <eric.n.dobson@gmail.com>
+Cc: 
+Subject: Re: typed-scheme/13626: cast is unsound in TR
+Date: Wed, 25 May 2016 18:22:10 -0400
+
+ This loophole can be closed by having `cast` generate two contracts. The first would be an `Any` contract as if it was going from typed to untyped, and the second would be the contract for the type it's casting to, as if it was going from untyped to typed.
+ 
+ That's what this does:
+ https://github.com/AlexKnauth/typed-racket/commit/4696144d46a18c688a55974685632f50e10beec3
+ 
+ The error message for the original "How-To-Repeat" example is this:
+ ```
+ . . ../../Applications/Racket/2016-05-23/tr/Racket v6.5.0.5/collects/racket/contract/private/blame.rkt:159:0: #<procedure:f>: contract violation
+   Attempted to use a higher-order value passed as `Any` in untyped code: #<procedure:f>
+   in: Any
+   contract from: typed-world
+   blaming: cast
+    (assuming the contract is correct)
+   at: unsaved-editor:13.1
+ ```
+ 
+ However, it throws that same error if you try to use it in a safe way:
+ ```
+ #lang typed/racket
+ 
+ (: v Boolean)
+ (define v #f)
+ (: f (Boolean -> Boolean))
+ (define (f x)
+   (set! v x)
+   x)
+ 
+ ;; Should be perfectly safe, but errors anyway.
+ ((cast f (Boolean -> Boolean)) #t)
+ ```
+ 
+ To do this properly, `cast` would have to somehow tell the type-checking pass to get the existing type of the original expression, and then the type-checking pass would have to give that type to the contract-generation pass to both that contract and the one for the new type.
+ 
+ But I'm stuck, because the `cast` macro needs to generate the code for the contract checks before the type-checking pass happens.
+ 
+ Anyone have any ideas?
+ 
+ 
+
+State changed from "open" to "closed" by asumu at Thu, 09 Jun 2016 11:20:38 -0400
+Reason>>> Closed by fixing github issue 108
+https://github.com/racket/typed-racket/issues/108
+

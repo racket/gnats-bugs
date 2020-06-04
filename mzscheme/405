@@ -1,0 +1,179 @@
+From nobody@cs.rice.edu  Wed Jan  7 23:02:54 1998
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+          by cs.rice.edu (8.8.5/8.8.4) with ESMTP
+	  id XAA04419 for <plt-gnats@cs.rice.edu>; Wed, 7 Jan 1998 23:02:54 -0600 (CST)
+Message-Id: <199801080502.XAA16495@web.cs.rice.edu>
+Date: Wed, 7 Jan 1998 23:02:53 -0600 (CST)
+From: lspector@hampshire.edu
+Reply-To: lspector@hampshire.edu
+To: plt-gnats@cs.rice.edu
+Subject: premature DO termination within threads (??) 
+
+>Number:         405
+>Category:       mzscheme
+>Synopsis:       premature DO termination within threads (??)
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Jan 14 21:15:02 GMT 1998
+>Last-Modified:  Wed Jan 14 15:49:20 CST 1998
+>Originator:     Lee Spector
+>Organization:
+titan
+>Release:        version 50
+>Environment:
+Mac PowerPC
+>Description:
+I am trying to implement a Linda-like model of parallelism (I can
+give you references if you need them) in Scheme for use in a programming
+languages course that I'll be teaching this Spring. I chose mzscheme
+because it seems to me that its combination of threads and semaphores
+should make the job quite easy. Unfortunately, I'm getting some bizarre
+results -- bizarre enough that I suspect a bug in mzscheme, though I
+confess that I'm not sure (I usually work in common lisp...).
+
+The basic idea is that parallel processes run in different threads,
+using semaphores to synchronize access to the shared "tuple space".
+When a process needs a tuple that it can't get (that is, it executes
+the IN procedure with a pattern that doesn't match anything in tuple
+space) it should block -- I implement this by having it loop
+with a DO until the pattern matches. Unfortunately, these loops seem
+to be exiting prematurely, or doing other strange things that I can't
+seem to track. The weirdest part is that when I add various things to
+the body of the loop -- for example, calls to DISPLAY or manipulations
+to a counter -- the behavior seems to change: I get different numbers
+of iterations, etc. I'd appreciate any light you can shed on this --
+I'm including the code below because it's concise. I provide two versions
+of IN, the simple one I started with and one with some extraneous
+stuff that changes its behavior. If this worked correctly (pingpong) should
+cause "ping" and "pong" to be printed in alternation forever.
+
+By the way, if I work this out I'll be using the Unix version for the
+class -- it was just easier for me to grab and install the mac version
+for testing. The mac version includes warnings about blocking processes
+with READ... I'm not using READ but I wonder if this is related?
+
+Thanks for any help you can provide.
+
+ -Lee (lspector@hampshire.edu, http://hampshire.edu/~lasCCS)
+
+--- code follows ---
+
+;; linda.scm
+;; Scheme pseudo-linda
+;; Lee Spector, December 1997
+
+(define tuple-space '())
+(define tuple-space-semaphore (make-semaphore 1))
+
+(define (init-tuple-space)
+  (semaphore-wait tuple-space-semaphore)
+  (set! tuple-space '())
+  (semaphore-post tuple-space-semaphore)
+  '(tuple-space initialized))
+
+(define (out tuple)
+  (semaphore-wait tuple-space-semaphore)
+  (set! tuple-space
+        (cons tuple tuple-space))
+  (semaphore-post tuple-space-semaphore)
+  (cons tuple '(added to tuple-space)))
+
+(define (remove-item-from-list item lis)
+  (if (null? lis)
+    (list)
+    (if (equal? item (car lis))
+      (cdr lis)
+      (cons (car lis)
+            (remove-item-from-list item
+                                   (cdr lis))))))
+
+(define (remove-from-tuple-space tuple)
+  (semaphore-wait tuple-space-semaphore)
+  (set! tuple-space
+        (remove-item-from-list tuple tuple-space))
+  (semaphore-post tuple-space-semaphore)
+  tuple)
+
+(define (matches? pattern tuple)
+  (cond ((and (null? pattern) (null? tuple))
+         #t)
+        ((or (null? pattern) (null? tuple))
+         #f)
+        ((equal? (car pattern) (car tuple))
+         (matches? (cdr pattern) (cdr tuple)))
+        ((procedure? (car pattern))
+         (if ((car pattern) (car tuple))
+           (matches? (cdr pattern) (cdr tuple))
+           #f))
+        (#t #f)))
+
+(define (matching-tuple-in-list pattern lis)
+  (if (null? lis)
+    #f
+    (if (matches? pattern (car lis))
+      (car lis)
+      (matching-tuple-in-list pattern (cdr lis)))))
+
+(define (matching-tuple pattern)
+ (let ((tuple #f))
+   (semaphore-wait tuple-space-semaphore)
+   (set! tuple (matching-tuple-in-list pattern tuple-space))
+   (semaphore-post tuple-space-semaphore)
+   tuple))
+
+(define (in pattern)
+  (do ()
+      ((matching-tuple pattern)))
+  (remove-from-tuple-space (matching-tuple pattern)))
+            
+(define (in pattern)
+  (let ((wait-length 0))
+    (do ()
+        ((matching-tuple pattern))
+      (set! wait-length (+ 1 wait-length))
+      (sleep 1)
+      )
+    (display wait-length))
+  (remove-from-tuple-space (matching-tuple pattern)))
+
+(define (ping)
+  (do ()(#f)
+    (write "ping")
+    (newline)
+    (out '(ping))
+    (in '(pong))))
+
+(define (pong)
+  (do ()(#f)
+    (write "pong")
+    (newline)
+    (in '(ping))
+    (out '(pong))))
+
+(define (ping-pong)
+  (thread (lambda () (ping)))
+  (thread (lambda () (pong))))
+
+>How-To-Repeat:
+See above
+>Fix:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: ptg->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Wed Jan 14 15:46:56 1998
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Jan 14 15:49:15 1998
+State-Changed-Why:
+See 407
+
+>Unformatted:

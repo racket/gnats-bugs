@@ -1,0 +1,537 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Sep 11 00:20:34 2009
+Received: from mail-yw0-f187.google.com (mail-yw0-f187.google.com [209.85.211.187])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n8B4KTge019992
+	for <bugs@bugs.plt-scheme.org>; Fri, 11 Sep 2009 00:20:29 -0400
+Message-Id: <200909110420.n8B4KSho019986@champlain.ccs.neu.edu>
+Date: Fri, 11 Sep 2009 00:20:28 -0400
+From: gmarceau@gmail.com
+To: bugs@plt-scheme.org
+Subject: Various issues when running BSL program under scheme/sandbox (2 of 6, wrong print port)
+
+>Number:         10448
+>Category:       misc
+>Synopsis:       Various issues when running BSL program under scheme/sandbox (2 of 6, wrong print port)
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Sep 11 00:24:02 -0400 2009
+>Closed-Date:    Thu May 12 17:43:04 -0400 2011
+>Last-Modified:  Thu May 12 17:43:04 -0400 2011
+>Originator:     Guillaume Marceau
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.1
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 193089968
+
+Collections:
+(("C:\\Documents and Settings\\Guillaume\\Application Data\\PLT Scheme\\4.2.1\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Beginning Student") (#(#t constructor repeating-decimal #f #t none) #f ((lib "world.ss" "teachpack" "htdp"))))
+>Description:
+>How-To-Repeat:
+#lang scheme
+(require scheme/sandbox)
+
+(define (sandbox-eval/get-output lang code)
+  (parameterize ([sandbox-output 'string])
+    (get-output (make-evaluator `(special ,lang)
+                                code))))
+
+
+;; [2] The values printed by BSL's module transformer are printed to the wrong port.
+   
+   (sandbox-eval/get-output 'beginner 5)
+
+;; I would have expected this to return the string "5\n", but it returns the empty string instead.
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: gmarceau@gmail.com, bugs@plt-scheme.org
+Cc: bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 01:44:48 -0400
+
+ On Sep 11, gmarceau@gmail.com wrote:
+ > #lang scheme
+ > (require scheme/sandbox)
+ > 
+ > (define (sandbox-eval/get-output lang code)
+ >   (parameterize ([sandbox-output 'string])
+ >     (get-output (make-evaluator `(special ,lang)
+ >                                 code))))
+ > 
+ > 
+ > ;; [2] The values printed by BSL's module transformer are printed to
+ > ;; the wrong port.
+ >    
+ >    (sandbox-eval/get-output 'beginner 5)
+ > 
+ > ;; I would have expected this to return the string "5\n", but it
+ > ;; returns the empty string instead.
+ 
+ I just tried this in mzscheme (finally -- I just assumed that this
+ would be messy and will require more work), and it runs perfectly
+ fine.  It looks like the only problem is that drscheme changes
+ `current-print', and that gets propagated all the way into the
+ sandbox.
+ 
+ An obvious solution to your problem is to add
+ 
+   (current-print (lambda (x) (unless (void? x) (printf "~s\n" x))))
+ 
+ and it would work as expected.
+ 
+ I'm not sure that there is any change that is required in the sandbox
+ code.  Grabbing the global default printer is not a good idea, and
+ even if there is a way to do that reliably, I think that it would be
+ wrong to do so.
+ 
+ Perhaps the right answer here is that DrScheme shouldn't mess with
+ `current-print'?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 01:53:25 -0400
+
+ > An obvious solution to your problem is to add
+ >
+ > =A0(current-print (lambda (x) (unless (void? x) (printf "~s\n" x))))
+ >
+ > and it would work as expected.
+ 
+ I see how that work. Ok, that make sense.
+ 
+ 
+ I think the right thing to do is to add a sandbox-print parameter to
+ parallel sandbox-input, sandbox-output and sandbox-error-output.
+From: Eli Barzilay <eli@barzilay.org>
+To: Guillaume Marceau <gmarceau@gmail.com>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 01:55:27 -0400
+
+ On Sep 11, Guillaume Marceau wrote:
+ > I think the right thing to do is to add a sandbox-print parameter to
+ > parallel sandbox-input, sandbox-output and sandbox-error-output.
+ 
+ But you can get the same effect with `current-print'...  IOW, this:
+ 
+   (define sandbox-print current-print)
+ 
+ would do what you want.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 02:02:27 -0400
+
+ --000e0cd2898e6b9b2a047347109d
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ On Fri, Sep 11, 2009 at 1:55 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Sep 11, Guillaume Marceau wrote:
+ >> I think the right thing to do is to add a sandbox-print parameter to
+ >> parallel sandbox-input, sandbox-output and sandbox-error-output.
+ >
+ > But you can get the same effect with `current-print'...  IOW, this:
+ >
+ >  (define sandbox-print current-print)
+ 
+ You're not thinking about this right, Eli. This isn't about me. I've gotten
+ my code running fine, thank you. There is no point in trying to help me out.
+ This is about cleaning up the interface so that the next guy isn't as
+ confused about the behavior as I was.
+ 
+ Moreover, sandbox-output implements functionality that current-output does
+ not. I quote
+ 
+ "
+ A parameter that determines the initial current-output-port setting for a
+ newly created evaluator. It defaults to #f, which creates a port that
+ discrds all data. The following other values are allowed:
+ 
+      an output port, which is used as-is;
+      the symbol 'bytes, which causes get-output to return the complete
+ output as a byte string;
+      the symbol 'string, which is similar to 'bytes, but makes get-output
+ produce a string;
+      the symbol 'pipe, which triggers the creation of a pipe, where
+ get-output returns the input end of the pipe;
+      a thunk, which is called to obtain a port (e.g., using
+ current-output-port means that the evaluator output is not diverted).
+ "
+ 
+ I'm suggesting that it would be useful if scheme/sandbox provided a function
+ called sandbox-print that implements that the same extended interface as
+ sandbox-output does.
+ 
+ --000e0cd2898e6b9b2a047347109d
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <br><br>On Fri, Sep 11, 2009 at 1:55 AM, Eli Barzilay &lt;<a href=3D"mailto=
+ :eli@barzilay.org">eli@barzilay.org</a>&gt; wrote:<br>&gt; On Sep 11, Guill=
+ aume Marceau wrote:<br>&gt;&gt; I think the right thing to do is to add a s=
+ andbox-print parameter to<br>
+ 
+ &gt;&gt; parallel sandbox-input, sandbox-output and sandbox-error-output.<b=
+ r>&gt;<br>&gt; But you can get the same effect with `current-print&#39;... =
+ =A0IOW, this:<br>&gt;<br>&gt; =A0(define sandbox-print current-print)<br><b=
+ r>
+ 
+ You&#39;re not thinking about this right, Eli. This isn&#39;t about me. I&#=
+ 39;ve gotten my code running fine, thank you. There is no point in trying t=
+ o help me out. This is about cleaning up the interface so that the next guy=
+  isn&#39;t as confused about the behavior as I was.<br>
+ 
+ <br>Moreover, sandbox-output implements functionality that current-output d=
+ oes not. I quote<br><br>&quot;<br>A parameter that determines the initial c=
+ urrent-output-port setting for a newly created evaluator. It defaults to #f=
+ , which creates a port that discrds all data. The following other values ar=
+ e allowed:<br>
+ 
+ <br> =A0 =A0=A0 an output port, which is used as-is;<br> =A0 =A0=A0 the sym=
+ bol &#39;bytes, which causes get-output to return the complete output as a =
+ byte string;<br> =A0 =A0=A0 the symbol &#39;string, which is similar to &#3=
+ 9;bytes, but makes get-output produce a string;<br>
+ 
+  =A0 =A0=A0 the symbol &#39;pipe, which triggers the creation of a pipe, wh=
+ ere get-output returns the input end of the pipe;<br> =A0 =A0=A0 a thunk, w=
+ hich is called to obtain a port (e.g., using current-output-port means that=
+  the evaluator output is not diverted).<br>
+ 
+ &quot;<br><br>I&#39;m suggesting that it would be useful if scheme/sandbox =
+ provided a function called sandbox-print that implements that the same exte=
+ nded interface as sandbox-output does. <br><br>
+ 
+ --000e0cd2898e6b9b2a047347109d--
+From: Eli Barzilay <eli@barzilay.org>
+To: Guillaume Marceau <gmarceau@gmail.com>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 02:09:40 -0400
+
+ On Sep 11, Guillaume Marceau wrote:
+ > On Fri, Sep 11, 2009 at 1:55 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > > On Sep 11, Guillaume Marceau wrote:
+ > >> I think the right thing to do is to add a sandbox-print parameter to
+ > >> parallel sandbox-input, sandbox-output and sandbox-error-output.
+ > >
+ > > But you can get the same effect with `current-print'...  IOW, this:
+ > >
+ > >  (define sandbox-print current-print)
+ > 
+ > You're not thinking about this right, Eli. This isn't about me. I've
+ > gotten my code running fine, thank you. There is no point in trying
+ > to help me out.  This is about cleaning up the interface so that the
+ > next guy isn't as confused about the behavior as I was.
+ 
+ Let me rephrase this: is there anything that the above definition
+ doesn't do?
+ 
+ 
+ > Moreover, sandbox-output implements functionality that
+ > current-output does not. [...]
+ > 
+ > I'm suggesting that it would be useful if scheme/sandbox provided a function
+ > called sandbox-print that implements that the same extended interface as
+ > sandbox-output does.
+ 
+ What is the extension?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 02:15:26 -0400
+
+ --000e0cd5c076d8b1fb0473473e6b
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ > What is the extension?
+ >
+ >
+ It's the part of the documentation of sandbox-output that I quoted above.
+ The part about 'pipe, 'string, ' bytes, etc
+ 
+ --000e0cd5c076d8b1fb0473473e6b
+ Content-Type: text/html; charset=ISO-8859-1
+ 
+ <br>
+ <div class="gmail_quote"><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">What is the extension?<br>
+ <div><div></div><div class="h5"><br>
+ </div></div></blockquote><div><br>It&#39;s the part of the documentation of sandbox-output that I quoted above. The part about &#39;pipe, &#39;string, &#39; bytes, etc<br></div></div>
+ 
+ --000e0cd5c076d8b1fb0473473e6b--
+From: Eli Barzilay <eli@barzilay.org>
+To: Guillaume Marceau <gmarceau@gmail.com>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 02:16:34 -0400
+
+ On Sep 11, Guillaume Marceau wrote:
+ > > What is the extension?
+ > >
+ > It's the part of the documentation of sandbox-output that I quoted above.
+ > The part about 'pipe, 'string, ' bytes, etc
+ 
+ There is no meaning for these as the value of `current-print'.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 02:18:53 -0400
+
+ --000e0cd518fc38cf200473474ba8
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ On Fri, Sep 11, 2009 at 2:16 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ 
+ > On Sep 11, Guillaume Marceau wrote:
+ > > > What is the extension?
+ > > >
+ > > It's the part of the documentation of sandbox-output that I quoted above.
+ > > The part about 'pipe, 'string, ' bytes, etc
+ >
+ > There is no meaning for these as the value of `current-print'.
+ >
+ >
+ 
+ > It's the part of the documentation of sandbox-output
+                                                        ^^^^^^^^^^^^^^^^^^
+ 
+ --000e0cd518fc38cf200473474ba8
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <br><br><div class=3D"gmail_quote">On Fri, Sep 11, 2009 at 2:16 AM, Eli Bar=
+ zilay <span dir=3D"ltr">&lt;<a href=3D"mailto:eli@barzilay.org">eli@barzila=
+ y.org</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" style=3D"b=
+ order-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; paddin=
+ g-left: 1ex;">
+ 
+ <div class=3D"im">On Sep 11, Guillaume Marceau wrote:<br>
+ </div><div><div></div><div class=3D"h5">&gt; &gt; What is the extension?<br=
+ >
+ &gt; &gt;<br>
+ &gt; It&#39;s the part of the documentation of sandbox-output that I quoted=
+  above.<br>
+ &gt; The part about &#39;pipe, &#39;string, &#39; bytes, etc<br>
+ <br>
+ </div></div>There is no meaning for these as the value of `current-print&#3=
+ 9;.<br>
+ <div><div></div><br></div></blockquote><div><br><br>&gt; It&#39;s the part =
+ of the documentation of sandbox-output<br>=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=
+ =A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=
+ =A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0 ^^^^^^^^^^^^^^^^^^<b=
+ r><br><br><br></div></div>
+ 
+ --000e0cd518fc38cf200473474ba8--
+From: Eli Barzilay <eli@barzilay.org>
+To: Guillaume Marceau <gmarceau@gmail.com>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 02:24:19 -0400
+
+ Guillaume, I have no idea what you're trying to say here.  The
+ location of the "^^^"s look like you're trying to highlight "that I
+ quoted above".  Still, I don't see what part of that is relevant.
+ `sandbox-output' is a description of the kind of output port to use.
+ `current-print' is a printer function -- something very different.  Is
+ there any actual difference between the `sandbox-print' that you want
+ and `current-print'?  If so, can you give me an example of a value
+ that will go in the former that cannot be put in the latter?
+ 
+ 
+ 
+ On Sep 11, Guillaume Marceau wrote:
+ > On Fri, Sep 11, 2009 at 2:16 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > 
+ > > On Sep 11, Guillaume Marceau wrote:
+ > > > > What is the extension?
+ > > > >
+ > > > It's the part of the documentation of sandbox-output that I quoted above.
+ > > > The part about 'pipe, 'string, ' bytes, etc
+ > >
+ > > There is no meaning for these as the value of `current-print'.
+ > >
+ > >
+ > 
+ > > It's the part of the documentation of sandbox-output
+ >                                                        ^^^^^^^^^^^^^^^^^^
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 02:38:56 -0400
+
+ --000e0cd70dbee3acfc04734792dc
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ On Fri, Sep 11, 2009 at 2:24 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ 
+ > Guillaume, I have no idea what you're trying to say here.  The
+ > location of the "^^^"s look like you're trying to highlight "that I
+ > quoted above".  Still, I don't see what part of that is relevant.
+ > `sandbox-output' is a description of the kind of output port to use.
+ > `current-print' is a printer function -- something very different.  Is
+ > there any actual difference between the `sandbox-print' that you want
+ > and `current-print'?  If so, can you give me an example of a value
+ > that will go in the former that cannot be put in the latter?
+ >
+ 
+ oh, I see. Yes, this:
+ 
+ #lang scheme
+ (require scheme/sandbox)
+ 
+ (parameterize ([sandbox-output 'string]
+                [sandbox-error-output 'string]
+                [sandbox-print 'string])  ; <-- this doesn't exists yet
+   (let ([ev
+            (make-evaluator '(special advanced)
+                            '"1 2 (display 3)")])
+     (list (get-output ev) (get-error-output ev)
+           (get-print-output ev)))) ; <-- this doesn't exists yet either
+ 
+ ;; this program should evaluate to (list "" "3" "1\n2\n")
+ 
+ --000e0cd70dbee3acfc04734792dc
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <br><br><div class=3D"gmail_quote">On Fri, Sep 11, 2009 at 2:24 AM, Eli Bar=
+ zilay <span dir=3D"ltr">&lt;<a href=3D"mailto:eli@barzilay.org">eli@barzila=
+ y.org</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" style=3D"b=
+ order-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; paddin=
+ g-left: 1ex;">
+ 
+ Guillaume, I have no idea what you&#39;re trying to say here. =A0The<br>
+ location of the &quot;^^^&quot;s look like you&#39;re trying to highlight &=
+ quot;that I<br>
+ quoted above&quot;. =A0Still, I don&#39;t see what part of that is relevant=
+ .<br>
+ `sandbox-output&#39; is a description of the kind of output port to use.<br=
+ >
+ `current-print&#39; is a printer function -- something very different. =A0I=
+ s<br>
+ there any actual difference between the `sandbox-print&#39; that you want<b=
+ r>
+ and `current-print&#39;? =A0If so, can you give me an example of a value<br=
+ >
+ that will go in the former that cannot be put in the latter?<br></blockquot=
+ e><div><br>oh, I see. Yes, this:<br><br>#lang scheme<br>(require scheme/san=
+ dbox)<br><br>(parameterize ([sandbox-output &#39;string]<br>=A0=A0=A0=A0=A0=
+ =A0=A0=A0=A0=A0=A0=A0=A0=A0 [sandbox-error-output &#39;string]<br>
+ 
+ =A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0 [sandbox-print &#39;string])=A0 =
+ ; &lt;-- this doesn&#39;t exists yet<br>=A0 (let ([ev<br>=A0=A0=A0=A0=A0=A0=
+ =A0=A0=A0=A0 (make-evaluator &#39;(special advanced) <br>=A0=A0=A0=A0=A0=A0=
+ =A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0=A0 &#39;&quot;1 2=
+  (display 3)&quot;)])<br>
+ 
+ =A0=A0=A0 (list (get-output ev) (get-error-output ev) <br>=A0=A0=A0=A0=A0=
+ =A0=A0=A0=A0 (get-print-output ev)))) ; &lt;-- this doesn&#39;t exists yet =
+ either<br><br>;; this program should evaluate to (list &quot;&quot; &quot;3=
+ &quot; &quot;1\n2\n&quot;)<br>
+ 
+ <br><br><br><br>=A0<br></div></div>
+ 
+ --000e0cd70dbee3acfc04734792dc--
+From: Eli Barzilay <eli@barzilay.org>
+To: Guillaume Marceau <gmarceau@gmail.com>
+Cc: bugs@plt-scheme.org, Matthew Flatt <mflatt@cs.utah.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>
+Subject: Re: [plt-bug] all/10448: Various issues when running BSL program 
+	under scheme/sandbox (2 of 6, wrong print port)
+Date: Fri, 11 Sep 2009 03:35:38 -0400
+
+ On Sep 11, Guillaume Marceau wrote:
+ > On Fri, Sep 11, 2009 at 2:24 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > 
+ > > Guillaume, I have no idea what you're trying to say here.  The
+ > > location of the "^^^"s look like you're trying to highlight "that
+ > > I quoted above".  Still, I don't see what part of that is
+ > > relevant.  `sandbox-output' is a description of the kind of output
+ > > port to use.  `current-print' is a printer function -- something
+ > > very different.  Is there any actual difference between the
+ > > `sandbox-print' that you want and `current-print'?  If so, can you
+ > > give me an example of a value that will go in the former that
+ > > cannot be put in the latter?
+ > 
+ > oh, I see. Yes, this:
+ > 
+ > #lang scheme
+ > (require scheme/sandbox)
+ > 
+ > (parameterize ([sandbox-output 'string]
+ >                [sandbox-error-output 'string]
+ >                [sandbox-print 'string])  ; <-- this doesn't exists yet
+ >   (let ([ev
+ >            (make-evaluator '(special advanced)
+ >                            '"1 2 (display 3)")])
+ >     (list (get-output ev) (get-error-output ev)
+ >           (get-print-output ev)))) ; <-- this doesn't exists yet either
+ > 
+ > ;; this program should evaluate to (list "" "3" "1\n2\n")
+ 
+ (Re-adding Matthew and Robby, in case they have an opinion.)
+ 
+ Under the current mzscheme setup, I don't think that this makes sense
+ in the sandbox.  You run into exactly the same problem when you want
+ to capture or divert the output of `print' in any context.  If
+ mzscheme had a `current-print-port', then it would make sense to add a
+ corresponding sandbox parameter.  Given that, and the fact that the
+ default `current-print' sends output to the `current-output-port', I
+ don't think that there is any need for another sandbox hack.
+ 
+ (I actually think that it would be better to remove the IO port
+ parameters too because `call-in-sandbox-context' can be used to get
+ the same functionality.  But since they're already part of the
+ interface I didn't try to do this.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+
+Responsible changed from "nobody" to "eli" by ryanc at Thu, 12 May 2011 17:43:04 -0400
+Reason>>> sandbox
+
+State changed from "open" to "closed" by ryanc at Thu, 12 May 2011 17:43:04 -0400
+Reason>>> answered
+

@@ -1,0 +1,1207 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jun 17 01:18:22 2014
+Received: from mail-oa0-f49.google.com (mail-oa0-f49.google.com [209.85.219.49])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s5H5IKxk001003
+	for <bugs@bugs.plt-scheme.org>; Tue, 17 Jun 2014 01:18:21 -0400
+Message-Id: <201406170518.s5H5IItZ000990@winooski.ccs.neu.edu>
+Date: Tue, 17 Jun 2014 01:18:18 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Really slow typechecking
+
+>Number:         14582
+>Category:       typed-scheme
+>Synopsis:       Really slow typechecking
+>Class:          sw-bug
+>Responsible:    endobson
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jun 17 01:20:01 -0400 2014
+>Closed-Date:    Mon Jun 30 23:58:25 -0400 2014
+>Last-Modified:  Mon Jun 30 23:58:25 -0400 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+>Description:
+This program takes a minute to compile on my machine. I would expect it to be much faster.
+>How-To-Repeat:
+#lang typed/racket
+(define-type CodeOfBoolean (Code Boolean))
+(define-type CodeOfInteger (Code Integer))
+(define-type CodeOfAny
+  (U CodeOfInteger
+     CodeOfBoolean))
+ 
+(define-type (Code Type)
+  (U Type
+     (If Type)
+     (Begin Type)))
+ 
+ 
+(struct (Type) If
+  ([cond : CodeOfBoolean]
+   [then : (Code Type)]
+   [else : (Code Type)])
+  #:transparent)
+ 
+ 
+ 
+(define-type (ListEndingIn ListType EndType)
+  (U (Pair EndType Null)
+     (Pair ListType (ListEndingIn ListType EndType))))
+ 
+(struct (Type) Begin
+  ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ 
+(define QuotedCode : CodeOfInteger
+  (If #t
+      1
+      (Begin
+       (list 2 #f (If #t 3 4))))
+  )
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        bugs <bugs@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Sun, 29 Jun 2014 19:46:16 -0700
+
+ I diagnosed this to slow subtyping. If we are in the midst of
+ subtyping, and we try to resolve a type with a union we end up re
+ constructing the union. But since we are in the midst of subtyping,
+ any calls we make cannot fill the cache so we have to do the work of
+ computing subtypes over and over again.
+ 
+ On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ >
+ > Reported by Eric Dobson for release: HEAD
+ >
+ > *** Description:
+ > This program takes a minute to compile on my machine. I would expect it to be much faster.
+ >
+ > *** How to repeat:
+ > #lang typed/racket
+ > (define-type CodeOfBoolean (Code Boolean))
+ > (define-type CodeOfInteger (Code Integer))
+ > (define-type CodeOfAny
+ >   (U CodeOfInteger
+ >      CodeOfBoolean))
+ >
+ > (define-type (Code Type)
+ >   (U Type
+ >      (If Type)
+ >      (Begin Type)))
+ >
+ >
+ > (struct (Type) If
+ >   ([cond : CodeOfBoolean]
+ >    [then : (Code Type)]
+ >    [else : (Code Type)])
+ >   #:transparent)
+ >
+ >
+ >
+ > (define-type (ListEndingIn ListType EndType)
+ >   (U (Pair EndType Null)
+ >      (Pair ListType (ListEndingIn ListType EndType))))
+ >
+ > (struct (Type) Begin
+ >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ >
+ > (define QuotedCode : CodeOfInteger
+ >   (If #t
+ >       1
+ >       (Begin
+ >        (list 2 #f (If #t 3 4))))
+ >   )
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+ >
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: endobson <eric.n.dobson@gmail.com>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Mon, 30 Jun 2014 01:36:25 -0400
+
+ --001a1133da66400c4404fd070a3f
+ Content-Type: text/plain; charset=UTF-8
+ 
+ If we memoize resolve, would that help?
+ On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ 
+ > I diagnosed this to slow subtyping. If we are in the midst of
+ > subtyping, and we try to resolve a type with a union we end up re
+ > constructing the union. But since we are in the midst of subtyping,
+ > any calls we make cannot fill the cache so we have to do the work of
+ > computing subtypes over and over again.
+ >
+ > On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ > >
+ > > Reported by Eric Dobson for release: HEAD
+ > >
+ > > *** Description:
+ > > This program takes a minute to compile on my machine. I would expect it
+ > to be much faster.
+ > >
+ > > *** How to repeat:
+ > > #lang typed/racket
+ > > (define-type CodeOfBoolean (Code Boolean))
+ > > (define-type CodeOfInteger (Code Integer))
+ > > (define-type CodeOfAny
+ > >   (U CodeOfInteger
+ > >      CodeOfBoolean))
+ > >
+ > > (define-type (Code Type)
+ > >   (U Type
+ > >      (If Type)
+ > >      (Begin Type)))
+ > >
+ > >
+ > > (struct (Type) If
+ > >   ([cond : CodeOfBoolean]
+ > >    [then : (Code Type)]
+ > >    [else : (Code Type)])
+ > >   #:transparent)
+ > >
+ > >
+ > >
+ > > (define-type (ListEndingIn ListType EndType)
+ > >   (U (Pair EndType Null)
+ > >      (Pair ListType (ListEndingIn ListType EndType))))
+ > >
+ > > (struct (Type) Begin
+ > >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ > >
+ > > (define QuotedCode : CodeOfInteger
+ > >   (If #t
+ > >       1
+ > >       (Begin
+ > >        (list 2 #f (If #t 3 4))))
+ > >   )
+ > >
+ > > *** Environment:
+ > > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+ > >
+ >
+ 
+ --001a1133da66400c4404fd070a3f
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">If we memoize resolve, would that help?</p>
+ <div class=3D"gmail_quote">On Jun 30, 2014 4:46 AM, &quot;Eric Dobson&quot;=
+  &lt;<a href=3D"mailto:eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a>=
+ &gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" style=
+ =3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ I diagnosed this to slow subtyping. If we are in the midst of<br>
+ subtyping, and we try to resolve a type with a union we end up re<br>
+ constructing the union. But since we are in the midst of subtyping,<br>
+ any calls we make cannot fill the cache so we have to do the work of<br>
+ computing subtypes over and over again.<br>
+ <br>
+ On Mon, Jun 16, 2014 at 10:20 PM, =C2=A0&lt;<a href=3D"mailto:eric.n.dobson=
+ @gmail.com">eric.n.dobson@gmail.com</a>&gt; wrote:<br>
+ &gt; A new problem report is waiting at<br>
+ &gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14582" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D14582</a><br>
+ &gt;<br>
+ &gt; Reported by Eric Dobson for release: HEAD<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; This program takes a minute to compile on my machine. I would expect i=
+ t to be much faster.<br>
+ &gt;<br>
+ &gt; *** How to repeat:<br>
+ &gt; #lang typed/racket<br>
+ &gt; (define-type CodeOfBoolean (Code Boolean))<br>
+ &gt; (define-type CodeOfInteger (Code Integer))<br>
+ &gt; (define-type CodeOfAny<br>
+ &gt; =C2=A0 (U CodeOfInteger<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0CodeOfBoolean))<br>
+ &gt;<br>
+ &gt; (define-type (Code Type)<br>
+ &gt; =C2=A0 (U Type<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(If Type)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(Begin Type)))<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; (struct (Type) If<br>
+ &gt; =C2=A0 ([cond : CodeOfBoolean]<br>
+ &gt; =C2=A0 =C2=A0[then : (Code Type)]<br>
+ &gt; =C2=A0 =C2=A0[else : (Code Type)])<br>
+ &gt; =C2=A0 #:transparent)<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; (define-type (ListEndingIn ListType EndType)<br>
+ &gt; =C2=A0 (U (Pair EndType Null)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(Pair ListType (ListEndingIn ListType EndType))))<=
+ br>
+ &gt;<br>
+ &gt; (struct (Type) Begin<br>
+ &gt; =C2=A0 ([exprs : (ListEndingIn CodeOfAny (Code Type))]))<br>
+ &gt;<br>
+ &gt; (define QuotedCode : CodeOfInteger<br>
+ &gt; =C2=A0 (If #t<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 1<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 (Begin<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0(list 2 #f (If #t 3 4))))<br>
+ &gt; =C2=A0 )<br>
+ &gt;<br>
+ &gt; *** Environment:<br>
+ &gt; MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/=
+ 537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36<br>
+ &gt;<br>
+ </blockquote></div>
+ 
+ --001a1133da66400c4404fd070a3f--
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Sun, 29 Jun 2014 22:39:38 -0700
+
+ I don't think so. The issue is that while we are in subtyping we
+ cannot populate any caches related to subtyping, because of how we
+ handle recursive types.
+ 
+ I believe I have a fix which is that during subtyping we do not
+ simplify unions. It speed up this program a bunch, and caused no
+ issues in the integration tests. It had some issues in the unit tests
+ and I'm still investigating, but I think they are minor.
+ 
+ On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > If we memoize resolve, would that help?
+ >
+ > On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>
+ >> I diagnosed this to slow subtyping. If we are in the midst of
+ >> subtyping, and we try to resolve a type with a union we end up re
+ >> constructing the union. But since we are in the midst of subtyping,
+ >> any calls we make cannot fill the cache so we have to do the work of
+ >> computing subtypes over and over again.
+ >>
+ >> On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ >> > A new problem report is waiting at
+ >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ >> >
+ >> > Reported by Eric Dobson for release: HEAD
+ >> >
+ >> > *** Description:
+ >> > This program takes a minute to compile on my machine. I would expect it
+ >> > to be much faster.
+ >> >
+ >> > *** How to repeat:
+ >> > #lang typed/racket
+ >> > (define-type CodeOfBoolean (Code Boolean))
+ >> > (define-type CodeOfInteger (Code Integer))
+ >> > (define-type CodeOfAny
+ >> >   (U CodeOfInteger
+ >> >      CodeOfBoolean))
+ >> >
+ >> > (define-type (Code Type)
+ >> >   (U Type
+ >> >      (If Type)
+ >> >      (Begin Type)))
+ >> >
+ >> >
+ >> > (struct (Type) If
+ >> >   ([cond : CodeOfBoolean]
+ >> >    [then : (Code Type)]
+ >> >    [else : (Code Type)])
+ >> >   #:transparent)
+ >> >
+ >> >
+ >> >
+ >> > (define-type (ListEndingIn ListType EndType)
+ >> >   (U (Pair EndType Null)
+ >> >      (Pair ListType (ListEndingIn ListType EndType))))
+ >> >
+ >> > (struct (Type) Begin
+ >> >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ >> >
+ >> > (define QuotedCode : CodeOfInteger
+ >> >   (If #t
+ >> >       1
+ >> >       (Begin
+ >> >        (list 2 #f (If #t 3 4))))
+ >> >   )
+ >> >
+ >> > *** Environment:
+ >> > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ >> > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+ >> >
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: endobson <eric.n.dobson@gmail.com>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Mon, 30 Jun 2014 02:00:19 -0400
+
+ --001a11c1c272bda89404fd075f34
+ Content-Type: text/plain; charset=UTF-8
+ 
+ What happens if you turn off union simplification entirely? I don't think
+ it will actually break anything.
+ On Jun 30, 2014 7:39 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ 
+ > I don't think so. The issue is that while we are in subtyping we
+ > cannot populate any caches related to subtyping, because of how we
+ > handle recursive types.
+ >
+ > I believe I have a fix which is that during subtyping we do not
+ > simplify unions. It speed up this program a bunch, and caused no
+ > issues in the integration tests. It had some issues in the unit tests
+ > and I'm still investigating, but I think they are minor.
+ >
+ > On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ > > If we memoize resolve, would that help?
+ > >
+ > > On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ > >>
+ > >> I diagnosed this to slow subtyping. If we are in the midst of
+ > >> subtyping, and we try to resolve a type with a union we end up re
+ > >> constructing the union. But since we are in the midst of subtyping,
+ > >> any calls we make cannot fill the cache so we have to do the work of
+ > >> computing subtypes over and over again.
+ > >>
+ > >> On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ > >> > A new problem report is waiting at
+ > >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ > >> >
+ > >> > Reported by Eric Dobson for release: HEAD
+ > >> >
+ > >> > *** Description:
+ > >> > This program takes a minute to compile on my machine. I would expect
+ > it
+ > >> > to be much faster.
+ > >> >
+ > >> > *** How to repeat:
+ > >> > #lang typed/racket
+ > >> > (define-type CodeOfBoolean (Code Boolean))
+ > >> > (define-type CodeOfInteger (Code Integer))
+ > >> > (define-type CodeOfAny
+ > >> >   (U CodeOfInteger
+ > >> >      CodeOfBoolean))
+ > >> >
+ > >> > (define-type (Code Type)
+ > >> >   (U Type
+ > >> >      (If Type)
+ > >> >      (Begin Type)))
+ > >> >
+ > >> >
+ > >> > (struct (Type) If
+ > >> >   ([cond : CodeOfBoolean]
+ > >> >    [then : (Code Type)]
+ > >> >    [else : (Code Type)])
+ > >> >   #:transparent)
+ > >> >
+ > >> >
+ > >> >
+ > >> > (define-type (ListEndingIn ListType EndType)
+ > >> >   (U (Pair EndType Null)
+ > >> >      (Pair ListType (ListEndingIn ListType EndType))))
+ > >> >
+ > >> > (struct (Type) Begin
+ > >> >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ > >> >
+ > >> > (define QuotedCode : CodeOfInteger
+ > >> >   (If #t
+ > >> >       1
+ > >> >       (Begin
+ > >> >        (list 2 #f (If #t 3 4))))
+ > >> >   )
+ > >> >
+ > >> > *** Environment:
+ > >> > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ > >> > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27
+ > Safari/537.36
+ > >> >
+ >
+ 
+ --001a11c1c272bda89404fd075f34
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">What happens if you turn off union simplification entirely? =
+ I don&#39;t think it will actually break anything.</p>
+ <div class=3D"gmail_quote">On Jun 30, 2014 7:39 AM, &quot;Eric Dobson&quot;=
+  &lt;<a href=3D"mailto:eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a>=
+ &gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" style=
+ =3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ I don&#39;t think so. The issue is that while we are in subtyping we<br>
+ cannot populate any caches related to subtyping, because of how we<br>
+ handle recursive types.<br>
+ <br>
+ I believe I have a fix which is that during subtyping we do not<br>
+ simplify unions. It speed up this program a bunch, and caused no<br>
+ issues in the integration tests. It had some issues in the unit tests<br>
+ and I&#39;m still investigating, but I think they are minor.<br>
+ <br>
+ On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt<br>
+ &lt;<a href=3D"mailto:samth@cs.indiana.edu">samth@cs.indiana.edu</a>&gt; wr=
+ ote:<br>
+ &gt; If we memoize resolve, would that help?<br>
+ &gt;<br>
+ &gt; On Jun 30, 2014 4:46 AM, &quot;Eric Dobson&quot; &lt;<a href=3D"mailto=
+ :eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a>&gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; I diagnosed this to slow subtyping. If we are in the midst of<br>
+ &gt;&gt; subtyping, and we try to resolve a type with a union we end up re<=
+ br>
+ &gt;&gt; constructing the union. But since we are in the midst of subtyping=
+ ,<br>
+ &gt;&gt; any calls we make cannot fill the cache so we have to do the work =
+ of<br>
+ &gt;&gt; computing subtypes over and over again.<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Mon, Jun 16, 2014 at 10:20 PM, =C2=A0&lt;<a href=3D"mailto:eric=
+ .n.dobson@gmail.com">eric.n.dobson@gmail.com</a>&gt; wrote:<br>
+ &gt;&gt; &gt; A new problem report is waiting at<br>
+ &gt;&gt; &gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dvi=
+ ew&amp;pr=3D14582" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=
+ =3Dview&amp;pr=3D14582</a><br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; Reported by Eric Dobson for release: HEAD<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; *** Description:<br>
+ &gt;&gt; &gt; This program takes a minute to compile on my machine. I would=
+  expect it<br>
+ &gt;&gt; &gt; to be much faster.<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; *** How to repeat:<br>
+ &gt;&gt; &gt; #lang typed/racket<br>
+ &gt;&gt; &gt; (define-type CodeOfBoolean (Code Boolean))<br>
+ &gt;&gt; &gt; (define-type CodeOfInteger (Code Integer))<br>
+ &gt;&gt; &gt; (define-type CodeOfAny<br>
+ &gt;&gt; &gt; =C2=A0 (U CodeOfInteger<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0CodeOfBoolean))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (define-type (Code Type)<br>
+ &gt;&gt; &gt; =C2=A0 (U Type<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0(If Type)<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0(Begin Type)))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (struct (Type) If<br>
+ &gt;&gt; &gt; =C2=A0 ([cond : CodeOfBoolean]<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0[then : (Code Type)]<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0[else : (Code Type)])<br>
+ &gt;&gt; &gt; =C2=A0 #:transparent)<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (define-type (ListEndingIn ListType EndType)<br>
+ &gt;&gt; &gt; =C2=A0 (U (Pair EndType Null)<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0(Pair ListType (ListEndingIn ListType End=
+ Type))))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (struct (Type) Begin<br>
+ &gt;&gt; &gt; =C2=A0 ([exprs : (ListEndingIn CodeOfAny (Code Type))]))<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; (define QuotedCode : CodeOfInteger<br>
+ &gt;&gt; &gt; =C2=A0 (If #t<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0 1<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0 (Begin<br>
+ &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0(list 2 #f (If #t 3 4))))<br>
+ &gt;&gt; &gt; =C2=A0 )<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; *** Environment:<br>
+ &gt;&gt; &gt; MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)<br>
+ &gt;&gt; &gt; AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Sa=
+ fari/537.36<br>
+ &gt;&gt; &gt;<br>
+ </blockquote></div>
+ 
+ --001a11c1c272bda89404fd075f34--
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Sun, 29 Jun 2014 23:09:18 -0700
+
+ I diagnosed what the unit test issues were, and it was that I had
+ turned union simplification entirely instead of just during subtyping.
+ The errors were things like got (U Any Symbol) instead of expected
+ Any. So I think turning it off entirely will be bad in terms of error
+ messages presented to users. But turning it off during subtyping seems
+ to have given us a 20% improvement in runtime of the unit tests, but
+ nothing noticable on the runtime of all the integration tests.
+ 
+ On Sun, Jun 29, 2014 at 11:00 PM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > What happens if you turn off union simplification entirely? I don't think it
+ > will actually break anything.
+ >
+ > On Jun 30, 2014 7:39 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>
+ >> I don't think so. The issue is that while we are in subtyping we
+ >> cannot populate any caches related to subtyping, because of how we
+ >> handle recursive types.
+ >>
+ >> I believe I have a fix which is that during subtyping we do not
+ >> simplify unions. It speed up this program a bunch, and caused no
+ >> issues in the integration tests. It had some issues in the unit tests
+ >> and I'm still investigating, but I think they are minor.
+ >>
+ >> On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt
+ >> <samth@cs.indiana.edu> wrote:
+ >> > If we memoize resolve, would that help?
+ >> >
+ >> > On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >> >>
+ >> >> I diagnosed this to slow subtyping. If we are in the midst of
+ >> >> subtyping, and we try to resolve a type with a union we end up re
+ >> >> constructing the union. But since we are in the midst of subtyping,
+ >> >> any calls we make cannot fill the cache so we have to do the work of
+ >> >> computing subtypes over and over again.
+ >> >>
+ >> >> On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ >> >> > A new problem report is waiting at
+ >> >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ >> >> >
+ >> >> > Reported by Eric Dobson for release: HEAD
+ >> >> >
+ >> >> > *** Description:
+ >> >> > This program takes a minute to compile on my machine. I would expect
+ >> >> > it
+ >> >> > to be much faster.
+ >> >> >
+ >> >> > *** How to repeat:
+ >> >> > #lang typed/racket
+ >> >> > (define-type CodeOfBoolean (Code Boolean))
+ >> >> > (define-type CodeOfInteger (Code Integer))
+ >> >> > (define-type CodeOfAny
+ >> >> >   (U CodeOfInteger
+ >> >> >      CodeOfBoolean))
+ >> >> >
+ >> >> > (define-type (Code Type)
+ >> >> >   (U Type
+ >> >> >      (If Type)
+ >> >> >      (Begin Type)))
+ >> >> >
+ >> >> >
+ >> >> > (struct (Type) If
+ >> >> >   ([cond : CodeOfBoolean]
+ >> >> >    [then : (Code Type)]
+ >> >> >    [else : (Code Type)])
+ >> >> >   #:transparent)
+ >> >> >
+ >> >> >
+ >> >> >
+ >> >> > (define-type (ListEndingIn ListType EndType)
+ >> >> >   (U (Pair EndType Null)
+ >> >> >      (Pair ListType (ListEndingIn ListType EndType))))
+ >> >> >
+ >> >> > (struct (Type) Begin
+ >> >> >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ >> >> >
+ >> >> > (define QuotedCode : CodeOfInteger
+ >> >> >   (If #t
+ >> >> >       1
+ >> >> >       (Begin
+ >> >> >        (list 2 #f (If #t 3 4))))
+ >> >> >   )
+ >> >> >
+ >> >> > *** Environment:
+ >> >> > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ >> >> > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27
+ >> >> > Safari/537.36
+ >> >> >
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Mon, 30 Jun 2014 06:21:55 -0400
+
+ --20cf3071c8d244e7f104fd0b07bd
+ Content-Type: text/plain; charset=UTF-8
+ 
+ We would definitely need to simplify for error messages, but it would be
+ interesting to know if it's worth it for performance.
+ 
+ Sam
+ I diagnosed what the unit test issues were, and it was that I had
+ turned union simplification entirely instead of just during subtyping.
+ The errors were things like got (U Any Symbol) instead of expected
+ Any. So I think turning it off entirely will be bad in terms of error
+ messages presented to users. But turning it off during subtyping seems
+ to have given us a 20% improvement in runtime of the unit tests, but
+ nothing noticable on the runtime of all the integration tests.
+ 
+ On Sun, Jun 29, 2014 at 11:00 PM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > What happens if you turn off union simplification entirely? I don't think
+ it
+ > will actually break anything.
+ >
+ > On Jun 30, 2014 7:39 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>
+ >> I don't think so. The issue is that while we are in subtyping we
+ >> cannot populate any caches related to subtyping, because of how we
+ >> handle recursive types.
+ >>
+ >> I believe I have a fix which is that during subtyping we do not
+ >> simplify unions. It speed up this program a bunch, and caused no
+ >> issues in the integration tests. It had some issues in the unit tests
+ >> and I'm still investigating, but I think they are minor.
+ >>
+ >> On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt
+ >> <samth@cs.indiana.edu> wrote:
+ >> > If we memoize resolve, would that help?
+ >> >
+ >> > On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >> >>
+ >> >> I diagnosed this to slow subtyping. If we are in the midst of
+ >> >> subtyping, and we try to resolve a type with a union we end up re
+ >> >> constructing the union. But since we are in the midst of subtyping,
+ >> >> any calls we make cannot fill the cache so we have to do the work of
+ >> >> computing subtypes over and over again.
+ >> >>
+ >> >> On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ >> >> > A new problem report is waiting at
+ >> >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ >> >> >
+ >> >> > Reported by Eric Dobson for release: HEAD
+ >> >> >
+ >> >> > *** Description:
+ >> >> > This program takes a minute to compile on my machine. I would expect
+ >> >> > it
+ >> >> > to be much faster.
+ >> >> >
+ >> >> > *** How to repeat:
+ >> >> > #lang typed/racket
+ >> >> > (define-type CodeOfBoolean (Code Boolean))
+ >> >> > (define-type CodeOfInteger (Code Integer))
+ >> >> > (define-type CodeOfAny
+ >> >> >   (U CodeOfInteger
+ >> >> >      CodeOfBoolean))
+ >> >> >
+ >> >> > (define-type (Code Type)
+ >> >> >   (U Type
+ >> >> >      (If Type)
+ >> >> >      (Begin Type)))
+ >> >> >
+ >> >> >
+ >> >> > (struct (Type) If
+ >> >> >   ([cond : CodeOfBoolean]
+ >> >> >    [then : (Code Type)]
+ >> >> >    [else : (Code Type)])
+ >> >> >   #:transparent)
+ >> >> >
+ >> >> >
+ >> >> >
+ >> >> > (define-type (ListEndingIn ListType EndType)
+ >> >> >   (U (Pair EndType Null)
+ >> >> >      (Pair ListType (ListEndingIn ListType EndType))))
+ >> >> >
+ >> >> > (struct (Type) Begin
+ >> >> >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ >> >> >
+ >> >> > (define QuotedCode : CodeOfInteger
+ >> >> >   (If #t
+ >> >> >       1
+ >> >> >       (Begin
+ >> >> >        (list 2 #f (If #t 3 4))))
+ >> >> >   )
+ >> >> >
+ >> >> > *** Environment:
+ >> >> > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ >> >> > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27
+ >> >> > Safari/537.36
+ >> >> >
+ 
+ --20cf3071c8d244e7f104fd0b07bd
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">We would definitely need to simplify for error messages, but=
+  it would be interesting to know if it&#39;s worth it for performance.</p>
+ <p dir=3D"ltr">Sam</p>
+ <div class=3D"gmail_quot&lt;blockquote class=3D" style=3D"margin:0 0 0 .8ex=
+ ;border-left:1px #ccc solid;padding-left:1ex">I diagnosed what the unit tes=
+ t issues were, and it was that I had<br>
+ turned union simplification entirely instead of just during subtyping.<br>
+ The errors were things like got (U Any Symbol) instead of expected<br>
+ Any. So I think turning it off entirely will be bad in terms of error<br>
+ messages presented to users. But turning it off during subtyping seems<br>
+ to have given us a 20% improvement in runtime of the unit tests, but<br>
+ nothing noticable on the runtime of all the integration tests.<br>
+ <br>
+ On Sun, Jun 29, 2014 at 11:00 PM, Sam Tobin-Hochstadt<br>
+ &lt;<a href=3D"mailto:samth@cs.indiana.edu">samth@cs.indiana.edu</a>&gt; wr=
+ ote:<br>
+ &gt; What happens if you turn off union simplification entirely? I don&#39;=
+ t think it<br>
+ &gt; will actually break anything.<br>
+ &gt;<br>
+ &gt; On Jun 30, 2014 7:39 AM, &quot;Eric Dobson&quot; &lt;<a href=3D"mailto=
+ :eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a>&gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; I don&#39;t think so. The issue is that while we are in subtyping =
+ we<br>
+ &gt;&gt; cannot populate any caches related to subtyping, because of how we=
+ <br>
+ &gt;&gt; handle recursive types.<br>
+ &gt;&gt;<br>
+ &gt;&gt; I believe I have a fix which is that during subtyping we do not<br=
+ >
+ &gt;&gt; simplify unions. It speed up this program a bunch, and caused no<b=
+ r>
+ &gt;&gt; issues in the integration tests. It had some issues in the unit te=
+ sts<br>
+ &gt;&gt; and I&#39;m still investigating, but I think they are minor.<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt<br>
+ &gt;&gt; &lt;<a href=3D"mailto:samth@cs.indiana.edu">samth@cs.indiana.edu</=
+ a>&gt; wrote:<br>
+ &gt;&gt; &gt; If we memoize resolve, would that help?<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; On Jun 30, 2014 4:46 AM, &quot;Eric Dobson&quot; &lt;<a href=
+ =3D"mailto:eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a>&gt; wrote:<=
+ br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; I diagnosed this to slow subtyping. If we are in the mids=
+ t of<br>
+ &gt;&gt; &gt;&gt; subtyping, and we try to resolve a type with a union we e=
+ nd up re<br>
+ &gt;&gt; &gt;&gt; constructing the union. But since we are in the midst of =
+ subtyping,<br>
+ &gt;&gt; &gt;&gt; any calls we make cannot fill the cache so we have to do =
+ the work of<br>
+ &gt;&gt; &gt;&gt; computing subtypes over and over again.<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; On Mon, Jun 16, 2014 at 10:20 PM, =C2=A0&lt;<a href=3D"ma=
+ ilto:eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a>&gt; wrote:<br>
+ &gt;&gt; &gt;&gt; &gt; A new problem report is waiting at<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/=
+ ?cmd=3Dview&amp;pr=3D14582" target=3D"_blank">http://bugs.racket-lang.org/q=
+ uery/?cmd=3Dview&amp;pr=3D14582</a><br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; Reported by Eric Dobson for release: HEAD<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; *** Description:<br>
+ &gt;&gt; &gt;&gt; &gt; This program takes a minute to compile on my machine=
+ . I would expect<br>
+ &gt;&gt; &gt;&gt; &gt; it<br>
+ &gt;&gt; &gt;&gt; &gt; to be much faster.<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; *** How to repeat:<br>
+ &gt;&gt; &gt;&gt; &gt; #lang typed/racket<br>
+ &gt;&gt; &gt;&gt; &gt; (define-type CodeOfBoolean (Code Boolean))<br>
+ &gt;&gt; &gt;&gt; &gt; (define-type CodeOfInteger (Code Integer))<br>
+ &gt;&gt; &gt;&gt; &gt; (define-type CodeOfAny<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 (U CodeOfInteger<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0CodeOfBoolean))<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; (define-type (Code Type)<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 (U Type<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0(If Type)<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0(Begin Type)))<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; (struct (Type) If<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 ([cond : CodeOfBoolean]<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0[then : (Code Type)]<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0[else : (Code Type)])<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 #:transparent)<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; (define-type (ListEndingIn ListType EndType)<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 (U (Pair EndType Null)<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0(Pair ListType (ListEndingIn Lis=
+ tType EndType))))<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; (struct (Type) Begin<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 ([exprs : (ListEndingIn CodeOfAny (Code Type)=
+ )]))<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; (define QuotedCode : CodeOfInteger<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 (If #t<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0 1<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0 (Begin<br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0(list 2 #f (If #t 3 4))))=
+ <br>
+ &gt;&gt; &gt;&gt; &gt; =C2=A0 )<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;&gt; &gt; *** Environment:<br>
+ &gt;&gt; &gt;&gt; &gt; MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10=
+ _8_5)<br>
+ &gt;&gt; &gt;&gt; &gt; AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1=
+ 750.27<br>
+ &gt;&gt; &gt;&gt; &gt; Safari/537.36<br>
+ &gt;&gt; &gt;&gt; &gt;<br>
+ </div>
+ 
+ --20cf3071c8d244e7f104fd0b07bd--
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Mon, 30 Jun 2014 09:39:11 -0700
+
+ It gives an ~8-10% improvement on new-metrics.rkt.
+ 
+ On Mon, Jun 30, 2014 at 3:21 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > We would definitely need to simplify for error messages, but it would be
+ > interesting to know if it's worth it for performance.
+ >
+ > Sam
+ >
+ > I diagnosed what the unit test issues were, and it was that I had
+ > turned union simplification entirely instead of just during subtyping.
+ > The errors were things like got (U Any Symbol) instead of expected
+ > Any. So I think turning it off entirely will be bad in terms of error
+ > messages presented to users. But turning it off during subtyping seems
+ > to have given us a 20% improvement in runtime of the unit tests, but
+ > nothing noticable on the runtime of all the integration tests.
+ >
+ > On Sun, Jun 29, 2014 at 11:00 PM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ >> What happens if you turn off union simplification entirely? I don't think
+ >> it
+ >> will actually break anything.
+ >>
+ >> On Jun 30, 2014 7:39 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>>
+ >>> I don't think so. The issue is that while we are in subtyping we
+ >>> cannot populate any caches related to subtyping, because of how we
+ >>> handle recursive types.
+ >>>
+ >>> I believe I have a fix which is that during subtyping we do not
+ >>> simplify unions. It speed up this program a bunch, and caused no
+ >>> issues in the integration tests. It had some issues in the unit tests
+ >>> and I'm still investigating, but I think they are minor.
+ >>>
+ >>> On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt
+ >>> <samth@cs.indiana.edu> wrote:
+ >>> > If we memoize resolve, would that help?
+ >>> >
+ >>> > On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>> >>
+ >>> >> I diagnosed this to slow subtyping. If we are in the midst of
+ >>> >> subtyping, and we try to resolve a type with a union we end up re
+ >>> >> constructing the union. But since we are in the midst of subtyping,
+ >>> >> any calls we make cannot fill the cache so we have to do the work of
+ >>> >> computing subtypes over and over again.
+ >>> >>
+ >>> >> On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>> >> > A new problem report is waiting at
+ >>> >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ >>> >> >
+ >>> >> > Reported by Eric Dobson for release: HEAD
+ >>> >> >
+ >>> >> > *** Description:
+ >>> >> > This program takes a minute to compile on my machine. I would expect
+ >>> >> > it
+ >>> >> > to be much faster.
+ >>> >> >
+ >>> >> > *** How to repeat:
+ >>> >> > #lang typed/racket
+ >>> >> > (define-type CodeOfBoolean (Code Boolean))
+ >>> >> > (define-type CodeOfInteger (Code Integer))
+ >>> >> > (define-type CodeOfAny
+ >>> >> >   (U CodeOfInteger
+ >>> >> >      CodeOfBoolean))
+ >>> >> >
+ >>> >> > (define-type (Code Type)
+ >>> >> >   (U Type
+ >>> >> >      (If Type)
+ >>> >> >      (Begin Type)))
+ >>> >> >
+ >>> >> >
+ >>> >> > (struct (Type) If
+ >>> >> >   ([cond : CodeOfBoolean]
+ >>> >> >    [then : (Code Type)]
+ >>> >> >    [else : (Code Type)])
+ >>> >> >   #:transparent)
+ >>> >> >
+ >>> >> >
+ >>> >> >
+ >>> >> > (define-type (ListEndingIn ListType EndType)
+ >>> >> >   (U (Pair EndType Null)
+ >>> >> >      (Pair ListType (ListEndingIn ListType EndType))))
+ >>> >> >
+ >>> >> > (struct (Type) Begin
+ >>> >> >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ >>> >> >
+ >>> >> > (define QuotedCode : CodeOfInteger
+ >>> >> >   (If #t
+ >>> >> >       1
+ >>> >> >       (Begin
+ >>> >> >        (list 2 #f (If #t 3 4))))
+ >>> >> >   )
+ >>> >> >
+ >>> >> > *** Environment:
+ >>> >> > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ >>> >> > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27
+ >>> >> > Safari/537.36
+ >>> >> >
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Mon, 30 Jun 2014 13:00:09 -0400
+
+ So turning off union-simplification entirely gives 8-10% over current
+ master, or over not simplifying only during subtyping?  And how much
+ is the improvement for just not simplifying during subtyping vs
+ master?
+ 
+ Sam
+ 
+ On Mon, Jun 30, 2014 at 12:39 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > It gives an ~8-10% improvement on new-metrics.rkt.
+ >
+ > On Mon, Jun 30, 2014 at 3:21 AM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ >> We would definitely need to simplify for error messages, but it would be
+ >> interesting to know if it's worth it for performance.
+ >>
+ >> Sam
+ >>
+ >> I diagnosed what the unit test issues were, and it was that I had
+ >> turned union simplification entirely instead of just during subtyping.
+ >> The errors were things like got (U Any Symbol) instead of expected
+ >> Any. So I think turning it off entirely will be bad in terms of error
+ >> messages presented to users. But turning it off during subtyping seems
+ >> to have given us a 20% improvement in runtime of the unit tests, but
+ >> nothing noticable on the runtime of all the integration tests.
+ >>
+ >> On Sun, Jun 29, 2014 at 11:00 PM, Sam Tobin-Hochstadt
+ >> <samth@cs.indiana.edu> wrote:
+ >>> What happens if you turn off union simplification entirely? I don't think
+ >>> it
+ >>> will actually break anything.
+ >>>
+ >>> On Jun 30, 2014 7:39 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>>>
+ >>>> I don't think so. The issue is that while we are in subtyping we
+ >>>> cannot populate any caches related to subtyping, because of how we
+ >>>> handle recursive types.
+ >>>>
+ >>>> I believe I have a fix which is that during subtyping we do not
+ >>>> simplify unions. It speed up this program a bunch, and caused no
+ >>>> issues in the integration tests. It had some issues in the unit tests
+ >>>> and I'm still investigating, but I think they are minor.
+ >>>>
+ >>>> On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt
+ >>>> <samth@cs.indiana.edu> wrote:
+ >>>> > If we memoize resolve, would that help?
+ >>>> >
+ >>>> > On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>>> >>
+ >>>> >> I diagnosed this to slow subtyping. If we are in the midst of
+ >>>> >> subtyping, and we try to resolve a type with a union we end up re
+ >>>> >> constructing the union. But since we are in the midst of subtyping,
+ >>>> >> any calls we make cannot fill the cache so we have to do the work of
+ >>>> >> computing subtypes over and over again.
+ >>>> >>
+ >>>> >> On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>>> >> > A new problem report is waiting at
+ >>>> >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ >>>> >> >
+ >>>> >> > Reported by Eric Dobson for release: HEAD
+ >>>> >> >
+ >>>> >> > *** Description:
+ >>>> >> > This program takes a minute to compile on my machine. I would expect
+ >>>> >> > it
+ >>>> >> > to be much faster.
+ >>>> >> >
+ >>>> >> > *** How to repeat:
+ >>>> >> > #lang typed/racket
+ >>>> >> > (define-type CodeOfBoolean (Code Boolean))
+ >>>> >> > (define-type CodeOfInteger (Code Integer))
+ >>>> >> > (define-type CodeOfAny
+ >>>> >> >   (U CodeOfInteger
+ >>>> >> >      CodeOfBoolean))
+ >>>> >> >
+ >>>> >> > (define-type (Code Type)
+ >>>> >> >   (U Type
+ >>>> >> >      (If Type)
+ >>>> >> >      (Begin Type)))
+ >>>> >> >
+ >>>> >> >
+ >>>> >> > (struct (Type) If
+ >>>> >> >   ([cond : CodeOfBoolean]
+ >>>> >> >    [then : (Code Type)]
+ >>>> >> >    [else : (Code Type)])
+ >>>> >> >   #:transparent)
+ >>>> >> >
+ >>>> >> >
+ >>>> >> >
+ >>>> >> > (define-type (ListEndingIn ListType EndType)
+ >>>> >> >   (U (Pair EndType Null)
+ >>>> >> >      (Pair ListType (ListEndingIn ListType EndType))))
+ >>>> >> >
+ >>>> >> > (struct (Type) Begin
+ >>>> >> >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ >>>> >> >
+ >>>> >> > (define QuotedCode : CodeOfInteger
+ >>>> >> >   (If #t
+ >>>> >> >       1
+ >>>> >> >       (Begin
+ >>>> >> >        (list 2 #f (If #t 3 4))))
+ >>>> >> >   )
+ >>>> >> >
+ >>>> >> > *** Environment:
+ >>>> >> > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ >>>> >> > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27
+ >>>> >> > Safari/537.36
+ >>>> >> >
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14582: Really slow typechecking
+Date: Mon, 30 Jun 2014 20:50:01 -0700
+
+ Over not simplifying only during subtyping, which was 2% over master
+ on new-metrics.
+ 
+ On Mon, Jun 30, 2014 at 10:00 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > So turning off union-simplification entirely gives 8-10% over current
+ > master, or over not simplifying only during subtyping?  And how much
+ > is the improvement for just not simplifying during subtyping vs
+ > master?
+ >
+ > Sam
+ >
+ > On Mon, Jun 30, 2014 at 12:39 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ >> It gives an ~8-10% improvement on new-metrics.rkt.
+ >>
+ >> On Mon, Jun 30, 2014 at 3:21 AM, Sam Tobin-Hochstadt
+ >> <samth@cs.indiana.edu> wrote:
+ >>> We would definitely need to simplify for error messages, but it would be
+ >>> interesting to know if it's worth it for performance.
+ >>>
+ >>> Sam
+ >>>
+ >>> I diagnosed what the unit test issues were, and it was that I had
+ >>> turned union simplification entirely instead of just during subtyping.
+ >>> The errors were things like got (U Any Symbol) instead of expected
+ >>> Any. So I think turning it off entirely will be bad in terms of error
+ >>> messages presented to users. But turning it off during subtyping seems
+ >>> to have given us a 20% improvement in runtime of the unit tests, but
+ >>> nothing noticable on the runtime of all the integration tests.
+ >>>
+ >>> On Sun, Jun 29, 2014 at 11:00 PM, Sam Tobin-Hochstadt
+ >>> <samth@cs.indiana.edu> wrote:
+ >>>> What happens if you turn off union simplification entirely? I don't think
+ >>>> it
+ >>>> will actually break anything.
+ >>>>
+ >>>> On Jun 30, 2014 7:39 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>>>>
+ >>>>> I don't think so. The issue is that while we are in subtyping we
+ >>>>> cannot populate any caches related to subtyping, because of how we
+ >>>>> handle recursive types.
+ >>>>>
+ >>>>> I believe I have a fix which is that during subtyping we do not
+ >>>>> simplify unions. It speed up this program a bunch, and caused no
+ >>>>> issues in the integration tests. It had some issues in the unit tests
+ >>>>> and I'm still investigating, but I think they are minor.
+ >>>>>
+ >>>>> On Sun, Jun 29, 2014 at 10:36 PM, Sam Tobin-Hochstadt
+ >>>>> <samth@cs.indiana.edu> wrote:
+ >>>>> > If we memoize resolve, would that help?
+ >>>>> >
+ >>>>> > On Jun 30, 2014 4:46 AM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ >>>>> >>
+ >>>>> >> I diagnosed this to slow subtyping. If we are in the midst of
+ >>>>> >> subtyping, and we try to resolve a type with a union we end up re
+ >>>>> >> constructing the union. But since we are in the midst of subtyping,
+ >>>>> >> any calls we make cannot fill the cache so we have to do the work of
+ >>>>> >> computing subtypes over and over again.
+ >>>>> >>
+ >>>>> >> On Mon, Jun 16, 2014 at 10:20 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>>>> >> > A new problem report is waiting at
+ >>>>> >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=14582
+ >>>>> >> >
+ >>>>> >> > Reported by Eric Dobson for release: HEAD
+ >>>>> >> >
+ >>>>> >> > *** Description:
+ >>>>> >> > This program takes a minute to compile on my machine. I would expect
+ >>>>> >> > it
+ >>>>> >> > to be much faster.
+ >>>>> >> >
+ >>>>> >> > *** How to repeat:
+ >>>>> >> > #lang typed/racket
+ >>>>> >> > (define-type CodeOfBoolean (Code Boolean))
+ >>>>> >> > (define-type CodeOfInteger (Code Integer))
+ >>>>> >> > (define-type CodeOfAny
+ >>>>> >> >   (U CodeOfInteger
+ >>>>> >> >      CodeOfBoolean))
+ >>>>> >> >
+ >>>>> >> > (define-type (Code Type)
+ >>>>> >> >   (U Type
+ >>>>> >> >      (If Type)
+ >>>>> >> >      (Begin Type)))
+ >>>>> >> >
+ >>>>> >> >
+ >>>>> >> > (struct (Type) If
+ >>>>> >> >   ([cond : CodeOfBoolean]
+ >>>>> >> >    [then : (Code Type)]
+ >>>>> >> >    [else : (Code Type)])
+ >>>>> >> >   #:transparent)
+ >>>>> >> >
+ >>>>> >> >
+ >>>>> >> >
+ >>>>> >> > (define-type (ListEndingIn ListType EndType)
+ >>>>> >> >   (U (Pair EndType Null)
+ >>>>> >> >      (Pair ListType (ListEndingIn ListType EndType))))
+ >>>>> >> >
+ >>>>> >> > (struct (Type) Begin
+ >>>>> >> >   ([exprs : (ListEndingIn CodeOfAny (Code Type))]))
+ >>>>> >> >
+ >>>>> >> > (define QuotedCode : CodeOfInteger
+ >>>>> >> >   (If #t
+ >>>>> >> >       1
+ >>>>> >> >       (Begin
+ >>>>> >> >        (list 2 #f (If #t 3 4))))
+ >>>>> >> >   )
+ >>>>> >> >
+ >>>>> >> > *** Environment:
+ >>>>> >> > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5)
+ >>>>> >> > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27
+ >>>>> >> > Safari/537.36
+ >>>>> >> >
+Responsible changed from "samth" to "endobson" by endobson@racket-lang.org at Mon, 30 Jun 2014 23:58:25 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/cfe35fa0a4
+State changed from "open" to "closed" by endobson@racket-lang.org at Mon, 30 Jun 2014 23:58:25 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/cfe35fa0a4
+  | Make union simplification not happen during subtyping.
+  | 
+  | Union simplification calls subtype, calling subtype during subtyping is
+  | slow so we want to avoid it.
+  | 
+  | Closes PR 14582.
+

@@ -1,0 +1,516 @@
+From apache@plt-scheme.org Sat May  7 04:40:41 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j478eeQ0028243
+	for <bugs@plt-scheme.org>; Sat, 7 May 2005 04:40:40 -0400
+Message-Id: <200505070840.j478eelm028241@champlain.ccs.neu.edu>
+Date: Sat, 7 May 2005 04:40:40 -0400
+From: ryanc@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: certificates do not completely protect private variables
+
+>Number:         7371
+>Category:       mzscheme
+>Synopsis:       certificates do not completely protect private variables
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat May 07 04:45:00 -0400 2005
+>Last-Modified:  Thu Jul 21 18:07:31 -0400 2005
+>Originator:     Ryan Culpepper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.104-cvs6may2005
+>Environment:
+unix "Linux localhost.localdomain 2.6.11-1.14_FC3smp #1 SMP Thu Apr 7 19:38:19 EDT 2005 i686 i686 i386 GNU/Linux" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+(#<path:/opt/plt/collects/doc/help> #<path:/opt/plt/collects/doc/t-y-scheme> #<path:/opt/plt/collects/doc/mzc> #<path:/opt/plt/collects/doc/mrlib> #<path:/opt/plt/collects/doc/plot> #<path:/opt/plt/collects/doc/insidemz> #<path:/opt/plt/collects/doc/profj-beginner> #<path:/opt/plt/collects/doc/tex2page> #<path:/opt/plt/collects/doc/r5rs> #<path:/opt/plt/collects/doc/mzscheme> #<path:/opt/plt/collects/doc/tools> #<path:/opt/plt/collects/doc/intermediate-lambda> #<path:/opt/plt/collects/doc/intermediate> #<path:/opt/plt/collects/doc/misclib> #<path:/opt/plt/collects/doc/web-server> #<path:/opt/plt/collects/doc/swindle> #<path:/opt/plt/collects/doc/profj-intermediate> #<path:/opt/plt/collects/doc/tour> #<path:/opt/plt/collects/doc/beginning-abbr> #<path:/opt/plt/collects/doc/srfi> #<path:/opt/plt/collects/doc/mred> #<path:/opt/plt/collects/doc/teachpack> #<path:/opt/plt/collects/doc/beginning> #<path:/opt/plt/collects/doc/mzlib> #<path:/opt/plt/collects/doc/profj-advanced> #<path:/opt/plt/collects/doc/framework> #<path:/opt/plt/collects/doc/drscheme> #<path:/opt/plt/collects/doc/foreign> #<path:/opt/plt/collects/doc/advanced>)
+Collections:
+((#<path:/home/ryan/.plt-scheme/299.104/collects> "non-existent path") (#<path:/opt/plt/collects> (#<path:string-constants> #<path:icons> #<path:ffi> #<path:browser> #<path:sirmail> #<path:test-suite> #<path:waterworld> #<path:html> #<path:preprocessor> #<path:profjWizard> #<path:reduction-semantics> #<path:profj> #<path:slideshow> #<path:finish-install> #<path:launcher> #<path:graphics> #<path:hierlist> #<path:skipper> #<path:drscheme> #<path:framework> #<path:handin-server> #<path:syntax-color> #<path:mzlib> #<path:net> #<path:cvs-time-stamp> #<path:parser-tools> #<path:defaults> #<path:slibinit> #<path:mred> #<path:trace> #<path:srfi> #<path:texpict> #<path:syntax> #<path:honu-module> #<path:frtime> #<path:games> #<path:readline> #<path:ssax> #<path:make> #<path:mzcom> #<path:mysterx> #<path:setup> #<path:lang> #<path:htdch> #<path:swindle> #<path:web-server> #<path:xelda> #<path:afm> #<path:profjBoxes> #<path:dynext> #<path:stepper> #<path:algol60> #<path:handin-client> #<path:planet> #<path:version> #<path:sgl> #<path:mrdemo> #<path:compiler> #<path:mzscheme> #<path:slatex> #<path:eopl> #<path:tests> #<path:mrflow> #<path:tex2page> #<path:openssl> #<path:xml> #<path:plot> #<path:embedded-gui> #<path:mrlib> #<path:htdp> #<path:srpersist> #<path:info-domain> #<path:guibuilder> #<path:errortrace> #<path:help> #<path:doc>)))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+Under some circumstances, one can circumvent the 
+protections on unexported module identifiers that
+occur in a macro's expansion.
+
+The trick is to local-expand a use of the macro,
+extract and locally bind the head keyword of the
+macro expansion to a macro that extracts and 
+returns the unexported variable, then place the 
+result of expansion (untouched, with certificates
+intact) in its context.
+>How-To-Repeat:
+(module s mzscheme
+  (provide m)
+  (define-syntax m
+    (syntax-rules ()
+      [(_) (quote unexported-name)]))
+  (define unexported-name 'secret-data))
+
+(define-syntax (hack-m stx)
+  (syntax-case stx ()
+    [(_ m)
+     (let ([estx (local-expand #'(m) 'expression null)])
+       (with-syntax ([body estx]
+                     [(kw var) estx])
+         #'(let-syntax ([kw (syntax-rules () [(_kw v) v])])
+             body)))]))
+
+;(require s)
+;(expand #'(hack-m m))
+;(hack-m m)
+
+(parameterize ((current-code-inspector (make-inspector)))
+  (eval #'(require s))
+  ;(eval #'(module->namespace 's)) ;; raises error
+  (eval #'(hack-m m)))  ;; but this works
+>Fix:
+>Audit-Trail:
+State changed from "open" to "analyzed" by mflatt at Sat, 07 May 2005 08:56:04 -0400
+Reason>>> Cool trick. I'll have to think about this one...
+
+Thanks!
+Matthew
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: ryanc@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 08:48:13 -0600
+
+ At Sat, 7 May 2005 04:45:01 -0400, ryanc@ccs.neu.edu wrote:
+ > The trick is to local-expand a use of the macro,
+ > extract and locally bind the head keyword of the
+ > macro expansion to a macro that extracts and 
+ > returns the unexported variable, then place the 
+ > result of expansion (untouched, with certificates
+ > intact) in its context.
+ 
+ Here's a possible correction to MzScheme:
+ 
+  A use of a bound identifier is disallowed (certificate violation) if
+  the use includes certificates that apply to the binding, but the
+  binding doesn't have those certificates.
+ 
+ This is slightly more complex than "don't allow a certified reference
+ to an uncertified binding", because a use can acquire extra
+ certificates when it's introduced by `let-syntax' (within the
+ binding's scope).
+ 
+ Operationally, in that case, the mark that ties the certificate to the
+ use won't appear on the binding, so the use is still allowed. For every
+ mark that the binding and use have in common, though, they must have
+ the same certificates.
+ 
+ I'm pretty sure that this closes the hole that you discovered (in a way
+ that follows principles I imagine to be behind certificates), but let
+ me know what you think.
+ 
+ Matthew
+ 
+From: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 12:07:29 -0400 (EDT)
+
+ On Sat, 7 May 2005, Matthew Flatt wrote:
+ 
+ > At Sat, 7 May 2005 04:45:01 -0400, ryanc@ccs.neu.edu wrote:
+ > > The trick is to local-expand a use of the macro,
+ > > extract and locally bind the head keyword of the
+ > > macro expansion to a macro that extracts and
+ > > returns the unexported variable, then place the
+ > > result of expansion (untouched, with certificates
+ > > intact) in its context.
+ >
+ > Here's a possible correction to MzScheme:
+ >
+ >  A use of a bound identifier is disallowed (certificate violation) if
+ >  the use includes certificates that apply to the binding, but the
+ >  binding doesn't have those certificates.
+ >
+ > This is slightly more complex than "don't allow a certified reference
+ > to an uncertified binding", because a use can acquire extra
+ > certificates when it's introduced by `let-syntax' (within the
+ > binding's scope).
+ >
+ > Operationally, in that case, the mark that ties the certificate to the
+ > use won't appear on the binding, so the use is still allowed. For every
+ > mark that the binding and use have in common, though, they must have
+ > the same certificates.
+ >
+ > I'm pretty sure that this closes the hole that you discovered (in a way
+ > that follows principles I imagine to be behind certificates), but let
+ > me know what you think.
+ 
+ That seems to make sense, but it seems to only apply to cases when the
+ rebound identifier (the back door) is itself unexported/protected. Correct
+ me if I misunderstand. What about the following case:
+ 
+ (module s mzscheme
+   (provide m
+            exported-fun)
+   (define-syntax m
+     (syntax-rules ()
+       [(_) (exported-fun unexported-name)]))
+   (define exported-fun void)
+   (define unexported-name 'secret-data))
+ 
+ Since (if I understand correctly) certificates are not checked on exported
+ names, could you local-expand (up to #%app) a use of m here, rebind the
+ exported name exported-fun, and extract unexported-name in the same way?
+ 
+ Ryan
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 10:30:16 -0600
+
+ At Sat, 7 May 2005 12:07:29 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > On Sat, 7 May 2005, Matthew Flatt wrote:
+ > 
+ > > At Sat, 7 May 2005 04:45:01 -0400, ryanc@ccs.neu.edu wrote:
+ > > > The trick is to local-expand a use of the macro,
+ > > > extract and locally bind the head keyword of the
+ > > > macro expansion to a macro that extracts and
+ > > > returns the unexported variable, then place the
+ > > > result of expansion (untouched, with certificates
+ > > > intact) in its context.
+ > >
+ > > Here's a possible correction to MzScheme:
+ > >
+ > >  A use of a bound identifier is disallowed (certificate violation) if
+ > >  the use includes certificates that apply to the binding, but the
+ > >  binding doesn't have those certificates.
+ > >
+ > > This is slightly more complex than "don't allow a certified reference
+ > > to an uncertified binding", because a use can acquire extra
+ > > certificates when it's introduced by `let-syntax' (within the
+ > > binding's scope).
+ > >
+ > > Operationally, in that case, the mark that ties the certificate to the
+ > > use won't appear on the binding, so the use is still allowed. For every
+ > > mark that the binding and use have in common, though, they must have
+ > > the same certificates.
+ > >
+ > > I'm pretty sure that this closes the hole that you discovered (in a way
+ > > that follows principles I imagine to be behind certificates), but let
+ > > me know what you think.
+ > 
+ > That seems to make sense, but it seems to only apply to cases when the
+ > rebound identifier (the back door) is itself unexported/protected. Correct
+ > me if I misunderstand. What about the following case:
+ > 
+ > (module s mzscheme
+ >   (provide m
+ >            exported-fun)
+ >   (define-syntax m
+ >     (syntax-rules ()
+ >       [(_) (exported-fun unexported-name)]))
+ >   (define exported-fun void)
+ >   (define unexported-name 'secret-data))
+ > 
+ > Since (if I understand correctly) certificates are not checked on exported
+ > names, could you local-expand (up to #%app) a use of m here, rebind the
+ > exported name exported-fun, and extract unexported-name in the same way?
+ 
+ The exported name is certified when it appears in the larger expression.
+ The certificate isn't required for access of the name, but it would trigger
+ the "is binder certified?" check above. So, I believe it covers this case.
+ 
+ Matthew
+ 
+From: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 12:38:14 -0400 (EDT)
+
+ On Sat, 7 May 2005, Matthew Flatt wrote:
+ 
+ > At Sat, 7 May 2005 12:07:29 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > > On Sat, 7 May 2005, Matthew Flatt wrote:
+ > >
+ > > > At Sat, 7 May 2005 04:45:01 -0400, ryanc@ccs.neu.edu wrote:
+ > > > > The trick is to local-expand a use of the macro,
+ > > > > extract and locally bind the head keyword of the
+ > > > > macro expansion to a macro that extracts and
+ > > > > returns the unexported variable, then place the
+ > > > > result of expansion (untouched, with certificates
+ > > > > intact) in its context.
+ > > >
+ > > > Here's a possible correction to MzScheme:
+ > > >
+ > > >  A use of a bound identifier is disallowed (certificate violation) if
+ > > >  the use includes certificates that apply to the binding, but the
+ > > >  binding doesn't have those certificates.
+ > > >
+ > > > This is slightly more complex than "don't allow a certified reference
+ > > > to an uncertified binding", because a use can acquire extra
+ > > > certificates when it's introduced by `let-syntax' (within the
+ > > > binding's scope).
+ > > >
+ > > > Operationally, in that case, the mark that ties the certificate to the
+ > > > use won't appear on the binding, so the use is still allowed. For every
+ > > > mark that the binding and use have in common, though, they must have
+ > > > the same certificates.
+ > > >
+ > > > I'm pretty sure that this closes the hole that you discovered (in a way
+ > > > that follows principles I imagine to be behind certificates), but let
+ > > > me know what you think.
+ > >
+ > > That seems to make sense, but it seems to only apply to cases when the
+ > > rebound identifier (the back door) is itself unexported/protected. Correct
+ > > me if I misunderstand. What about the following case:
+ > >
+ > > (module s mzscheme
+ > >   (provide m
+ > >            exported-fun)
+ > >   (define-syntax m
+ > >     (syntax-rules ()
+ > >       [(_) (exported-fun unexported-name)]))
+ > >   (define exported-fun void)
+ > >   (define unexported-name 'secret-data))
+ > >
+ > > Since (if I understand correctly) certificates are not checked on exported
+ > > names, could you local-expand (up to #%app) a use of m here, rebind the
+ > > exported name exported-fun, and extract unexported-name in the same way?
+ >
+ > The exported name is certified when it appears in the larger expression.
+ > The certificate isn't required for access of the name, but it would trigger
+ > the "is binder certified?" check above. So, I believe it covers this case.
+ 
+ Ah, okay.
+ 
+ Is there a case that prevents the rule from being simplified to "a use or
+ binding occurrence of a module's unexported identifier must occur in a
+ certified context"?
+ 
+ Ryan
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 10:59:38 -0600
+
+ At Sat, 7 May 2005 12:38:14 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > Is there a case that prevents the rule from being simplified to "a use or
+ > binding occurrence of a module's unexported identifier must occur in a
+ > certified context"?
+ 
+ That's already the case. It's a question of how certificates are
+ propagated, though.
+ 
+ When a macro expansion itself includes the "application" of a
+ macro-bound identifier, the result of that expansion gets the original
+ certificate. The idea is that the macro implementor meant to use the
+ macro, so he must trust it.
+ 
+ You found a way to change the set of macros referenced by an expansion
+ (and, therefore, the set of macros whose expansion is certified), and
+ that's what the new rule is designed to prevent.
+ 
+ Matthew
+ 
+From: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 13:12:48 -0400 (EDT)
+
+ On Sat, 7 May 2005, Matthew Flatt wrote:
+ 
+ > At Sat, 7 May 2005 12:38:14 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > > Is there a case that prevents the rule from being simplified to "a use or
+ > > binding occurrence of a module's unexported identifier must occur in a
+ > > certified context"?
+ >
+ > That's already the case. It's a question of how certificates are
+ > propagated, though.
+ 
+ I don't understand. In the original example, the hack-m macro extracted
+ the (unexported) quote identifier from its certified context and bound
+ it... but the new binding occurrence of quote did not occur in a certified
+ context, right? Yet the binding (and thus capture) of that name was not
+ prevented by the certificate system.
+ 
+ Ryan
+ 
+ 
+ > When a macro expansion itself includes the "application" of a
+ > macro-bound identifier, the result of that expansion gets the original
+ > certificate. The idea is that the macro implementor meant to use the
+ > macro, so he must trust it.
+ >
+ > You found a way to change the set of macros referenced by an expansion
+ > (and, therefore, the set of macros whose expansion is certified), and
+ > that's what the new rule is designed to prevent.
+ >
+ > Matthew
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 11:19:57 -0600
+
+ At Sat, 7 May 2005 13:12:48 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > On Sat, 7 May 2005, Matthew Flatt wrote:
+ > 
+ > > At Sat, 7 May 2005 12:38:14 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > > > Is there a case that prevents the rule from being simplified to "a use or
+ > > > binding occurrence of a module's unexported identifier must occur in a
+ > > > certified context"?
+ > >
+ > > That's already the case. It's a question of how certificates are
+ > > propagated, though.
+ > 
+ > I don't understand. In the original example, the hack-m macro extracted
+ > the (unexported) quote identifier from its certified context and bound
+ > it... but the new binding occurrence of quote did not occur in a certified
+ > context, right? Yet the binding (and thus capture) of that name was not
+ > prevented by the certificate system.
+ 
+ The current system only checks that references to protected bindings
+ are certified.
+ 
+ There's nothing that prevents reference to a de-certified (unprotected)
+ identifier, In fact, the new rule wouldn't prevent using the
+ de-certified binding, in general, but it would prevent referencing the
+ binding within a certified context.
+ 
+ Matthew
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 11:22:46 -0600
+
+ To put it another way, the current system prevents access with too few
+ certificates on the use side, but the new rule would prevent access
+ with *too many* certificates at the use side.
+ 
+ Matthew
+ 
+From: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 13:46:49 -0400 (EDT)
+
+ On Sat, 7 May 2005, Matthew Flatt wrote:
+ 
+ > At Sat, 7 May 2005 13:12:48 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > > On Sat, 7 May 2005, Matthew Flatt wrote:
+ > >
+ > > > At Sat, 7 May 2005 12:38:14 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > > > > Is there a case that prevents the rule from being simplified to "a use or
+ > > > > binding occurrence of a module's unexported identifier must occur in a
+ > > > > certified context"?
+ > > >
+ > > > That's already the case. It's a question of how certificates are
+ > > > propagated, though.
+ > >
+ > > I don't understand. In the original example, the hack-m macro extracted
+ > > the (unexported) quote identifier from its certified context and bound
+ > > it... but the new binding occurrence of quote did not occur in a certified
+ > > context, right? Yet the binding (and thus capture) of that name was not
+ > > prevented by the certificate system.
+ >
+ > The current system only checks that references to protected bindings
+ > are certified.
+ >
+ > There's nothing that prevents reference to a de-certified (unprotected)
+ > identifier, In fact, the new rule wouldn't prevent using the
+ > de-certified binding, in general, but it would prevent referencing the
+ > binding within a certified context.
+ 
+ The current system and your proposed extension both only check *uses*,
+ right? I'm proposing that both *uses* and *binding* occurrences be
+ checked, so that the following code:
+ 
+   (lambda (X) #f)
+ 
+ would be rejected if X is a protected identifier and does not occur in the
+ context of a certificate.
+ 
+ In other words, certificates would give both "permission to use" and
+ "permission to capture." Would that produce a simpler system that still
+ ensures the right things are possible and prohibited?
+ 
+ Ryan
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 11:51:28 -0600
+
+ At Sat, 7 May 2005 13:46:49 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > The current system and your proposed extension both only check *uses*,
+ > right? I'm proposing that both *uses* and *binding* occurrences be
+ > checked, so that the following code:
+ > 
+ >   (lambda (X) #f)
+ > 
+ > would be rejected if X is a protected identifier and does not occur in the
+ > context of a certificate.
+ 
+ Sorry - I don't understand what problem this solves.
+ 
+ > In other words, certificates would give both "permission to use" and
+ > "permission to capture." Would that produce a simpler system that still
+ > ensures the right things are possible and prohibited?
+ 
+ Your original capturing example involved an unprotected identifier,
+ `quote', right?
+ 
+ Matthew
+ 
+From: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7371: certificates do not completely protect private variables
+Date: Sat, 7 May 2005 14:01:34 -0400 (EDT)
+
+ On Sat, 7 May 2005, Matthew Flatt wrote:
+ 
+ > At Sat, 7 May 2005 13:46:49 -0400 (EDT), Ryan Michael Culpepper wrote:
+ > > The current system and your proposed extension both only check *uses*,
+ > > right? I'm proposing that both *uses* and *binding* occurrences be
+ > > checked, so that the following code:
+ > >
+ > >   (lambda (X) #f)
+ > >
+ > > would be rejected if X is a protected identifier and does not occur in the
+ > > context of a certificate.
+ >
+ > Sorry - I don't understand what problem this solves.
+ 
+ It was intended to make the extraction and rebinding of quote illegal.
+ 
+ > > In other words, certificates would give both "permission to use" and
+ > > "permission to capture." Would that produce a simpler system that still
+ > > ensures the right things are possible and prohibited?
+ >
+ > Your original capturing example involved an unprotected identifier,
+ > `quote', right?
+ 
+ Well, quote was not exported from m, so I would have expected it to be
+ protected. But I suppose my proposal wouldn't take care of the second case
+ I brought up.
+ 
+ The solution you gave earlier makes more sense now.
+ 
+ Thanks,
+ Ryan
+
+State changed from "analyzed" to "closed" by mflatt at Thu, 21 Jul 2005 18:07:31 -0400
+Reason>>> so far so good
+

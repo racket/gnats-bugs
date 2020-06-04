@@ -1,0 +1,806 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Dec  4 18:15:39 2007
+Received: from ug-out-1314.google.com (ug-out-1314.google.com [66.249.92.169])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id lB4NFa4U026340
+	for <bugs@bugs.plt-scheme.org>; Tue, 4 Dec 2007 18:15:38 -0500
+Message-Id: <200712042315.lB4NFS62026335@champlain.ccs.neu.edu>
+Date: Tue, 4 Dec 2007 18:15:28 -0500
+From: mlapping@cs.brown.edu
+To: bugs@plt-scheme.org
+Subject: Dr Scheme segmentation fault
+
+>Number:         9099
+>Category:       drscheme
+>Synopsis:       Dr Scheme segmentation fault
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Dec 04 18:20:02 -0500 2007
+>Last-Modified:  Sun May 11 21:40:01 -0400 2008
+>Originator:     Micah Lapping - Carr
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        371
+>Environment:
+unix "Linux olivaw 2.6.18-4-k7 #1 SMP Wed May 9 23:42:01 UTC 2007 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/pro/plt/drscheme/371/share/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-intermediate-access" "profj-advanced"))
+Human Language: english
+(current-memory-use) 119598364
+
+Collections:
+(("/u/mlapping/.plt-scheme/371/collects" "plai" "info-domain") ("/pro/plt/drscheme/371/lib/plt/collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "readline" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "tests" "tex2page" "texpict" "trace" "version" "web-server" "wxme" "xml" "info-domain" "plai"))
+Computer Language: (("Teaching Languages" "Programming Languages: Application and Interpretation" "Pretty Big PLAI Scheme") #6(#t constructor mixed-fraction-e #f #t debug))
+>Description:
+When I run the code (found in the "Steps to Reproduce" section), and then run a few lines in the interaction window, Dr Scheme has a segfault and closes.
+>How-To-Repeat:
+Here is the code that goes in the definitions window:
+
+(define (flat? foo) (or (number? foo)
+                        (string? foo)
+                        (symbol? foo)
+                        (empty? foo)))
+
+(define-type Env
+  [mtEnv]
+  [anEnv (name symbol?) (value LogicValue?) (env Env?)])
+
+(define-type LogicValue
+  [l-var (name symbol?) (val box?)]
+  [l-flat (val flat?)]
+  [l-cons (first LogicValue?) (rest LogicValue?)])
+
+(define-type LVPair
+  [lv-pair (first LogicValue?)
+           (second LogicValue?)])
+
+;; coerce-value: anything -> LogicValue?
+; if the given value is a LogicValue, passes through unaltered
+; otherwise, attempts to wrap as a flat value
+(define (coerce-value v)
+  (if (LogicValue? v) v (l-flat v)))
+
+(define-syntax =cons
+  (syntax-rules ()
+    [(=cons f r) (l-cons (coerce-value f) 
+                         (coerce-value r))]))
+
+(define-syntax _
+  (syntax-rules ()
+    [(_) (l-var (gensym) (box #f))]))
+
+(define-syntax ==
+  (syntax-rules ()
+    [(== l r)
+     (lambda (failk)
+       (let/cc return
+         (let ([unify-result (unify (list (lv-pair 
+                                           (coerce-value l) 
+                                           (coerce-value r))) 
+                                    empty
+                                    failk)])
+           
+           (let/cc resume
+             (bind-subs! unify-result)
+             (return resume))
+           (unbind-subs! unify-result)
+           (failk 'dummy==end))))]))
+
+;; this is right
+(define-syntax =var
+  (syntax-rules ()
+    [(=var (v ...) e)
+     (local ((define v (_)) ...)
+       e)]))
+
+;; bind-subs! :: listof lvpair -> (void)
+(define (bind-subs! subs)
+  (if (empty? subs)
+      (void)
+      (type-case LVPair (first subs)
+                 [lv-pair (lhs rhs) 
+                          (type-case LogicValue lhs
+                                     [l-var (n b) (begin 
+                                                    (set-box! b rhs)
+                                                    (bind-subs! (rest subs)))]
+                                     [else (error 'bind-subs! "LHS was not an l-var!  LHS: ~a RHS ~a~n" lhs rhs)])])))
+
+;;unbind-subs! :: listof lvpair -> (void)
+(define (unbind-subs! subs)
+  (if (empty? subs)
+      (void)
+      (type-case LVPair (first subs)
+                 [lv-pair (lhs rhs) 
+                          (type-case LogicValue lhs
+                                     [l-var (n b) (begin 
+                                                    (set-box! b #f)
+                                                    (unbind-subs! (rest subs)))]
+                                     [else (error 'unbind-subs! "LHS was not an l-var!  LHS: ~a RHS ~a~n" lhs rhs)])])))
+
+
+(define =list
+  (lambda args
+    ;    (printf "Called on ~a~n" args)
+    (if (empty? args) '()
+        (=cons (first args) (apply =list (rest args))))))
+
+(define (=fail failk) 
+  ;(printf "=fail called, applying failk~n")
+  (failk 'dummyf))
+(define (=succeed failk) 
+  ;(printf "=succeed called, returning failk~n")
+  failk)
+
+(define-syntax =or
+  (syntax-rules ()
+    [(=or) (begin 
+             ;(printf "eval base of =or~n") 
+             =fail)]
+    [(=or e1 e2 ...) 
+     (let [(sc (let/cc ork
+                 (let/cc failk
+                   (ork (lambda (failk2) (e1 failk)))
+                   (void))
+                 ;(printf "recurring(ish)~n")
+                 (=or e2 ...)))]
+       ;(printf "broke from ork~n")
+       sc)]))
+
+(define-syntax =and
+  (syntax-rules ()
+    [(=and) =succeed]
+    [(=and e1 ... e2)
+     (lambda (fk)
+       ((=and e1 ...) (e2 fk)))]))
+
+(define resumer-box (box 'resumer))
+
+(define (next) ((unbox resumer-box) 'dummy))
+(define-syntax show
+  (syntax-rules ()
+    [(show (vars ...) e)
+     (=var (vars ...)
+           (let/cc esc
+             (let/cc fk
+               (esc (let ([next (e fk)])
+                      (set-box! resumer-box next)
+                      (printf "succeeded!~n")
+                      (printf "~a: ~a~n" (quote vars) (sanitize (lv-val vars)))
+                      ...
+                      (void))))
+             (printf "failed~n")
+             'fail))]))
+
+(define-syntax =find-all
+  (syntax-rules ()
+    [(=find-all (v ...) e)
+     (let ([ret (box ())])
+       (=var (v ...)
+             (begin
+               (let/cc fk
+                 (let ([next (e fk)])
+                   ;(printf "succeeded!~n")
+                   (set-box! ret 
+                             (append (unbox ret)
+                                     (list (list (list (quote v) (sanitize (lv-val v))) ...))))
+                   (next 'dummy)))
+               ;(printf "failed~n")
+               (unbox ret))))]))
+
+(define-syntax =find-some
+  (syntax-rules ()
+    [(=find-some n (v ...) e)
+     (let ([ret (box ())])
+       (=var (v ...)
+             (begin
+               (let/cc fk
+                 (let ([next (e fk)])
+                   ;(printf "succeeded!~n")
+                   (if (>= (length (unbox ret)) n)
+                       (fk 'dummy)
+                       (begin
+                         (set-box! ret 
+                                   (append (unbox ret)
+                                           (list (list (list (quote v) (sanitize (lv-val v))) ...))))
+                         (next 'dummy)))))
+               ;(printf "failed~n")
+               (unbox ret))))]))
+
+(define (sanitize x)
+  (type-case LogicValue x
+             [l-flat (v) v]
+             [l-cons (f r) (cons (sanitize f) (sanitize r))]
+             [l-var (n b) (if (unbox b)
+                              (sanitize (unbox b))
+                              n)]))
+
+;; lv-val :: l-var -> LogicValue
+(define (lv-val v)
+  (let ([ret (unbox (l-var-val v))])
+    (if ret
+        ret
+        v)))
+
+; replace :: Type Type lv-pair -> lv-pair
+; Replace all instances of 'out' with 'in' in the lv-pair.
+(define ((replace out in) c)
+  (type-case LVPair c
+             [lv-pair (l r) 
+                      (lv-pair (replace-val out in l)
+                               (replace-val out in r))]))
+
+;lveq? :: LogicValue LogicValue -> bool
+;Returns whether or not the inputs are the same LogicValue
+(define (lveq? t1 t2)
+  (cond
+    [(and (l-flat? t1) (l-flat? t2)) (equal? (l-flat-val t1) (l-flat-val t2))]
+    [(and (l-cons? t1) (l-cons? t2)) (and (lveq? (l-cons-first t1) (l-cons-first t2))
+                                          (lveq? (l-cons-rest t1) (l-cons-rest t2)))]
+    [(and (l-var? t1) (l-var? t2)) (symbol=? (l-var-name t1) (l-var-name t2))]
+    [(and (LogicValue? t1) (LogicValue? t2)) false]
+    [else (error 'lveq? "Either ~a or ~a is not a LogicValue!~n" t1 t2)]))
+
+;; symbol -> boolean : returns true if and only if the given
+;; symbol is an uninterned symbol
+(define (gensym? s)
+  (not (equal? (string->symbol (symbol->string s)) s)))
+
+;; list X list -> boolean : takes two bindings (for example, returned
+;; from =find-all) and returns true if and only if the two variables
+;; they bind are equal to the same thing.
+(define (binding-equal? b1 b2)
+  (equal? (second b1) (second b2)))
+
+; replace-val :: LogicValue LogicValue LogicValue -> LogicValue
+;Replaces all instances of 'out' with 'in', in this lv-pair, and returns it.
+(define (replace-val out in t)
+  (if (lveq? t out)
+      in
+      (type-case LogicValue t
+                 [l-cons (f r) (l-cons (replace-val out in f)
+                                       (replace-val out in r))]
+                 [else t])))
+
+(define (extract v)
+  (type-case LogicValue v
+             [l-var (n b) (if (unbox b)
+                              (unbox b)
+                              v)]
+             [else v]))
+
+;; unify :: listof LVPair x listof LVPair x failure-continuation -> listof LVPair
+;; Unifies the first list while keeping track of current substitutions in the second list, 
+;; and if it succeeds, returns the substitutions, otherwise calls its failure continuation
+(define (unify consts substs failk)
+  (if (empty? consts)
+      substs
+      (type-case LVPair (first consts)
+                 [lv-pair (l r) (let ([lhs (extract l)]
+                                      [rhs (extract r)])
+                                  (cond
+                                    [(lveq? lhs rhs) (unify (rest consts) substs failk)]
+                                    [(l-var? lhs) (let ([replacer (replace lhs rhs)])
+                                                    (unify (map replacer (rest consts))
+                                                           (cons (lv-pair lhs rhs)
+                                                                 (map replacer substs))
+                                                           failk))]
+                                    [(l-var? rhs) (let ([replacer (replace rhs lhs)])
+                                                    (unify (map replacer (rest consts))
+                                                           (cons (lv-pair rhs lhs)
+                                                                 (map replacer substs))
+                                                           failk))]
+                                    [(and (l-cons? lhs)
+                                          (l-cons? rhs)) (unify (cons (lv-pair (l-cons-first lhs) (l-cons-first rhs))
+                                                                      (cons (lv-pair (l-cons-rest lhs) (l-cons-rest rhs))
+                                                                            (rest consts)))
+                                                                substs
+                                                                failk)]
+                                    [else (failk 'unify-failure)]))])))
+
+(define (=parent c p)
+  (=or (=and (== c 'vito) (== p 'dom))
+       (=and (== c 'sonny) (== p 'vito))
+       (=and (== c 'michael) (== p 'vito))
+       (=and (== c 'fredo) (== p 'vito))
+       (=and (== c 'sophia) (== p 'michael))
+       (=and (== c 'tony) (== p 'michael))))
+
+(define (=ancestor X Y)
+  (=or (=parent X Y)
+       (=var (Z)
+             (=and (=parent X Z)
+                   (=ancestor Z Y)))))
+
+Here are the six lines that should be run in the interactions window, in order, to reproduce the segfault:
+
+(show (x) (=ancestor x 'vito))
+(next)
+(next)
+(next)
+(next)
+(next)
+>Fix:
+>Audit-Trail:
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: mlapping@cs.brown.edu, bugs@plt-scheme.org
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>
+Subject: Re: [plt-bug] all/9099: Dr Scheme segmentation fault
+Date: Tue, 4 Dec 2007 17:34:20 -0600
+
+ Can we enable memory limits by default in v4, do you think?
+ 
+ Robby
+ 
+ On 12/4/07, mlapping@cs.brown.edu <mlapping@cs.brown.edu> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=9099
+ >
+ > Reported by Micah Lapping - Carr for release: 371
+ >
+ > *** Description:
+ > When I run the code (found in the "Steps to Reproduce" section), and then run a few lines in the interaction window, Dr Scheme has a segfault and closes.
+ >
+ > *** How to repeat:
+ > Here is the code that goes in the definitions window:
+ >
+ > (define (flat? foo) (or (number? foo)
+ >                         (string? foo)
+ >                         (symbol? foo)
+ >                         (empty? foo)))
+ >
+ > (define-type Env
+ >   [mtEnv]
+ >   [anEnv (name symbol?) (value LogicValue?) (env Env?)])
+ >
+ > (define-type LogicValue
+ >   [l-var (name symbol?) (val box?)]
+ >   [l-flat (val flat?)]
+ >   [l-cons (first LogicValue?) (rest LogicValue?)])
+ >
+ > (define-type LVPair
+ >   [lv-pair (first LogicValue?)
+ >            (second LogicValue?)])
+ >
+ > ;; coerce-value: anything -> LogicValue?
+ > ; if the given value is a LogicValue, passes through unaltered
+ > ; otherwise, attempts to wrap as a flat value
+ > (define (coerce-value v)
+ >   (if (LogicValue? v) v (l-flat v)))
+ >
+ > (define-syntax =cons
+ >   (syntax-rules ()
+ >     [(=cons f r) (l-cons (coerce-value f)
+ >                          (coerce-value r))]))
+ >
+ > (define-syntax _
+ >   (syntax-rules ()
+ >     [(_) (l-var (gensym) (box #f))]))
+ >
+ > (define-syntax ==
+ >   (syntax-rules ()
+ >     [(== l r)
+ >      (lambda (failk)
+ >        (let/cc return
+ >          (let ([unify-result (unify (list (lv-pair
+ >                                            (coerce-value l)
+ >                                            (coerce-value r)))
+ >                                     empty
+ >                                     failk)])
+ >
+ >            (let/cc resume
+ >              (bind-subs! unify-result)
+ >              (return resume))
+ >            (unbind-subs! unify-result)
+ >            (failk 'dummy==end))))]))
+ >
+ > ;; this is right
+ > (define-syntax =var
+ >   (syntax-rules ()
+ >     [(=var (v ...) e)
+ >      (local ((define v (_)) ...)
+ >        e)]))
+ >
+ > ;; bind-subs! :: listof lvpair -> (void)
+ > (define (bind-subs! subs)
+ >   (if (empty? subs)
+ >       (void)
+ >       (type-case LVPair (first subs)
+ >                  [lv-pair (lhs rhs)
+ >                           (type-case LogicValue lhs
+ >                                      [l-var (n b) (begin
+ >                                                     (set-box! b rhs)
+ >                                                     (bind-subs! (rest subs)))]
+ >                                      [else (error 'bind-subs! "LHS was not an l-var!  LHS: ~a RHS ~a~n" lhs rhs)])])))
+ >
+ > ;;unbind-subs! :: listof lvpair -> (void)
+ > (define (unbind-subs! subs)
+ >   (if (empty? subs)
+ >       (void)
+ >       (type-case LVPair (first subs)
+ >                  [lv-pair (lhs rhs)
+ >                           (type-case LogicValue lhs
+ >                                      [l-var (n b) (begin
+ >                                                     (set-box! b #f)
+ >                                                     (unbind-subs! (rest subs)))]
+ >                                      [else (error 'unbind-subs! "LHS was not an l-var!  LHS: ~a RHS ~a~n" lhs rhs)])])))
+ >
+ >
+ > (define =list
+ >   (lambda args
+ >     ;    (printf "Called on ~a~n" args)
+ >     (if (empty? args) '()
+ >         (=cons (first args) (apply =list (rest args))))))
+ >
+ > (define (=fail failk)
+ >   ;(printf "=fail called, applying failk~n")
+ >   (failk 'dummyf))
+ > (define (=succeed failk)
+ >   ;(printf "=succeed called, returning failk~n")
+ >   failk)
+ >
+ > (define-syntax =or
+ >   (syntax-rules ()
+ >     [(=or) (begin
+ >              ;(printf "eval base of =or~n")
+ >              =fail)]
+ >     [(=or e1 e2 ...)
+ >      (let [(sc (let/cc ork
+ >                  (let/cc failk
+ >                    (ork (lambda (failk2) (e1 failk)))
+ >                    (void))
+ >                  ;(printf "recurring(ish)~n")
+ >                  (=or e2 ...)))]
+ >        ;(printf "broke from ork~n")
+ >        sc)]))
+ >
+ > (define-syntax =and
+ >   (syntax-rules ()
+ >     [(=and) =succeed]
+ >     [(=and e1 ... e2)
+ >      (lambda (fk)
+ >        ((=and e1 ...) (e2 fk)))]))
+ >
+ > (define resumer-box (box 'resumer))
+ >
+ > (define (next) ((unbox resumer-box) 'dummy))
+ > (define-syntax show
+ >   (syntax-rules ()
+ >     [(show (vars ...) e)
+ >      (=var (vars ...)
+ >            (let/cc esc
+ >              (let/cc fk
+ >                (esc (let ([next (e fk)])
+ >                       (set-box! resumer-box next)
+ >                       (printf "succeeded!~n")
+ >                       (printf "~a: ~a~n" (quote vars) (sanitize (lv-val vars)))
+ >                       ...
+ >                       (void))))
+ >              (printf "failed~n")
+ >              'fail))]))
+ >
+ > (define-syntax =find-all
+ >   (syntax-rules ()
+ >     [(=find-all (v ...) e)
+ >      (let ([ret (box ())])
+ >        (=var (v ...)
+ >              (begin
+ >                (let/cc fk
+ >                  (let ([next (e fk)])
+ >                    ;(printf "succeeded!~n")
+ >                    (set-box! ret
+ >                              (append (unbox ret)
+ >                                      (list (list (list (quote v) (sanitize (lv-val v))) ...))))
+ >                    (next 'dummy)))
+ >                ;(printf "failed~n")
+ >                (unbox ret))))]))
+ >
+ > (define-syntax =find-some
+ >   (syntax-rules ()
+ >     [(=find-some n (v ...) e)
+ >      (let ([ret (box ())])
+ >        (=var (v ...)
+ >              (begin
+ >                (let/cc fk
+ >                  (let ([next (e fk)])
+ >                    ;(printf "succeeded!~n")
+ >                    (if (>= (length (unbox ret)) n)
+ >                        (fk 'dummy)
+ >                        (begin
+ >                          (set-box! ret
+ >                                    (append (unbox ret)
+ >                                            (list (list (list (quote v) (sanitize (lv-val v))) ...))))
+ >                          (next 'dummy)))))
+ >                ;(printf "failed~n")
+ >                (unbox ret))))]))
+ >
+ > (define (sanitize x)
+ >   (type-case LogicValue x
+ >              [l-flat (v) v]
+ >              [l-cons (f r) (cons (sanitize f) (sanitize r))]
+ >              [l-var (n b) (if (unbox b)
+ >                               (sanitize (unbox b))
+ >                               n)]))
+ >
+ > ;; lv-val :: l-var -> LogicValue
+ > (define (lv-val v)
+ >   (let ([ret (unbox (l-var-val v))])
+ >     (if ret
+ >         ret
+ >         v)))
+ >
+ > ; replace :: Type Type lv-pair -> lv-pair
+ > ; Replace all instances of 'out' with 'in' in the lv-pair.
+ > (define ((replace out in) c)
+ >   (type-case LVPair c
+ >              [lv-pair (l r)
+ >                       (lv-pair (replace-val out in l)
+ >                                (replace-val out in r))]))
+ >
+ > ;lveq? :: LogicValue LogicValue -> bool
+ > ;Returns whether or not the inputs are the same LogicValue
+ > (define (lveq? t1 t2)
+ >   (cond
+ >     [(and (l-flat? t1) (l-flat? t2)) (equal? (l-flat-val t1) (l-flat-val t2))]
+ >     [(and (l-cons? t1) (l-cons? t2)) (and (lveq? (l-cons-first t1) (l-cons-first t2))
+ >                                           (lveq? (l-cons-rest t1) (l-cons-rest t2)))]
+ >     [(and (l-var? t1) (l-var? t2)) (symbol=? (l-var-name t1) (l-var-name t2))]
+ >     [(and (LogicValue? t1) (LogicValue? t2)) false]
+ >     [else (error 'lveq? "Either ~a or ~a is not a LogicValue!~n" t1 t2)]))
+ >
+ > ;; symbol -> boolean : returns true if and only if the given
+ > ;; symbol is an uninterned symbol
+ > (define (gensym? s)
+ >   (not (equal? (string->symbol (symbol->string s)) s)))
+ >
+ > ;; list X list -> boolean : takes two bindings (for example, returned
+ > ;; from =find-all) and returns true if and only if the two variables
+ > ;; they bind are equal to the same thing.
+ > (define (binding-equal? b1 b2)
+ >   (equal? (second b1) (second b2)))
+ >
+ > ; replace-val :: LogicValue LogicValue LogicValue -> LogicValue
+ > ;Replaces all instances of 'out' with 'in', in this lv-pair, and returns it.
+ > (define (replace-val out in t)
+ >   (if (lveq? t out)
+ >       in
+ >       (type-case LogicValue t
+ >                  [l-cons (f r) (l-cons (replace-val out in f)
+ >                                        (replace-val out in r))]
+ >                  [else t])))
+ >
+ > (define (extract v)
+ >   (type-case LogicValue v
+ >              [l-var (n b) (if (unbox b)
+ >                               (unbox b)
+ >                               v)]
+ >              [else v]))
+ >
+ > ;; unify :: listof LVPair x listof LVPair x failure-continuation -> listof LVPair
+ > ;; Unifies the first list while keeping track of current substitutions in the second list,
+ > ;; and if it succeeds, returns the substitutions, otherwise calls its failure continuation
+ > (define (unify consts substs failk)
+ >   (if (empty? consts)
+ >       substs
+ >       (type-case LVPair (first consts)
+ >                  [lv-pair (l r) (let ([lhs (extract l)]
+ >                                       [rhs (extract r)])
+ >                                   (cond
+ >                                     [(lveq? lhs rhs) (unify (rest consts) substs failk)]
+ >                                     [(l-var? lhs) (let ([replacer (replace lhs rhs)])
+ >                                                     (unify (map replacer (rest consts))
+ >                                                            (cons (lv-pair lhs rhs)
+ >                                                                  (map replacer substs))
+ >                                                            failk))]
+ >                                     [(l-var? rhs) (let ([replacer (replace rhs lhs)])
+ >                                                     (unify (map replacer (rest consts))
+ >                                                            (cons (lv-pair rhs lhs)
+ >                                                                  (map replacer substs))
+ >                                                            failk))]
+ >                                     [(and (l-cons? lhs)
+ >                                           (l-cons? rhs)) (unify (cons (lv-pair (l-cons-first lhs) (l-cons-first rhs))
+ >                                                                       (cons (lv-pair (l-cons-rest lhs) (l-cons-rest rhs))
+ >                                                                             (rest consts)))
+ >                                                                 substs
+ >                                                                 failk)]
+ >                                     [else (failk 'unify-failure)]))])))
+ >
+ > (define (=parent c p)
+ >   (=or (=and (== c 'vito) (== p 'dom))
+ >        (=and (== c 'sonny) (== p 'vito))
+ >        (=and (== c 'michael) (== p 'vito))
+ >        (=and (== c 'fredo) (== p 'vito))
+ >        (=and (== c 'sophia) (== p 'michael))
+ >        (=and (== c 'tony) (== p 'michael))))
+ >
+ > (define (=ancestor X Y)
+ >   (=or (=parent X Y)
+ >        (=var (Z)
+ >              (=and (=parent X Z)
+ >                    (=ancestor Z Y)))))
+ >
+ > Here are the six lines that should be run in the interactions window, in order, to reproduce the segfault:
+ >
+ > (show (x) (=ancestor x 'vito))
+ > (next)
+ > (next)
+ > (next)
+ > (next)
+ > (next)
+ >
+ > *** Environment:
+ > unix "Linux olivaw 2.6.18-4-k7 #1 SMP Wed May 9 23:42:01 UTC 2007 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+ > Docs Installed:
+ > (("/pro/plt/drscheme/371/share/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-intermediate-access" "profj-advanced"))
+ > Human Language: english
+ > (current-memory-use) 119598364
+ >
+ > Collections:
+ > (("/u/mlapping/.plt-scheme/371/collects" "plai" "info-domain") ("/pro/plt/drscheme/371/lib/plt/collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "readline" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "tests" "tex2page" "texpict" "trace" "version" "web-server" "wxme" "xml" "info-domain" "plai"))
+ > Computer Language: (("Teaching Languages" "Programming Languages: Application and Interpretation" "Pretty Big PLAI Scheme") #6(#t constructor mixed-fraction-e #f #t debug))
+ >
+ >
+
+Responsible changed from "nobody" to "robby" by eli at Fri, 09 May 2008 15:41:13 -0400
+Reason>>> (moving for the memory limit thing, in case you need it 
+open)
+
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, mlapping@cs.brown.edu
+Subject: Re: [plt-bug] drscheme/9099 Dr Scheme segmentation fault
+Date: Fri, 9 May 2008 14:44:33 -0500
+
+ Hi Micah:
+ 
+ Did you ever get a reply to your PR? I don't see one in the transcript
+ for the PR.
+ 
+ In case not: the short version is that it looks like your program is
+ allocating an unbounded amount of memory and so setting a memory limit
+ on your program should keep DrScheme from crashing.
+ 
+ hth,
+ Robby
+ 
+ On Fri, May 9, 2008 at 2:41 PM,  <eli@plt-scheme.org> wrote:
+ >
+ > Responsible changed from "nobody" to "robby" by eli at Fri, 09 May 2008 15:41:13 -0400
+ > Reason>>> (moving for the memory limit thing, in case you need it
+ > open)
+ >
+ >
+ > View:
+ >  http://bugs.plt-scheme.org/query/?cmd=view&pr=9099
+ >
+ >
+From: "Micah Lapping-Carr" <mlapping@cs.brown.edu>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: [plt-bug] drscheme/9099 Dr Scheme segmentation fault
+Date: Sun, 11 May 2008 20:49:48 -0400
+
+ ------=_Part_11018_13719187.1210553388548
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ Hi Robby,
+ 
+ I never did get a response, but your answer makes sense.
+ 
+ Thanks,
+ Micah
+ 
+ On Fri, May 9, 2008 at 3:44 PM, Robby Findler <robby@cs.uchicago.edu> wrote:
+ 
+ > Hi Micah:
+ >
+ > Did you ever get a reply to your PR? I don't see one in the transcript
+ > for the PR.
+ >
+ > In case not: the short version is that it looks like your program is
+ > allocating an unbounded amount of memory and so setting a memory limit
+ > on your program should keep DrScheme from crashing.
+ >
+ > hth,
+ > Robby
+ >
+ > On Fri, May 9, 2008 at 2:41 PM,  <eli@plt-scheme.org> wrote:
+ > >
+ > > Responsible changed from "nobody" to "robby" by eli at Fri, 09 May 2008
+ > 15:41:13 -0400
+ > > Reason>>> (moving for the memory limit thing, in case you need it
+ > > open)
+ > >
+ > >
+ > > View:
+ > >  http://bugs.plt-scheme.org/query/?cmd=view&pr=9099
+ > >
+ > >
+ >
+ 
+ ------=_Part_11018_13719187.1210553388548
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ Hi Robby,<br><br>I never did get a response, but your answer makes sense.<br><br>Thanks, <br>Micah<br><br><div class="gmail_quote">On Fri, May 9, 2008 at 3:44 PM, Robby Findler &lt;<a href="mailto:robby@cs.uchicago.edu">robby@cs.uchicago.edu</a>&gt; wrote:<br>
+ <blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">Hi Micah:<br>
+ <br>
+ Did you ever get a reply to your PR? I don&#39;t see one in the transcript<br>
+ for the PR.<br>
+ <br>
+ In case not: the short version is that it looks like your program is<br>
+ allocating an unbounded amount of memory and so setting a memory limit<br>
+ on your program should keep DrScheme from crashing.<br>
+ <br>
+ hth,<br>
+ <font color="#888888">Robby<br>
+ </font><div><div></div><div class="Wj3C7c"><br>
+ On Fri, May 9, 2008 at 2:41 PM, &nbsp;&lt;<a href="mailto:eli@plt-scheme.org">eli@plt-scheme.org</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt; Responsible changed from &quot;nobody&quot; to &quot;robby&quot; by eli at Fri, 09 May 2008 15:41:13 -0400<br>
+ &gt; Reason&gt;&gt;&gt; (moving for the memory limit thing, in case you need it<br>
+ &gt; open)<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; View:<br>
+ &gt; &nbsp;<a href="http://bugs.plt-scheme.org/query/?cmd=view&amp;pr=9099" target="_blank">http://bugs.plt-scheme.org/query/?cmd=view&amp;pr=9099</a><br>
+ &gt;<br>
+ &gt;<br>
+ </div></div></blockquote></div><br>
+ 
+ ------=_Part_11018_13719187.1210553388548--
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Micah Lapping-Carr" <mlapping@cs.brown.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: [plt-bug] drscheme/9099 Dr Scheme segmentation fault
+Date: Sun, 11 May 2008 20:35:51 -0500
+
+ Good! (The slightly longer version is that memory limits are a
+ relatively new thing so that's why they aren't on by default. Also, if
+ you want to read more about the research that went into that, check
+ out the ICFP 1999 paper from my web page.)
+ 
+ Robby
+ 
+ On Sun, May 11, 2008 at 7:49 PM, Micah Lapping-Carr
+ <mlapping@cs.brown.edu> wrote:
+ > Hi Robby,
+ >
+ > I never did get a response, but your answer makes sense.
+ >
+ > Thanks,
+ > Micah
+ >
+ > On Fri, May 9, 2008 at 3:44 PM, Robby Findler <robby@cs.uchicago.edu> wrote:
+ >>
+ >> Hi Micah:
+ >>
+ >> Did you ever get a reply to your PR? I don't see one in the transcript
+ >> for the PR.
+ >>
+ >> In case not: the short version is that it looks like your program is
+ >> allocating an unbounded amount of memory and so setting a memory limit
+ >> on your program should keep DrScheme from crashing.
+ >>
+ >> hth,
+ >> Robby
+ >>
+ >> On Fri, May 9, 2008 at 2:41 PM,  <eli@plt-scheme.org> wrote:
+ >> >
+ >> > Responsible changed from "nobody" to "robby" by eli at Fri, 09 May 2008
+ >> > 15:41:13 -0400
+ >> > Reason>>> (moving for the memory limit thing, in case you need it
+ >> > open)
+ >> >
+ >> >
+ >> > View:
+ >> >  http://bugs.plt-scheme.org/query/?cmd=view&pr=9099
+ >> >
+ >> >
+ >
+ >

@@ -1,0 +1,79 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Aug 19 11:03:42 2014
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s7JF3aql018229
+	for <bugs@bugs.plt-scheme.org>; Tue, 19 Aug 2014 11:03:37 -0400
+Message-Id: <201408191503.s7JF3YJE018222@winooski.ccs.neu.edu>
+Date: Tue, 19 Aug 2014 11:03:34 -0400
+From: gustavo@oma.org.ar
+To: bugs@racket-lang.org
+Subject: Optimizer: Negative size of closures
+
+>Number:         14693
+>Category:       all
+>Synopsis:       Optimizer: Negative size of closures
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Aug 19 11:04:01 -0400 2014
+>Originator:     Gustavo Massaccesi
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 167236048
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    f07e2d4bf2708c1085be38eca18aa9eb6755e547    (catalog main-distribution)
+ racket-lib           41c7b3221006758c5a840a18dcc0d265632f14c2    (catalog racket-lib)
+ [181 auto-installed packages not shown]
+User-specific for installation "6.1":
+ [none]
+
+
+
+Collections:
+("C:\\Users\\User\\AppData\\Roaming\\Racket\\6.1\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Racket\\collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) (main)) #t))
+>Description:
+I was trying a few changes of the optimizer and I got a very strange result. I compare the size from info->size with the size from estimate_expr_size. I expected that the value from estimate_expr_size is less or equal than the value from info->size. 
+
+There are a lot of counterexamples. In the code I filtered the cases where info->size < 0. The usual cases in the codebase have 0 < info->size < estimate_expr_size, but after simplifying and tweaking the code I get a negative example.
+
+The code is in the branch: https://github.com/gus-massa/racket/tree/14-8-E-Size
+It's only one commit: https://github.com/gus-massa/racket/commit/d0c7c8665de3e6437764ab31499f4dcb4d295159
+
+It prints a lot of garbage, especially if the condition (info->size < 0) is erased. To see more examples, you can replace it by (nsz < 10).
+
+I think this problem doesn't break anything, but it mess the inlinig heuristics.
+>How-To-Repeat:
+1) Compile the branch
+2) Run the file plt\pkgs\racket-pkgs\racket-test\tests\racket\size.rkt
+3) Output:
+ estimated: 2
+ info:      -5
+ function:  #(|...\racket\size.rkt:4:0| #<path:C:[...]\tests\racket\size.rkt> 4 0 36 365 #t)
+
+ estimated: 2
+ info:      -5
+ function:  #(|...\racket\size.rkt:20:0| #<path:C:[...]\tests\racket\size.rkt> 20 0 424 622 #t
+)
+4) Expected result: 0 <= estimated <= info, (or at least 0 <= info)
+
+The file size.rkt has two examples. The first is a short example that uses functions with optional parameters. The second is almost the expanded version, where the magic of the optional parameters is explicit.
+
+I couldn't remove any of the intermediate functions, in spite they are unused.
+
+To get a more negative result, you can add x's and 0's to the definition of f, for example (define (f x) (+ x x x x 0 0 0 0)). I think that it's a problem with inlining and constant folding, but I'm not sure.
+>Fix:

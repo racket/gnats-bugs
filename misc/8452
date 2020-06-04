@@ -1,0 +1,470 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jan  1 22:12:16 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.235])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l023BLZW012730
+	for <bugs@bugs.plt-scheme.org>; Mon, 1 Jan 2007 22:11:22 -0500
+Message-Id: <200701011750.l01HoEuU031279@champlain.ccs.neu.edu>
+Date: Mon, 1 Jan 2007 12:50:14 -0500
+From: robby@cs.uchicago.edu
+To: bugs@plt-scheme.org
+Subject: plt-match.ss generates huge .zo files and is very slow
+
+>Number:         8452
+>Category:       misc
+>Synopsis:       plt-match.ss generates huge .zo files and is very slow
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jan 01 22:15:03 -0500 2007
+>Closed-Date:    Tue Apr 01 09:59:20 -0400 2008
+>Last-Modified:  Tue Apr 01 09:59:20 -0400 2008
+>Originator:     Robby Findler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.2-svn31dec2006
+>Environment:
+macosx "Darwin alishan.local 8.8.1 Darwin Kernel Version 8.8.1: Mon Sep 25 19:42:00 PDT 2006; root:xnu-792.13.8.obj~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/robby/svn/exp/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 66666076
+
+Collections:
+(("/Users/robby/Library/PLT Scheme/369.2/collects" non-existent-path) ("/Users/robby/svn/exp/plt/collects" ".svn" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+The compilation of match.ss seems to suffer some fairly large bloat, leading to depressingly bad compile times. 
+
+I compiled the code below with and without the else clause. With the else clause, it takes 12 seconds and generates a 100+k .zo file. Without the else clause, it takes nearly 6 seconds and generates a 60+k .zo file.
+
+While I still consider the second one far too slow and far too bloated, this example at least suggests that there is some easy code duplication to eliminate.
+
+% time mzc -k tmp.ss ; ls -l compiled/tmp.zo 
+mzc version 369.2, Copyright (c) 2004-2007 PLT Scheme Inc.
+"tmp.ss":
+  making "/Users/robby/svn/usr/robby/r6rs/paper/tmp.ss"
+ [output to "./compiled/tmp.zo"]
+12.075u 0.173s 0:12.26 99.8%    0+0k 0+6io 0pf+0w
+-rw-r--r--   1 robby  robby  119141 Jan  1 11:46 compiled/tmp.zo
+
+% time mzc -k tmp.ss ; ls -l compiled/tmp.zo 
+mzc version 369.2, Copyright (c) 2004-2007 PLT Scheme Inc.
+"tmp.ss":
+  making "/Users/robby/svn/usr/robby/r6rs/paper/tmp.ss"
+ [output to "./compiled/tmp.zo"]
+5.775u 0.123s 0:05.91 99.6%     0+0k 0+1io 0pf+0w
+-rw-r--r--   1 robby  robby  67781 Jan  1 11:46 compiled/tmp.zo
+>How-To-Repeat:
+(module tmp mzscheme
+  (require (lib "plt-match.ss")
+           (lib "pretty.ss")
+           (lib "list.ss")
+           (lib "etc.ss")
+           (lib "string.ss"))
+  
+  (define (metafunction-name? x) #f)
+    
+  (define (f sc)
+    (match sc
+      [`(and ,@(list sc ...))
+        1]
+      [`(or (not (Arity-zero? (term ,v1)))
+            (not (Arity-zero? (term ,v2)))
+            (not (Arity-zero? (term ,v3))))
+        2]
+      [`(,(? metafunction-name? mf) (term ,arg))
+        3]
+      [`(not (,(? metafunction-name? mf) (term ,arg)))
+        4]
+      [`(fresh ,xs)
+        5]
+      [`(freshS ,xs)        
+        6]
+      [`(not (eq? (term ,t1) (term ,t2)))
+        7]
+      [`(not (eq? (term ,t1) #f))
+        8]
+      [`(not (ufun? (term ,v)))
+        9]
+      [`(not (pp? (term ,v)))
+        10]
+      [`(not (null-v? (term ,v)))
+        11]
+      [`(not (prefixed-by? (term ,v) (quote p:)))
+        12]
+      [`(= (length (term (,arg1 ,dots))) (length (term (,arg2 ,dots))))
+        13]
+      [`(not (= (length (term (,arg1 ,dots))) (length (term (,arg2 ,dots)))))
+        14]
+      [`(< (length (term (,arg1 ,dots))) (length (term (,arg2 ,dots))))
+        15]
+      [`(>= (length (term (,arg1 ,dots))) (length (term (,arg2 ,dots))))
+        16]
+      [`(not (= (length (term (,v ,_))) ,(? number? n)))
+        17]
+      [`(not (list-v? (term ,v_last)))
+        18]
+      [`(not (cwv-app? (term (,e1 ,'...)) (term ,e2) (term (,e3 ,'...))))
+        19]
+      
+      [`(not (memq (term ,x) (term (,xs ,_))))
+        20]
+      [`(not (memq (term ,x) (term (,xs ,_ ,y))))
+        21]
+      [`(not (memq (term ,x) (map car (term (,xs ,_)))))
+        22]
+      [`(not (equal? (term ,v) (term ,q)))
+        23]
+      [`(not (number? (term ,v)))
+        24]
+      [`(not (v? (term ,v)))
+        25]
+      [`(or (nonfun? (term ,vs)) ..2)
+        26]
+      [`(not (member 0 (term (,v1 ,vs ,'...))))
+        27]
+      [`(member 0 (term (,v1 ,vs ,'...)))
+        28]
+      [`(not (ds? ,exp))
+        29]
+      [`(not (es? ,exp))
+        30]
+      [`(ds? ,exp)
+        31]
+      [`(es? ,exp)
+        32]
+      [`(var-set!d? (term (,x ,exp)))
+        33]
+      [`(not (var-set!d? (term (,x ,exp))))
+        34]
+      [`(not (lambda-null? (term ,exp)))
+        35]
+      [`(arity-zero? (term ,exp))
+        36]
+      [`(or (not (arity-zero? (term ,exp1)))
+            (not (arity-zero? (term ,exp2)))
+            (not (arity-zero? (term ,exp3))))
+        37]
+      [`(> (length (term (e_1 ,dots e_i e_i+1 ,dots))) 2)
+        38]
+      #;
+      [else
+       39])))
+>Fix:
+>Audit-Trail:
+From: "Sam TH" <samth@ccs.neu.edu>
+To: robby@cs.uchicago.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8452: plt-match.ss generates huge .zo files and is very slow
+Date: Fri, 5 Jan 2007 10:53:23 -0500
+
+ On 1/1/07, robby@cs.uchicago.edu <robby@cs.uchicago.edu> wrote:
+ 
+ 
+ >
+ > I compiled the code below with and without the else clause. With the else clause, it takes 12 seconds and generates a 100+k .zo file. Without the else clause, it takes nearly 6 seconds and generates a 60+k .zo file.
+ 
+ There are two issues here:
+ 
+ 1. match duplicates the right hand sides of the clauses, leading to
+ multiple expansion and larger compiled size.  This is just a bug, but
+ it isn't trivial to fix, because the RHSs have to be abstracted over
+ the appropriate bound variables, which aren't known until late in the
+ process because of the architecture of match.  I've given some thought
+ to fixing this, but I don't have time at the moment to get it done.
+ 
+ 2. The code that match generates has size which is exponential in the
+ size of the original code, in the worst case.  This is an inherent
+ property of the algorithm used for generating the code.  However, the
+ gain is that any datastructure is only destructured once, and any test
+ is only performed once.  A backtracking system would have linear code
+ size, but it might destructure the data and perform tests arbitrarily
+ many times.  SML/NJ uses the algorithm that match does (I believe)
+ whereas OCaml uses a backtracking algorithm.
+ 
+ This could theoretically be changed, but it would require a total
+ rewrite of match.  I've thought about doing that, but it's a very
+ long-term thing.
+ 
+ The combination of these issues is what leads to the problem you're
+ seeing, esp. with else.  Because of issue 2, there are lots of places
+ where the else clause gets inserted, and because of issue 1, the code
+ is duplicated there.
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: "Robby Findler" <robby.findler@gmail.com>
+To: "Sam TH" <samth@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8452: plt-match.ss generates huge .zo files and is very slow
+Date: Fri, 5 Jan 2007 10:02:19 -0600
+
+ That's too bad.
+ 
+ How hard would it be to process the left-hand sides ahead of time,
+ extract the variables, and turn each right-hand-side into a single
+ call to a function, and then use the current match?
+ 
+ Also, I tried rewriting my match expressions like this:
+ 
+  (match exp clause1 clause2 ...)
+  =>
+  (match exp
+    clause1
+    [else (match exp clause2 ...))
+ 
+ and then continuing this process for all the clauses.
+ 
+ This made things far far slower.
+ 
+ Why is that? It seems like match should have smaller input in that
+ case, and so should produce smaller output?
+ 
+ Robby
+ 
+ On 1/5/07, Sam TH <samth@ccs.neu.edu> wrote:
+ > On 1/1/07, robby@cs.uchicago.edu <robby@cs.uchicago.edu> wrote:
+ >
+ >
+ > >
+ > > I compiled the code below with and without the else clause. With the else clause, it takes 12 seconds and generates a 100+k .zo file. Without the else clause, it takes nearly 6 seconds and generates a 60+k .zo file.
+ >
+ > There are two issues here:
+ >
+ > 1. match duplicates the right hand sides of the clauses, leading to
+ > multiple expansion and larger compiled size.  This is just a bug, but
+ > it isn't trivial to fix, because the RHSs have to be abstracted over
+ > the appropriate bound variables, which aren't known until late in the
+ > process because of the architecture of match.  I've given some thought
+ > to fixing this, but I don't have time at the moment to get it done.
+ >
+ > 2. The code that match generates has size which is exponential in the
+ > size of the original code, in the worst case.  This is an inherent
+ > property of the algorithm used for generating the code.  However, the
+ > gain is that any datastructure is only destructured once, and any test
+ > is only performed once.  A backtracking system would have linear code
+ > size, but it might destructure the data and perform tests arbitrarily
+ > many times.  SML/NJ uses the algorithm that match does (I believe)
+ > whereas OCaml uses a backtracking algorithm.
+ >
+ > This could theoretically be changed, but it would require a total
+ > rewrite of match.  I've thought about doing that, but it's a very
+ > long-term thing.
+ >
+ > The combination of these issues is what leads to the problem you're
+ > seeing, esp. with else.  Because of issue 2, there are lots of places
+ > where the else clause gets inserted, and because of issue 1, the code
+ > is duplicated there.
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ >
+From: Sam TH <samth@ccs.neu.edu>
+To: Robby Findler <robby.findler@gmail.com>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8452: plt-match.ss generates huge .zo files and
+	is very slow
+Date: Fri, 05 Jan 2007 11:20:14 -0500
+
+ On Fri, 2007-01-05 at 10:02 -0600, Robby Findler wrote:
+ > That's too bad.
+ > 
+ > How hard would it be to process the left-hand sides ahead of time,
+ > extract the variables, and turn each right-hand-side into a single
+ > call to a function, and then use the current match?
+ 
+ I looked at that a bit this week, and it wouldn't be that hard, but not
+ trivial either.  It's certainly the thing I want most to get done in
+ match, but I'd need some less-constrained time to work on it.
+ 
+ > 
+ > Also, I tried rewriting my match expressions like this:
+ > 
+ >  (match exp clause1 clause2 ...)
+ >  =>
+ >  (match exp
+ >    clause1
+ >    [else (match exp clause2 ...))
+ > 
+ > and then continuing this process for all the clauses.
+ > 
+ > This made things far far slower.
+ > 
+ > Why is that? It seems like match should have smaller input in that
+ > case, and so should produce smaller output?
+ 
+ If the patterns mostly don't overlap much (which is the case for you,
+ since the leading symbols are almost always enough to distinguish
+ everything), then all this will do is eliminate match's ability to
+ optimize.
+ 
+ Also, if you have a pattern like this:
+ 
+ (match x
+   [`(a b ,z) z]
+   [`(l m ,z) z]
+   [else 12])
+ 
+ This will expand to roughly:
+ 
+ (if (cons? x)
+     (if (eq? (car x) 'a)
+         (if (eq? (cadr x) 'b)
+             (caddr x)
+             12)
+         (if (eq? (car x) 'l)
+             (if (eq? (cadr x) 'm)
+                 (caddr x)
+                 12)
+             12))
+     12)
+ 
+ Note that 12 is repeated 4 times.  If you perform the transformation you described, you'll get:
+ 
+ (match x
+   [`(a b ,z) z]
+   [else (match x          
+ 	  [`(l m ,z) z]
+ 	  [else 12])])
+ 
+ Now 12 will be repeated twice, and the whole inner match expression will
+ be repeated twice, which is much worse.
+  
+ sam th
+ 
+ > 
+ > Robby
+ > 
+ > On 1/5/07, Sam TH <samth@ccs.neu.edu> wrote:
+ > > On 1/1/07, robby@cs.uchicago.edu <robby@cs.uchicago.edu> wrote:
+ > >
+ > >
+ > > >
+ > > > I compiled the code below with and without the else clause. With the else clause, it takes 12 seconds and generates a 100+k .zo file. Without the else clause, it takes nearly 6 seconds and generates a 60+k .zo file.
+ > >
+ > > There are two issues here:
+ > >
+ > > 1. match duplicates the right hand sides of the clauses, leading to
+ > > multiple expansion and larger compiled size.  This is just a bug, but
+ > > it isn't trivial to fix, because the RHSs have to be abstracted over
+ > > the appropriate bound variables, which aren't known until late in the
+ > > process because of the architecture of match.  I've given some thought
+ > > to fixing this, but I don't have time at the moment to get it done.
+ > >
+ > > 2. The code that match generates has size which is exponential in the
+ > > size of the original code, in the worst case.  This is an inherent
+ > > property of the algorithm used for generating the code.  However, the
+ > > gain is that any datastructure is only destructured once, and any test
+ > > is only performed once.  A backtracking system would have linear code
+ > > size, but it might destructure the data and perform tests arbitrarily
+ > > many times.  SML/NJ uses the algorithm that match does (I believe)
+ > > whereas OCaml uses a backtracking algorithm.
+ > >
+ > > This could theoretically be changed, but it would require a total
+ > > rewrite of match.  I've thought about doing that, but it's a very
+ > > long-term thing.
+ > >
+ > > The combination of these issues is what leads to the problem you're
+ > > seeing, esp. with else.  Because of issue 2, there are lots of places
+ > > where the else clause gets inserted, and because of issue 1, the code
+ > > is duplicated there.
+ > >
+ > > --
+ > > sam th
+ > > samth@ccs.neu.edu
+ > >
+ 
+From: "Robby Findler" <robby.findler@gmail.com>
+To: "Sam TH" <samth@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8452: plt-match.ss generates huge .zo files and is very slow
+Date: Fri, 5 Jan 2007 11:34:07 -0600
+
+ On 1/5/07, Sam TH <samth@ccs.neu.edu> wrote:
+ > > Also, I tried rewriting my match expressions like this:
+ > >
+ > >  (match exp clause1 clause2 ...)
+ > >  =>
+ > >  (match exp
+ > >    clause1
+ > >    [else (match exp clause2 ...))
+ > >
+ > > and then continuing this process for all the clauses.
+ > >
+ > > This made things far far slower.
+ > >
+ > > Why is that? It seems like match should have smaller input in that
+ > > case, and so should produce smaller output?
+ >
+ > If the patterns mostly don't overlap much (which is the case for you,
+ > since the leading symbols are almost always enough to distinguish
+ > everything), then all this will do is eliminate match's ability to
+ > optimize.
+ >
+ > Also, if you have a pattern like this:
+ >
+ > (match x
+ >   [`(a b ,z) z]
+ >   [`(l m ,z) z]
+ >   [else 12])
+ >
+ > This will expand to roughly:
+ >
+ > (if (cons? x)
+ >     (if (eq? (car x) 'a)
+ >         (if (eq? (cadr x) 'b)
+ >             (caddr x)
+ >             12)
+ >         (if (eq? (car x) 'l)
+ >             (if (eq? (cadr x) 'm)
+ >                 (caddr x)
+ >                 12)
+ >             12))
+ >     12)
+ >
+ > Note that 12 is repeated 4 times.  If you perform the transformation you described, you'll get:
+ >
+ > (match x
+ >   [`(a b ,z) z]
+ >   [else (match x
+ >           [`(l m ,z) z]
+ >           [else 12])])
+ >
+ > Now 12 will be repeated twice, and the whole inner match expression will
+ > be repeated twice, which is much worse.
+ 
+ Ah, of course! I changed it to use fmatch, defined like this:
+ 
+ (define-syntax (fmatch stx)
+     (syntax-case stx ()
+       [(_ arg a b c ...)
+        (identifier? (syntax arg))
+        (syntax
+ 	(let ([f (lambda () (fmatch arg b c ...))])
+ 	  (match arg
+ 	    a
+ 	    [else (f)])))]
+       [(_ arg a)
+        (syntax (match arg a))]))
+ 
+ and the compilation time of my file improved by a factor of 10, as did
+ the size of the .zo file.
+ 
+ I'm thinking that maybe this strategy, unless there is a more
+ aggressive backing off strategy, is completely hopeless.
+ 
+ Robby
+
+Responsible changed from "nobody" to "samth" by eli at Fri, 04 May 2007 03:42:28 -0400
+Reason>>> match
+
+
+State changed from "open" to "closed" by samth at Tue, 01 Apr 2008 09:59:20 -0400
+Reason>>> fixed by new implementation
+

@@ -1,0 +1,211 @@
+From nobody@cs.rice.edu  Sun Apr  5 01:32:38 1998
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+          by cs.rice.edu (8.8.5/8.8.4) with ESMTP
+	  id BAA20772 for <plt-gnats@cs.rice.edu>; Sun, 5 Apr 1998 01:32:38 -0600 (CST)
+Message-Id: <199804050732.BAA08559@web.cs.rice.edu>
+Date: Sun, 5 Apr 1998 01:32:37 -0600 (CST)
+From: karlheg@bittersweet.inetarena.com
+Reply-To: karlheg@bittersweet.inetarena.com
+To: plt-gnats@cs.rice.edu
+Subject: DrScheme pegs the CPU meter the whole time its running 
+
+>Number:         550
+>Category:       mred
+>Synopsis:       DrScheme pegs the CPU meter the whole time its running
+>Confidential:   no
+>Severity:       critical
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sun Apr 05 03:45:02 -0400 1998
+>Last-Modified:  Sun Mar 28 02:36:31 -0500 2004
+>Originator:     Karl M. Hegbloom
+>Release:        0.51
+>Organization:
+titan
+>Environment:
+Linux
+>Description:
+I run `procmeter', and when I use DrScheme, the CPU usage meter is
+solid black the whole time DrScheme is running.  When it exits, `zsh'
+shows that it used 85% cpu.  This is unacceptable, and I cannot use
+it until you guys can fix it.
+
+The binary kit didn't run; it looked for libstdc++.so.27, and
+on my libc6 Debian GNU/Linux setup, I've got libstdc++.so.272,
+which is a symlink to libstdc++.so.2.7.2.  I created a symlink
+with the right name, and that time DrScheme seg faulted right away.
+
+It builds and runs with no problems at all.
+
+>How-To-Repeat:
+Run `procmeter' and use its menu to get a CPU usage meter, or
+use `time drscheme' or `top' to get a CPU usage reading.
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Apr  5 14:08:10 1998
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: mflatt
+State-Changed-When: Sun Apr  5 14:08:16 1998
+State-Changed-Why:
+
+We don't see this behavior on our Linux machines. Perhaps
+something went wrong with the build. Can you make your binary
+accessible via an HTTP/FTP server or put it into
+  ftp.cs.rice.edu/public/mflatt/incoming
+Just in case the binary doesn't work on my machine, please include
+your make.env file, too.
+
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: karlheg@bittersweet.inetarena.com (Karl M. Hegbloom)
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: mredengine/550: DrScheme pegs the CPU meter the whole time its running
+Date: Mon, 6 Apr 1998 07:35:08 -0500 (CDT)
+
+ Quoting Karl M. Hegbloom:
+ >  I just made an account for yous on my box.
+ 
+ Thanks for the account. As it turns out, I realized what the problem
+ must be in the shower this morning. We saw it once before on FreeBSD.
+ 
+ The problem is that the file descriptor limit is initially set to 3000
+ on your machine, but the fd_set record in the header file only has 256
+ slots.  Limiting descriptors to 256 solves the problem.
+ 
+ As a fix for 51, you can add
+  #define UNIX_LIMIT_FDSET_SIZE
+ to the top of src/mzscheme/src/env.c. This will cause
+ MzScheme/DrScheme to automtaically limit descriptors to 256.
+ 
+ There's a better solution in principle, which can be turned on
+ by adding
+   #define USE_DYNAMIC_FDSET_SIZE
+ to src/mzscheme/sconfig.h. This makes MzScheme/DrScheme dynamically
+ allocate an fd_set record based on the current descriptors limit.  But
+ I haven't tested it recently. I will test it an turn it on for FreeBSD
+ and Linux in version 52. 
+ 
+ Meanwhile, unless you really need to open 3000 files in
+ MzScheme/DrScheme, I suggesting using the UNIX_LIMIT_FDSET_SIZE
+ solution.
+ 
+ [I would have made the changes myself and recompiled on your machine,
+ but I didn't have the right file permissions.]
+ 
+ Thanks,
+ Matthew
+
+From: karlheg@bittersweet.inetarena.com (Karl M. Hegbloom)
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: mredengine/550: DrScheme pegs the CPU meter the whole time its running
+Date: 06 Apr 1998 08:32:19 -0700
+
+ >>>>> "Matthew" == Matthew Flatt <mflatt@cs.rice.edu> writes:
+ 
+     Matthew> The problem is that the file descriptor limit is
+     Matthew> initially set to 3000 on your machine, but the fd_set
+     Matthew> record in the header file only has 256 slots.  Limiting
+     Matthew> descriptors to 256 solves the problem.
+ 
+  I don't understand why this makes MzScheme peg the CPU meter like
+  that.  What causes it?  (What do I need to read?)
+ 
+  I've applied a kernel patch that gives me more file handles.  It's in
+  "/usr/src/linux-patches".  I had to patch a header in "/usr/include"
+  too, as I recall.  I'm a newbie; I don't understand the patch, just
+  that it's needed for some internet server machines.  So I tested it
+  and learned to patch the kernel, etc...
+ 
+     Matthew> As a fix for 51, you can add
+     Matthew>  #define UNIX_LIMIT_FDSET_SIZE
+     Matthew> to the top of src/mzscheme/src/env.c. This will cause
+     Matthew> MzScheme/DrScheme to automtaically limit descriptors to
+     Matthew> 256.
+ 
+  That didn't work. 
+ 
+     Matthew> There's a better solution in principle, which can be
+     Matthew> turned on by adding
+     Matthew>   #define USE_DYNAMIC_FDSET_SIZE
+     Matthew> to src/mzscheme/sconfig.h. This makes MzScheme/DrScheme
+     Matthew> dynamically allocate an fd_set record based on the
+     Matthew> current descriptors limit.  But I haven't tested it
+     Matthew> recently. I will test it an turn it on for FreeBSD and
+     Matthew> Linux in version 52.
+ 
+  Nor did that.
+ 
+     Matthew> Meanwhile, unless you really need to open 3000 files in
+     Matthew> MzScheme/DrScheme, I suggesting using the
+     Matthew> UNIX_LIMIT_FDSET_SIZE solution.
+ 
+     Matthew> [I would have made the changes myself and recompiled on
+     Matthew> your machine, but I didn't have the right file
+     Matthew> permissions.]
+ 
+  I've reset them; you should have writes now.
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: karlheg@bittersweet.inetarena.com (Karl M. Hegbloom)
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: mredengine/550: DrScheme pegs the CPU meter the whole time its running
+Date: Mon, 6 Apr 1998 10:54:27 -0500 (CDT)
+
+ Quoting Karl M. Hegbloom:
+ > >>>>> "Matthew" == Matthew Flatt <mflatt@cs.rice.edu> writes:
+ > 
+ >     Matthew> The problem is that the file descriptor limit is
+ >     Matthew> initially set to 3000 on your machine, but the fd_set
+ >     Matthew> record in the header file only has 256 slots.  Limiting
+ >     Matthew> descriptors to 256 solves the problem.
+ > 
+ >  I don't understand why this makes MzScheme peg the CPU meter like
+ >  that.  What causes it?  (What do I need to read?)
+ 
+ DrScheme "sleeps" by waiting on file descriptors (perhaps with a
+ timeout). DrScheme doesn't need to do any work if all input ports are
+ blocked, including the one that delivers X events. The Unix call that
+ implements this is select().
+ 
+ DrScheme was (probably) compiled with a buffer that is hard-wired for
+ a 256 file descriptor. (This buffer is defined by the Linux header
+ files.) But it looks up the actual descriptor limit at run-time
+ (expecting it to be less than the buffer size). So select() is called
+ with a big descriptor count and a small buffer, it notices that
+ something is wrong, and it returns right away. As a result, DrScheme
+ never gets any sleep. :)
+ 
+ >     Matthew> As a fix for 51, you can add
+ >     Matthew>  #define UNIX_LIMIT_FDSET_SIZE
+ >     Matthew> to the top of src/mzscheme/src/env.c. This will cause
+ >     Matthew> MzScheme/DrScheme to automtaically limit descriptors to
+ >     Matthew> 256.
+ > 
+ >  That didn't work. 
+ 
+ This worked for me in mzscheme. I'm now recompiling MrEd to verify
+ that it works for DrScheme, too.
+ 
+ Thanks,
+ Matthew
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Apr  6 14:24:53 1998
+State-Changed-Why:
+Fixed.
+
+>Unformatted:

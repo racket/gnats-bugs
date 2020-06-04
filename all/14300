@@ -1,0 +1,453 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Jan 17 22:28:28 2014
+Received: from mail-oa0-f48.google.com (mail-oa0-f48.google.com [209.85.219.48])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s0I3SJrq012431
+	for <bugs@bugs.plt-scheme.org>; Fri, 17 Jan 2014 22:28:19 -0500
+Message-Id: <201401180328.s0I3SGOT012424@winooski.ccs.neu.edu>
+Date: Fri, 17 Jan 2014 22:28:16 -0500
+From: alec.kirsanov@mail.ru
+To: bugs@racket-lang.org
+Subject: Broken hygiene in a stateful r6rs macro transformer
+
+>Number:         14300
+>Category:       all
+>Synopsis:       Broken hygiene in a stateful r6rs macro transformer
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Jan 17 22:32:01 -0500 2014
+>Closed-Date:    Tue Feb 04 09:24:08 -0500 2014
+>Last-Modified:  Wed Feb 05 18:56:02 -0500 2014
+>Originator:     Alexander Kirsanov
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.6
+>Environment:
+windows "Windows NT 6.2 (Build 9200)" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 167721640
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.6):
+ [none]
+
+
+
+Collections:
+("C:\\Users\\me\\AppData\\Roaming\\Racket\\5.3.6\\collects"
+ ())
+("C:\\stuff\\bin\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "math" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "pkg" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "realm" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+User code looses binding coherency, perhaps as a result of failing hygiene, if some parts of the user code are saved between stages of fairly odd two-stage stateful syntax-case macro.
+
+The attached code fails to compile in Racket (tested only in v5.3.6), runs fine in Larceny, Mosh, Ypsilon, Sagittarius, Ikarus.
+>How-To-Repeat:
+#!r6rs
+
+; Doesn't compile in Racket v5.3.6
+
+(import (rnrs))
+
+(define-syntax m
+  (let ; stateful
+      ((saved-a1 #f) (saved-a3 #f))
+    (lambda (stx)
+      (syntax-case stx ()
+        ((_ start? . args)
+         (if (syntax->datum #'start?)
+             ; step 1
+             (syntax-case #'args ()
+               ((a1 a2 a3)
+                (begin
+                  (set! saved-a1 #'a1)
+                  (set! saved-a3 #'a3)
+                  ; call step 2
+                  #'(m #f a2))))
+             ; step 2
+             (let ((a2 #'args))
+               #`(begin #,saved-a1 #,@ a2 #,saved-a3))))))))
+
+; (m #t a b c) => (begin a b c)
+(m
+ #t ; call step 1 of macro m
+ 
+ (define zzz 123)
+ 
+ (define-syntax expand-to-zzz
+   (lambda (stx)
+     (syntax-case stx ()
+       ((kwd)
+        #'zzz))))
+ 
+ (begin (display (expand-to-zzz)) (newline)))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: alec.kirsanov@mail.ru, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14300: Broken hygiene in a stateful r6rs macro transformer
+Date: Thu, 23 Jan 2014 20:09:05 -0700
+
+ Thanks for the report, but Racket's behavior seems right to me.
+ 
+ The definition of `zzz` is ultimately introduced by an application of
+ the `m` macro, and in that application, the reference to `zzz` in
+ `expand-to-zzz` is from the use of the macro. I'd say the use shouldn't
+ see the macro-introduced binding. (The `expand-to-zzz` macro definition
+ could just as well be replaced with `(define (expand-to-zzz) zzz)`.)
+ 
+ I doubt that R6RS is precise enough to rule out either Racket's
+ behavior or other implementations' behaviors. Meanwhile, I imagine that
+ other R6RS implementations agree because they all use the same
+ implementation of R6RS macros, while Racket has its own implementation.
+ 
+ At Fri, 17 Jan 2014 22:32:02 -0500, alec.kirsanov@mail.ru wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14300
+ > 
+ > Reported by Alexander Kirsanov for release: 5.3.6
+ > 
+ > *** Description:
+ > User code looses binding coherency, perhaps as a result of failing hygiene, if 
+ > some parts of the user code are saved between stages of fairly odd two-stage 
+ > stateful syntax-case macro.
+ > 
+ > The attached code fails to compile in Racket (tested only in v5.3.6), runs fine 
+ > in Larceny, Mosh, Ypsilon, Sagittarius, Ikarus.
+ > 
+ > *** How to repeat:
+ > #!r6rs
+ > 
+ > ; Doesn't compile in Racket v5.3.6
+ > 
+ > (import (rnrs))
+ > 
+ > (define-syntax m
+ >   (let ; stateful
+ >       ((saved-a1 #f) (saved-a3 #f))
+ >     (lambda (stx)
+ >       (syntax-case stx ()
+ >         ((_ start? . args)
+ >          (if (syntax->datum #'start?)
+ >              ; step 1
+ >              (syntax-case #'args ()
+ >                ((a1 a2 a3)
+ >                 (begin
+ >                   (set! saved-a1 #'a1)
+ >                   (set! saved-a3 #'a3)
+ >                   ; call step 2
+ >                   #'(m #f a2))))
+ >              ; step 2
+ >              (let ((a2 #'args))
+ >                #`(begin #,saved-a1 #,@ a2 #,saved-a3))))))))
+ > 
+ > ; (m #t a b c) => (begin a b c)
+ > (m
+ >  #t ; call step 1 of macro m
+ >  
+ >  (define zzz 123)
+ >  
+ >  (define-syntax expand-to-zzz
+ >    (lambda (stx)
+ >      (syntax-case stx ()
+ >        ((kwd)
+ >         #'zzz))))
+ >  
+ >  (begin (display (expand-to-zzz)) (newline)))
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.2 (Build 9200)" (win32\i386\3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 167721640
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links 
+ > #:user? #f #:root? #t) = ()
+ > raco pkg (show):
+ > Installation-wide:
+ >  [none]
+ > User-specific, all-version:
+ >  [none]
+ > User-specific, version-specific (5.3.6):
+ >  [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("C:\\Users\\me\\AppData\\Roaming\\Racket\\5.3.6\\collects"
+ >  ())
+ > ("C:\\stuff\\bin\\Racket\\collects"
+ >  ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" 
+ > "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" 
+ > "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" 
+ > "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" 
+ > "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" 
+ > "macro-debugger" "make" "math" "mred" "mrlib" "mysterx" "mzcom" "mzlib" 
+ > "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "pkg" "plai" 
+ > "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" 
+ > "rackunit" "raco" "reader" "readline" "realm" "redex" "rnrs" "s-exp" "scheme" 
+ > "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" 
+ > "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" 
+ > "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" 
+ > "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" 
+ > "xrepl"))
+ > 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) 
+ > (test))))
+From: Alexander Kirsanov <alec.kirsanov@mail.ru>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re[2]: [racket-bug] all/14300: Broken hygiene in a stateful r6rs macro transformer
+Date: Fri, 24 Jan 2014 19:43:34 +0400
+
+ 23 January 2014, 20:09 -07:00 from Matthew Flatt <mflatt@cs.utah.edu>:
+ 
+ > Thanks for the report, but Racket's behavior seems right to me.
+ 
+ Thank You for looking into this, allow me to discuss further.
+ 
+ > The `expand-to-zzz` macro definition
+ > could just as well be replaced with `(define (expand-to-zzz) zzz)`.
+ 
+ Yes, it can be. We could go as far as remove the definition of expand-to-zzz altogether, use zzz directly, reduce the user code to two forms: (define zzz 123) (display zzz), adjust the m macro to save/pass only two arguments.
+ 
+ Now, we can make m return any of the four combinations of intended definition form and intended use form: the saved ones and the ones passed as arguments to the second call to m.
+ Amazingly, any of three combinations succeed and only one fails: the one where the definition is saved between calls to m and the use form is passed as an argument to both calls.
+ 
+ Could that be some sort of inconsistency in Racket?
+ 
+ #!r6rs
+ (import (rnrs))
+ 
+ (define-syntax m
+   (let ; stateful
+       ((saved-a1 #f) (saved-a2 #f))
+     (lambda (stx)
+       (syntax-case stx ()
+         ((_ start? a1 a2)
+          (if (syntax->datum #'start?)
+              ; step 1
+              (begin
+                (set! saved-a1 #'a1)
+                (set! saved-a2 #'a2)
+                ; call step 2
+                #'(m #f a1 a2))
+              ; step 2
+              (begin
+                ; Uncomment one. Only the last one fails
+                #;#`(begin #,saved-a1  #,saved-a2)
+                #;#`(begin a1          a2)
+                #;#`(begin a1          #,saved-a2)
+                  #`(begin #,saved-a1  a2))))))))
+ 
+ ; (m #t a b) => (begin a b)
+ (m #t ; call step 1 of macro m
+  
+    (define zzz 123)
+  
+    (display zzz))
+ 
+ 
+ > I doubt that R6RS is precise enough to rule out either Racket's
+ > behavior or other implementations' behaviors.
+ 
+ In the simplified example, both instances of zzz in the output of final stage of macro m were "present in the original program", not introduced by any transformer. That, I'd believe, should free them of any tampering by the hygiene process. They'd be, it seems, bound-identifier=?, as said in Standard Libraries 12.5 Identifier Predicates: "The procedure bound-identifier=? returns #t if a binding for one would capture a reference to the other in the output of the transformer". It feels within one's grasp to assume the two user forms would evaluate, after the rest of expansion, trivially, to a binding definition and a bound use.
+ 
+ > Meanwhile, I imagine that
+ > other R6RS implementations agree because they all use the same
+ > implementation of R6RS macros, while Racket has its own implementation.
+ 
+ That may be; I do remember the implementations behave sometimes differently in certain macro-related corner cases.
+ I also forgot to mention a couple in the initial report, the list should go as
+ "The code runs fine at least in Larceny, Mosh, Ypsilon, Sagittarius, Ikarus, Chez, IronScheme".
+ 
+ > 
+ > At Fri, 17 Jan 2014 22:32:02 -0500, alec.kirsanov@mail.ru wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=14300
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Alexander Kirsanov <alec.kirsanov@mail.ru>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: Re[2]: [racket-bug] all/14300: Broken hygiene in a stateful r6rs macro transformer
+Date: Sat, 1 Feb 2014 21:58:03 -0700
+
+ At Fri, 24 Jan 2014 19:43:34 +0400, Alexander Kirsanov wrote:
+ > > I doubt that R6RS is precise enough to rule out either Racket's
+ > > behavior or other implementations' behaviors.
+ > 
+ > In the simplified example, both instances of zzz in the output of
+ > final stage of macro m were "present in the original program", not
+ > introduced by any transformer.
+ 
+ I think "present in the original program" is not precise enough to say
+ anything here.
+ 
+ Consider the following variant:
+ 
+  #!r6rs
+  (import (rnrs))
+ 
+  (define-syntax m
+    (syntax-rules ()
+      [(_ def use)
+       (begin
+         (define-syntax intro-def
+           (syntax-rules ()
+             [(_) def]))
+         (intro-def)
+         use)]))
+ 
+  (m
+   (define zzz 123)
+   (display zzz))
+ 
+ The `zzz`s here seem to me exactly as "present in the original program"
+ as in your example. The R6RS implementations that I tried all agree
+ that the definition of `zzz` does not bind the use of `zzz`.
+ 
+ To me, your example using `set! is much the same. The one above just
+ routes state through an `intro-def` definition, instead of a
+ compile-time variable.
+ 
+ Routing the state through a macro definition makes the identifiers
+ visible to the macro expander to a different degree, and I can almost
+ imagine how an implementation of R6RS macros allows your variant and
+ not mine --- but I'm still convinced that Rackets treatment is right
+ (i.e., as intended and more useful in the long run). In particular, I
+ believe that some Racket macros, such as one from `racket/unit` or
+ `racket/package`, depend on the way that Racket treats identifiers that
+ are stored behind the scenes.
+ 
+ 
+ I'll note that you don't have to guess at what Racket is doing or read
+ its implementation. We have a compact model for the macro expander:
+ 
+   http://www.cs.utah.edu/plt/expmodel-6/
+ 
+ That model does not include `set!`, but it includes a expand-time store
+ (to deal with internal-definition contexts), so adding expand-time
+ `set!` to the model would be straightforward. I'm confident that the
+ model would produce the result that you're seeing in that case, due to
+ the way marks track identifiers introductions.
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Alexander Kirsanov <alec.kirsanov@mail.ru>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14300: Broken hygiene in a stateful r6rs macro transformer
+Date: Sat, 1 Feb 2014 23:31:38 -0600
+
+ On Feb 1, 2014, at 10:58 PM, Matthew Flatt wrote:
+ 
+ > I think "present in the original program" is not precise enough to say
+ > anything here.
+ 
+ 
+ I should have paid attention to this thread. 
+ 
+ If you go back to the original hygiene paper (Kohlbecker et al, LFP), 
+ you will find that it is about 'binding occurrence and bound variables
+ introduced at the same|distinct macro expansion step.' Bruce and I actually 
+ discovered problems with Eugene's original algorithm that are somewhat
+ reminiscent of this 'bug' discussion (if my memory serves me properly). 
+ 
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Alexander Kirsanov <alec.kirsanov@mail.ru>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14300: Broken hygiene in a stateful r6rs macro transformer
+Date: Tue, 4 Feb 2014 09:18:15 -0500
+
+ On Feb 4, 2014, at 2:10 AM, Alexander Kirsanov <alec.kirsanov@mail.ru> wrote:
+ 
+ > doesn't this piece of info deserve to be posted in some form
+ > somewhere in the open as a fair warning to noobies like me?
+ > Somewhere, like, I don't know, R6RS errata, maybe?
+ > R7RS, if relevant? R6RS sections of Racket documentation, at least?
+ 
+ 
+ [[ The paper is correct; the prototype was wrong. ]]
+
+State changed from "open" to "closed" by matthias at Tue, 04 Feb 2014 09:24:08 -0500
+Reason>>> The submitter withdrew the report. 
+
+From: Alexander Kirsanov <alec.kirsanov@mail.ru>
+To: Matthias Felleisen <matthias@ccs.neu.edu>, Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re[2]: [racket-bug] all/14300: Broken hygiene in a stateful r6rs macro transformer
+Date: Tue, 04 Feb 2014 11:10:54 +0400
+
+ 1 Feb 2014, 23:31 -06:00 from Matthias Felleisen <matthias@ccs.neu.edu>:
+ > 
+ > On Feb 1, 2014, at 10:58 PM, Matthew Flatt wrote:
+ > 
+ > > I think "present in the original program" is not precise enough to say
+ > > anything here.
+ > 
+ > 
+ > I should have paid attention to this thread. 
+ 
+ Sorry for the ambush.
+ 
+ > If you go back to the original hygiene paper (Kohlbecker et al, LFP), 
+ > you will find that it is about 'binding occurrence and bound variables
+ > introduced at the same|distinct macro expansion step.'
+ 
+ I've got the same impression from glancing over R6RS.
+ 
+ > Bruce and I actually 
+ > discovered problems with Eugene's original algorithm that are somewhat
+ > reminiscent of this 'bug' discussion (if my memory serves me properly). 
+ 
+ Uhh... doesn't this piece of info deserve to be posted in some form
+ somewhere in the open as a fair warning to noobies like me?
+ Somewhere, like, I don't know, R6RS errata, maybe?
+ R7RS, if relevant? R6RS sections of Racket documentation, at least?
+ 
+ Anyhow,
+ 
+ I'd like to withdraw this PR 14300.
+ 
+ Thanks to the discussion and some experiments I now understand
+ that this behaviour, no matter how lovingly and carefully
+ dressed up to resemble a bug, is, indeed, a feature.
+ 
+ Thank you!
+ 
+From: Alexander Kirsanov <alec.kirsanov@mail.ru>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re[2]: [racket-bug] all/14300: Broken hygiene in a stateful r6rs macro transformer
+Date: Tue, 04 Feb 2014 18:22:14 +0400
+
+ 4 Feb 2014, 9:18 -05:00 from Matthias Felleisen <matthias@ccs.neu.edu>:
+ >
+ >On Feb 4, 2014, at 2:10 AM, Alexander Kirsanov < alec.kirsanov@mail.ru > wrote:
+ >
+ >> doesn't this piece of info deserve to be posted in some form
+ >> somewhere in the open as a fair warning to noobies like me?
+ >> Somewhere, like, I don't know, R6RS errata, maybe?
+ >> R7RS, if relevant? R6RS sections of Racket documentation, at least?
+ >
+ >
+ >[[ The paper is correct; the prototype was wrong. ]]
+ 
+ Understood, thank you.
+ 
+ 

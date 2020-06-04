@@ -1,0 +1,488 @@
+From nobody@cs.rice.edu  Fri Nov  7 13:10:51 1997
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id NAA26029 for <plt-gnats@cs.rice.edu>; Fri, 7 Nov 1997 13:10:50 -0600 (CST)
+Message-Id: <199711071910.NAA01744@web.cs.rice.edu>
+Date: Fri, 7 Nov 1997 13:10:49 -0600 (CST)
+From: max@gac.edu 
+Reply-To: max@gac.edu
+To: plt-gnats@cs.rice.edu
+Subject: current-interactions-edit% drscheme parameter is disabled 
+
+>Number:         368
+>Category:       drscheme
+>Synopsis:       current-interactions-edit% drscheme parameter is disabled
+>Confidential:   no
+>Severity:       serious
+>Priority:       high
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Nov  7 19:15:02 GMT 1997
+>Last-Modified:  Tue Nov 25 16:40:01 GMT 1997
+>Originator:     Max Hailperin
+>Organization:
+titan
+>Release:        50s1
+>Environment:
+Linux
+>Description:
+I need to provide users with a new snip type, properly registered on the
+snip class list.  Originally I tried doing it from a library, but that
+didn't work because it had the wrong snip class list.  So I inquired and
+was told I needed to use a tool.  So, I tried writing a tool.  In order
+to provide the users with the constructor for the new kind of snip, I
+needed to put it in the user namespace.  I had been told that the way
+to do this was to have my tool use the drscheme parameter
+current-interactions-edit% to get the rep edit% class, subclass it with
+a subclass that augmented reset-console with code to put the appropriate
+definition into the user namespace, and then use the parameter to
+install my subclass as the current-interactions-edit%.  I tried that
+approach, and it didn't work at all.  After much headscratching I finally
+figured out that the reason why is because the "parameter"
+current-interactions-edit% isn't really one at all, but rather just a
+normal procedure that ignores an argument if given one and always returns
+the standard rep:edit%.  This is because in drscheme/params.ss, the
+original definition as a parameter was wrapped in a begin, with the
+original version being discarded totally and then a second version
+(as the procedure that ignores its argument) provided.  So, someone, for
+some reason, appears to have disabled the current-interactions-edit%
+parameter.
+
+The reason why this is a high-priority item is that I'm readying a textbook
+for publication, and to accompany it am readying the web site of supporting
+software, and I want to be able to use DrScheme on a most-favored basis.
+However, at the moment I can't find any way to get my snips to be truly
+first-class.  (I have a library version that works aside from file
+save/restore and on some platforms copy/paste.)  I don't really want to
+tell all users of the textbook to patch their drscheme/params.ss, though
+I suppose if that is really the best option, you can tell me so.  I would
+like to either:
+ (1) have a way to get at the useful snip class list from a library
+ (2) have a way to get at the useful snip class list in a tool and
+     then in some way communicate it from the tool to a library that
+     does the rest of the work, including providing the user namespace
+     definitions
+ (3) have a way to get at the useful snip class list in a tool and
+     from within that tool directly provide the user namespace definitions,
+     either by being able to install a subclass of the rep:edit% class
+     (the direct topic of this bug report) or by some other mechanism.
+
+Thanks! -Max Hailperin
+         Associate Professor of Computer Science
+         Gustavus Adolphus College
+         800 W. College Ave.
+         St. Peter, MN 56082
+         USA
+         http://www.gac.edu/~max/
+
+>How-To-Repeat:
+Put the following in drscheme/tools/foo/unit.ss; it should cause an error
+but doesn't.
+
+  (unit/sig ()
+    (import mred^
+            mzlib:core^
+            mzlib:print-convert^
+            (drscheme : drscheme:export^)
+            zodiac:system^
+            plt:parameters^)
+    (drscheme:parameters:current-interactions-edit% 666))
+>Fix:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: ptg->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Sat Nov  8 08:24:34 1997
+Responsible-Changed-Why:
+
+That commenting out is a bug. You can just replace the `begin' expression
+with the first subexpression and use the parameter as you describe above. 
+
+In the next release of DrScheme these will behave a little bit differently
+-- instead of setting the paraeter, you will supply a procedure that
+accepts and returns a class and then drscheme will build the class by
+applying all of the procedures.
+
+Sorry for the confusion!
+
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: max@gac.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/368: current-interactions-edit% drscheme parameter is disabled 
+Date: Tue, 11 Nov 1997 10:08:42 -0600 (CST)
+
+ Sorry for the short reply last time -- I was out of town and only had a
+ minute to check my email. I missed your comment about not wanting people to
+ have to change their copies of drscheme. Have you considered including
+ drscheme with your book on a cd or something?
+ 
+ One hack does come to mind. The basic problem is that each time a user
+ "execute"s his program, a new eventspace and namespace is created, and the
+ snip class list is associated with one of those. Usually that is a good
+ thing -- it prevents the last interaction's program from interfering with
+ the new one's. So, (as you know) reset-console is called to initialize the
+ user's repl to a fresh state. 
+ 
+ In 50, the only call to reset-console is in unit.ss and is a part of an
+ overridable instance variable: execute-callback. So, create a tool and do
+ the same thing to replace the *frame* and override
+ `execute-callback'. After the super's execute-callback returns, you can
+ then get the `param' instance variable (called user-param in (the as yet
+ unreleased) 51). It is the user's parameterization. Do something like this:
+ 
+ ...
+ (inherit interaction-edit)
+ (rename [super-execute-callback execute-callback])
+ (public
+   [execute-callback
+     (lambda ()
+       (super-execute-callback)
+       (with-parameterization (ivar interactions-edit param)
+         (lambda ()
+             ... install snip class ...)))])
+ ...
+ 
+ Sorry for the hackiness of this solution. I will add a check for this bug
+ into the test suite.
+ 
+ Robby
+
+From: Max Hailperin <max@gac.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/368: current-interactions-edit% drscheme parameter is disabled
+Date: Tue, 11 Nov 1997 10:48:39 -0600
+
+    Date: Tue, 11 Nov 1997 10:08:42 -0600 (CST)
+    From: Robert Bruce Findler <robby@cs.rice.edu>
+    Cc: plt-gnats@cs.rice.edu
+ 
+    Sorry for the short reply last time -- I was out of town and only had a
+    minute to check my email. I missed your comment about not wanting people to
+    have to change their copies of drscheme. Have you considered including
+    drscheme with your book on a cd or something?
+ 
+ Well, I'd given it some casual thought, but not enough to actually
+ bring it up with the publisher to see how they react.  The reason is
+ that I'm strongly biased in favor of a web site rather than a CD-ROM.
+ That way we can just point at your site for DrScheme and automagically
+ get the latest version every time you do a release.  Similarly, our
+ own material can be updated as needed.  And nowadays web access is
+ quickly becoming universal.  I hadn't really stopped to consider that
+ *lack of update* might actually be a feature -- that freezing in a
+ particular DrScheme version, with bugs we understood and had worked
+ around, might actually be preferable to being subject to a new batch
+ of bugs each release.  On the whole, I'd rather we just had to keep
+ up with new versions of our workarounds, as opposed to acting as an
+ inertial force.
+ 
+ I already have a crude prototype of the web site, by the way, for the
+ sake of those using the pre-publication draft manuscript.  Right now,
+ it provides DrScheme as the one and only Scheme implementation, though
+ I have plans to add others Real Soon Now.  If you are curious, you can
+ find it at http://www.gac.edu/~max/concabs/ .  In particular, it has
+ both the library version of our "functional graphics" package (the
+ snip producer) and the current tool version, which calls for patching
+ params.ss.  (The patch is on the web, too.)  If I take your below
+ suggestion, that will show up there too -- but see below for a problem
+ I have with it.
+ 
+    One hack does come to mind. The basic problem is that each time a user
+    "execute"s his program, a new eventspace and namespace is created, and the
+    snip class list is associated with one of those. Usually that is a good
+    thing -- it prevents the last interaction's program from interfering with
+    the new one's. So, (as you know) reset-console is called to initialize the
+    user's repl to a fresh state. 
+ 
+ That isn't the whole problem, at least not as I understand it.  Not
+ only does the user repl (and library) wind up with a new snip class
+ list ever time the user hits execute, but moreover none of them is the
+ one that is actually used by the underlying DrScheme system for
+ loading and saving files, or (on some platforms) doing copy and
+ paste.  So, as far as I can tell, (wx:get-snip-class-list) winds up
+ totally useless in user code and libraries -- what would the point be
+ of putting any snip class on that list anyhow?
+ 
+    In 50, the only call to reset-console is in unit.ss and is a part of an
+    overridable instance variable: execute-callback. So, create a tool and do
+    the same thing to replace the *frame* and override
+    `execute-callback'. After the super's execute-callback returns, you can
+    then get the `param' instance variable (called user-param in (the as yet
+    unreleased) 51). It is the user's parameterization. Do something like this:
+ 
+    ...
+    (inherit interaction-edit)
+    (rename [super-execute-callback execute-callback])
+    (public
+      [execute-callback
+        (lambda ()
+          (super-execute-callback)
+          (with-parameterization (ivar interactions-edit param)
+            (lambda ()
+                ... install snip class ...)))])
+    ...
+ 
+    Sorry for the hackiness of this solution. I will add a check for this bug
+    into the test suite.
+ 
+    Robby
+ 
+ This suggestion doesn't address the problem, because what it provides
+ is a way to get the snip class onto each of the useless userspace snip
+ class lists, rather than the one useful system one.  With a tool, I
+ can get the snip class onto the one useful system snip class list
+ without any problem, without having to resort to a hack like this. The
+ difficulty becomes getting the snip constructors into the user's
+ namespace, so that the user can actually invoke them.  Right now,
+ the tool does that by overriding reset-console in the interactions
+ edit class with a version that invokes the superclass's reset-console
+ and then evals a bunch of definitions in the users namespace.  (See
+ http://www.gac.edu/~max/concabs/schemes/drscheme/tools/fungraph/unit.ss
+ for the actual code -- in particular, the definition of my-edit% near
+ the end.) However, that requires patching params.ss so that the new
+ interactions edit class can be installed.  If I wanted to do the
+ corresponding trick (evaling definitions into the user's namespace)
+ with your approach of overriding execute-callback in the frame class,
+ I would need to physically duplicate the existing execute-callback
+ code and edit it, rather than just invoking the superclass version and
+ then doing my stuff afterwards, because execute-callback does
+ 
+ 		  (send interactions-edit reset-console)
+ 		  (send interactions-edit do-many-buffer-evals
+ 			definitions-edit 0
+ 			(send definitions-edit last-position)))
+ 
+ and I need to eval my snip constructors in between these two, so that
+ they are available when evaluating the definitions in the definitions
+ buffer.  Sneaking in between these two lines of execute-callback means
+ that I need to do copy-and-paste-and-surgery as opposed to just an
+ override with (super-execute-callback).  That, together with the fact
+ that you are renaming param to user-param in 51, suggests that this
+ approach would be nearly as brittle as patching params.ss.  I'm
+ tempted to punt, and stick with the current approach of offering the
+ library as our primary solution (with its faults of not allowing
+ save/load/copy/paste), and a tool+patch for the courageous.  If you
+ could make the system snip class list available to libraries in 51,
+ that would allow me to much improve matters upon 51's release.  -max
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Max Hailperin <max@gac.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/368: current-interactions-edit% drscheme parameter is disabled
+Date: Tue, 11 Nov 1997 11:16:52 -0600 (CST)
+
+ Max Hailperin writes:
+ >    Date: Tue, 11 Nov 1997 10:08:42 -0600 (CST)
+ >    From: Robert Bruce Findler <robby@cs.rice.edu>
+ >    Cc: plt-gnats@cs.rice.edu
+ > 
+ >    Sorry for the short reply last time -- I was out of town and only had a
+ >    minute to check my email. I missed your comment about not wanting people to
+ >    have to change their copies of drscheme. Have you considered including
+ >    drscheme with your book on a cd or something?
+ > 
+ > Well, I'd given it some casual thought, but not enough to actually
+ > bring it up with the publisher to see how they react.  The reason is
+ > that I'm strongly biased in favor of a web site rather than a CD-ROM.
+ > That way we can just point at your site for DrScheme and automagically
+ > get the latest version every time you do a release.  Similarly, our
+ > own material can be updated as needed.  And nowadays web access is
+ > quickly becoming universal.  I hadn't really stopped to consider that
+ > *lack of update* might actually be a feature -- that freezing in a
+ > particular DrScheme version, with bugs we understood and had worked
+ > around, might actually be preferable to being subject to a new batch
+ > of bugs each release.  On the whole, I'd rather we just had to keep
+ > up with new versions of our workarounds, as opposed to acting as an
+ > inertial force.
+ 
+ Perhaps you should copy the plt distribution for safe keeping on your web
+ site so that you can keep the releases synchonized. (ie if we release 51
+ and your code still works around 50's bugs that could be bad)
+ 
+ > That isn't the whole problem, at least not as I understand it.  Not
+ > only does the user repl (and library) wind up with a new snip class
+ > list ever time the user hits execute, but moreover none of them is the
+ > one that is actually used by the underlying DrScheme system for
+ > loading and saving files, or (on some platforms) doing copy and
+ > paste.  So, as far as I can tell, (wx:get-snip-class-list) winds up
+ > totally useless in user code and libraries -- what would the point be
+ > of putting any snip class on that list anyhow?
+ 
+ You should probably put it on "both" snip class lists: the one in the
+ user's parameterization and the system parameterization. That way if the
+ user writes a complicated gui program where he actually creates edits and
+ saves them as a part of his program, things will still work (maybe not very
+ likely, but nonetheless....)
+ 
+ > The difficulty becomes getting the snip constructors into the
+ > user's namespace, so that the user can actually invoke them.  Right now,
+ > the tool does that by overriding reset-console in the interactions edit
+ > class with a version that invokes the superclass's reset-console and then
+ > evals a bunch of definitions in the users namespace.
+ 
+ Oh, I see. In that case, use the tool to create the snip class. Then inject
+ the names into the user's namespace with global-defined-value (as opposed
+ to eval...). (see below)
+ 
+ > I would need to physically duplicate the existing execute-callback
+ > code and edit it, rather than just invoking the superclass version and
+ > then doing my stuff afterwards, because execute-callback does
+ > 
+ > 		  (send interactions-edit reset-console)
+ > 		  (send interactions-edit do-many-buffer-evals
+ > 			definitions-edit 0
+ > 			(send definitions-edit last-position)))
+ > 
+ 
+ yes that's right. But since this whole thing will only work in 50
+ anyways... So I reccommend the copy'n'paste approach.
+ 
+   .. install snip class ..
+ 
+   (class ...
+     ...
+     (inherit interaction-edit)
+     (rename [super-execute-callback execute-callback])
+     (public
+       [execute-callback
+         (lambda ()
+           ... copy 'n paste...
+ 	  (parameterize ([current-namespace
+                           ((in-parameterization 
+                             (ivar interactions-edit param)
+                             current-namespace))])
+              (global-defined-value 'construct construct))
+           ... more copy 'n paste...)])
+     ... )
+ 
+ > I'm tempted to punt, and stick with the current approach of offering the
+ > library as our primary solution (with its faults of not allowing
+ > save/load/copy/paste), and a tool+patch for the courageous.  
+ 
+ That's also a fine solution. We don't yet have any plans for release 51 so
+ you might end up waiting a long time.
+ 
+ > If you could make the system snip class list available to libraries in
+ > 51, that would allow me to much improve matters upon 51's release. 
+ 
+ I am actually a little unhappy with the current library setup as it is. It
+ was intended to be a quick and simple way of allowing a teacher to inject
+ new names into the user's namespace. If the teacher wanted to do something
+ more sophisticaed, they should use the full power of tools.
+ 
+ In fact, I will probably (at some later date) re-implement the libraries as
+ a tool.
+ 
+ Robby
+
+From: Max Hailperin <max@gac.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/368: current-interactions-edit% drscheme parameter is disabled
+Date: Tue, 11 Nov 1997 13:39:57 -0600
+
+    Date: Tue, 11 Nov 1997 11:16:52 -0600 (CST)
+    From: Robert Bruce Findler <robby@cs.rice.edu>
+ 
+    ...
+    Oh, I see. In that case, use the tool to create the snip class. Then inject
+    the names into the user's namespace with global-defined-value (as opposed
+    to eval...). (see below)...
+ 
+ OK, I've taken this approach now, and put the new version of the tool
+ on our web site (and taken the patch to params.ss off).  It turns out
+ that reset-console is actually called from one other place than the
+ execute-callback, contrary to your previous email.  Namely, it is
+ called from initialize-console.  The result of this is that when I
+ took your advice at face value, I wound up with a DrScheme that new
+ about my snip constructors after pressing the Execute button, but not
+ before.  I solved this problem by doing the global-defined-value calls
+ in a private method of my frame class that is invoked not only out of
+ its execute-callback, but also in its init code, after doing
+ super-init.
+ 
+ Thanks for pointing out that I should be using global-defined-value
+ rather than evaling definitions.  That was definitely brain-deadness
+ on my part, though peripheral to the main issue.
+ 
+ At this point I'm still just putting the snip class on the system snip
+ class list, so anyone who writes a GUI of their own in DrScheme and
+ expects our functional graphics snips to work in it will be
+ disappointed.  (This would have to be a sophisticated yet naive user.)
+ Hopefully I'll add that soon, just for the sake of doing the right
+ thing.
+ 
+ Thanks again. -max
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Max Hailperin <max@gac.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/368: current-interactions-edit% drscheme parameter is disabled
+Date: Tue, 11 Nov 1997 13:49:22 -0600 (CST)
+
+ Max Hailperin writes:
+ > OK, I've taken this approach now, and put the new version of the tool
+ > on our web site.
+ 
+ I'm glad that worked out for you!
+ 
+ > At this point I'm still just putting the snip class on the system snip
+ > class list, so anyone who writes a GUI of their own in DrScheme and
+ > expects our functional graphics snips to work in it will be
+ > disappointed.  (This would have to be a sophisticated yet naive user.)
+ > Hopefully I'll add that soon, just for the sake of doing the right
+ > thing.
+ 
+ yeah, it's not a big deal.
+ 
+ Thanks for your feedback and support of DrScheme!
+ 
+ Robby
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Mon Nov 24 23:36:40 1997
+State-Changed-Why:
+
+There doesn't seem to be anything left to do with this pr.
+
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Max Hailperin <max@gac.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: drscheme/368: current-interactions-edit% drscheme parameter is disabled
+Date: Tue, 25 Nov 1997 10:37:49 -0600 (CST)
+
+ Max Hailperin writes:
+ >    Date: Mon, 24 Nov 1997 23:40:28 -0600 (CST)
+ >    From: Robert Bruce Findler <robby@cs.rice.edu>
+ > 
+ > 
+ >            `Robert Bruce Findler' changed the state to `closed'.
+ > 
+ > 
+ >    State-Changed-From-To: open-closed
+ >    State-Changed-By: robby
+ >    State-Changed-When: Mon Nov 24 23:36:40 1997
+ >    State-Changed-Why:
+ > 
+ >    There doesn't seem to be anything left to do with this pr.
+ > 
+ >    Please correct me if I'm wrong!
+ > 
+ > Well, I don't know whether there is anything left to do, because I
+ > don't know what you did.  The problem was that the documentation said
+ > current-interactions-edit% is a parameter, but code actually makes it
+ > a do-nothing procedure.  Either the code should be changed to match
+ > the documentation or the documentation changed to match the code.  Did
+ > you do either?  If not, there is something left to do. -max
+ 
+ In fact the parameters are not there anymore. Instead, each tool programmer
+ supplies a procedure that accepts and returns a class. Those procedures are
+ then composed together and used to construct the final class after the
+ tools have been loaded. 
+ 
+ Robby
+>Unformatted:

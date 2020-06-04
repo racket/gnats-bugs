@@ -1,0 +1,176 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Nov  2 17:37:54 2014
+Received: from mail-ie0-f170.google.com (mail-ie0-f170.google.com [209.85.223.170])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id sA2Mbl48014145
+	for <bugs@bugs.plt-scheme.org>; Sun, 2 Nov 2014 17:37:48 -0500
+Message-Id: <201411022237.sA2MbiW4014138@winooski.ccs.neu.edu>
+Date: Sun, 2 Nov 2014 17:37:44 -0500
+From: djg@cs.washington.edu
+To: bugs@racket-lang.org
+Subject: crash instead of contract violation with racket command line
+
+>Number:         14819
+>Category:       all
+>Synopsis:       crash instead of contract violation with racket command line
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Nov 02 17:40:01 -0500 2014
+>Closed-Date:    Mon Nov 03 08:08:09 -0500 2014
+>Last-Modified:  Mon Nov 03 08:08:09 -0500 2014
+>Originator:     Dan Grossman
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1
+>Environment:
+linux-ubuntu
+>Description:
+[Culled from a MOOC-student submission]
+
+This code leads to calling (car 5):
+
+===
+#lang racket
+
+(define (vector-assoc v vec) 
+ (define (f n)
+   (if (> n (- (vector-length vec) 1)) 
+       #f
+       (let* ([x (vector-ref vec n)]
+              [head-x (car x)])
+        (if (equal? head-x v) x (f (+ n 1)))))) 
+  (f 0))
+
+(vector-assoc 5 (vector (cons 4 3) 5 (cons -5 3)))
+===
+
+In DrRacket, we get the expected contract violation.  Running racket on the command-line, we instead get a crash:
+
+===
+SIGSEGV MAPERR si_code 1 fault on addr 0x13
+Aborted (core dumped)
+===
+
+We've confirmed that other such contract violations behave as expected at the command-line, e.g., 
+
+(define (f x) (car x)
+(f 5)
+
+works fine.
+
+>How-To-Repeat:
+
+See above.  Happy to follow up with more detail as needed.  You can also see bboston7@cs.washington.edu, one of my noble MOOC TAs who tracks these things down.
+
+Thanks!
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: djg@cs.washington.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14819: crash instead of contract violation with racket command line
+Date: Sun, 2 Nov 2014 16:35:28 -0700
+
+ Thanks for the report!
+ 
+ This is a bug in the optimizer:
+ 
+ After seeing
+ 
+  (car x)
+ 
+ the optimizer notes that any later use of `x` can assume that `x` is a
+ pair, since `(car x)` succeeded.
+ 
+ When the optimizer later sees the use `head-x` with no other uses of
+ `head-x`, and since nothing really has happened since `head-x` was
+ bound, the binding can be dropped and `(car x)` used in place of
+ `head-x`.
+ 
+ The optimizer then sees `(car x)`, and recalls that `x` must be a pair
+ because `(car x)` succeeded... except that the optimizer just moved
+ that `(car x)`, so it hasn't yet succeeded. The optimizer incorrectly
+ replaces `car` with `unsafe-car`.
+ 
+ This problem would show up more often, but there's a competing weakness
+ in the optimizer that makes it forget about its type-like assumptions
+ in almost exactly those situations where it can move an expression from
+ a binding to the binding's only use. In the example below, however, the
+ local inlining (effectively loop unrolling) of `f` happens to
+ compensate for the weakness and expose the bug.
+ 
+ At Sun, 2 Nov 2014 17:40:02 -0500, djg@cs.washington.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14819
+ > 
+ > Reported by Dan Grossman for release: 6.1
+ > 
+ > *** Description:
+ > [Culled from a MOOC-student submission]
+ > 
+ > This code leads to calling (car 5):
+ > 
+ > ===
+ > #lang racket
+ > 
+ > (define (vector-assoc v vec) 
+ >  (define (f n)
+ >    (if (> n (- (vector-length vec) 1)) 
+ >        #f
+ >        (let* ([x (vector-ref vec n)]
+ >               [head-x (car x)])
+ >         (if (equal? head-x v) x (f (+ n 1)))))) 
+ >   (f 0))
+ > 
+ > (vector-assoc 5 (vector (cons 4 3) 5 (cons -5 3)))
+ > ===
+ > 
+ > In DrRacket, we get the expected contract violation.  Running racket on the 
+ > command-line, we instead get a crash:
+ > 
+ > ===
+ > SIGSEGV MAPERR si_code 1 fault on addr 0x13
+ > Aborted (core dumped)
+ > ===
+ > 
+ > We've confirmed that other such contract violations behave as expected at the 
+ > command-line, e.g., 
+ > 
+ > (define (f x) (car x)
+ > (f 5)
+ > 
+ > works fine.
+ > 
+ > 
+ > *** How to repeat:
+ > 
+ > See above.  Happy to follow up with more detail as needed.  You can also see 
+ > bboston7@cs.washington.edu, one of my noble MOOC TAs who tracks these things 
+ > down.
+ > 
+ > Thanks!
+ > 
+ > *** Environment:
+ > linux-ubuntu
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Mon, 03 Nov 2014 08:08:09 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/9a94366c2c
+State changed from "open" to "closed" by mflatt@racket-lang.org at Mon, 03 Nov 2014 08:08:09 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/9a94366c2c
+  | optimizer: fix reordering problems
+  | 
+  | When a variable X is bound to an expression that implies properties of
+  | other bindings, and if X is used only once and can be replaced by
+  | its value expression, then further optimization of that expression must
+  | not assume the properties that are established by evaluating the
+  | expression.
+  | 
+  | Also, don't move expressions past unsafe operations, since the expression
+  | might implicitly guard against unsafety.
+  | 
+  | Closes PR 14819
+

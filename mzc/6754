@@ -1,0 +1,273 @@
+From nobody@champlain.ccs.neu.edu  Mon Mar 22 08:10:36 2004
+Received: (from nobody@localhost)
+	by champlain.ccs.neu.edu (8.9.3/8.9.3) id IAA00312
+	for bugs@plt-scheme.org; Mon, 22 Mar 2004 08:10:36 -0500
+Message-Id: <200403221310.IAA00312@champlain.ccs.neu.edu>
+Date: Mon, 22 Mar 2004 08:10:36 -0500
+From: tim.brown@cityc.co.uk
+To: bugs@plt-scheme.org
+Subject: mzc: parser-tools/lex.ss produces a long vector that cannot be optimised by sun cc
+
+>Number:         6754
+>Category:       mzc
+>Synopsis:       mzc: parser-tools/lex.ss produces a long vector that cannot be optimised by sun cc
+>Class:          sw-bug
+>Responsible:    mflatt
+>Notify-List:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Mar 22 08:15:00 -0500 2004
+>Closed-Date:    Fri Dec 02 18:51:25 -0500 2011
+>Last-Modified:  Fri Dec 02 18:51:25 -0500 2011
+>Originator:     Tim Brown
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        206
+>Environment:
+solaris-8
+>Description:
+When mzc is used to build a module containing anything but a trivial lexer,
+the generated file cannot be used to build an optimised native extension.
+
+In the example below, the 25 keywords produce a 45568 element vector, which
+is then written into the C code, argument by argument. When this is compiled
+with:
+
+cc -xO1 -c my-lexer.c
+(-xO1 is peephole/common value optimisations)
+
+The size of the argument vector becomes unmanageable.
+
+Would it be possible to do the following:
+for an arg[] array of more than a certain size, load the arguments in
+batches of identical value.
+
+So transform:
+
+Scheme_Object *arg[3]; /* I know... this is overkill for 3 */
+arg[0] = scheme_false;
+arg[1] = scheme_make_integer(2);
+arg[2] = scheme_false;
+
+Into:
+/*---------------------------------------------------------*/
+Scheme_Object *arg[3]; /* I know... this is overkill for 3 */
+
+  {
+  int i;
+  Scheme_Object *v = scheme_false;
+  int arg_indices[] = {0, 2};
+  for(i = 0; i < (sizeof(arg_indices)/sizeof(int)); i++)
+    arg[arg_indices[i]] = v;
+  }
+
+  {
+  int i;
+  Scheme_Object *v = scheme_make_integer(2);
+  int arg_indices[] = {1};
+  for(i = 0; i < (sizeof(arg_indices)/sizeof(int)); i++)
+    arg[arg_indices[i]] = v;
+  }
+/*---------------------------------------------------------*/
+
+Sorting 40000 arguments is certainly of a much lower order than whatever
+it is that the compiler optimisation is doing.
+>How-To-Repeat:
+; my-lexer.ss
+;
+; The following is a simple lexer that matches some words I got in a spam
+; email. Don't expect it to do anything useful.
+;
+; mzc -c my-lexer.ss
+; produces a > 45000 argument vector that cannot even be compiled using cc -xO1
+; top_level_0 : my-lexer.c : line 631
+
+(module my-lexer mzscheme
+  (require (lib "lex.ss" "parser-tools"))
+  (provide my-lex)
+  (define my-lex
+    (lexer ((eof) #f)
+           ("ARCHIVE" #f) ("ARIZONA" #f) ("ASININE" #f) ("AUSTRALIA" #f)
+           ("BANEBERRY" #f) ("BITUMINOUS" #f) ("BRILLIANT" #f)
+           ("BUTTERMILK" #f)
+           ("CATHOLIC" #f) ("CONSUME" #f) ("COOK" #f) ("EVAPORATE" #f)
+           ("EXCELLENT" #f) ("GUNSHOT" #f) ("HOMEBUILD" #f) ("INSIST" #f)
+           ("INVOLVE" #f) ("IRRIGATE" #f) ("IRVIN" #f) ("ISOTHERM" #f)
+           ("LECHER" #f) ("MAELSTROM" #f) ("PROPAGANDA" #f)
+           ("PROTUBERANT" #f)
+           ("SHISH" #f))))
+>Fix:
+There is no practical benefit gained from compiling the lexer's table, so I suggest moving the (lex ...) specification into a file that will not be native code compiled.
+
+Native compiling $PLTHOME/collects/parser-tools/lex.ss, which contains the code that interprets the table, can yield a 2x-3x speedup.
+>Release-Note:
+>Audit-Trail:
+Responsible-Changed-From-To: eli->nobody
+Responsible-Changed-By: gnats@champlain.ccs.neu.edu
+Responsible-Changed-When: Fri, 26 Mar 2004 04:47:36 -0500
+Responsible-Changed-Why:
+Unclaimed
+
+
+
+Responsible-Changed-From-To: nobody->sowens
+Responsible-Changed-By: eli
+Responsible-Changed-When: Mon, 29 Mar 2004 01:35:14 -0500
+Responsible-Changed-Why:
+parser-tools
+
+
+View:
+  http://bugs.plt-scheme.org/query/gnatsweb.pl?cmd=view+audit-trail&pr=6754
+Edit:
+  https://internal.plt-scheme.org/bugs/gnatsweb.pl?cmd=edit&pr=6754&database=default
+
+Responsible-Changed-From-To: sowens->mflatt
+Responsible-Changed-By: sowens
+Responsible-Changed-When: Mon, 29 Mar 2004 13:11:31 -0500
+Responsible-Changed-Why:
+This isn't a problem with lex, which needs to produce such 
+vectors but with mzc which cannot process them well. 
+
+
+View:
+  http://bugs.plt-scheme.org/query/gnatsweb.pl?cmd=view+audit-trail&pr=6754
+Edit:
+  https://internal.plt-scheme.org/bugs/gnatsweb.pl?cmd=edit&pr=6754&database=default
+From: Scott Owens <sowens@cs.utah.edu>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/6754: mzc: parser-tools/lex.ss produces a long vector that cannot be optimised by sun cc
+Date: Sat, 1 May 2004 12:31:44 -0600
+
+ Now that the lexer generator doesn't create the large 256*number-of-states 
+ table, I tried running the lexer file through mzc to generate native code.  
+ It still takes a prohibitively long time.  Looking at bug report more 
+ closely, I realize that I don't really understand what's happening here.  I 
+ don't know where the 45K element vector in top_level_0 is coming from, but 
+ reasonably sized vector in module_body_0 looks to be the lexer's table.
+ 
+ -Scott
+ 
+ On Monday 22 March 2004 06:10 am, tim.brown@cityc.co.uk wrote:
+ > You may claim or edit this problem report at
+ >
+ > https://internal.plt-scheme.org/cgis-bin/gnatsweb.pl?cmd=edit&pr=6754&datab
+ >ase=plt
+ >
+ > >Number:         6754
+ > >Category:       all
+ > >Synopsis:       mzc: parser-tools/lex.ss produces a long vector that
+ > > cannot be optimised by sun cc Confidential:   no
+ > >Severity:       non-critical
+ > >Priority:       medium
+ > >Responsible:    eli
+ > >State:          open
+ > >Class:          sw-bug
+ > >Submitter-Id:   unknown
+ > >Arrival-Date:   Mon Mar 22 08:15:00 EST 2004
+ > >Closed-Date:
+ > >Last-Modified:
+ > >Originator:     Tim Brown
+ > >Release:        206
+ > >Organization:
+ >
+ > plt
+ >
+ > >Environment:
+ >
+ > solaris-8
+ >
+ > >Description:
+ >
+ > When mzc is used to build a module containing anything but a trivial lexer,
+ > the generated file cannot be used to build an optimised native extension.
+ >
+ > In the example below, the 25 keywords produce a 45568 element vector, which
+ > is then written into the C code, argument by argument. When this is
+ > compiled with:
+ >
+ > cc -xO1 -c my-lexer.c
+ > (-xO1 is peephole/common value optimisations)
+ >
+ > The size of the argument vector becomes unmanageable.
+ >
+ > Would it be possible to do the following:
+ > for an arg[] array of more than a certain size, load the arguments in
+ > batches of identical value.
+ >
+ > So transform:
+ >
+ > Scheme_Object *arg[3]; /* I know... this is overkill for 3 */
+ > arg[0] = scheme_false;
+ > arg[1] = scheme_make_integer(2);
+ > arg[2] = scheme_false;
+ >
+ > Into:
+ > /*---------------------------------------------------------*/
+ > Scheme_Object *arg[3]; /* I know... this is overkill for 3 */
+ >
+ >   {
+ >   int i;
+ >   Scheme_Object *v = scheme_false;
+ >   int arg_indices[] = {0, 2};
+ >   for(i = 0; i < (sizeof(arg_indices)/sizeof(int)); i++)
+ >     arg[arg_indices[i]] = v;
+ >   }
+ >
+ >   {
+ >   int i;
+ >   Scheme_Object *v = scheme_make_integer(2);
+ >   int arg_indices[] = {1};
+ >   for(i = 0; i < (sizeof(arg_indices)/sizeof(int)); i++)
+ >     arg[arg_indices[i]] = v;
+ >   }
+ > /*---------------------------------------------------------*/
+ >
+ > Sorting 40000 arguments is certainly of a much lower order than whatever
+ > it is that the compiler optimisation is doing.
+ >
+ > >How-To-Repeat:
+ >
+ > ; my-lexer.ss
+ > ;
+ > ; The following is a simple lexer that matches some words I got in a spam
+ > ; email. Don't expect it to do anything useful.
+ > ;
+ > ; mzc -c my-lexer.ss
+ > ; produces a > 45000 argument vector that cannot even be compiled using cc
+ > -xO1 ; top_level_0 : my-lexer.c : line 631
+ >
+ > (module my-lexer mzscheme
+ >   (require (lib "lex.ss" "parser-tools"))
+ >   (provide my-lex)
+ >   (define my-lex
+ >     (lexer ((eof) #f)
+ >            ("ARCHIVE" #f) ("ARIZONA" #f) ("ASININE" #f) ("AUSTRALIA" #f)
+ >            ("BANEBERRY" #f) ("BITUMINOUS" #f) ("BRILLIANT" #f)
+ >            ("BUTTERMILK" #f)
+ >            ("CATHOLIC" #f) ("CONSUME" #f) ("COOK" #f) ("EVAPORATE" #f)
+ >            ("EXCELLENT" #f) ("GUNSHOT" #f) ("HOMEBUILD" #f) ("INSIST" #f)
+ >            ("INVOLVE" #f) ("IRRIGATE" #f) ("IRVIN" #f) ("ISOTHERM" #f)
+ >            ("LECHER" #f) ("MAELSTROM" #f) ("PROPAGANDA" #f)
+ >            ("PROTUBERANT" #f)
+ >            ("SHISH" #f))))
+ >
+ > >Fix:
+ > >Release-Note:
+ > >Audit-Trail:
+ > >Unformatted:
+State changed from "open" to "suspended" by mflatt at Tue, 11 Jul 2006 13:32:52 -0400
+Reason>>> The generated vector sees to be much smaller.
+The potential mzc problem is still there, but
+we're now looking to the JIT (even though it hasn't
+been ported to Sparc, but I can do that if there's
+demand)
+
+State changed from "suspended" to "closed" by samth at Fri, 02 Dec 2011 18:51:25 -0500
+Reason>>> no more mzc
+
+>Unformatted:

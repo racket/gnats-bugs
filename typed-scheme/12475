@@ -1,0 +1,357 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Jan  6 15:08:28 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q06K8OT1002661
+	for <bugs@bugs.plt-scheme.org>; Fri, 6 Jan 2012 15:08:24 -0500
+Message-Id: <201201062008.q06K8LjT002656@champlain.ccs.neu.edu>
+Date: Fri, 6 Jan 2012 15:08:21 -0500
+From: clements@brinckerhoff.org
+To: bugs@racket-lang.org
+Subject: TR signals "used out of context" error in strange place
+
+>Number:         12475
+>Category:       typed-scheme
+>Synopsis:       TR signals "used out of context" error in strange place
+>Class:          sw-bug
+>Responsible:    endobson
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Jan 06 15:12:01 -0500 2012
+>Closed-Date:    Mon Jan 13 12:53:33 -0500 2014
+>Last-Modified:  Mon Jan 13 12:53:33 -0500 2014
+>Originator:     John Clements
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.0.7--2012-01-05(fd5e40f/g)
+>Environment:
+macosx "Darwin pcp074328pcs.wireless.calpoly.edu 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 16:33:36 PDT 2011; root:xnu-1504.15.3~1/RELEASE_I386 i386" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 722409256
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/clements/git-clements/clements/collects"
+ (".gitignore" "badger" "clements-lib" "contour-letters" "file-size-checker" "gradeserver" "info-domain" "iTunes-helper" "java-helpers" "jbc-gnucash" "matrix-arithmetic" "mboxrd-read" "midi" "mnemisis" "profj-auto-runner" "projector" "shelly" "smootxes" "template-tester" "txomp" "web-utilities"))
+("/Users/clements/clements/matthias/collects"
+ ("info-domain" "web"))
+("/Users/clements/Library/Racket/5.2.0.7/collects"
+ (non-existent-path))
+("/Users/clements/plt/collects"
+ (".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs" "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine"!
+  "tests" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+The program below produces the error 
+"compile: identifier used out of context in: 
+so-far". This looks like either a bug or an
+unhelpful error message.  Even stranger, 
+changing the result type to Inexact-Real
+and the initial value of the accumulator to
+0.0 makes the problem go away.  I'm guessing
+that this should produce a generic "not enough
+information, please use for/fold:" message
+instead.
+>How-To-Repeat:
+#lang typed/racket
+
+;; given a set of polynomial coefficients, return
+;; the corresponding polynomial
+(: coefficients->poly ((Listof Inexact-Real) 
+                       -> Inexact-Complex))
+(define (coefficients->poly coefficients)
+  (for/fold ([so-far 0.0+0.0i])
+    ([coefficient (in-list coefficients)])
+    (+ coefficient (* so-far 1.0))))
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: samth@racket-lang.org, clements@brinckerhoff.org, stamourv@racket-lang.org,
+        bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: typed-scheme/12475: TR signals "used out of context" error in
+ strange place
+Date: Sun, 12 Jan 2014 12:21:44 -0500
+
+ (audit trail for PR 12475)
+ 
+ > #lang typed/racket
+ >
+ > ;; given a set of polynomial coefficients, return
+ > ;; the corresponding polynomial
+ > (: coefficients->poly ((Listof Inexact-Real)
+ >                        -> Inexact-Complex))
+ > (define (coefficients->poly coefficients)
+ >   (for/fold ([so-far 0.0+0.0i])
+ >     ([coefficient (in-list coefficients)])
+ >     (+ coefficient (* so-far 1.0))))
+ 
+ Looking at this old TR bug, it looks like it's an optimizer bug that's
+ still present in the current version. More specifically, it looks like
+ it's due to complex-unboxing.
+ 
+ If you look at the macro expansion, the TR version expands with a lambda
+ like this:
+ 
+   (lambda (unboxed-real-2 unboxed-imag-3:18 lst) ...)
+ 
+ whereas the untyped version expands with a lambda like this:
+ 
+   (lambda (so-far lst) ...)
+ 
+ but in the typed version, there's a reference to `so-far` that is not
+ correctly re-written to refer to the components.
+ 
+ Cheers,
+ Asumu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: samth@racket-lang.org, John Clements <clements@brinckerhoff.org>,
+        stamourv <stamourv@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: typed-scheme/12475: TR signals "used out of context" error in
+ strange place
+Date: Sun, 12 Jan 2014 10:35:06 -0800
+
+ Doing some investigation. It seems that the reference is happeing in
+ dead-code. We want to keep the dead code around for syntax check
+ though, but we don't want to waste time optimizing it. Currently we do
+ (begin (lambda () dead-code) live-code) but I'll see if (begin
+ #'dead-code live-code) gets us the highlighting without the errors.
+ 
+ On Sun, Jan 12, 2014 at 9:21 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > (audit trail for PR 12475)
+ >
+ >> #lang typed/racket
+ >>
+ >> ;; given a set of polynomial coefficients, return
+ >> ;; the corresponding polynomial
+ >> (: coefficients->poly ((Listof Inexact-Real)
+ >>                        -> Inexact-Complex))
+ >> (define (coefficients->poly coefficients)
+ >>   (for/fold ([so-far 0.0+0.0i])
+ >>     ([coefficient (in-list coefficients)])
+ >>     (+ coefficient (* so-far 1.0))))
+ >
+ > Looking at this old TR bug, it looks like it's an optimizer bug that's
+ > still present in the current version. More specifically, it looks like
+ > it's due to complex-unboxing.
+ >
+ > If you look at the macro expansion, the TR version expands with a lambda
+ > like this:
+ >
+ >   (lambda (unboxed-real-2 unboxed-imag-3:18 lst) ...)
+ >
+ > whereas the untyped version expands with a lambda like this:
+ >
+ >   (lambda (so-far lst) ...)
+ >
+ > but in the typed version, there's a reference to `so-far` that is not
+ > correctly re-written to refer to the components.
+ >
+ > Cheers,
+ > Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>,
+        stamourv <stamourv@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: typed-scheme/12475: TR signals "used out of context" error in
+ strange place
+Date: Sun, 12 Jan 2014 13:42:49 -0500
+
+ Make sure to use `quote-syntax` and not `syntax` here, to avoid issues
+ with ... etc.
+ 
+ Sam
+ 
+ On Sun, Jan 12, 2014 at 1:35 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > Doing some investigation. It seems that the reference is happeing in
+ > dead-code. We want to keep the dead code around for syntax check
+ > though, but we don't want to waste time optimizing it. Currently we do
+ > (begin (lambda () dead-code) live-code) but I'll see if (begin
+ > #'dead-code live-code) gets us the highlighting without the errors.
+ >
+ > On Sun, Jan 12, 2014 at 9:21 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >> (audit trail for PR 12475)
+ >>
+ >>> #lang typed/racket
+ >>>
+ >>> ;; given a set of polynomial coefficients, return
+ >>> ;; the corresponding polynomial
+ >>> (: coefficients->poly ((Listof Inexact-Real)
+ >>>                        -> Inexact-Complex))
+ >>> (define (coefficients->poly coefficients)
+ >>>   (for/fold ([so-far 0.0+0.0i])
+ >>>     ([coefficient (in-list coefficients)])
+ >>>     (+ coefficient (* so-far 1.0))))
+ >>
+ >> Looking at this old TR bug, it looks like it's an optimizer bug that's
+ >> still present in the current version. More specifically, it looks like
+ >> it's due to complex-unboxing.
+ >>
+ >> If you look at the macro expansion, the TR version expands with a lambda
+ >> like this:
+ >>
+ >>   (lambda (unboxed-real-2 unboxed-imag-3:18 lst) ...)
+ >>
+ >> whereas the untyped version expands with a lambda like this:
+ >>
+ >>   (lambda (so-far lst) ...)
+ >>
+ >> but in the typed version, there's a reference to `so-far` that is not
+ >> correctly re-written to refer to the components.
+ >>
+ >> Cheers,
+ >> Asumu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>,
+        stamourv <stamourv@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: typed-scheme/12475: TR signals "used out of context" error in
+ strange place
+Date: Sun, 12 Jan 2014 10:46:53 -0800
+
+ Doesn't work. The issue is that check synatx doesn't know what kind of
+ arrow to draw because its in a syntax object.
+ 
+ Two options that I see.
+ 1. Optimize the dead code.
+ 2. Add the removed binding back in as (let-values (((removed-binding)
+ 'bogus-value))) ... ) and let Racket's optimizer take care of it.
+ 
+ On Sun, Jan 12, 2014 at 10:42 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > Make sure to use `quote-syntax` and not `syntax` here, to avoid issues
+ > with ... etc.
+ >
+ > Sam
+ >
+ > On Sun, Jan 12, 2014 at 1:35 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ >> Doing some investigation. It seems that the reference is happeing in
+ >> dead-code. We want to keep the dead code around for syntax check
+ >> though, but we don't want to waste time optimizing it. Currently we do
+ >> (begin (lambda () dead-code) live-code) but I'll see if (begin
+ >> #'dead-code live-code) gets us the highlighting without the errors.
+ >>
+ >> On Sun, Jan 12, 2014 at 9:21 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >>> (audit trail for PR 12475)
+ >>>
+ >>>> #lang typed/racket
+ >>>>
+ >>>> ;; given a set of polynomial coefficients, return
+ >>>> ;; the corresponding polynomial
+ >>>> (: coefficients->poly ((Listof Inexact-Real)
+ >>>>                        -> Inexact-Complex))
+ >>>> (define (coefficients->poly coefficients)
+ >>>>   (for/fold ([so-far 0.0+0.0i])
+ >>>>     ([coefficient (in-list coefficients)])
+ >>>>     (+ coefficient (* so-far 1.0))))
+ >>>
+ >>> Looking at this old TR bug, it looks like it's an optimizer bug that's
+ >>> still present in the current version. More specifically, it looks like
+ >>> it's due to complex-unboxing.
+ >>>
+ >>> If you look at the macro expansion, the TR version expands with a lambda
+ >>> like this:
+ >>>
+ >>>   (lambda (unboxed-real-2 unboxed-imag-3:18 lst) ...)
+ >>>
+ >>> whereas the untyped version expands with a lambda like this:
+ >>>
+ >>>   (lambda (so-far lst) ...)
+ >>>
+ >>> but in the typed version, there's a reference to `so-far` that is not
+ >>> correctly re-written to refer to the components.
+ >>>
+ >>> Cheers,
+ >>> Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>,
+        stamourv <stamourv@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: typed-scheme/12475: TR signals "used out of context" error in
+ strange place
+Date: Sun, 12 Jan 2014 14:02:28 -0500
+
+ On Sun, Jan 12, 2014 at 1:46 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > Doesn't work. The issue is that check synatx doesn't know what kind of
+ > arrow to draw because its in a syntax object.
+ >
+ > Two options that I see.
+ > 1. Optimize the dead code.
+ > 2. Add the removed binding back in as (let-values (((removed-binding)
+ > 'bogus-value))) ... ) and let Racket's optimizer take care of it.
+ 
+ Another option is to use `disappeared-use` properties for the removed
+ binding. Perhaps it could even take the whole dead expression.
+ 
+ Sam
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>,
+        stamourv <stamourv@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: typed-scheme/12475: TR signals "used out of context" error in
+ strange place
+Date: Sun, 12 Jan 2014 11:13:14 -0800
+
+ The removed binding is not the issue with check syntax, we should
+ already be adding a disapeared use for that.
+ 
+ The problem is that we have an expression of the form
+ 
+ (letrec ([f (lambda (arg)
+                  (if #t
+                      <expr1-using-arg>
+                      <expr2-using-arg>))])
+   (f 1.0+2.0i))
+ 
+ which gets transformed into:
+ 
+ (letrec ([f (lambda (arg-real arg-imag)
+                  (if #t
+                      <expr1-using-arg-real-and-arg-imag>
+                      <expr2-using-arg>))])
+   (f 1.0 2.0))
+ 
+ We want all bindings in expr2 to show up in check syntax including
+ ones other than 'arg'. Even if disappeared-use could take expr2 in its
+ entirety, arg would be used still be used out of context in it and
+ then check syntax would likely error.
+ 
+ On Sun, Jan 12, 2014 at 11:02 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > On Sun, Jan 12, 2014 at 1:46 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ >> Doesn't work. The issue is that check synatx doesn't know what kind of
+ >> arrow to draw because its in a syntax object.
+ >>
+ >> Two options that I see.
+ >> 1. Optimize the dead code.
+ >> 2. Add the removed binding back in as (let-values (((removed-binding)
+ >> 'bogus-value))) ... ) and let Racket's optimizer take care of it.
+ >
+ > Another option is to use `disappeared-use` properties for the removed
+ > binding. Perhaps it could even take the whole dead expression.
+ >
+ > Sam
+Responsible changed from "samth" to "endobson" by endobson@racket-lang.org at Mon, 13 Jan 2014 12:53:33 -0500
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c60b31f0d1
+State changed from "open" to "closed" by endobson@racket-lang.org at Mon, 13 Jan 2014 12:53:33 -0500
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c60b31f0d1
+  | Fix bindings of unboxed complex float functions.
+  | 
+  | Closes PR 12475.
+  | Closes PR 14284.
+

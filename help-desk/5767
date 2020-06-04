@@ -1,0 +1,350 @@
+From ian@cs.rice.edu  Wed Aug 28 21:16:17 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id VAA11526
+	for <bugs>; Wed, 28 Aug 2002 21:16:17 -0400
+Message-Id: <200208290116.VAA11526@champlain.ccs.neu.edu>
+Date: Wed, 28 Aug 2002 21:16:17 -0400
+From: ian <ian@cs.rice.edu>
+To: bugs@plt-scheme.org
+Subject: bad helpdesk link, on mac platform
+
+>Number:         5767
+>Category:       help-desk
+>Synopsis:       bad helpdesk link, on mac platform
+>Class:          doc-bug
+>Responsible:    steck
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Aug 28 21:20:00 -0400 2002
+>Closed-Date:    Thu Aug 29 12:56:16 -0400 2002
+>Last-Modified:  Mon May 05 14:23:21 -0400 2008
+>Originator:     ian
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        201
+>Environment:
+unix "SunOS frosty.cs.rice.edu 5.8 Generic_108528-08 sun4u sparc SUNW,Ultra-60" (sparc-solaris)
+
+Docs Installed:
+("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack" "misclib" "framework" "mred" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "tex2page" "tools" "tour" "t-y-scheme")
+
+Collections:
+(("/home/scheme/plt-released/201/collects" ("browser" "compiler" "defaults" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper" "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm" "version" "eopl" "web-server" "tex2page" "doc" "magic")) ("/home/ian/Src/Collects" ("CVS" "demo.ss" "Older" "BAK-Ian" "Ian")) ("/home/ian/TeachLogic/" ("Base" "Formats" "Internal" "Misc" "WaterWorld" "Xml" "CVS" "index.shtml" "CVSROOT" "todo-overall" "set-protections.csh")))
+
+Human Language: english
+>Description:
+from helpdesk home, if clicking on the "language manuals" link
+under MacOS Classic, it looks like there's a non-platform-independent
+path; the error is:
+
+ Servlet exception: "with-input-from-file: could not open file: \"stratus:progr
+amming:plt:/doc/beginning/:index.htm\" (errno=?)"
+
+>How-To-Repeat:
+>Fix:
+>Release-Note:
+>Audit-Trail:
+From: steck@ccs.neu.edu (Paul Steckler)
+To: ian@cs.rice.edu (ian)
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5767: bad helpdesk link, on mac platform
+Date: Wed, 28 Aug 2002 22:14:22 -0400 (EDT)
+
+ ian wrote:
+ >  Servlet exception: "with-input-from-file: could not open file: \"stratus:progr
+ > amming:plt:/doc/beginning/:index.htm\" (errno=?)"
+ 
+ Try replacing your
+ 
+   plt/collects/help/private/manuals.ss
+ 
+ with the file below (save your old one).
+ 
+ Does that make a difference?
+ 
+ -- Paul
+ 
+ (module manuals mzscheme
+   (require (lib "list.ss")
+            (lib "file.ss")
+            (lib "date.ss")
+            (lib "string-constant.ss" "string-constants")
+ 	   (lib "pregexp.ss")
+            "colldocs.ss"
+            "docpos.ss"
+ 	   (lib "util.ss" "help" "servlets" "private")
+ 	   (lib "external.ss" "help" "servlets" "private"))
+ 
+   ; to get CSS style spec
+   (require (lib "xml.ss" "xml"))
+   (require (lib "hd-css.ss" "help" "servlets" "private"))  
+ 
+   (provide find-manuals)
+  
+   (define re:title (regexp "<[tT][iI][tT][lL][eE]>(.*)</[tT][iI][tT][lL][eE]>"))
+ 
+   (define external-connections? (unbox external-box))
+ 
+   (define (find-manuals)
+     (let* ([sys-type (system-type)]
+ 	   [cvs-user? (cvs?)]
+            [doc-collection-path (with-handlers ([void (lambda (x) #f)])
+                                   (collection-path "doc"))]
+            [docs (let loop ([l (if doc-collection-path
+                                    (directory-list doc-collection-path)
+                                    null)])
+                    (cond
+                      [(null? l) null]
+                      [(file-exists? (build-path doc-collection-path (car l) "index.htm"))
+                       (cons (car l) (loop (cdr l)))]
+                      [else (loop (cdr l))]))]
+ 	   [compare-docs (lambda (a b)
+ 			   (let ([ap (standard-html-doc-position a)]
+ 				 [bp (standard-html-doc-position b)])
+ 			     (cond
+ 			      [(= ap bp) (string<? a b)]
+ 			      [else (< ap bp)])))]
+            [docs (quicksort docs compare-docs)]
+            [doc-paths (map (lambda (doc) (string-append "/doc/" doc "/")) docs)]
+            [get-name
+ 	    (lambda (d)
+ 	      (let-values ([(_1 short-path _2) (split-path d)])
+ 		(let ([ass (assoc short-path known-docs)])
+ 		  (if ass
+ 		      (cdr ass)
+ 		      (with-input-from-file (build-path doc-collection-path short-path "index.htm")
+ 			(lambda ()
+ 			  (let loop ()
+ 			    (let ([r (read-line)])
+ 			      (cond
+ 			       [(eof-object? r) "(Unknown title)"]
+ 			       [(regexp-match re:title r) => cadr]
+ 			       [(regexp-match "<[tT][iI][tT][lL][eE]>(.*)$" r)
+ 				;; Append lines until we find it 
+ 				(let aloop ([r r])
+ 				  (let ([a (read-line)])
+ 				    (cond
+ 				     [(eof-object? a) (loop)] ; give up
+ 				     [else (let ([r (string-append r a)])
+ 					     (cond
+ 					      [(regexp-match re:title r) => cadr]
+ 					      [else (aloop r)]))])))]
+ 			       [else (loop)])))))))))]
+ 	   [names (map get-name doc-paths)]
+ 	   [names+paths (map cons names doc-paths)]
+ 	   [is-lang? (lambda (name+path)
+ 		       (let ([name (car name+path)])
+ 			 (ormap (lambda (s)
+ 				  (regexp-match s name))
+ 				'("Language" "MrEd"))))]
+ 	   [lang-names+paths (filter is-lang? names+paths)]
+ 	   [tool-names+paths (filter (lambda (x) (not (is-lang? x))) names+paths)]
+ 	   [lang-names (map car lang-names+paths)]
+ 	   [lang-doc-paths (map cdr lang-names+paths)]
+ 	   [tool-names (map car tool-names+paths)]
+ 	   [tool-doc-paths (map cdr tool-names+paths)]
+ 	   [mk-link (lambda (doc name)
+                       (let* ([manual-dir (car (last-pair (explode-path doc)))]
+ 			     [index-file (build-path 
+ 					  (collection-path "doc")
+ 					  manual-dir
+ 					  "index.htm")])
+                         (format "<LI> <A HREF=\"~a\">~a</A>~a"
+ 			        doc
+                                 name
+                                 (if (and cvs-user?
+                                          (file-exists? index-file))
+                                     (string-append 
+                                      "<BR>&nbsp;&nbsp;"
+ 				     "<FONT SIZE=\"-1\">"
+ 				     (if (or external-connections?
+ 					     (not (assoc manual-dir known-docs)))
+ 					 ""
+ 					 (string-append
+ 					  (format 
+ 					   "[<A HREF=\"/servlets/download-manual.ss?manual=~a&label=~a\">~a</A>]"
+ 					   manual-dir
+ 					   (hexify-string name)
+ 					   (string-constant refresh))
+ 					  "&nbsp;"))
+ 				     (format (string-constant manual-installed-date)
+                                              (date->string
+                                               (seconds->date
+                                                (file-or-directory-modify-seconds
+                                                 index-file))))
+ 				     "</FONT>")
+ 				    ""))))]
+ 	   [break-between (lambda (re l)
+ 			    (if (null? l)
+ 				l
+ 				(if (regexp-match re (car l))
+ 				    (let loop ([l l])
+ 				      (cond 
+ 				       [(null? l) null]
+ 				       [(regexp-match re (car l))
+ 					(cons (car l) (loop (cdr l)))]
+ 				       [else (cons "<P>" l)]))
+ 				    l)))])
+       (let-values ([(collections-doc-files collection-names) (colldocs)])
+         (apply
+ 	 string-append
+ 	 "<html><head>"
+ 	 "<TITLE>PLT Manuals</TITLE>"
+ 	(xexpr->string hd-css)
+ 	 "</head>"
+ 	 "<body>"
+ 	 (append 
+ 	  
+ 	  (list "<H1>Installed Manuals</H1>")
+ 	  
+ 	  (if (and cvs-user? (not external-connections?))
+ 	      (list "<b>CVS:</b> <a href=\"/servlets/refresh-manuals.ss\" target=\"outer\">"
+ 		    (string-constant refresh-all-manuals)
+ 		    "</a>")
+ 	      '())
+ 	  
+ 	  (list "<H3>Languages</H3>"
+ 		"<UL>")
+ 	  (break-between "Student" (map mk-link lang-doc-paths lang-names))
+ 	  (list "</UL>"
+ 		"<H3>Tools, Libraries, and Extensions</H3>"
+ 		"<UL>")
+ 	  (break-between "DrScheme" (map mk-link tool-doc-paths tool-names))
+ 	  (list "</UL><P><UL>")
+ 	  (map
+ 	   (lambda (collection-doc-file name)
+ 	     (format "<LI> <A HREF=\"/servlets/doc-anchor.ss?file=~a&name=~a&caption=Documentation for the ~a collection\">~a collection</A>"
+ 					; escape colons and other junk
+ 		     (hexify-string
+ 		      (build-path (car collection-doc-file) 
+ 				  (cadr collection-doc-file)))
+ 	             name
+ 		     name
+ 		     name))
+ 	   collections-doc-files
+ 	   collection-names)
+ 	  (list "</UL>")
+ 	  (let ([uninstalled (let loop ([l known-docs])
+ 			       (cond
+ 				[(null? l) null]
+ 				[(member (caar l) docs) (loop (cdr l))]
+ 				[else (cons (car l) (loop (cdr l)))]))])
+ 	    (cond
+ 	     [(null? uninstalled)
+ 	      (list "")]
+ 	     [(not doc-collection-path)
+ 	      (list "<font color=\"red\">"
+ 		    "Please create a doc collection."
+ 		    "You will not be able to install any manuals until you do."
+ 		    "</font>")]
+ 	     [else
+ 	      (list*
+ 	       "<H3>Uninstalled Manuals</H3>"
+ 	       "<UL>"
+ 	       (append
+ 		(map
+ 		 (lambda (doc-pair)
+ 		   (let ([manual (car doc-pair)]
+ 			 [name (cdr doc-pair)])
+ 		     (format "<LI> <A HREF=\"/servlets/missing-manual.ss?manual=~a&name=~a\">~a</A>~a"
+ 			     manual
+ 			     (hexify-string name)
+ 			     name
+ 			     (if (file-exists? 
+ 				  (build-path doc-collection-path manual "hdindex"))
+ 				 " (index installed)"
+ 				 ""))))
+ 		 uninstalled)
+ 		(list "</UL>")))]))
+ 	  (list "</body></html>")))))))
+
+From: "Paul Steckler" <steck@ccs.neu.edu>
+To: "'Matthew Flatt'" <mflatt@cs.utah.edu>
+Cc: <bugs@plt-scheme.org>
+Subject: Re: all/5767: bad helpdesk link, on mac platform
+Date: Thu, 29 Aug 2002 10:17:21 -0400
+
+ Matthew,
+ 
+ 	Can you see if the "Manuals" link in Help Desk works under OS 9
+ with the v202 bundle?
+ 
+ 	I suspect it does.
+ 
+ -- Paul
+ 
+ -----Original Message-----
+ From: ian [mailto:ian@cs.rice.edu] 
+ Sent: Wednesday, August 28, 2002 9:16 PM
+ To: bugs@plt-scheme.org
+ Subject: all/5767: bad helpdesk link, on mac platform
+ 
+ You may claim or edit this problem report at
+ 
+ https://internal.plt-scheme.org/cgis-bin/gnatsweb.pl?cmd=edit&pr=5767&da
+ tabase=plt
+ 
+ >Number:         5767
+ >Category:       all
+ >Synopsis:       bad helpdesk link, on mac platform
+ >Confidential:   no
+ >Severity:       non-critical
+ >Priority:       medium
+ >Responsible:    steck
+ >State:          open
+ >Class:          doc-bug
+ >Submitter-Id:   unknown
+ >Arrival-Date:   Wed Aug 28 21:20:00 EDT 2002
+ >Closed-Date:
+ >Last-Modified:
+ >Originator:     ian
+ >Release:        201
+ >Organization:
+ plt
+ >Environment:
+ unix "SunOS frosty.cs.rice.edu 5.8 Generic_108528-08 sun4u sparc
+ SUNW,Ultra-60" (sparc-solaris)
+ 
+ Docs Installed:
+ ("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack"
+ "misclib" "framework" "mred" "beginning" "beginning-abbr" "intermediate"
+ "intermediate-lambda" "advanced" "tex2page" "tools" "tour" "t-y-scheme")
+ 
+ Collections:
+ (("/home/scheme/plt-released/201/collects" ("browser" "compiler"
+ "defaults" "drscheme" "dynext" "errortrace" "framework" "games"
+ "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher"
+ "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper"
+ "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm"
+ "version" "eopl" "web-server" "tex2page" "doc" "magic"))
+ ("/home/ian/Src/Collects" ("CVS" "demo.ss" "Older" "BAK-Ian" "Ian"))
+ ("/home/ian/TeachLogic/" ("Base" "Formats" "Internal" "Misc"
+ "WaterWorld" "Xml" "CVS" "index.shtml" "CVSROOT" "todo-overall"
+ "set-protections.csh")))
+ 
+ Human Language: english
+ >Description:
+ from helpdesk home, if clicking on the "language manuals" link
+ under MacOS Classic, it looks like there's a non-platform-independent
+ path; the error is:
+ 
+  Servlet exception: "with-input-from-file: could not open file:
+ \"stratus:progr
+ amming:plt:/doc/beginning/:index.htm\" (errno=?)"
+ 
+ >How-To-Repeat:
+ 
+ >Fix:
+ >Release-Note:
+ >Audit-Trail:
+ >Unformatted:
+ 
+State-Changed-From-To: open->closed
+State-Changed-By: steck
+State-Changed-When: Thu Aug 29 12:56:16 2002
+State-Changed-Why:
+    Fixed for v202 release.
+>Unformatted:

@@ -1,0 +1,1387 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Feb  8 19:17:31 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q190HSCa018238
+	for <bugs@bugs.plt-scheme.org>; Wed, 8 Feb 2012 19:17:28 -0500
+Message-Id: <201202090017.q190HQCH018232@champlain.ccs.neu.edu>
+Date: Wed, 8 Feb 2012 19:17:26 -0500
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: TR Compilation Times
+
+>Number:         12557
+>Category:       typed-scheme
+>Synopsis:       TR Compilation Times
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Feb 08 19:20:02 -0500 2012
+>Last-Modified:  Fri May 25 11:40:01 -0400 2012
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+...or type
+>Description:
+Working on the timings for the last PR, I wondered how much we're paying
+for TR in terms of compilation times.  Turns out that it is substantial,
+more than what I expected.  (Though I should have expected it, given my
+course...)
+
+I did builds with 1 and 4 cores, with the full tree from git [A], a
+variation of the tree so that there is no code that uses TR [B], and
+finally that last tree after removing the TR collections ("typed*")
+completely.  (As seen in my last PR, the parallelization outliar is with
+2 cores, I timed only 1 and 4 (which is what I have on this machine).)
+
+The times are:
+
+   cores     A     B     C
+    1      1018s  709s  624s
+    4       794s  288s  240s
+
+So in terms of absolute waiting time (and modulo issues described in the
+README file), the costs are:
+
+   cores   TR-itself  TR-based-code (images, big-letters)  Total
+    1         8%         30%                                39%
+    4         6%         64%                                70%
+
+So clearly there is a severe problem with parallel builds (and this is
+not including the `-j 2' case that would probably make it much worse
+still).  But even without it, we are paying 30% of the full compilation
+time just for a single TR-based collection and one extra file, which are
+small enough that it took me <1 hour to convert to plain racket.
+
+This is a major problem in getting TR used more.  (IMO, it's important
+enough to become first priority -- no matter how nice the type system
+is, it should be a practical tool to be adopted.)
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: bugs@racket-lang.org
+Cc: bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Wed, 8 Feb 2012 19:22:01 -0500
+
+ Just now, eli@barzilay.org wrote:
+ > [...]
+ 
+ Two more notes that I forgot:
+ 
+ * The numbers with TR but no TR code show that it's not TR itself that
+   is a problem, it's code that uses it.  (So perhaps a sufficient
+   temporary solution to the images problem is to disable the
+   typechecker for now.)
+ 
+ * For completeness: the relevant tree that I tried is at
+   http://tmp.barzilay.org/L
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: eli@barzilay.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Wed, 8 Feb 2012 19:31:23 -0500
+
+ On Wed, Feb 8, 2012 at 7:20 PM,  <eli@barzilay.org> wrote:
+ >
+ > I did builds with 1 and 4 cores, with the full tree from git [A], a
+ > variation of the tree so that there is no code that uses TR [B], and
+ > finally that last tree after removing the TR collections ("typed*")
+ > completely.  (As seen in my last PR, the parallelization outliar is with
+ > 2 cores, I timed only 1 and 4 (which is what I have on this machine).)
+ 
+ Can you try this experiment just by taking the tree from git and
+ removing the images collection?  If that's where all the slowdown is,
+ then that's a rather different problem.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: eli@barzilay.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Wed, 8 Feb 2012 19:21:32 -0600
+
+ Did I misunderstand that Eli's numbers were comparing a TR version of
+ the code with an R version of the same code?
+ 
+ Robby
+ 
+ On Wed, Feb 8, 2012 at 6:31 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Wed, Feb 8, 2012 at 7:20 PM,  <eli@barzilay.org> wrote:
+ >>
+ >> I did builds with 1 and 4 cores, with the full tree from git [A], a
+ >> variation of the tree so that there is no code that uses TR [B], and
+ >> finally that last tree after removing the TR collections ("typed*")
+ >> completely.  (As seen in my last PR, the parallelization outliar is with
+ >> 2 cores, I timed only 1 and 4 (which is what I have on this machine).)
+ >
+ > Can you try this experiment just by taking the tree from git and
+ > removing the images collection?  If that's where all the slowdown is,
+ > then that's a rather different problem.
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bug-notification@racket-lang.org, eli@barzilay.org, nobody@racket-lang.org,
+        bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Wed, 8 Feb 2012 20:26:33 -0500
+
+ --f46d043c807019f38104b87de7bf
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ No, that's what I understood as well.  But the problem of "TR compiling the
+ images collection is slow" is a different problem than "TR in general is
+ slow".
+  On Feb 8, 2012 8:21 PM, "Robby Findler" <robby@eecs.northwestern.edu>
+ wrote:
+ 
+ > Did I misunderstand that Eli's numbers were comparing a TR version of
+ > the code with an R version of the same code?
+ >
+ > Robby
+ >
+ > On Wed, Feb 8, 2012 at 6:31 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ > wrote:
+ > > On Wed, Feb 8, 2012 at 7:20 PM,  <eli@barzilay.org> wrote:
+ > >>
+ > >> I did builds with 1 and 4 cores, with the full tree from git [A], a
+ > >> variation of the tree so that there is no code that uses TR [B], and
+ > >> finally that last tree after removing the TR collections ("typed*")
+ > >> completely.  (As seen in my last PR, the parallelization outliar is with
+ > >> 2 cores, I timed only 1 and 4 (which is what I have on this machine).)
+ > >
+ > > Can you try this experiment just by taking the tree from git and
+ > > removing the images collection?  If that's where all the slowdown is,
+ > > then that's a rather different problem.
+ > > --
+ > > sam th
+ > > samth@ccs.neu.edu
+ >
+ 
+ --f46d043c807019f38104b87de7bf
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p>No, that&#39;s what I understood as well.=A0 But the problem of &quot;TR=
+  compiling the images collection is slow&quot; is a different problem than =
+ &quot;TR in general is slow&quot;.<br>
+ </p>
+ <div class=3D"gmail_quote">On Feb 8, 2012 8:21 PM, &quot;Robby Findler&quot=
+ ; &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwester=
+ n.edu</a>&gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quo=
+ te" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"=
+ >
+ Did I misunderstand that Eli&#39;s numbers were comparing a TR version of<b=
+ r>
+ the code with an R version of the same code?<br>
+ <br>
+ Robby<br>
+ <br>
+ On Wed, Feb 8, 2012 at 6:31 PM, Sam Tobin-Hochstadt &lt;<a href=3D"mailto:s=
+ amth@ccs.neu.edu">samth@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt; On Wed, Feb 8, 2012 at 7:20 PM, =A0&lt;<a href=3D"mailto:eli@barzilay.=
+ org">eli@barzilay.org</a>&gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; I did builds with 1 and 4 cores, with the full tree from git [A], =
+ a<br>
+ &gt;&gt; variation of the tree so that there is no code that uses TR [B], a=
+ nd<br>
+ &gt;&gt; finally that last tree after removing the TR collections (&quot;ty=
+ ped*&quot;)<br>
+ &gt;&gt; completely. =A0(As seen in my last PR, the parallelization outliar=
+  is with<br>
+ &gt;&gt; 2 cores, I timed only 1 and 4 (which is what I have on this machin=
+ e).)<br>
+ &gt;<br>
+ &gt; Can you try this experiment just by taking the tree from git and<br>
+ &gt; removing the images collection? =A0If that&#39;s where all the slowdow=
+ n is,<br>
+ &gt; then that&#39;s a rather different problem.<br>
+ &gt; --<br>
+ &gt; sam th<br>
+ &gt; <a href=3D"mailto:samth@ccs.neu.edu">samth@ccs.neu.edu</a><br>
+ </blockquote></div>
+ 
+ --f46d043c807019f38104b87de7bf--
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org,
+        Robby Findler <robby@eecs.northwestern.edu>
+Subject: Re: [racket-bug] all/12557: TR Compilation Times [and 1 more messages]
+Date: Wed, 8 Feb 2012 20:41:10 -0500
+
+ An hour ago, Sam Tobin-Hochstadt wrote:
+ > 
+ > Can you try this experiment just by taking the tree from git and
+ > removing the images collection?  If that's where all the slowdown
+ > is, then that's a rather different problem.
+ 
+ I don't see how that would make a difference.  (And I've already spent
+ a whole day on this whole thing.)
+ 
+ 
+ 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ > No, that's what I understood as well.  But the problem of "TR
+ > compiling the images collection is slow" is a different problem than
+ > "TR in general is slow".
+ 
+ ...and this is yet another confusing sentence.
+ 
+ I only timed compilation, not running.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times [and 1 more messages]
+Date: Wed, 8 Feb 2012 19:48:01 -0600
+
+ I mean no offense, but I think that probably further investigation is
+ best done by the person who decides they want to try to fix things.
+ 
+ Robby
+ 
+ On Wed, Feb 8, 2012 at 7:41 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > An hour ago, Sam Tobin-Hochstadt wrote:
+ >>
+ >> Can you try this experiment just by taking the tree from git and
+ >> removing the images collection?  If that's where all the slowdown
+ >> is, then that's a rather different problem.
+ >
+ > I don't see how that would make a difference.  (And I've already spent
+ > a whole day on this whole thing.)
+ >
+ >
+ > 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ >> No, that's what I understood as well.  But the problem of "TR
+ >> compiling the images collection is slow" is a different problem than
+ >> "TR in general is slow".
+ >
+ > ...and this is yet another confusing sentence.
+ >
+ > I only timed compilation, not running.
+ >
+ > --
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                    http://barzilay.org/                   Maze is Life!
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times [and 1 more messages]
+Date: Wed, 8 Feb 2012 20:56:46 -0500
+
+ A few minutes ago, Robby Findler wrote:
+ > I mean no offense, but I think that probably further investigation
+ > is best done by the person who decides they want to try to fix
+ > things.
+ 
+ The problem in general is TR being slow (how exactly is not something
+ I can tell) -- the only "fix" that I can offer is to change the code
+ that uses it to not use it.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times [and 1 more messages]
+Date: Wed, 8 Feb 2012 20:12:04 -0600
+
+ I think we should have more patience with the TR maintainers.
+ 
+ And, if I were one of them, I would be grateful to you for doing this
+ initial round of investigation (despite all the negativity you layered
+ on top of it that makes it hard to appreciate the value that it is).
+ 
+ Robby
+ 
+ On Wed, Feb 8, 2012 at 7:56 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > A few minutes ago, Robby Findler wrote:
+ >> I mean no offense, but I think that probably further investigation
+ >> is best done by the person who decides they want to try to fix
+ >> things.
+ >
+ > The problem in general is TR being slow (how exactly is not something
+ > I can tell) -- the only "fix" that I can offer is to change the code
+ > that uses it to not use it.
+ >
+ > --
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                    http://barzilay.org/                   Maze is Life!
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times [and 1 more messages]
+Date: Wed, 8 Feb 2012 21:34:45 -0500
+
+ With all due respect, I think this is a good starting point for Sam to look at this problem. Eli is down the hall from him, and he has done a lot of work to identify a problem with A USE OF Typed Racket. Whether this is the image collection or TR general simply doesn't matter. Eli could be some outsider who compiles our git head from scratch, and after a day's worth of recompiling we wouldn't reject his report and ask for more work. 
+ 
+ I would also like to propose that Sam and Vincent look at the image collection code. Perhaps they can spot a tight loop across Racket-TR module boundaries, which might be the problem. Perhaps they can see some other obvious inefficiency. They have spent a lot of time on TR and can spot such things much more easily than anyone else. 
+ 
+ In parallel, they should indeed determine whether it is the image collection that cause the hickup. We have plenty of machines to do this kind of work. 
+ 
+ Thanks. 
+ 
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eli Barzilay <eli@barzilay.org>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times [and 1 more messages]
+Date: Wed, 8 Feb 2012 22:02:19 -0500
+
+ On Wed, Feb 8, 2012 at 9:12 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > I think we should have more patience with the TR maintainers.
+ >
+ > And, if I were one of them, I would be grateful to you for doing this
+ > initial round of investigation (despite all the negativity you layered
+ > on top of it that makes it hard to appreciate the value that it is).
+ 
+ Right.  I do appreciate the work Eli put into this investigation,
+ although I'm still unsure if the problem is only with the time taken
+ to compile the images collection, which we discussed extensively in PR
+ 12518, or if there's a larger problem with TR compile times in the
+ tree at the moment.
+ 
+ For the images collection, there are a few points worth noting (some
+ of which have been discussed in 12518 as well).
+ 
+ 1. Some of the `images' files generate *huge* amounts of code.  For
+ example, images/private/flomap-pointwise.rkt generates bytecode bigger
+ than drracket/private/rep.rkt, despite being a file *17 times*
+ smaller.  Typed Racket, unfortunately, will necessarily take longer in
+ this case.  It may be that this can be cut down, without any changes
+ to Typed Racket, and without any loss in performance for images.
+ 
+ 2. Some parts of Typed Racket are easy to make faster -- that same
+ file spends significant time generating logs for "Performance Report",
+ which are then thrown away.  When we can avoid doing this TR will be
+ somewhat faster for this file.
+ 
+ 3. Other than that one case, the profiles for Typed Racket are very
+ flat, and it's very hard to know how to make it faster.  Currently, we
+ don't have great performance debugging tools in Racket, and thus even
+ though I've personally spent a lot of time trying to make TR faster, I
+ don't know what I should look at right now.
+ 
+ 4. Part of the reason that TR is slow is that it's an ambitious
+ typechecker that does a lot.  This is also one of the reasons that
+ Scribble is slower than a less ambitious documentation system.  I
+ think this is a virtue of TR, just as it is of Scribble.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org,
+        Robby Findler <robby@eecs.northwestern.edu>
+Subject: Re: [racket-bug] all/12557: TR Compilation Times [and 1 more messages]
+Date: Wed, 8 Feb 2012 22:04:52 -0500
+
+ On Wed, Feb 8, 2012 at 8:41 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >
+ > 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ >> No, that's what I understood as well.  But the problem of "TR
+ >> compiling the images collection is slow" is a different problem than
+ >> "TR in general is slow".
+ >
+ > ...and this is yet another confusing sentence.
+ >
+ > I only timed compilation, not running.
+ 
+ I didn't intend to refer to "running" at any point.  I'm still unsure
+ if the problem is that the compile times for all TR programs are too
+ slow (beyond the degree to which we thought that yesterday), or if the
+ problem is just that the compile times for the parts of the images
+ collection that uses TR is too slow because of particular issues with
+ the image collection.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Wed, 8 Feb 2012 23:33:17 -0500
+
+ An hour and a half ago, Sam Tobin-Hochstadt wrote:
+ > 
+ > 4. Part of the reason that TR is slow is that it's an ambitious
+ > typechecker that does a lot.  This is also one of the reasons that
+ > Scribble is slower than a less ambitious documentation system.  I
+ > think this is a virtue of TR, just as it is of Scribble.
+ 
+ A meta goal that I have in this PR is that I want to see TR used, and
+ having a good compilation time is an important factor in getting that.
+ It's obviously fine to pay some price for improved functionality, but
+ if it's high enough then it won't get used.
+ 
+ 
+ An hour ago, Sam Tobin-Hochstadt wrote:
+ > On Wed, Feb 8, 2012 at 8:41 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > >
+ > > 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ > >> No, that's what I understood as well.  But the problem of "TR
+ > >> compiling the images collection is slow" is a different problem than
+ > >> "TR in general is slow".
+ > >
+ > > ...and this is yet another confusing sentence.
+ > >
+ > > I only timed compilation, not running.
+ > 
+ > I didn't intend to refer to "running" at any point.  I'm still
+ > unsure if the problem is that the compile times for all TR programs
+ > are too slow (beyond the degree to which we thought that yesterday),
+ > or if the problem is just that the compile times for the parts of
+ > the images collection that uses TR is too slow because of particular
+ > issues with the image collection.
+ 
+ I can't help with that, since I don't know the internals of the images
+ collection or TR (not to any meaningful degree).  In any case, it's
+ still not clear to me how removing the images collection and timing
+ that build helps, but it looks like we won't get anywhere unless I do
+ that so (both builds as before -- with `-j 1' and timing from the
+ bootstrapping to the domain info):
+ 
+   Full tree without any TR-based code:   707s (sanity check, same as before)
+   Same with `images' completely removed: 674s
+ 
+ This makes the compilation time breakdown in the PR as follows
+ (extremely roughly):
+ 
+    8% TR itself
+   30% TR-based code
+    3% untyped images
+ 
+ [This is what I thought it would look like, and I still don't see
+ how/if it helps.]
+ 
+ New tree in the same place (http://tmp.barzilay.org/L/).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Wed, 8 Feb 2012 23:55:19 -0500
+
+ On Wed, Feb 8, 2012 at 11:33 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > An hour and a half ago, Sam Tobin-Hochstadt wrote:
+ >>
+ >> 4. Part of the reason that TR is slow is that it's an ambitious
+ >> typechecker that does a lot.  This is also one of the reasons that
+ >> Scribble is slower than a less ambitious documentation system.  I
+ >> think this is a virtue of TR, just as it is of Scribble.
+ >
+ > A meta goal that I have in this PR is that I want to see TR used, and
+ > having a good compilation time is an important factor in getting that.
+ > It's obviously fine to pay some price for improved functionality, but
+ > if it's high enough then it won't get used.
+ 
+ Unsurprisingly, I share this goal.  :)
+ 
+ I've put a lot of work into making TR faster (for example, the latency
+ is now low enough that it's nice to use with online check-syntax).
+ But right now, I don't know how to make it much faster, and I think a
+ lot of time is spent in the complex core algorithms (like subtyping).
+ 
+ > An hour ago, Sam Tobin-Hochstadt wrote:
+ >> On Wed, Feb 8, 2012 at 8:41 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> >
+ >> > 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ >> >> No, that's what I understood as well.  But the problem of "TR
+ >> >> compiling the images collection is slow" is a different problem than
+ >> >> "TR in general is slow".
+ >> >
+ >> > ...and this is yet another confusing sentence.
+ >> >
+ >> > I only timed compilation, not running.
+ >>
+ >> I didn't intend to refer to "running" at any point.  I'm still
+ >> unsure if the problem is that the compile times for all TR programs
+ >> are too slow (beyond the degree to which we thought that yesterday),
+ >> or if the problem is just that the compile times for the parts of
+ >> the images collection that uses TR is too slow because of particular
+ >> issues with the image collection.
+ >
+ > I can't help with that, since I don't know the internals of the images
+ > collection or TR (not to any meaningful degree).  In any case, it's
+ > still not clear to me how removing the images collection and timing
+ > that build helps, but it looks like we won't get anywhere unless I do
+ > that so (both builds as before -- with `-j 1' and timing from the
+ > bootstrapping to the domain info):
+ >
+ >  Full tree without any TR-based code:   707s (sanity check, same as before)
+ >  Same with `images' completely removed: 674s
+ 
+ Sorry about this, it seems I was unclear about what I was asking.  I
+ can see why you don't see how the below helps, and I'm sorry I made
+ you spend a bunch of time doing this.  I was thinking of keeping
+ everything the same as in current git HEAD, but without the `images'
+ collection.  My suspicion is that the problems will all go away, and
+ that everything bad we're seeing is about interactions between slow TR
+ compilation, the images collection generating lots of code, and raco
+ setup ordering/communication.
+ 
+ > This makes the compilation time breakdown in the PR as follows
+ > (extremely roughly):
+ >
+ >   8% TR itself
+ >  30% TR-based code
+ >   3% untyped images
+ >
+ > [This is what I thought it would look like, and I still don't see
+ > how/if it helps.]
+ >
+ > New tree in the same place (http://tmp.barzilay.org/L/).
+ >
+ > --
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                    http://barzilay.org/                   Maze is Life!
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Thu, 9 Feb 2012 00:17:46 -0500
+
+ A few minutes ago, Sam Tobin-Hochstadt wrote:
+ > On Wed, Feb 8, 2012 at 11:33 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > >
+ > >  Full tree without any TR-based code:   707s (sanity check, same
+ > >  as before)
+ > >  Same with `images' completely removed: 674s
+ > 
+ > Sorry about this, it seems I was unclear about what I was asking.  I
+ > can see why you don't see how the below helps, and I'm sorry I made
+ > you spend a bunch of time doing this.  I was thinking of keeping
+ > everything the same as in current git HEAD, but without the `images'
+ > collection.  My suspicion is that the problems will all go away,
+ 
+ Well, the tree that I used is the result of:
+ 
+   * Starting from the current git tree
+   * Un-TR-ing all TR-ed code (images, large-letters, some minor thing
+     in honu)
+   * Remove images collection and fix references to it
+ 
+ So this is very similar to what you talk about, except for large
+ letters and the honu thing.
+ 
+ > and that everything bad we're seeing is about interactions between
+ > slow TR compilation, the images collection generating lots of code,
+ > and raco setup ordering/communication.
+ 
+ But IIUC (and it's very likely that I don't) the only way to test
+ *that* out is to have a bunch of TR-ed code added that is roughly the
+ same size and seeing that it doesn't add much to the compilation time.
+ 
+ (And if images is really hitting some particularly odd thing, then the
+ non-fix that I didn't intend to suggest -- un-TR-ing the images -- is
+ the only fix until the oddity is discovered.)
+ 
+ 
+ [And semi-kind-of-related, and also semi-kind-of-related to Vincent's
+ idea of avoiding the TR/non-TR barrier cost by dropping contracts:
+ maybe a viable mode of work for cases where the cost of TR-compilation
+ is too high is to use it in the no-check mode, but allow running the
+ type checker separately, whenever someone edits the file.  Or
+ alternatively, make typecheck be part of the tests, so normal
+ compilation just goes quickly, and then testing actually checks the
+ file.  But maybe that's a path to an `-O3' kind of thing.]
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Thu, 9 Feb 2012 00:41:48 -0500
+
+ --f46d0444026610701a04b88179f2
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ On Thu, Feb 9, 2012 at 12:17 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ >
+ >> and that everything bad we're seeing is about interactions between
+ >> slow TR compilation, the images collection generating lots of code,
+ >> and raco setup ordering/communication.
+ >
+ > But IIUC (and it's very likely that I don't) the only way to test
+ > *that* out is to have a bunch of TR-ed code added that is roughly the
+ > same size and seeing that it doesn't add much to the compilation time.
+ >
+ > (And if images is really hitting some particularly odd thing, then the
+ > non-fix that I didn't intend to suggest -- un-TR-ing the images -- is
+ > the only fix until the oddity is discovered.)
+ 
+ I think the only "oddity" is the generation of a lot of code.  Here's
+ a quick experiment:
+ 
+ with vanilla git head:
+ [samth@ajax:~/sw/plt/collects/images/private ((b99c21c...)) plt] time
+ raco make -v flomap-pointwise.rkt
+ "flomap-pointwise.rkt":
+   making #<path:/home/samth/sw/plt/collects/images/private/flomap-pointwise.rkt>
+  [output to "./compiled/flomap-pointwise_rkt.zo"]
+ 
+ real	0m11.531s
+ user	0m11.245s
+ sys	0m0.244s
+ 
+ with the attached patch, turning 2 `define-syntax-rule's into `define's:
+ [samth@ajax:~/sw/plt/collects/images/private (master) plt] time raco
+ make -v flomap-pointwise.rkt
+ "flomap-pointwise.rkt":
+   making #<path:/home/samth/sw/plt/collects/images/private/flomap-pointwise.rkt>
+  [output to "./compiled/flomap-pointwise_rkt.zo"]
+ 
+ real	0m2.512s
+ user	0m2.360s
+ sys	0m0.144s
+ 
+ The patch also saves about 40k of bytecode in just that file.
+ 
+ I believe the reason not to do this is performance, but we should
+ measure how much we're losing here.  There are 23 more uses of
+ `define-syntax-rule' in `images/private'; I think they're all defining
+ inlined functions.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+ --f46d0444026610701a04b88179f2
+ Content-Type: text/x-patch; charset=UTF-8; name="0001-uninline.patch"
+ Content-Disposition: attachment; filename="0001-uninline.patch"
+ Content-Transfer-Encoding: base64
+ X-Attachment-Id: f_gyfczj3z0
+ 
+ RnJvbSAzNjUyN2M1NmYyN2NkNmFkZjY5ZTU3NzlhOGJjNzBhYmU0YmEyNmE4IE1vbiBTZXAgMTcg
+ MDA6MDA6MDAgMjAwMQpGcm9tOiBTYW0gVG9iaW4tSG9jaHN0YWR0IDxzYW10aEByYWNrZXQtbGFu
+ Zy5vcmc+CkRhdGU6IFRodSwgOSBGZWIgMjAxMiAwMDozNDo0OCAtMDUwMApTdWJqZWN0OiBbUEFU
+ Q0hdIHVuaW5saW5lCgotLS0KIGNvbGxlY3RzL2ltYWdlcy9wcml2YXRlL2Zsb21hcC1wb2ludHdp
+ c2Uucmt0IHwgICAgNiArKysrLS0KIDEgZmlsZXMgY2hhbmdlZCwgNCBpbnNlcnRpb25zKCspLCAy
+ IGRlbGV0aW9ucygtKQoKZGlmZiAtLWdpdCBhL2NvbGxlY3RzL2ltYWdlcy9wcml2YXRlL2Zsb21h
+ cC1wb2ludHdpc2Uucmt0IGIvY29sbGVjdHMvaW1hZ2VzL3ByaXZhdGUvZmxvbWFwLXBvaW50d2lz
+ ZS5ya3QKaW5kZXggYWUyZWIxNS4uN2EwMzE0ZiAxMDA2NDQKLS0tIGEvY29sbGVjdHMvaW1hZ2Vz
+ L3ByaXZhdGUvZmxvbWFwLXBvaW50d2lzZS5ya3QKKysrIGIvY29sbGVjdHMvaW1hZ2VzL3ByaXZh
+ dGUvZmxvbWFwLXBvaW50d2lzZS5ya3QKQEAgLTE2LDcgKzE2LDggQEAKIDs7ID09PT09PT09PT09
+ PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
+ PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQogOzsgVW5hcnkKIAotKGRlZmluZS1zeW50
+ YXgtcnVsZSAoaW5saW5lLWZsb21hcC1saWZ0IGYpCisoOiBpbmxpbmUtZmxvbWFwLWxpZnQgOiAo
+ RmxvbnVtIC0+IEZsb251bSkgLT4gZmxvbWFwIC0+IGZsb21hcCkKKyhkZWZpbmUgKGlubGluZS1m
+ bG9tYXAtbGlmdCBmKQogICAozrs6IChbZm0gOiBmbG9tYXBdKQogICAgIChtYXRjaC1kZWZpbmUg
+ KGZsb21hcCB2cyBjIHcgaCkgZm0pCiAgICAgKGZsb21hcCAoaW5saW5lLWJ1aWxkLWZsdmVjdG9y
+ ICgqIGMgdyBoKSAozrsgKGkpIChmICh1bnNhZmUtZmx2ZWN0b3ItcmVmIHZzIGkpKSkpCkBAIC00
+ Nyw3ICs0OCw4IEBACiA7OyA9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
+ PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
+ PT0KIDs7IEJpbmFyeQogCi0oZGVmaW5lLXN5bnRheC1ydWxlIChpbmxpbmUtZmxvbWFwLWxpZnQy
+ IG5hbWUgZikKKyg6IGlubGluZS1mbG9tYXAtbGlmdDIgOiBTeW1ib2wgKEZsb251bSBGbG9udW0g
+ LT4gRmxvbnVtKSAtPiAoVSBSZWFsIGZsb21hcCkgKFUgUmVhbCBmbG9tYXApIC0+IGZsb21hcCkK
+ KyhkZWZpbmUgKGlubGluZS1mbG9tYXAtbGlmdDIgbmFtZSBmKQogICAobGV0OiAoKQogICAgICjO
+ uzogKFtmbTEgOiAoVSBSZWFsIGZsb21hcCldIFtmbTIgOiAoVSBSZWFsIGZsb21hcCldKQogICAg
+ ICAgKGNvbmQKLS0gCjEuNy40LjEKCg==
+ --f46d0444026610701a04b88179f2--
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Thu, 9 Feb 2012 13:19:47 -0500
+
+ Earlier today, Sam Tobin-Hochstadt wrote:
+ > 
+ > I think the only "oddity" is the generation of a lot of code.
+ > Here's a quick experiment: [...]
+ 
+ Regardless of the rough manual inlining method, it sounds like this is
+ a good case to find what should be optimized.  The other conclusion of
+ "WONTFIX, please don't generate lots of TR code via macros" seems like
+ a bad way to close such bugs.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Thu, 9 Feb 2012 16:02:36 -0500
+
+ On Thu, Feb 9, 2012 at 1:19 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > Earlier today, Sam Tobin-Hochstadt wrote:
+ >>
+ >> I think the only "oddity" is the generation of a lot of code.
+ >> Here's a quick experiment: [...]
+ >
+ > Regardless of the rough manual inlining method, it sounds like this is
+ > a good case to find what should be optimized.  The other conclusion of
+ > "WONTFIX, please don't generate lots of TR code via macros" seems like
+ > a bad way to close such bugs.
+ 
+ Unfortunately, while it seems like this would be a good way to find
+ out what's slow, right now the profile is pretty useless for this
+ file, as I said earlier.
+ 
+ But I'm not planning to "WONTFIX" this bug at all.  I do, however,
+ think that this bug is the same as bug 12518, which is just that the
+ images build is slow (much of which is of couse TR's fault), plus a
+ general desire for TR to be faster to typecheck, which I don't think
+ is useful as a bug per se.
+ 
+ In particular, I think that if the images build is made faster
+ (perhaps by not using TR in some places), then the problems are much
+ less urgent.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Eli Barzilay <eli@barzilay.org>,
+        Robby Findler <robby@eecs.northwestern.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Thu, 9 Feb 2012 17:24:00 -0600
+
+ --bcaec553fdfa9b6fd804b8904eaa
+ Content-Type: text/plain; charset=UTF-8
+ 
+ From what I've read of these conversations, I wonder if doing less
+ agressive macro-based inlining would result in only a small slowdown at
+ runtime but a big speedup at compile time.
+ 
+ Robby
+ 
+ On Thursday, February 9, 2012, Sam Tobin-Hochstadt wrote:
+ 
+ > On Thu, Feb 9, 2012 at 1:19 PM, Eli Barzilay <eli@barzilay.org<javascript:;>>
+ > wrote:
+ > > Earlier today, Sam Tobin-Hochstadt wrote:
+ > >>
+ > >> I think the only "oddity" is the generation of a lot of code.
+ > >> Here's a quick experiment: [...]
+ > >
+ > > Regardless of the rough manual inlining method, it sounds like this is
+ > > a good case to find what should be optimized.  The other conclusion of
+ > > "WONTFIX, please don't generate lots of TR code via macros" seems like
+ > > a bad way to close such bugs.
+ >
+ > Unfortunately, while it seems like this would be a good way to find
+ > out what's slow, right now the profile is pretty useless for this
+ > file, as I said earlier.
+ >
+ > But I'm not planning to "WONTFIX" this bug at all.  I do, however,
+ > think that this bug is the same as bug 12518, which is just that the
+ > images build is slow (much of which is of couse TR's fault), plus a
+ > general desire for TR to be faster to typecheck, which I don't think
+ > is useful as a bug per se.
+ >
+ > In particular, I think that if the images build is made faster
+ > (perhaps by not using TR in some places), then the problems are much
+ > less urgent.
+ > --
+ > sam th
+ > samth@ccs.neu.edu <javascript:;>
+ >
+ 
+ --bcaec553fdfa9b6fd804b8904eaa
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ From what I&#39;ve read of these conversations, I wonder if doing less agre=
+ ssive macro-based inlining would result in only a small slowdown at runtime=
+  but a big speedup at compile time.<div><br></div><div>Robby<br><br>On Thur=
+ sday, February 9, 2012, Sam Tobin-Hochstadt  wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">On Thu, Feb 9, 2012 at 1:19 PM, Eli Barzilay=
+  &lt;<a href=3D"javascript:;" onclick=3D"_e(event, &#39;cvml&#39;, &#39;eli=
+ @barzilay.org&#39;)">eli@barzilay.org</a>&gt; wrote:<br>
+ 
+ &gt; Earlier today, Sam Tobin-Hochstadt wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; I think the only &quot;oddity&quot; is the generation of a lot of =
+ code.<br>
+ &gt;&gt; Here&#39;s a quick experiment: [...]<br>
+ &gt;<br>
+ &gt; Regardless of the rough manual inlining method, it sounds like this is=
+ <br>
+ &gt; a good case to find what should be optimized. =C2=A0The other conclusi=
+ on of<br>
+ &gt; &quot;WONTFIX, please don&#39;t generate lots of TR code via macros&qu=
+ ot; seems like<br>
+ &gt; a bad way to close such bugs.<br>
+ <br>
+ Unfortunately, while it seems like this would be a good way to find<br>
+ out what&#39;s slow, right now the profile is pretty useless for this<br>
+ file, as I said earlier.<br>
+ <br>
+ But I&#39;m not planning to &quot;WONTFIX&quot; this bug at all. =C2=A0I do=
+ , however,<br>
+ think that this bug is the same as bug 12518, which is just that the<br>
+ images build is slow (much of which is of couse TR&#39;s fault), plus a<br>
+ general desire for TR to be faster to typecheck, which I don&#39;t think<br=
+ >
+ is useful as a bug per se.<br>
+ <br>
+ In particular, I think that if the images build is made faster<br>
+ (perhaps by not using TR in some places), then the problems are much<br>
+ less urgent.<br>
+ --<br>
+ sam th<br>
+ <a href=3D"javascript:;" onclick=3D"_e(event, &#39;cvml&#39;, &#39;samth@cc=
+ s.neu.edu&#39;)">samth@ccs.neu.edu</a><br>
+ </blockquote></div>
+ 
+ --bcaec553fdfa9b6fd804b8904eaa--
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Eli Barzilay <eli@barzilay.org>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Sat, 03 Mar 2012 22:37:04 -0700
+
+ On 01/-10/-28163 12:59 PM, Sam Tobin-Hochstadt wrote:
+ > On Thu, Feb 9, 2012 at 12:17 AM, Eli Barzilay<eli@barzilay.org>  wrote:
+ >>
+ >>> and that everything bad we're seeing is about interactions between
+ >>> slow TR compilation, the images collection generating lots of code,
+ >>> and raco setup ordering/communication.
+ >>
+ >> But IIUC (and it's very likely that I don't) the only way to test
+ >> *that* out is to have a bunch of TR-ed code added that is roughly the
+ >> same size and seeing that it doesn't add much to the compilation time.
+ >>
+ >> (And if images is really hitting some particularly odd thing, then the
+ >> non-fix that I didn't intend to suggest -- un-TR-ing the images -- is
+ >> the only fix until the oddity is discovered.)
+ >
+ > I think the only "oddity" is the generation of a lot of code.  Here's
+ > a quick experiment:
+ >
+ > with vanilla git head:
+ > [samth@ajax:~/sw/plt/collects/images/private ((b99c21c...)) plt] time
+ > raco make -v flomap-pointwise.rkt
+ > "flomap-pointwise.rkt":
+ >    making #<path:/home/samth/sw/plt/collects/images/private/flomap-pointwise.rkt>
+ >   [output to "./compiled/flomap-pointwise_rkt.zo"]
+ >
+ > real	0m11.531s
+ > user	0m11.245s
+ > sys	0m0.244s
+ >
+ > with the attached patch, turning 2 `define-syntax-rule's into `define's:
+ > [samth@ajax:~/sw/plt/collects/images/private (master) plt] time raco
+ > make -v flomap-pointwise.rkt
+ > "flomap-pointwise.rkt":
+ >    making #<path:/home/samth/sw/plt/collects/images/private/flomap-pointwise.rkt>
+ >   [output to "./compiled/flomap-pointwise_rkt.zo"]
+ >
+ > real	0m2.512s
+ > user	0m2.360s
+ > sys	0m0.144s
+ >
+ > The patch also saves about 40k of bytecode in just that file.
+ >
+ > I believe the reason not to do this is performance, but we should
+ > measure how much we're losing here.
+ 
+ With this test program:
+ 
+ #lang typed/racket
+ (require images/private/flomap)
+ 
+ (define fm (make-flomap 4 256 256))
+ (for ([_  (in-range 5)])
+    (time (for ([_  (in-range 25)])
+            (fm+ fm fm))))
+ 
+ 
+ I get these times:
+ 
+ cpu time: 140 real time: 139 gc time: 90
+ cpu time: 90 real time: 87 gc time: 40
+ cpu time: 60 real time: 67 gc time: 10
+ cpu time: 90 real time: 85 gc time: 40
+ cpu time: 80 real time: 84 gc time: 30
+ 
+ 
+ After applying the patch, I get these times:
+ 
+ cpu time: 490 real time: 486 gc time: 240
+ cpu time: 510 real time: 508 gc time: 230
+ cpu time: 480 real time: 487 gc time: 220
+ cpu time: 500 real time: 492 gc time: 230
+ cpu time: 490 real time: 493 gc time: 250
+ 
+ > There are 23 more uses of
+ > `define-syntax-rule' in `images/private'; I think they're all defining
+ > inlined functions.
+ 
+ In my local repo, I've turned 5 of them into functions, with negligible 
+ performance loss. (Each was used at most twice, so compilation time 
+ dropped by only 1 second.) The remainder of the macros fall into two groups:
+ 
+   A. Really short ones.
+   B. Loops.
+ 
+ The largest of the short ones is `flgaussian', which expands to about 8 
+ expressions. The most-used short ones are vector operations that operate 
+ on multiple values, like `fl3+'. It's important to keep those values 
+ unboxed in the ray tracer's inner loops, whether we're talking about 
+ automatic boxing, or manual boxing in an flvector.
+ 
+ The most-used loop macro is `inline-build-flomap', which is like a 
+ for*/flvector with three loop variables, but expands to less code. If 
+ using that is "generating lots of code", and it's an "oddity," then we'd 
+ have to make "don't use for macros" a TR best practice. I doubt we'll go 
+ there.
+ 
+ It's worth looking at what happens when ALL of the manual inlining is 
+ removed. Compilation time with macros:
+ 
+ .../images/private$ rm -rf compiled
+ .../images/private$ time ../../../bin/raco setup -l images/private
+ ...
+ real	0m57.474s
+ user	1m26.260s
+ sys	0m4.190s
+ 
+ 
+ Compilation time without macros:
+ 
+ .../images/private$ rm -rf compiled
+ .../images/private$ time ../../../bin/raco setup -l images/private
+ ...
+ real	0m42.154s
+ user	1m2.340s
+ sys	0m3.530s
+ 
+ 
+ So we're looking at dropping 28% of the compilation time for 
+ images/private. PLEASE note that this DOES NOT include all the time 
+ setup takes building Typed Racket and all of its dependencies serially 
+ because of its brainless build order. That wouldn't change at all.
+ 
+ I was going to compare runtime efficiency by rendering some large icons, 
+ but without the macros I got this error:
+ 
+  > (time (plt-logo))
+ read (compiled): ill-formed code [../../../racket/gc2/../src/validate.c:829]
+ 
+ 
+ And with that, I'm officially tired of working on this today.
+ 
+ Neil ⊥
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, Eli Barzilay <eli@barzilay.org>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Fri, 30 Mar 2012 11:12:10 -0600
+
+ This is a multi-part message in MIME format.
+ -----31828816766-----
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Thanks for the performance experiments!
+ 
+ I wasn't able to provoke the "ill-formed code" error, and that worries
+ me. I don't suppose that you can still provoke it?
+ 
+ Meanwhile, I think we've understood that the big problem was related to
+ continuation marks and parallel `raco setup'. We've also adjusted `raco
+ setup' to use a better order.
+ 
+ Just to double-check, though, I replicated your results on my machine.
+ I do not suggest any particular changes in the tree, but here are some
+ extra notes:
+ 
+  * Using macros for the "Really short ones" doesn't seem to matter.
+    Here's the results on my machine with the current HEAD, where
+    "im1.rkt" is your test program below and "im2.rkt" is `(time
+    (plt-logo))':
+ 
+     laptop% racket /tmp/im1.rkt
+     cpu time: 118 real time: 119 gc time: 55
+     cpu time: 62 real time: 63 gc time: 8
+     cpu time: 55 real time: 56 gc time: 2
+     cpu time: 67 real time: 68 gc time: 5
+     cpu time: 63 real time: 65 gc time: 4
+ 
+     laptop% racket /tmp/im2.rkt
+     cpu time: 1355 real time: 1373 gc time: 142
+ 
+    When I convert the really short ones to functions with the enclosed
+    "images-proc.patch", I get
+ 
+     laptop% racket /tmp/im1.rkt
+     cpu time: 119 real time: 120 gc time: 54
+     cpu time: 63 real time: 64 gc time: 7
+     cpu time: 67 real time: 68 gc time: 3
+     cpu time: 58 real time: 59 gc time: 4
+     cpu time: 63 real time: 64 gc time: 6
+ 
+     laptop% racket /tmp/im2.rkt
+     cpu time: 1391 real time: 1411 gc time: 141
+ 
+    Adding `begin-encourage-inline' around them makes a small change on
+    only the latter:
+ 
+     laptop% racket /tmp/im2.rkt
+     cpu time: 1368 real time: 1387 gc time: 138
+ 
+    In contrast, hacking Racket to disable cross-module inlining=20
+    for "flonum.rkt" has a significant effect:
+ 
+     laptop% racket /tmp/im2.rkt
+     cpu time: 1660 real time: 1682 gc time: 366
+ 
+    I take this as evidence that cross-module inlining is working as it
+    should for the really small ones.
+ 
+  * Disabling inlining for the `build' and `lift' functions has a big
+    effect on the microbenchmark, as you noted, but the effect is more
+    modest on the `plt-logo' function:
+ 
+     laptop% racket /tmp/im1.rkt
+     cpu time: 425 real time: 430 gc time: 75
+     cpu time: 515 real time: 519 gc time: 167
+     cpu time: 378 real time: 383 gc time: 24
+     cpu time: 380 real time: 387 gc time: 24
+     cpu time: 383 real time: 386 gc time: 25
+ 
+     laptop% racket /tmp/im2.rkt
+     cpu time: 1985 real time: 2010 gc time: 373
+ 
+    That's big enough to keep the improvement, of course, but the usual
+    difference between microbenchmarks and useful programs is
+    reassuring, at least to me.
+ 
+ At Sat, 03 Mar 2012 22:37:04 -0700, Neil Toronto wrote:
+ > On 01/-10/-28163 12:59 PM, Sam Tobin-Hochstadt wrote:
+ > > On Thu, Feb 9, 2012 at 12:17 AM, Eli Barzilay<eli@barzilay.org>  wrote:=
+ 
+ > >>
+ > >>> and that everything bad we're seeing is about interactions between
+ > >>> slow TR compilation, the images collection generating lots of code,
+ > >>> and raco setup ordering/communication.
+ > >>
+ > >> But IIUC (and it's very likely that I don't) the only way to test
+ > >> *that* out is to have a bunch of TR-ed code added that is roughly the
+ > >> same size and seeing that it doesn't add much to the compilation time.=
+ 
+ > >>
+ > >> (And if images is really hitting some particularly odd thing, then the=
+ 
+ > >> non-fix that I didn't intend to suggest -- un-TR-ing the images -- is
+ > >> the only fix until the oddity is discovered.)
+ > >
+ > > I think the only "oddity" is the generation of a lot of code.  Here's
+ > > a quick experiment:
+ > >
+ > > with vanilla git head:
+ > > [samth@ajax:~/sw/plt/collects/images/private ((b99c21c...)) plt] time
+ > > raco make -v flomap-pointwise.rkt
+ > > "flomap-pointwise.rkt":
+ > >    making=20
+ > #<path:/home/samth/sw/plt/collects/images/private/flomap-pointwise.rkt>
+ > >   [output to "./compiled/flomap-pointwise_rkt.zo"]
+ > >
+ > > real	0m11.531s
+ > > user	0m11.245s
+ > > sys	0m0.244s
+ > >
+ > > with the attached patch, turning 2 `define-syntax-rule's into `define's=
+ :
+ > > [samth@ajax:~/sw/plt/collects/images/private (master) plt] time raco
+ > > make -v flomap-pointwise.rkt
+ > > "flomap-pointwise.rkt":
+ > >    making=20
+ > #<path:/home/samth/sw/plt/collects/images/private/flomap-pointwise.rkt>
+ > >   [output to "./compiled/flomap-pointwise_rkt.zo"]
+ > >
+ > > real	0m2.512s
+ > > user	0m2.360s
+ > > sys	0m0.144s
+ > >
+ > > The patch also saves about 40k of bytecode in just that file.
+ > >
+ > > I believe the reason not to do this is performance, but we should
+ > > measure how much we're losing here.
+ >=20
+ > With this test program:
+ >=20
+ > #lang typed/racket
+ > (require images/private/flomap)
+ >=20
+ > (define fm (make-flomap 4 256 256))
+ > (for ([_  (in-range 5)])
+ >    (time (for ([_  (in-range 25)])
+ >            (fm+ fm fm))))
+ >=20
+ >=20
+ > I get these times:
+ >=20
+ > cpu time: 140 real time: 139 gc time: 90
+ > cpu time: 90 real time: 87 gc time: 40
+ > cpu time: 60 real time: 67 gc time: 10
+ > cpu time: 90 real time: 85 gc time: 40
+ > cpu time: 80 real time: 84 gc time: 30
+ >=20
+ >=20
+ > After applying the patch, I get these times:
+ >=20
+ > cpu time: 490 real time: 486 gc time: 240
+ > cpu time: 510 real time: 508 gc time: 230
+ > cpu time: 480 real time: 487 gc time: 220
+ > cpu time: 500 real time: 492 gc time: 230
+ > cpu time: 490 real time: 493 gc time: 250
+ >=20
+ > > There are 23 more uses of
+ > > `define-syntax-rule' in `images/private'; I think they're all defining
+ > > inlined functions.
+ >=20
+ > In my local repo, I've turned 5 of them into functions, with negligible=
+ =20
+ > performance loss. (Each was used at most twice, so compilation time=20
+ > dropped by only 1 second.) The remainder of the macros fall into two grou=
+ ps:
+ >=20
+ >   A. Really short ones.
+ >   B. Loops.
+ >=20
+ > The largest of the short ones is `flgaussian', which expands to about 8=
+ =20
+ > expressions. The most-used short ones are vector operations that operate=
+ =20
+ > on multiple values, like `fl3+'. It's important to keep those values=20
+ > unboxed in the ray tracer's inner loops, whether we're talking about=20
+ > automatic boxing, or manual boxing in an flvector.
+ >=20
+ > The most-used loop macro is `inline-build-flomap', which is like a=20
+ > for*/flvector with three loop variables, but expands to less code. If=20
+ > using that is "generating lots of code", and it's an "oddity," then we'd=
+ =20
+ > have to make "don't use for macros" a TR best practice. I doubt we'll go=
+ =20
+ > there.
+ >=20
+ > It's worth looking at what happens when ALL of the manual inlining is=20
+ > removed. Compilation time with macros:
+ >=20
+ > .../images/private$ rm -rf compiled
+ > .../images/private$ time ../../../bin/raco setup -l images/private
+ > ...
+ > real	0m57.474s
+ > user	1m26.260s
+ > sys	0m4.190s
+ >=20
+ >=20
+ > Compilation time without macros:
+ >=20
+ > .../images/private$ rm -rf compiled
+ > .../images/private$ time ../../../bin/raco setup -l images/private
+ > ...
+ > real	0m42.154s
+ > user	1m2.340s
+ > sys	0m3.530s
+ >=20
+ >=20
+ > So we're looking at dropping 28% of the compilation time for=20
+ > images/private. PLEASE note that this DOES NOT include all the time=20
+ > setup takes building Typed Racket and all of its dependencies serially=20=
+ 
+ > because of its brainless build order. That wouldn't change at all.
+ >=20
+ > I was going to compare runtime efficiency by rendering some large icons,=
+ =20
+ > but without the macros I got this error:
+ >=20
+ >  > (time (plt-logo))
+ > read (compiled): ill-formed code [../../../racket/gc2/../src/validate.c:8=
+ 29]
+ >=20
+ >=20
+ > And with that, I'm officially tired of working on this today.
+ >=20
+ > Neil =E2=8A=A5
+ -----31828816766-----
+ Content-Type: application/octet-stream;
+ 	name="images-proc.patch"
+ Content-Transfer-Encoding: base64
+ Content-Disposition: attachment; 
+ 	filename="images-proc.patch"
+ 
+ ZGlmZiAtLWdpdCBhL2NvbGxlY3RzL2ltYWdlcy9wcml2YXRlL2Zsb251bS5ya3QgYi9jb2xs
+ ZWN0cy9pbWFnZXMvcHJpdmF0ZS9mbG9udW0ucmt0CmluZGV4IGMyNmE4NmEuLmVlZjkwMWQg
+ MTAwNjQ0Ci0tLSBhL2NvbGxlY3RzL2ltYWdlcy9wcml2YXRlL2Zsb251bS5ya3QKKysrIGIv
+ Y29sbGVjdHMvaW1hZ2VzL3ByaXZhdGUvZmxvbnVtLnJrdApAQCAtMzMsMjggKzMzLDM0IEBA
+ CiAgICAgICAgICAod2l0aC1hc3NlcnRzIChbaSAgZml4bnVtP10pCiAgICAgICAgICAgIGkp
+ KSldKSkKIAotKGRlZmluZS1zeW50YXgtcnVsZSAoZngtPmZsIGkpCisoOiBmeC0+ZmwgKElu
+ dGVnZXIgLT4gRmxvbnVtKSkKKyhkZWZpbmUgKGZ4LT5mbCBpKQogICAoLT5mbCBpKSkKIAot
+ KGRlZmluZS1zeW50YXgtcnVsZSAoZmxyYXRpb25hbD8geCkKKyg6IGZscmF0aW9uYWw/IChG
+ bG9udW0gLT4gQm9vbGVhbikpCisoZGVmaW5lIChmbHJhdGlvbmFsPyB4KQogICAobGV0OiAo
+ W3gqIDogRmxvbnVtICB4XSkKICAgICA7OyBpZiB4ID0gK25hbi4wLCBib3RoIHRlc3RzIHJl
+ dHVybiAjZgogICAgIChhbmQgKHggLiA+IC4gLWluZi4wKSAoeCAuIDwgLiAraW5mLjApKSkp
+ CiAKLShkZWZpbmUtc3ludGF4LXJ1bGUgKGZsLWNvbnZleC1jb21iaW5hdGlvbiBkdiBzdiBz
+ YSkKKyg6IGZsLWNvbnZleC1jb21iaW5hdGlvbiAoRmxvbnVtIEZsb251bSBGbG9udW0gLT4g
+ RmxvbnVtKSkKKyhkZWZpbmUgKGZsLWNvbnZleC1jb21iaW5hdGlvbiBkdiBzdiBzYSkKICAg
+ KGxldDogKFtzYSogOiBGbG9udW0gIHNhXSkKICAgICAoKyAoZmwqIHN2IHNhKikgKGZsKiBk
+ diAoLSAxLjAgc2EqKSkpKSkKIAotKGRlZmluZS1zeW50YXgtcnVsZSAoZmwtYWxwaGEtYmxl
+ bmQgZGNhIHNjYSBzYSkKKyg6IGZsLWFscGhhLWJsZW5kIChGbG9udW0gRmxvbnVtIEZsb251
+ bSAtPiBGbG9udW0pKQorKGRlZmluZSAoZmwtYWxwaGEtYmxlbmQgZGNhIHNjYSBzYSkKICAg
+ KCsgc2NhICgqIGRjYSAoLSAxLjAgc2EpKSkpCiAKLShkZWZpbmUtc3ludGF4LXJ1bGUgKGZs
+ Z2F1c3NpYW4geCBzKQorKDogZmxnYXVzc2lhbiAoRmxvbnVtIEZsb251bSAtPiBGbG9udW0p
+ KQorKGRlZmluZSAoZmxnYXVzc2lhbiB4IHMpCiAgIChsZXQqOiAoW3NpZ21hIDogRmxvbnVt
+ ICBzXQogICAgICAgICAgIFt4L3MgOiBGbG9udW0gIChmbC8geCBzaWdtYSldKQogICAgICgv
+ IChleHAgKCogLTAuNSAoKiB4L3MgeC9zKSkpCiAgICAgICAgKCogKHNxcnQgKCogMi4wIHBp
+ KSkgc2lnbWEpKSkpCiAKLShkZWZpbmUtc3ludGF4LXJ1bGUgKGZsc2lnbW9pZCB4KQorKDog
+ ZmxzaWdtb2lkIChGbG9udW0gLT4gRmxvbnVtKSkKKyhkZWZpbmUgKGZsc2lnbW9pZCB4KQog
+ ICAoLyAxLjAgKCsgMS4wIChleHAgKGZsLSAwLjAgeCkpKSkpCiAKIChkZWZpbmUtc3ludGF4
+ LXJ1bGUgKGlubGluZS1idWlsZC1mbHZlY3RvciBzaXplIGYpCkBAIC02OSw0NSArNzUsNTIg
+ QEAKIDs7ID09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
+ PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PQog
+ OzsgMy12ZWN0b3JzCiAKLShkZWZpbmUtc3ludGF4LXJ1bGUgKGZsM2RvdCB4MSB5MSB6MSB4
+ MiB5MiB6MikKKyg6IGZsM2RvdCAoRmxvbnVtIEZsb251bSBGbG9udW0gRmxvbnVtIEZsb251
+ bSBGbG9udW0gLT4gRmxvbnVtKSkKKyhkZWZpbmUgKGZsM2RvdCB4MSB5MSB6MSB4MiB5MiB6
+ MikKICAgKCsgKGZsKiB4MSB4MikgKGZsKiB5MSB5MikgKGZsKiB6MSB6MikpKQogCi0oZGVm
+ aW5lLXN5bnRheCAoZmwzKiBzdHgpCi0gIChzeW50YXgtY2FzZSBzdHggKCkKLSAgICBbKF8g
+ eCB5IHogYykKLSAgICAgKHN5bnRheC9sb2Mgc3R4Ci0gICAgICAgKGxldDogKFtjKiA6IEZs
+ b251bSAgY10pCi0gICAgICAgICAodmFsdWVzIChmbCogeCBjKikgKGZsKiB5IGMqKSAoZmwq
+ IHogYyopKSkpXQotICAgIFsoXyB4MSB5MSB6MSB4MiB5MiB6MikKLSAgICAgKHN5bnRheC9s
+ b2Mgc3R4Ci0gICAgICAgKHZhbHVlcyAoZmwqIHgxIHgyKSAoZmwqIHkxIHkyKSAoZmwqIHox
+ IHoyKSkpXSkpCi0KLShkZWZpbmUtc3ludGF4LXJ1bGUgKGZsMysgeDEgeTEgejEgeDIgeTIg
+ ejIpCisoOiBmbDMqIChjYXNlLT4gKEZsb251bSBGbG9udW0gRmxvbnVtIEZsb251bSAtPiAo
+ VmFsdWVzIEZsb251bSBGbG9udW0gRmxvbnVtKSkKKyAgICAgICAgICAgICAgICAoRmxvbnVt
+ IEZsb251bSBGbG9udW0gRmxvbnVtIEZsb251bSBGbG9udW0gLT4gKFZhbHVlcyBGbG9udW0g
+ RmxvbnVtIEZsb251bSkpKSkKKyhkZWZpbmUgZmwzKgorICAoY2FzZS1sYW1iZGEKKyAgIFso
+ eCB5IHogYykKKyAgICAobGV0OiAoW2MqIDogRmxvbnVtICBjXSkKKyAgICAgICh2YWx1ZXMg
+ KGZsKiB4IGMqKSAoZmwqIHkgYyopIChmbCogeiBjKikpKV0KKyAgIFsoeDEgeTEgejEgeDIg
+ eTIgejIpCisgICAgKHZhbHVlcyAoZmwqIHgxIHgyKSAoZmwqIHkxIHkyKSAoZmwqIHoxIHoy
+ KSldKSkKKworKDogZmwzKyAoRmxvbnVtIEZsb251bSBGbG9udW0gRmxvbnVtIEZsb251bSBG
+ bG9udW0gLT4gKFZhbHVlcyBGbG9udW0gRmxvbnVtIEZsb251bSkpKQorKGRlZmluZSAoZmwz
+ KyB4MSB5MSB6MSB4MiB5MiB6MikKICAgKHZhbHVlcyAoZmwrIHgxIHgyKSAoZmwrIHkxIHky
+ KSAoZmwrIHoxIHoyKSkpCiAKLShkZWZpbmUtc3ludGF4IChmbDMtIHN0eCkKLSAgKHN5bnRh
+ eC1jYXNlIHN0eCAoKQotICAgIFsoXyB4IHkgeikKLSAgICAgKHN5bnRheC9sb2Mgc3R4Ci0g
+ ICAgICAgKHZhbHVlcyAoZmwtIDAuMCB4KSAoZmwtIDAuMCB5KSAoZmwtIDAuMCB6KSkpXQot
+ ICAgIFsoXyB4MSB5MSB6MSB4MiB5MiB6MikKLSAgICAgKHN5bnRheC9sb2Mgc3R4Ci0gICAg
+ ICAgKHZhbHVlcyAoZmwtIHgxIHgyKSAoZmwtIHkxIHkyKSAoZmwtIHoxIHoyKSkpXSkpCi0K
+ LShkZWZpbmUtc3ludGF4LXJ1bGUgKGZsM21hZ14yIHggeSB6KQorKDogZmwzLSAoY2FzZS0+
+ IChGbG9udW0gRmxvbnVtIEZsb251bSAtPiAoVmFsdWVzIEZsb251bSBGbG9udW0gRmxvbnVt
+ KSkKKyAgICAgICAgICAgICAgICAoRmxvbnVtIEZsb251bSBGbG9udW0gRmxvbnVtIEZsb251
+ bSBGbG9udW0gLT4gKFZhbHVlcyBGbG9udW0gRmxvbnVtIEZsb251bSkpKSkKKyhkZWZpbmUg
+ ZmwzLQorICAoY2FzZS1sYW1iZGEKKyAgIFsoeCB5IHopCisgICAgKHZhbHVlcyAoZmwtIDAu
+ MCB4KSAoZmwtIDAuMCB5KSAoZmwtIDAuMCB6KSldCisgICBbKHgxIHkxIHoxIHgyIHkyIHoy
+ KQorICAgICh2YWx1ZXMgKGZsLSB4MSB4MikgKGZsLSB5MSB5MikgKGZsLSB6MSB6MikpXSkp
+ CisKKyg6IGZsM21hZ14yIChGbG9udW0gRmxvbnVtIEZsb251bSAtPiBGbG9udW0pKQorKGRl
+ ZmluZSAoZmwzbWFnXjIgeCB5IHopCiAgIChsZXQ6IChbeCogOiBGbG9udW0gIHhdIFt5KiA6
+ IEZsb251bSAgeV0gW3oqIDogRmxvbnVtICB6XSkKICAgICAoKyAoKiB4KiB4KikgKCogeSog
+ eSopICgqIHoqIHoqKSkpKQogCi0oZGVmaW5lLXN5bnRheC1ydWxlIChmbDNtYWcgeCB5IHop
+ CisoOiBmbDNtYWcgKEZsb251bSBGbG9udW0gRmxvbnVtIC0+IEZsb251bSkpCisoZGVmaW5l
+ IChmbDNtYWcgeCB5IHopCiAgIChmbHNxcnQgKGZsM21hZ14yIHggeSB6KSkpCiAKLShkZWZp
+ bmUtc3ludGF4LXJ1bGUgKGZsM2Rpc3QgeDEgeTEgejEgeDIgeTIgejIpCisoOiBmbDNkaXN0
+ IChGbG9udW0gRmxvbnVtIEZsb251bSBGbG9udW0gRmxvbnVtIEZsb251bSAtPiBGbG9udW0p
+ KQorKGRlZmluZSAoZmwzZGlzdCB4MSB5MSB6MSB4MiB5MiB6MikKICAgKGZsM21hZyAoZmwt
+ IHgxIHgyKSAoZmwtIHkxIHkyKSAoZmwtIHoxIHoyKSkpCiAKLShkZWZpbmUtc3ludGF4LXJ1
+ bGUgKGZsM25vcm1hbGl6ZSB4IHkgeikKKyg6IGZsM25vcm1hbGl6ZSAoRmxvbnVtIEZsb251
+ bSBGbG9udW0gLT4gKFZhbHVlcyBGbG9udW0gRmxvbnVtIEZsb251bSkpKQorKGRlZmluZSAo
+ Zmwzbm9ybWFsaXplIHggeSB6KQogICAobGV0OiAoW3gqIDogRmxvbnVtICB4XSBbeSogOiBG
+ bG9udW0gIHldIFt6KiA6IEZsb251bSAgel0pCiAgICAgKGxldDogKFtkIDogRmxvbnVtICAo
+ ZmwzbWFnIHgqIHkqIHoqKV0pCiAgICAgICAodmFsdWVzICgvIHgqIGQpICgvIHkqIGQpICgv
+ IHoqIGQpKSkpKQogCi0oZGVmaW5lLXN5bnRheC1ydWxlIChmbDMtaGFsZi1ub3JtIHgxIHkx
+ IHoxIHgyIHkyIHoyKQorKDogZmwzLWhhbGYtbm9ybSAoRmxvbnVtIEZsb251bSBGbG9udW0g
+ RmxvbnVtIEZsb251bSBGbG9udW0gLT4gKFZhbHVlcyBGbG9udW0gRmxvbnVtIEZsb251bSkp
+ KQorKGRlZmluZSAoZmwzLWhhbGYtbm9ybSB4MSB5MSB6MSB4MiB5MiB6MikKICAgKGZsM25v
+ cm1hbGl6ZSAoZmwrIHgxIHgyKSAoZmwrIHkxIHkyKSAoZmwrIHoxIHoyKSkpCg==
+ -----31828816766-------
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, Eli Barzilay <eli@barzilay.org>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Fri, 25 May 2012 14:22:24 +0900
+
+ On 03/31/2012 02:12 AM, Matthew Flatt wrote:
+ > Thanks for the performance experiments!
+ >
+ > I wasn't able to provoke the "ill-formed code" error, and that worries
+ > me. I don't suppose that you can still provoke it?
+ 
+ I can't, so after turning a bunch of little macros into functions inside 
+ of `begin-encourage-inline', I checked it in.
+ 
+ I think I've done all I reasonably can to speed up `images' compilation.
+ 
+ FWIW, this is going to come up again when Dan (another of Jay's 
+ students) finishes converting the web server to TR.
+ 
+ Neil ⊥
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Eli Barzilay <eli@barzilay.org>,
+        Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12557: TR Compilation Times
+Date: Fri, 25 May 2012 11:39:35 -0400
+
+ On May 25, 2012, at 1:22 AM, Neil Toronto wrote:
+ 
+ > FWIW, this is going to come up again when Dan (another of Jay's students) finishes converting the web server to TR.
+ 
+ Nice. 
+ 
+ 

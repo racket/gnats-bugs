@@ -1,0 +1,209 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Nov  2 16:08:35 2014
+Received: from mail-ig0-f179.google.com (mail-ig0-f179.google.com [209.85.213.179])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id sA2L8W0Y011027
+	for <bugs@bugs.plt-scheme.org>; Sun, 2 Nov 2014 16:08:33 -0500
+Message-Id: <201411022108.sA2L8Uv6011020@winooski.ccs.neu.edu>
+Date: Sun, 2 Nov 2014 16:08:30 -0500
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: define-syntax-class is very slow at compiling
+
+>Number:         14818
+>Category:       all
+>Synopsis:       define-syntax-class is very slow at compiling
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Nov 02 16:12:01 -0500 2014
+>Last-Modified:  Fri Nov 07 16:28:01 -0500 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2138.3 Safari/537.36
+>Description:
+There is a syntax class in TR that is very slow at compiling, I have extracted out a simplified version of it that exhibits the same performance problem.
+
+Just compiling the file that contains this one form takes ~10 seconds on my machine, compared to sub second compilation for most files.
+>How-To-Repeat:
+#lang racket
+
+(require syntax/parse (for-syntax racket/base))
+
+
+;; Syntax classes for use in functions below
+(define-syntax-class data
+  (pattern (a:id b:id c:id d:id e:id f:id)))
+
+(define-syntax-class internal-class-data
+  (pattern ((data-a:data ...)
+            (data-b:data ...)
+            (data-c:data ...)
+            (data-d:data ...)
+            (data-e:data ...)
+            (data-f:data ...)
+            (data-g:data ...)
+            (data-h:data ...)
+            (data-i:data ...)
+            (data-j:data ...)
+            (data-k:data ...)
+            (data-l:data ...)
+            (data-m:data ...)
+            (data-n:data ...)
+            (data-o:data ...)
+            (data-p:data ...)
+            (data-q:data ...)
+            (data-r:data ...)
+            (data-s:data ...)
+            (data-t:data ...)
+            (data-u:data ...)
+            (data-v:data ...)
+            (data-w:data ...)
+            (data-x:data ...)
+            (data-y:data ...)
+            (data-z:data ...))
+    #:with a #'(data-a ...)
+    #:with b #'(data-b ...)
+    #:with c #'(data-c ...)
+    #:with d #'(data-d ...)
+    #:with e #'(data-e ...)
+    #:with f #'(data-f ...)
+    #:with g #'(data-g ...)
+    #:with h #'(data-h ...)
+    #:with i #'(data-i ...)
+    #:with j #'(data-j ...)
+    #:with k #'(data-k ...)
+    #:with l #'(data-l ...)
+    #:with m #'(data-m ...)
+    #:with n #'(data-n ...)
+    #:with o #'(data-o ...)
+    #:with p #'(data-p ...)
+    #:with q #'(data-q ...)
+    #:with r #'(data-r ...)
+    #:with s #'(data-s ...)
+    #:with t #'(data-t ...)
+    #:with u #'(data-u ...)
+    #:with v #'(data-v ...)
+    #:with w #'(data-w ...)
+    #:with x #'(data-x ...)
+    #:with y #'(data-y ...)
+    #:with z #'(data-z ...)))
+>Fix:
+>Audit-Trail:
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14818: define-syntax-class is very slow at compiling
+Date: Fri, 07 Nov 2014 16:26:15 -0500
+
+ The last definition in your example program is fairly quick to *expand*, 
+ but very slow to *compile*. With 'the-program' defined as the quoted 
+ version of the last definition in that file, I get these timings:
+ 
+  > (time (void (expand the-program)))
+ cpu time: 331 real time: 332 gc time: 56
+  > (time (void (compile the-program)))
+ cpu time: 6006 real time: 6004 gc time: 103
+ 
+ Interestingly, if I save the expanded syntax, compilation takes an order 
+ of magnitude longer, but re-expansion is still fast:
+ 
+  > (define s (time (expand the-program)))
+ cpu time: 313 real time: 313 gc time: 36
+  > (define c (time (compile s)))
+ cpu time: 87207 real time: 86993 gc time: 599
+  > (define s2 (time (expand s)))
+ cpu time: 335 real time: 335 gc time: 66
+ 
+ So it looks like this is triggering some kind of bad behavior in the 
+ bytecode compiler. I get similar numbers from Racket 5.3.6 in both 
+ cases, so it doesn't seem related to use-before-defined analysis.
+ 
+ Ryan
+ 
+ 
+ On 11/02/2014 04:12 PM, eric.n.dobson@gmail.com wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=14818
+ >
+ > Reported by Eric Dobson for release: HEAD
+ >
+ > *** Description:
+ > There is a syntax class in TR that is very slow at compiling, I have extracted out a simplified version of it that exhibits the same performance problem.
+ >
+ > Just compiling the file that contains this one form takes ~10 seconds on my machine, compared to sub second compilation for most files.
+ >
+ > *** How to repeat:
+ > #lang racket
+ >
+ > (require syntax/parse (for-syntax racket/base))
+ >
+ >
+ > ;; Syntax classes for use in functions below
+ > (define-syntax-class data
+ >    (pattern (a:id b:id c:id d:id e:id f:id)))
+ >
+ > (define-syntax-class internal-class-data
+ >    (pattern ((data-a:data ...)
+ >              (data-b:data ...)
+ >              (data-c:data ...)
+ >              (data-d:data ...)
+ >              (data-e:data ...)
+ >              (data-f:data ...)
+ >              (data-g:data ...)
+ >              (data-h:data ...)
+ >              (data-i:data ...)
+ >              (data-j:data ...)
+ >              (data-k:data ...)
+ >              (data-l:data ...)
+ >              (data-m:data ...)
+ >              (data-n:data ...)
+ >              (data-o:data ...)
+ >              (data-p:data ...)
+ >              (data-q:data ...)
+ >              (data-r:data ...)
+ >              (data-s:data ...)
+ >              (data-t:data ...)
+ >              (data-u:data ...)
+ >              (data-v:data ...)
+ >              (data-w:data ...)
+ >              (data-x:data ...)
+ >              (data-y:data ...)
+ >              (data-z:data ...))
+ >      #:with a #'(data-a ...)
+ >      #:with b #'(data-b ...)
+ >      #:with c #'(data-c ...)
+ >      #:with d #'(data-d ...)
+ >      #:with e #'(data-e ...)
+ >      #:with f #'(data-f ...)
+ >      #:with g #'(data-g ...)
+ >      #:with h #'(data-h ...)
+ >      #:with i #'(data-i ...)
+ >      #:with j #'(data-j ...)
+ >      #:with k #'(data-k ...)
+ >      #:with l #'(data-l ...)
+ >      #:with m #'(data-m ...)
+ >      #:with n #'(data-n ...)
+ >      #:with o #'(data-o ...)
+ >      #:with p #'(data-p ...)
+ >      #:with q #'(data-q ...)
+ >      #:with r #'(data-r ...)
+ >      #:with s #'(data-s ...)
+ >      #:with t #'(data-t ...)
+ >      #:with u #'(data-u ...)
+ >      #:with v #'(data-v ...)
+ >      #:with w #'(data-w ...)
+ >      #:with x #'(data-x ...)
+ >      #:with y #'(data-y ...)
+ >      #:with z #'(data-z ...)))
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2138.3 Safari/537.36
+ >
+ 

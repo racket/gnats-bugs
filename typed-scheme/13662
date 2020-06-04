@@ -1,0 +1,269 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Apr  6 12:20:32 2013
+Received: from mail-oa0-f41.google.com (mail-oa0-f41.google.com [209.85.219.41])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r36GKTO8028372
+	for <bugs@bugs.plt-scheme.org>; Sat, 6 Apr 2013 12:20:29 -0400
+Message-Id: <201304061620.r36GKRNE028367@champlain.ccs.neu.edu>
+Date: Sat, 6 Apr 2013 12:20:27 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Generated contracts do not correctly protect typed module
+
+>Number:         13662
+>Category:       typed-scheme
+>Synopsis:       Generated contracts do not correctly protect typed module
+>Class:          sw-bug
+>Responsible:    endobson
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Apr 06 12:24:01 -0400 2013
+>Closed-Date:    Thu Apr 25 11:44:14 -0400 2013
+>Last-Modified:  Thu Apr 25 11:44:14 -0400 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+g: broke its contract
+ promised: Integer
+ produced: "hello"
+ in: the range of
+      (-> Integer Integer)
+ contract from: typed
+ blaming: typed
+ at: typed
+  context...:
+   /Users/endobson/proj/racket/plt/collects/racket/contract/private/blame.rkt:132:0: raise-blame-error
+   untyped: [running body]
+   /Users/endobson/tmp/tmp.rkt: [running body]
+>How-To-Repeat:
+#lang racket/load
+
+(module typed typed/racket
+  (provide b g)
+
+  (: b (Boxof (All (a) (a -> a))))
+  (define b ((inst box (All (a) (a -> a))) (lambda (a) a)))
+  
+  (: g (Integer -> Integer))
+  (define (g x)
+    ((unbox b) x)))
+
+(module untyped racket
+  (require 'typed)
+  (set-box! b (lambda (x) "hello"))
+  (g 5))
+
+(require 'untyped)
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13662: Generated contracts do not correctly protect typed module
+Date: Sat, 6 Apr 2013 13:21:10 -0400
+
+ On Apr 6, 2013, at 12:24 PM, eric.n.dobson@gmail.com wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=13662
+ > 
+ > Reported by Eric Dobson for release: 5.3.2.3
+ > 
+ > *** Description:
+ > g: broke its contract
+ > promised: Integer
+ > produced: "hello"
+ > in: the range of
+ >      (-> Integer Integer)
+ > contract from: typed
+ > blaming: typed
+ 
+ 
+ 
+ 1. I love the above line, and we should use it in all of our talks about TR. I still think our audiences fail to understand that we prove that TR can't be blamed and our proofs are about our models and implementation mistakes can interfere. 
+ 
+ 2. It amazes me that the conventional, 1981 example fails on us. Argh. 
+ 
+ 3. When I see (All (a) (a -> a)) in your example, I think we should run the type checker (its local inferencer) at run-time, and reject the export if it can't prove it. Being conservative is fine here. 
+ 
+ 
+ 
+ 
+ 
+ > at: typed
+ >  context...:
+ >   /Users/endobson/proj/racket/plt/collects/racket/contract/private/blame.rkt:132:0: raise-blame-error
+ >   untyped: [running body]
+ >   /Users/endobson/tmp/tmp.rkt: [running body]
+ > 
+ > *** How to repeat:
+ > #lang racket/load
+ > 
+ > (module typed typed/racket
+ >  (provide b g)
+ > 
+ >  (: b (Boxof (All (a) (a -> a))))
+ >  (define b ((inst box (All (a) (a -> a))) (lambda (a) a)))
+ > 
+ >  (: g (Integer -> Integer))
+ >  (define (g x)
+ >    ((unbox b) x)))
+ > 
+ > (module untyped racket
+ >  (require 'typed)
+ >  (set-box! b (lambda (x) "hello"))
+ >  (g 5))
+ > 
+ > (require 'untyped)
+ > 
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ > 
+ 
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13662: Generated contracts do not correctly
+ protect typed module
+Date: Sat, 6 Apr 2013 10:31:40 -0700
+
+ With regards to 3, I don't think that is necessary. The issue is that
+ generation of contracts is very convoluted. There are three booleans
+ which affect how strong a contract is generated.
+ 
+ out?: whether or not the contract is being used as an export from a typed module
+ pos?: whether we are in a positive position or not with respect to the
+ top of the contract
+ from-typed?: whether or not the value is from a typed module
+ 
+ Each of these is used to pick between different contracts, such as
+ procedure? versus (case->). I think that these can be simplified and
+ corrected and that will fix the issue, but I'm still trying to wrap my
+ head around why each was added in the first place.
+ 
+ 
+ On Sat, Apr 6, 2013 at 10:21 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ >
+ >
+ > On Apr 6, 2013, at 12:24 PM, eric.n.dobson@gmail.com wrote:
+ >
+ >> A new problem report is waiting at
+ >>  http://bugs.racket-lang.org/query/?cmd=view&pr=13662
+ >>
+ >> Reported by Eric Dobson for release: 5.3.2.3
+ >>
+ >> *** Description:
+ >> g: broke its contract
+ >> promised: Integer
+ >> produced: "hello"
+ >> in: the range of
+ >>      (-> Integer Integer)
+ >> contract from: typed
+ >> blaming: typed
+ >
+ >
+ >
+ > 1. I love the above line, and we should use it in all of our talks about TR. I still think our audiences fail to understand that we prove that TR can't be blamed and our proofs are about our models and implementation mistakes can interfere.
+ >
+ > 2. It amazes me that the conventional, 1981 example fails on us. Argh.
+ >
+ > 3. When I see (All (a) (a -> a)) in your example, I think we should run the type checker (its local inferencer) at run-time, and reject the export if it can't prove it. Being conservative is fine here.
+ >
+ >
+ >
+ >
+ >
+ >> at: typed
+ >>  context...:
+ >>   /Users/endobson/proj/racket/plt/collects/racket/contract/private/blame.rkt:132:0: raise-blame-error
+ >>   untyped: [running body]
+ >>   /Users/endobson/tmp/tmp.rkt: [running body]
+ >>
+ >> *** How to repeat:
+ >> #lang racket/load
+ >>
+ >> (module typed typed/racket
+ >>  (provide b g)
+ >>
+ >>  (: b (Boxof (All (a) (a -> a))))
+ >>  (define b ((inst box (All (a) (a -> a))) (lambda (a) a)))
+ >>
+ >>  (: g (Integer -> Integer))
+ >>  (define (g x)
+ >>    ((unbox b) x)))
+ >>
+ >> (module untyped racket
+ >>  (require 'typed)
+ >>  (set-box! b (lambda (x) "hello"))
+ >>  (g 5))
+ >>
+ >> (require 'untyped)
+ >>
+ >> *** Environment:
+ >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >>
+ >
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13662: Generated contracts do not correctly
+ protect typed module
+Date: Sat, 6 Apr 2013 18:04:39 -0400
+
+ On Sat, Apr 6, 2013 at 1:21 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ > 3. When I see (All (a) (a -> a)) in your example, I think we should run the type checker (its local inferencer) at run-time, and reject the export if it can't prove it. Being conservative is fine here.
+ 
+ What do you mean by this?  The type inference system works on syntax,
+ not runtime values.
+ 
+ Sam
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13662: Generated contracts do not correctly protect typed module
+Date: Sat, 6 Apr 2013 18:40:54 -0400
+
+ (Yes I meant keeping the syntax around. Forall really is a syntactic proof in my mind so I really meant what I wrote. But I know it's an impossible idea.) 
+ 
+ 
+ 
+ On Apr 6, 2013, at 6:04 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Sat, Apr 6, 2013 at 1:21 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >> 3. When I see (All (a) (a -> a)) in your example, I think we should run the type checker (its local inferencer) at run-time, and reject the export if it can't prove it. Being conservative is fine here.
+ > 
+ > What do you mean by this?  The type inference system works on syntax,
+ > not runtime values.
+ > 
+ > Sam
+ 
+ 
+
+Responsible changed from "samth" to "endobson" by endobson@racket-lang.org at Thu, 25 Apr 2013 11:44:14 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/b5b13222c8
+State changed from "open" to "closed" by endobson@racket-lang.org at Thu, 25 Apr 2013 11:44:14 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/b5b13222c8
+  | Make type->contract correctly respect variance.
+  | 
+  | Track whether we are protecting values from the typed side and/or the
+  | untyped side.
+  | 
+  | Closes PR 13662.
+  | Closes PR 13663.
+  | Closes PR 13665.
+

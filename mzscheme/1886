@@ -1,0 +1,187 @@
+From robby@cs.rice.edu  Mon Mar  5 10:29:38 2001
+Received: from sun.cs.rice.edu (sun.cs.rice.edu [128.42.1.42])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id KAA07646
+	for <plt-gnats@cs.rice.edu>; Mon, 5 Mar 2001 10:29:37 -0600 (CST)
+Message-Id: <200103051628.KAA01470@sun.cs.rice.edu>
+Date: Mon, 5 Mar 2001 10:28:21 -0600 (CST)
+From: Robert Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: lexical non-syntax bindings and define-syntax
+X-Send-Pr-Version: 3.101
+
+>Number:         1886
+>Category:       mzscheme
+>Synopsis:       lexical non-syntax bindings and define-syntax
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon Mar  5 16:30:01 GMT 2001
+>Last-Modified:  Mon Mar 19 19:09:25 CST 2001
+>Originator:     Robert Findler
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	
+>Description:
+	
+>How-To-Repeat:
+
+This program:
+
+(module tmp mzscheme
+  (provide m)
+
+  (define-syntax m
+    (lambda (stx)
+      (syntax-case stx ()
+	[(_)
+	 (let ([x 1])
+	   (syntax x))]))))
+
+(module tmp2 mzscheme
+  (require tmp)
+  (display (m)) (newline))
+
+(require tmp2)
+
+produces this message:
+
+  compile: identifier used out of context in d:\plt\collects\framework\specs.ss[17.20]: x
+
+yet the same program, with `x' defined at the module's top-level works just 
+fine.
+
+>Fix:
+	
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1886: lexical non-syntax bindings and define-syntax
+Date: Mon, 5 Mar 2001 09:59:50 -0700 (MST)
+
+ The best I can do for now is to point you to page 12 (top) of
+ Dybvig/Hieb/Bruggeman, or the first paragraph of the "Lexical Bindings"
+ subsection of the Syntax chapter in the MzScheme manual.
+ 
+ Unfortunately, the "out of context" error doesn't show up in the D/H/B
+ algebra because they only model expansion, and don't show compilation
+ or interpretation.
+ 
+ In any case, I expect that the out-of-phase nature of the error is
+ obvious (can't refer to expansion-time values in run-time code), and
+ you're just complaining that I haven't yet written bullet-proof
+ documentation for everything. As soon as possible...
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1886: lexical non-syntax bindings and define-syntax
+Date: Mon, 05 Mar 2001 11:19:42 -0600
+
+ Matthew Flatt wrote:
+ > 
+ > The best I can do for now is to point you to page 12 (top) of
+ > Dybvig/Hieb/Bruggeman, or the first paragraph of the "Lexical Bindings"
+ > subsection of the Syntax chapter in the MzScheme manual.
+ 
+ Did you mean figure 4 on page 12? How does that help me?. Are you
+ referring to the techreport (#355 dated july 3, 1992)?
+ 
+ I do see the part in the mzscheme docs (I didn't understand that
+ earlier, but now I understand the first para; the second is still
+ confusing).
+ 
+ > In any case, I expect that the out-of-phase nature of the error is
+ > obvious (can't refer to expansion-time values in run-time code), and
+ > you're just complaining that I haven't yet written bullet-proof
+ > documentation for everything. As soon as possible...
+ 
+ Why does the lexical nature of the binding make any difference? In other
+ words, it is a simple (set! is the only tricky part) syntactic
+ transformation to take one program to the other (of the two I mentioned
+ in the original PR). So, why should the expander care where I put the
+ defn? 
+ (At this point, I understand what 11.3's first para means, but not _why_
+ you'd need that restriction)
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1886: lexical non-syntax bindings and define-syntax
+Date: Mon, 5 Mar 2001 16:07:14 -0700 (MST)
+
+ Quoting Robert Bruce Findler:
+ > Matthew Flatt wrote:
+ > > 
+ > > The best I can do for now is to point you to page 12 (top) of
+ > > Dybvig/Hieb/Bruggeman, or the first paragraph of the "Lexical Bindings"
+ > > subsection of the Syntax chapter in the MzScheme manual.
+ > 
+ > Did you mean figure 4 on page 12? How does that help me?. Are you
+ > referring to the techreport (#355 dated july 3, 1992)?
+ 
+ I was looking at the LASC version, March 93. It's on page 6 in the TR.
+ 
+ > > In any case, I expect that the out-of-phase nature of the error is
+ > > obvious (can't refer to expansion-time values in run-time code), and
+ > > you're just complaining that I haven't yet written bullet-proof
+ > > documentation for everything. As soon as possible...
+ > 
+ > Why does the lexical nature of the binding make any difference? In other
+ > words, it is a simple (set! is the only tricky part) syntactic
+ > transformation to take one program to the other (of the two I mentioned
+ > in the original PR).
+ 
+ No, they're in different contexts.
+ 
+ (define-syntax s
+   (lambda (stx)
+     (let ([x (printf "I am printed at elaboration time~n")])
+       (syntax x))))
+ s ; => syntax error
+ 
+ (define-syntax s2
+   (lambda (stx)
+     (syntax (let ([x (printf "I am printed at run time~n")])
+                x))))
+ s2 ; => void
+ 
+ (let ([x (printf "I would be printed at run time~n")])
+   (letrec-syntax ([bad (begin
+                          (printf "I would be printed at elaboration time~n")
+                          ; syntax error:
+                          x)])
+     0))
+ 
+ (let ([x (printf "I am printed at run time~n")])
+   (let-syntax ([ok (lambda (stx) (syntax x))])
+     ok)) ; => void
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Mar 19 19:09:18 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Mar 19 19:09:22 2001
+State-Changed-Why:
+not a bug
+
+ 
+>Unformatted:

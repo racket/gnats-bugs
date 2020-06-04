@@ -1,0 +1,76 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue May 12 17:46:16 2009
+Received: from mail-qy0-f127.google.com (mail-qy0-f127.google.com [209.85.221.127])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n4CLk5Rr009765
+	for <bugs@bugs.plt-scheme.org>; Tue, 12 May 2009 17:46:05 -0400
+Message-Id: <200905122146.n4CLk3bA009757@champlain.ccs.neu.edu>
+Date: Tue, 12 May 2009 17:46:03 -0400
+From: shu@rfrn.org
+To: bugs@plt-scheme.org
+Subject: extend-reduction-relation doesn't remove old rule-name
+
+>Number:         10238
+>Category:       redex
+>Synopsis:       extend-reduction-relation doesn't remove old rule-name
+>Class:          sw-bug
+>Responsible:    clklein
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue May 12 17:48:01 -0400 2009
+>Closed-Date:    Wed May 13 09:43:29 -0400 2009
+>Last-Modified:  Fri Feb 05 23:10:22 -0500 2010
+>Originator:     Shu-yu Guo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.5
+>Environment:
+macosx "Darwin Hama.CS.UCLA.EDU 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 205342424
+
+Collections:
+(("/home/shu/Library/PLT Scheme/4.1.5/collects" non-existent-path) ("/Applications/PLT Scheme v4.1.5/collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+The documentation for for extend-reduction-relation states:
+
+If the original reduction-relation has a rule with the same name as one of the rules specified in the extension, the old rule is removed.
+
+But if you extend a reduction relation with a rule that has the same name as an existing rule, both names appear when the extended reduction relation is passed to 'reduction-relation->rule-names'.
+
+This becomes a problem when one tries to use union-reduction-relations, which errors with
+
+union-reduction-relations: multiple rules with the name rule-name
+
+I think the problem is in struct.ss:85, which uses append instead of something like union for the two sets of rule-names.
+>How-To-Repeat:
+Write two reduction relations. Union the extension of one (replacing an existing rule) with the other.
+>Fix:
+>Release-Note:
+This was not a contract violation, altho it could have been, if the contract on reduction-relation->rule-names had promised to not return a list with duplicates. It would have even had the right blame.
+
+This is not a type error.
+>Audit-Trail:
+State changed from "open" to "closed" by robby at Wed, 13 May 2009 09:43:29 -0400
+Reason>>> Fixed, but not yet released to SVN. 
+
+Your analysis is exactly right. Here's a union function to
+stick into your own version until I can check mine in (I'm
+in the midst of other changes so I can't check in yet.)
+
+
+(define (union la lb)
+  (let* ([ht (make-hasheq)]
+         [n 0]
+         [add
+          (&#955; (x)
+            (unless (hash-ref ht x #f)
+              (hash-set! ht x n)
+              (set! n (+ n 1))))])
+    (for-each add la)
+    (for-each add lb)
+    (map car (sort (hash-map ht list) < #:key cadr))))
+
+

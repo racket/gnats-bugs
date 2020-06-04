@@ -1,0 +1,166 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jul 24 11:59:23 2014
+Received: from mail-oa0-f41.google.com (mail-oa0-f41.google.com [209.85.219.41])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s6OFxL9v004375
+	for <bugs@bugs.plt-scheme.org>; Thu, 24 Jul 2014 11:59:21 -0400
+Message-Id: <201407241559.s6OFxIUc004368@winooski.ccs.neu.edu>
+Date: Thu, 24 Jul 2014 11:59:18 -0400
+From: dvanhorn@cs.umd.edu
+To: bugs@racket-lang.org
+Subject: Redex: some pattern vars not re-interpreted in lang extensions
+
+>Number:         14660
+>Category:       all
+>Synopsis:       Redex: some pattern vars not re-interpreted in lang extensions
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jul 24 12:00:02 -0400 2014
+>Closed-Date:    Sat Jul 26 01:44:13 -0400 2014
+>Last-Modified:  Sat Jul 26 01:44:13 -0400 2014
+>Originator:     David Van Horn
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.0.3--2014-07-21(3666842/a)
+>Environment:
+macosx "" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 769548628
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    c5372e4de491796702db3953d76c6018bf12fa6b    (catalog main-distribution)
+ racket-lib           d788b703b694c86e89ad90bdc7cf31b02e01bde8    (catalog racket-lib)
+ [178 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ [none]
+
+
+
+Collections:
+("/Users/dvanhorn/Library/Racket/snapshot/collects"
+ (non-existent-path))
+("/Applications/Racket v6.1.0.3/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: Saved 5 internal errors:
+
+browser-run: process execute failed: '(#<path:/usr/bin/osascript> "-e" "open location \"file:///Applications/Racket%20v6.1.0.3/doc/index.html\"")
+
+
+browser-run: process execute failed: '(#<path:/usr/bin/osascript> "-e" "open location \"file:///Applications/Racket%20v6.1.0.3/doc/index.html\"")
+
+
+browser-run: process execute failed: '(#<path:/usr/bin/osascript> "-e" "open location \"file:///Applications/Racket%20v6.1.0.3/doc/index.html\"")
+
+
+browser-run: process execute failed: '(#<path:/usr/bin/osascript> "-e" "open location \"file:///Applications/Racket%20v6.1.0.3/doc/index.html\"")
+
+
+browser-run: process execute failed: '(#<path:/usr/bin/osascript> "-e" "open location \"file:///Applications/Racket%20v6.1.0.3/doc/index.html\"")
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #f ((test) (main)) #t))
+>Description:
+Both LHS `where' pattern variables and output position `judgment-holds'
+pattern variables in reduction-relation extras are not re-interpreted by 
+extend-reduction-relation.
+
+For example, the following two relations should be equivalent:
+
+(define-language L (M ::= number))
+(define r  (reduction-relation L (--> M M)))
+(define r′ (reduction-relation L (--> M M (where M M))))
+
+And their extensions should be equivalent as well, but they aren't:
+
+(define-extended-language L1 L (M ::= string))
+(define r1  (extend-reduction-relation r L1))
+(define r1′ (extend-reduction-relation r′ L1))
+(apply-reduction-relation r1  "7") ;=> '("7")
+(apply-reduction-relation r1′ "7") ;=> '()
+
+It appears to be that the LHS occurencs of M in the `where'
+is not being re-interpreted over L1, so it fails to match and
+no reduction occurs in the extension.
+
+Similarly, pattern variables in output positions of judgments
+are not re-interpreted:
+
+(define-judgment-form L
+  #:mode (id I O)
+  #:contract (id any any)
+  [(id any any)])
+
+(define t (reduction-relation L (--> M M (judgment-holds (id M M)))))
+(define t1 (extend-reduction-relation t L1))
+(apply-reduction-relation t1 "7") ;=> '()
+
+As evidence of it only being output positions, notice that things
+work if we change the output pattern to `any', but keep the input
+pattern as M:
+
+(define s  (reduction-relation L (--> M any (judgment-holds (id M any)))))
+(define s1 (extend-reduction-relation s L1))
+(apply-reduction-relation s1 "7") ;=> '("7")
+>How-To-Repeat:
+#lang racket
+(require redex/reduction-semantics)
+
+(define-language L (M ::= number))
+(define r  (reduction-relation L (--> M M)))
+(define r′ (reduction-relation L (--> M M (where M M))))
+(test-equal (apply-reduction-relation r  7) '(7))
+(test-equal (apply-reduction-relation r′ 7) '(7))
+
+(define-extended-language L1 L (M ::= string))
+(define r1  (extend-reduction-relation r L1))
+(define r1′ (extend-reduction-relation r′ L1))
+(test-equal (apply-reduction-relation r1  "7") '("7"))
+(test-equal (apply-reduction-relation r1′ "7") '("7"))
+
+
+(define-judgment-form L
+  #:mode (id I O)
+  #:contract (id any any)
+  [(id any any)])
+
+(define s  (reduction-relation L (--> M any (judgment-holds (id M any)))))
+(define s1 (extend-reduction-relation s L1))
+(test-equal (apply-reduction-relation s 7) '(7))
+(test-equal (apply-reduction-relation s1 "7") '("7"))
+
+(define t  (reduction-relation L (--> M M (judgment-holds (id M M)))))
+(define t1 (extend-reduction-relation t L1))
+(test-equal (apply-reduction-relation t 7) '(7))
+(test-equal (apply-reduction-relation t1 "7") '("7"))
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: David Van Horn <dvanhorn@cs.umd.edu>, bugs <bugs@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/14660: Redex: some pattern vars not
+ re-interpreted in lang extensions
+Date: Sat, 26 Jul 2014 00:43:06 -0500
+
+ Man, I totally went off the deep end with this one. I thought I saw an
+ opportunity to improve some bad aspects of the way reduction-relations
+ compile but boy was I wrong and instead I just reminded myself of how
+ much I've painted myself into a corner with some bad decisions in the
+ way the internals of Redex are structured.
+ 
+ Happily, however, all that let me see an easy way to fix the problem at hand....
+ 
+ Robby
+Responsible changed from "nobody" to "robby" by robby@racket-lang.org at Sat, 26 Jul 2014 01:44:13 -0400
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0c68ded12d
+State changed from "open" to "closed" by robby@racket-lang.org at Sat, 26 Jul 2014 01:44:13 -0400
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0c68ded12d
+  | fix language extension bug in reduction-relation
+  | 
+  | closes PR 14660
+

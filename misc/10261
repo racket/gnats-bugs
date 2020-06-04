@@ -1,0 +1,122 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon May 25 23:16:49 2009
+Received: from mail-qy0-f107.google.com (mail-qy0-f107.google.com [209.85.221.107])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n4Q3GerG016526
+	for <bugs@bugs.plt-scheme.org>; Mon, 25 May 2009 23:16:41 -0400
+Message-Id: <200905260316.n4Q3Gcb1016519@champlain.ccs.neu.edu>
+Date: Mon, 25 May 2009 23:16:38 -0400
+From: jay@plt-scheme.org
+To: bugs@plt-scheme.org
+Subject: regexp-match-evt can error with closed ports
+
+>Number:         10261
+>Category:       misc
+>Synopsis:       regexp-match-evt can error with closed ports
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon May 25 23:20:01 -0400 2009
+>Closed-Date:    Fri Jun 05 13:37:23 -0400 2009
+>Last-Modified:  Fri Feb 05 23:11:41 -0500 2010
+>Originator:     Jay McCarthy
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.0.2-svn19may2009
+>Environment:
+macosx "Darwin jay-mccarthys-macbook.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 162489952
+
+Collections:
+(("/Users/jay/Library/PLT Scheme/4.2.0.2/collects" non-existent-path) ("/Users/jay/Dev/svn/plt/collects" ".svn" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict!
+ " "trace" "typed" "typed-scheme" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+I'm using subprocess to run a process and after I'm done, I explicitly close the ports as instructed. Earlier, I was using read-bytes-line-evt on them, which is implemented using regexp-match-evt.
+
+Since rme is implemented as a polling thread, it can error when I've closed the port and don't care about the rme event any longer. Here is some code that sometimes fails --- just run it many times and eventually you may get it.
+
+There error displayed is:
+
+1
+regexp-match: input port is closed
+regexp-match: input port is closed
+> 
+
+(Notice that the error is in a background thread.)
+
+When run in MzScheme, you get the line information:
+
+regexp-match: input port is closed
+
+ === context ===
+/Users/jay/Dev/svn/plt/collects/mzlib/port.ss:1025:4: try-again
+
+I believe that the problem would be fixed if there were a test of if the port were closed before calling regexp-match-peek-positions.
+>How-To-Repeat:
+#lang scheme
+
+(define (read-until-evt port k)
+  (if port
+      (handle-evt (read-bytes-line-evt port)
+                  (lambda (bs)
+                    (if (eof-object? bs)
+                        (k)
+                        (k bs))))
+      never-evt))
+
+(define (run/collect/wait command . args)  
+  ; Run the command
+  (define-values
+    (the-process stdout stdin stderr)
+    (apply subprocess
+           #f #f #f 
+           command 
+           args))
+  
+  ; Run it without input
+  (close-output-port stdin)
+  
+  ; Wait for all the output, then the process death or timeout
+  (local
+    [(define the-alarm
+       (alarm-evt (+ (current-inexact-milliseconds)
+                     (* 1000 60 10))))
+     (define final-status
+       (let loop ([stdout stdout]
+                  [stderr stderr]
+                  [log empty])
+         (sync (handle-evt the-alarm
+                           (lambda (_) #f))
+               (read-until-evt stdout
+                               (case-lambda 
+                                 [() 
+                                  (loop #f stderr log)]
+                                 [(bs)
+                                  (loop stdout stderr (list* bs log))]))
+               (read-until-evt stderr
+                               (case-lambda 
+                                 [() 
+                                  (loop stdout #f log)]
+                                 [(bs)
+                                  (loop stdout stderr (list* bs log))]))
+               (handle-evt the-process
+                           (lambda (_)
+                             (subprocess-status the-process))))))]
+    (close-input-port stdout)
+    (close-input-port stderr)
+    final-status))
+
+(run/collect/wait "/Users/jay/Dev/svn/plt/bin/mzscheme" "-t" "test.ss")
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by jay at Fri, 05 Jun 2009 13:37:23 -0400
+Reason>>> I just committed a small change to SVN to fix this.
+
+
+Responsible changed from "nobody" to "jay" by eli at Fri, 05 Feb 2010 23:11:41 -0500
+Reason>>> .
+

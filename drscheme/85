@@ -1,0 +1,187 @@
+From matthias@cs.rice.edu  Wed May 14 11:15:29 1997
+Received: from europa.cs.rice.edu (europa.cs.rice.edu [128.42.1.177]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id LAA04099 for <plt-gnats@cs.rice.edu>; Wed, 14 May 1997 11:15:29 -0500 (CDT)
+Message-Id: <199705141615.LAA02300@europa.cs.rice.edu>
+Date: Wed, 14 May 1997 11:15:28 -0500 (CDT)
+From: Matthias Felleisen <matthias@cs.rice.edu>
+Reply-To: matthias@rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: check syntax internal error
+X-Send-Pr-Version: 3.101
+
+>Number:         85
+>Category:       drscheme
+>Synopsis:       check syntax internal error
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed May 14 16:20:02 GMT 1997
+>Last-Modified:  Sat May 24 14:44:13 MST 1997
+>Originator:     Matthias Felleisen
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	
+>Description:
+
+   Internal Error: exn-message: expects type <struct:exn> as 1st arg; given
+   #(struct:zodiac-exn "Unbound signature name" #(struct:location 18 22 376
+   #<object:wx:media-edit%>) #(struct:location 18 40 394
+   #<object:wx:media-edit%>) static) (type <struct>)
+
+>How-To-Repeat:
+
+	run check syntax on the file below: 
+
+; ---------------------------------------------------
+;; e = sym | ('lambda sym e) (e e)
+;; r = (('lambda sym e) e)
+
+(reference-library "prettys.ss")
+
+(define-signature evalSIG ( main ))
+
+(define-signature parseSIG 
+  ( parse 
+    (struct var (s))
+    (struct lam (param body))
+    (struct app (fun arg))
+    unparse ))
+
+(define evalU
+  (unit/sig evalSIG
+    (import parseSIG mzlib:pretty-print^)
+    ; ---------------------------------------------------
+    (define-struct redex (term anchor))
+    
+    (define (main e)
+      (let* ((rest (gensym 'result))
+	     (newe  (parse`(,rest ,e))))
+	(let interact ((redexes (search (app-arg newe) (aapp-arg newe))))
+	  (pretty-print (unparse newe)) (newline)
+	  (if (null? redexes)
+	      (void)
+	      (let-values ([(redex rems) (pick-io redexes)])
+		(interact
+		 (union
+		  ((redex-anchor redex) (contract (redex-term redex)))
+		  rems)))))))
+    
+    (define (pick-io redexes)
+      (printf " >> choosing the first redex on the list <<  ~n")
+      (values (car redexes) (cdr redexes)))
+    
+    ; ---------------------------------------------------
+    
+    (define (contract aredex)
+      (let* ((f (app-fun aredex))
+	     (a (app-arg aredex))
+	     (p (lam-param f))
+	     (b (lam-body f)))
+	(subst a p b)))
+    
+    (define (subst new old e)
+      (cond
+	((var? e) (if (eq? old (var-s e)) new e))
+	((lam? e) (let* ((oldy (lam-param e))
+			 (newy (gensym oldy)))
+		    (if (eq? old oldy)
+			e
+			(make-lam newy 
+				  (subst new old 
+					 (subst (make-var newy) oldy
+						(lam-body e)))))))
+	(else (make-app (subst new old (app-fun e))
+			(subst new old (app-arg e))))))
+    
+    (define (search e anchor)
+      (cond
+	((var? e) null)
+	((lam? e) (search (lam-body e) (alam-body e)))
+	(else (let* ((rfun (search (app-fun e) (aapp-fun e anchor)))
+		     (rarg (search (app-arg e) (aapp-arg e))))
+		(app-redexes e anchor (union rfun rarg))))))
+    
+    (define (app-redexes e anchor rest)
+      (if (reducible? e) (cons (make-redex e anchor) rest) rest))
+    
+    (define (reducible? e) (and (lam? (app-fun e)) #t)) ;; modify for cbv
+    
+    (define (alam-body lam)
+      (letrec ((lam-anchor 
+		(lambda (new-body)
+		  (set-lam-body! lam new-body)
+		  (search new-body lam-anchor))))
+	lam-anchor))
+    
+    (define (aapp-fun app anchor)
+      (letrec ((fun-anchor 
+		(lambda (new-fun)
+		  (set-app-fun! app new-fun)
+		  (app-redexes app anchor (search new-fun fun-anchor)))))
+	fun-anchor))
+    
+    (define (aapp-arg app)
+      (letrec ((arg-anchor
+		(lambda (new-arg)
+		  (set-app-arg! app new-arg)
+		  (search new-arg arg-anchor))))
+	arg-anchor))
+    
+    ; --------------------------------------
+    
+    (define (union x y)
+      (cond
+	((null? x) y)
+	(else (if (memq (car x) y)
+		  (union (cdr x) y)
+		  (cons (car x) (union (cdr x) y))))))
+    
+    ; --------------------------------------
+    ))
+
+(define mainU 
+  (unit/sig () 
+    (import evalSIG)
+    (define ex1 'x)
+    (define ex2 '(lambda x x))
+    (define ex3 '((lambda x x) (lambda x x)))
+    (define ex4 '((lambda a ((lambda x x) (lambda x x))) b))
+    (define ex5 
+      '((lambda f
+	  (f ((f (lambda y y)) (f a))))
+	(lambda x x)))
+    (for-each main (list ex1 ex2 ex3 ex4 ex5))))
+
+(define (run)
+  (invoke-unit 
+   (compound-unit/sig (import)
+     (link (EVAL : evalSIG (evalU (PARSE parse) (PARSE unparse)))
+	   (PRETTYR : pretty^ ((reference-unit/sig "prettyr.ss")))
+	   (PARSE : parseSIG (parseU))
+	   (MAIN : mainSIG (mainU (EVAL main))))
+     (export))))
+
+
+>Fix:
+	
+>Audit-Trail:
+
+Responsible-Changed-From-To: krentel->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Wed May 14 11:26:00 1997
+Responsible-Changed-Why:
+
+known bug.
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Sat May 24 14:44:10 1997
+State-Changed-Why:
+
+
+>Unformatted:

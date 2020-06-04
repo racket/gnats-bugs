@@ -1,0 +1,108 @@
+From gregp@bsquare.com  Mon Nov 22 22:32:16 1999
+Received: from localhost (firewall.bsquare.com [63.76.82.66])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id WAA05612
+	for <plt-gnats>; Mon, 22 Nov 1999 22:32:14 -0600 (CST)
+Message-Id: <199911230432.WAA05612@cs.rice.edu>
+Date: Mon, 22 Nov 1999 22:32:14 -0600 (CST)
+From: gregp@bsquare.com
+To: plt-gnats@cs.rice.edu
+Subject: scheme_make_integer_value(2147483648)  returns -./,),(-*,(
+
+>Number:         1282
+>Category:       mzscheme
+>Synopsis:       scheme_make_integer_value(2147483648)  returns -./,),(-*,(
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Nov 23 04:45:03 GMT 1999
+>Last-Modified:  Wed Nov 24 08:39:41 CST 1999
+>Originator:     Greg Pettyjohn
+>Organization:
+titan
+>Release:        101
+>Environment:
+windows (win32\i386)
+Tools: ("stepper" "syncheck" "unit-bundle")
+Docs Installed:
+("drscheme" "help" "icons" "misclib" "mred" "mzscheme" "r5rs" "teachpack" "insidemz")
+Collections:
+(("C:\\PROGRA~1\\PLT\\collects" ("afm" "browser" "cogen" "compiler" "doc" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "icons" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "slibinit" "stepper" "userspce" "xml" "zodiac")))
+>Description:
+scheme_make_intger_value is returning some strange stuff when provided the right input.
+>How-To-Repeat:
+Create an dynamic extension for MzScheme as per "inside MzScheme" with the following test function.
+Scheme_Object *test( int agc, Scheme_Object **argv)
+{
+     return scheme_make_integer_value(2147483648);
+}
+
+Compile the extension and load into MzScheme using (load-extension "test.dll")
+
+At the MzScheme prompt type the following (with reults as indicated):
+> (test)
+-./,),(-*,(   <------ This is the output. Pretty wonky huh?
+
+>Fix:
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: gregp@bsquare.com
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1282: scheme_make_integer_value(2147483648)  returns -./,),(-*,(
+Date: Mon, 22 Nov 1999 21:31:31 -0800
+
+ Quoting gregp@bsquare.com:
+ > return scheme_make_integer_value(2147483648);
+ > [...]
+ > -./,),(-*,(   <------ This is the output. Pretty wonky huh?
+ 
+ Yep.
+ 
+ First, note that (long)2147483648 is really -2147483648.
+ 
+ The bug is in bignum.c. The code that says:
+ 
+   if ((bad_neg = (v != -(-v)))
+    ...
+ 
+ is trying to detect the one "bad" negative value in twos complement
+ that has no positive counterpart (assuming a fixed number of bits) . So
+ if there's no positive counterpart, you don't get back to the original
+ value if you negate it once and then negate it again --- right?
+ 
+ Wrong. That "bad" negative number is also a fix point for negation. So
+ v == -(-v)!
+ 
+ The correct test is
+ 
+   if ((bad_neg = (v && (v == -(-v))))
+    ...
+ 
+ While there's a more obvious test for 32-bit integers, the one above
+ works for a `long' with any number of bits.
+ 
+ For various reasons, the bug never shows through Scheme arithmetic.
+ That's why the general test suite didn't catch it; you really have to
+ call `scheme_make_integer_value' directly. Probably I mis-tested
+ `scheme_make_integer_value' when I wrote it.
+ 
+ Thanks for the bug report,
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Wed Nov 24 08:39:31 1999
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Nov 24 08:39:34 1999
+State-Changed-Why:
+Fixed for next release.
+
+ 
+>Unformatted:

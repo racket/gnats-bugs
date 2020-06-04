@@ -1,0 +1,91 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Dec 31 11:46:02 2010
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id oBVGjxqn029264
+	for <bugs@bugs.plt-scheme.org>; Fri, 31 Dec 2010 11:46:00 -0500
+Message-Id: <201012311645.oBVGjrUb029255@champlain.ccs.neu.edu>
+Date: Fri, 31 Dec 2010 11:45:53 -0500
+From: clklein@eecs.northwestern.edu
+To: bugs@racket-lang.org
+Subject: Redex `cross' patterns and multi-holed terms
+
+>Number:         11579
+>Category:       redex
+>Synopsis:       Redex `cross' patterns and multi-holed terms
+>Class:          sw-bug
+>Responsible:    clklein
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Dec 31 11:48:01 -0500 2010
+>Closed-Date:    Wed Apr 06 12:12:07 -0400 2011
+>Last-Modified:  Wed Apr 06 12:12:07 -0400 2011
+>Originator:     Casey Klein
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.99.5--2010-12-31(cfce112/g)
+>Environment:
+macosx "Darwin wireless-165-124-114-198.nuwlan.northwestern.edu 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 194229552
+
+Collections:
+("/Users/clklein/Library/Racket/5.0.99.5/collects"
+ (non-existent-path))
+("/Users/clklein/git/plt/collects"
+ (".gitignore" "2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "un!
+ stable" "version" "waterworld" "web-server" "wxme" "xml"))
+
+Computer Language: (("Determine language from source") (#(#t quasiquote mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+`cross' does not work with (some) languages that rely on `hide-hole'.
+
+(define-language L
+  (e (e e ...)
+     x
+     v)
+  (v (λ (x ...) e)
+     (cont (hide-hole E)))
+  (E hole
+     (in-hole L E))
+  (L (v ... hole e ...))
+  (x variable-not-otherwise-mentioned))
+
+> (redex-match L (cross e) (term (cont ((λ (x) x) hole))))
+matcher.ss: found two holes
+
+Matching proceeds top-down as follows.
+
+matching (cross e) against (cont ((λ (x) x) hole)) with prefixed crosses
+matching (cross e-v) against (cont ((λ (x) x) hole)) with non-prefixed crosses
+matching (cont (hide-hole (cross e-E))) against (cont ((λ (x) x) hole)) with non-prefixed crosses
+matching (hide-hole (cross e-E)) against ((λ (x) x) hole) with non-prefixed crosses
+matching (cross e-E) against ((λ (x) x) hole) with non-prefixed crosses
+matching (in-hole (cross e-L) E) against ((λ (x) x) hole) with non-prefixed crosses
+matching (cross e-L) against ((λ (x) x) hole) with non-prefixed crosses
+matching (v ... hole e ... (cross e-e) e ...) against ((λ (x) x) hole) with non-prefixed crosses
+
+The final match "finds two holes" by consuming (λ (x) x) with hole and hole with (cross e-e).
+
+I think the fix might be for Redex to generate a compatible-context language that uses `hide-hole' annotations to hide all holes except the one consumed by the `cross' pattern. For example, the failing (cross e-L) production should change from
+
+(v ... hole e ... (cross e-e) e ...)
+
+to
+
+(v ... (hide-hole hole) e ... (cross e-e) e ...)
+
+or even (if it's easier to implement)
+
+((hide-hole v) ... (hide-hole hole) (hide-hole e) ... (cross e-e) (hide-hole e) ...)
+
+If you were to define the compatible closure context for e by hand, I think you'd end up with something similar.
+
+Alternatively, Redex could stop trying to guess what `in-hole' means.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by clklein@racket-lang.org at Wed, 06 Apr 2011 12:12:07 -0400
+Reason>>> A commit by clklein@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/1ad2b1b938

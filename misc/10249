@@ -1,0 +1,226 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed May 20 22:00:43 2009
+Received: from mail-qy0-f107.google.com (mail-qy0-f107.google.com [209.85.221.107])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n4L20T96003000
+	for <bugs@bugs.plt-scheme.org>; Wed, 20 May 2009 22:00:29 -0400
+Message-Id: <200905210200.n4L20SEp002994@champlain.ccs.neu.edu>
+Date: Wed, 20 May 2009 22:00:28 -0400
+From: meunier@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: unexpected #<undefined> in unit exports, which in turn creates problems with contracted signatures
+
+>Number:         10249
+>Category:       misc
+>Synopsis:       unexpected #<undefined> in unit exports, which in turn creates problems with contracted signatures
+>Class:          sw-bug
+>Responsible:    sstrickl
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed May 20 22:04:01 -0400 2009
+>Closed-Date:    Thu Jan 07 14:37:48 -0500 2010
+>Last-Modified:  Fri Feb 05 23:10:34 -0500 2010
+>Originator:     Philippe
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.5.3-svn23mar2009
+>Environment:
+unix "OpenBSD akpatok.james.bay 4.4 GENERIC#9 i386" (i386-openbsd/3m) (get-display-depth) = 24
+Human Language: french
+(current-memory-use) 99991860
+
+Collections:
+(("/home/meunier/.plt-scheme/4.1.5.3/collects" non-existent-path) ("/home/meunier/plt/collects" ".svn" "tex2page" "wxme" "string-constants" "test-engine" "planet" "mzcom" "typed-scheme" "drscheme" "r6rs" "s-exp" "framework" "srpersist" "at-exp" "sirmail" "slideshow" "scribblings" "test-box-recovery" "syntax-color" "srfi" "algol60" "redex" "dynext" "make" "plot" "file" "lang" "web-server" "openssl" "macro-debugger" "scribble" "typed" "frtime" "combinator-parser" "mred" "guibuilder" "htdp" "graphics" "setup" "profjWizard" "afm" "stxclass" "scheme" "config" "gui-debugger" "defaults" "honu" "icons" "handin-client" "lazy" "texpict" "teachpack" "browser" "rnrs" "scriblib" "waterworld" "parser-tools" "r5rs" "games" "eopl" "tests" "html" "swindle" "handin-server" "repos-time-stamp" "compiler" "embedded-gui" "profj" "2htdp" "stepper" "readline" "hierlist" "deinprogramm" "sgl" "version" "preprocessor" "net" "syntax" "help" "htdch" "trace" "slatex" "xml" "launcher" "ffi" "mrlib" "error!
+ trace" "mzscheme" "mysterx" "mzlib" "info-domain" "tdb"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #t #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+Consider the following code (no contracted signatures yet):
+
+; u-sig.ss
+#lang scheme
+(provide u^)
+(define-signature u^
+  (u? u))
+
+; u-unit.ss
+#lang scheme/unit
+(require "u-sig.ss")
+(import)
+(export u^)
+(define (u? x) #t)
+(define (u x) x)
+
+; v-sig.ss
+#lang scheme
+(provide v^)
+(define-signature v^
+  (u? v))
+
+; v-unit.ss
+#lang scheme/unit
+(require "u-sig.ss" "v-sig.ss")
+(import u^)
+(export (rename v^ (same-u? u?)))
+(define v u)
+(define same-u? u?)
+
+; main.ss
+#lang scheme
+(require "u-sig.ss" "u-unit.ss" "v-sig.ss" "v-unit.ss")
+(define w@ (compound-unit (import)
+                          (export V)
+                          (link [((V : v^)) v@ U]
+                                [((U : u^)) u@])))
+(define-values/invoke-unit w@ (import) (export v^))
+v
+
+The unit u@ defines u? and u, and the unit v@ simply re-exports its
+imports, renaming u into v in the process.  Now run main.ss, the
+result for v is:
+
+#<undefined>
+
+That's because the two linking clauses in the compound-unit are
+in the wrong order.  So that's a bug in my code above, but I was
+surprised that I didn't get an error message.  I would have expected
+define-values/invoke-unit to tell me that one of my exports in v^
+ended up being undefined.  I can't think of a situation where
+exporting an undefined value would be useful...
+
+Of course the real solution here is to use (init-depend u^) in v@
+to enforce the correct order during linking, but if I forget that
+(and it's easy to forget to add the right init-depend in the right
+units) then suddenly I have an unexpected #<undefined> value
+that shows up in my program, potentially triggering an error far away
+from where the define-values/invoke-unit is.
+
+Now let's add contracts to u-sig.ss:
+
+#lang scheme
+(provide u^)
+(define-signature u^
+  ((contracted
+    (u? (any/c . -> . boolean?))
+    (u (integer? . -> . u?)))))
+
+Run main.ss again:
+
+car: expects argument of type <pair>; given #<undefined>
+
+Obviously contracted signatures don't expect undefined values either :-)
+
+Note that this bug is actually quite nice: if I have an undefined
+export then my program fails immediately during the
+define-values/invoke-unit rather than silently exporting the
+undefined value to the rest of the program, so this bug in
+contracted signatures actually makes it easier for me to find bugs
+in my own program!
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Stevie Strickland <sstrickl@plt-scheme.org>
+To: meunier@ccs.neu.edu, bugs@plt-scheme.org
+Cc: Matthias Felleisen <matthias@plt-scheme.org>, mflatt@plt-scheme.org
+Subject: Re: [plt-bug] all/10249: unexpected #<undefined> in unit exports, which in turn creates problems with contracted signatures
+Date: Thu, 21 May 2009 13:07:40 -0400
+
+ On May 20, 2009, at 10:04 PM, meunier@ccs.neu.edu wrote:
+ > ; v-unit.ss
+ > #lang scheme/unit
+ > (require "u-sig.ss" "v-sig.ss")
+ > (import u^)
+ > (export (rename v^ (same-u? u?)))
+ > (define v u)
+ > (define same-u? u?)
+ 
+ The way to fix this is to do the following:
+ 
+ #lang scheme/unit
+ (require "u-sig.ss" "v-sig.ss")
+ (import u^)
+ (export (rename v^ (same-u? u?)))
+ (init-depend u^) ;; <-- the change needed
+ (define v u)
+ (define same-u? u?)
+ 
+ Since you depend on u? being defined when the forms in this unit body  
+ is run (i.e. it's not under a lambda or some other form that would  
+ delay its evaluation until a later time), you need to specify the  
+ initialization dependency here.  Then you'd get the error:
+ 
+    compound-unit: untagged initialization dependent signature u^ is  
+ supplied
+      from a later unit with link U
+ 
+ The error message could be a little clearer, so I'll take  a look at  
+ rewriting it to something more user-friendly, since we've already had  
+ one issue with that earlier today.
+ 
+ Stevie
+
+Responsible changed from "nobody" to "sstrickl" by sstrickl at Mon, 30 Nov 2009 13:00:37 -0500
+Reason>>> One more unit signature/contract related bug
+
+
+State changed from "open" to "closed" by sstrickl at Wed, 06 Jan 2010 11:59:24 -0500
+Reason>>> There's just no reason for this to still be open.  Both Philippe and I agree that 
+init-depend is the right solution here.
+
+
+State changed from "closed" to "analyzed" by sstrickl at Wed, 06 Jan 2010 21:03:53 -0500
+Reason>>> As Philippe points out, we should do better on the error message here.
+
+From: Philippe Meunier <meunier@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: sstrickl@plt-scheme.org, bug-notification@plt-scheme.org,
+        meunier@ccs.neu.edu
+Subject: Re: [plt-bug] all/10249 unexpected #<undefined> in unit exports,
+	which in turn creates problems with contracted signatures
+Date: Wed, 6 Jan 2010 21:01:21 -0500
+
+ sstrickl@plt-scheme.org wrote:
+ >Both Philippe and I agree that init-depend is the right solution
+ >here.
+ 
+ I still think that the code for contracted signatures should be
+ changed so that one doesn't get an ugly error message like:
+ 
+ car: expects argument of type <pair>; given #<undefined>
+ 
+ when one puts a contract on a unit that exports the #<undefined>
+ value.  The code should give a proper error message rather than just
+ let some deep-buried internal call to car fail...
+ 
+ Philippe
+ 
+ 
+From: Stevie Strickland <sstrickl@plt-scheme.org>
+To: Philippe Meunier <meunier@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10249 unexpected #<undefined> in unit exports, which in turn creates problems with contracted signatures
+Date: Wed, 6 Jan 2010 21:02:53 -0500
+
+ On Jan 6, 2010, at 9:01 PM, Philippe Meunier wrote:
+ > sstrickl@plt-scheme.org wrote:
+ >> Both Philippe and I agree that init-depend is the right solution
+ >> here.
+ >
+ > I still think that the code for contracted signatures should be
+ > changed so that one doesn't get an ugly error message like:
+ >
+ > car: expects argument of type <pair>; given #<undefined>
+ >
+ > when one puts a contract on a unit that exports the #<undefined>
+ > value.  The code should give a proper error message rather than just
+ > let some deep-buried internal call to car fail...
+ 
+ Oh, right, sorry, I forgot about this part.  Thanks.
+ 
+ Stevie
+
+State changed from "analyzed" to "closed" by sstrickl at Thu, 07 Jan 2010 14:37:48 -0500
+Reason>>> Fixed in SVN r17541.  Now you'll get the error: "unit: contracted import u used 
+before definition" instead of the error due to the implementation details.
+
+

@@ -1,0 +1,204 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Jan  3 20:09:09 2014
+Received: from mail-ob0-f176.google.com (mail-ob0-f176.google.com [209.85.214.176])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s04198OZ025791
+	for <bugs@bugs.plt-scheme.org>; Fri, 3 Jan 2014 20:09:08 -0500
+Message-Id: <201401040109.s04195Mw025784@winooski.ccs.neu.edu>
+Date: Fri, 3 Jan 2014 20:09:05 -0500
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: TR doesn't protect structs from reflective access
+
+>Number:         14266
+>Category:       typed-scheme
+>Synopsis:       TR doesn't protect structs from reflective access
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Jan 03 20:12:01 -0500 2014
+>Last-Modified:  Sun Jan 19 15:12:01 -0500 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+By changing the current inspector and then creating a new TR module, one can subvert the type system.
+>How-To-Repeat:
+#lang racket/load
+
+(module m typed/racket
+  (provide foo)
+  (struct: foo ([v : Symbol]) #:mutable))
+
+(define old-inspector (current-inspector))
+(define new-inspector (make-inspector))
+(current-inspector new-inspector)
+(require 'm)
+(define a-foo (foo 'x))
+
+(print a-foo)
+(newline)
+(print (struct->vector a-foo))
+(newline)
+
+(current-inspector old-inspector)
+
+
+(print a-foo)
+(newline)
+(print (struct->vector a-foo))
+(newline)
+
+(define-values (foo-type ignored) (struct-info a-foo))
+(define-values (name init-fields auto-fields accessor mutator immutable-indicies super-type skipped?)
+    (struct-type-info foo-type))
+
+(define bad-mut (make-struct-field-mutator mutator 0))
+
+
+(print a-foo)
+(newline)
+(bad-mut a-foo 2)
+(print a-foo)
+(newline)
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: bugs@racket-lang.org, eric.n.dobson@gmail.com
+Cc: 
+Subject: Re: typed-scheme/14266: TR doesn't protect structs from reflective access
+Date: Thu, 16 Jan 2014 22:52:17 -0800
+
+ So I came up with a harder issue. TR doesn't know what to protect from
+ reflective access in some cases. We have to protect against reflective
+ access to the inner most struct, but the contract that is protecting
+ it may have no idea that the inner struct type exists. I currently do
+ not see a way to prevent this circumvention of the type system.
+ 
+ #lang racket/load
+ 
+ (module m typed/racket
+   (provide foo b)
+   (struct: foo ([v : Symbol]) #:mutable)
+   (: b (Boxof foo))
+   (define b (box (foo 'x))))
+ 
+ 
+ (module m2 typed/racket
+   (require 'm)
+   (provide bar set-b!)
+   (struct: bar foo ([z : Symbol]) #:mutable)
+   (: set-b! (-> Void))
+   (define (set-b!) (set-box! b (bar 'foo-field 'bar-field))))
+ 
+ 
+ (define old-inspector (current-inspector))
+ (define new-inspector (make-inspector))
+ (current-inspector new-inspector)
+ (require 'm)
+ (require 'm2)
+ (current-inspector old-inspector)
+ (set-b!)
+ (define v (unbox b))
+ 
+ (define-values (bar-type ignored) (struct-info v))
+ (define-values (name init-fields auto-fields accessor mutator
+ immutable-indicies super-type skipped?)
+     (struct-type-info bar-type))
+ 
+ (define bad-mut (make-struct-field-mutator mutator 0))
+ 
+ 
+ (print v)
+ (newline)
+ (bad-mut v 2)
+ (print v)
+ (newline)
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: bugs <bugs@racket-lang.org>, Eric Dobson <eric.n.dobson@gmail.com>
+Cc: 
+Subject: Re: typed-scheme/14266: TR doesn't protect structs from reflective access
+Date: Sun, 19 Jan 2014 12:08:30 -0800
+
+ Ok, I have a solution, which shouldn't slow down typical programs too
+ much (I belive).
+ 
+ The issue comes about from the fact that the inspector passed to
+ make-struct-type can be weaker than the inspector used during the
+ initialization of typed-racket. We aren't worried about code with
+ control of inspectors that are as powerful as the TR inspector because
+ by definition it can violate TR abstractions. Thus when constructing a
+ struct-type in a TR program we check the inspector argument, if it is
+ not as strong as the TR inspector than we protect the result of the
+ constructor from bad reflective accesses.
+ 
+ The two properties that I like from this solution is that we don't
+ need to protect all structs leaving TR, meaning that more TR function
+ contracts can have any as a return value. And that in normal
+ situations we don't need to protect anything at all, and so pure TR
+ programs that don't cross the typed/untyped boundary should have
+ structs without any contracts on them.
+ 
+ The one issue is that it turns something like
+ (define foo-constructor <result-from-make-struct-type)
+ to
+ (define foo-constructor (let ((raw-constructor
+ <result-from-make-struct-type>)) (if <check-inspector> raw-constructor
+ (protect raw-constructor))))
+ 
+ This may obsecure some optimizations, but I have no idea if that is true.
+ 
+ Does this look a like a good solution?
+ 
+ 
+ On Thu, Jan 16, 2014 at 10:52 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > So I came up with a harder issue. TR doesn't know what to protect from
+ > reflective access in some cases. We have to protect against reflective
+ > access to the inner most struct, but the contract that is protecting
+ > it may have no idea that the inner struct type exists. I currently do
+ > not see a way to prevent this circumvention of the type system.
+ >
+ > #lang racket/load
+ >
+ > (module m typed/racket
+ >   (provide foo b)
+ >   (struct: foo ([v : Symbol]) #:mutable)
+ >   (: b (Boxof foo))
+ >   (define b (box (foo 'x))))
+ >
+ >
+ > (module m2 typed/racket
+ >   (require 'm)
+ >   (provide bar set-b!)
+ >   (struct: bar foo ([z : Symbol]) #:mutable)
+ >   (: set-b! (-> Void))
+ >   (define (set-b!) (set-box! b (bar 'foo-field 'bar-field))))
+ >
+ >
+ > (define old-inspector (current-inspector))
+ > (define new-inspector (make-inspector))
+ > (current-inspector new-inspector)
+ > (require 'm)
+ > (require 'm2)
+ > (current-inspector old-inspector)
+ > (set-b!)
+ > (define v (unbox b))
+ >
+ > (define-values (bar-type ignored) (struct-info v))
+ > (define-values (name init-fields auto-fields accessor mutator
+ > immutable-indicies super-type skipped?)
+ >     (struct-type-info bar-type))
+ >
+ > (define bad-mut (make-struct-field-mutator mutator 0))
+ >
+ >
+ > (print v)
+ > (newline)
+ > (bad-mut v 2)
+ > (print v)
+ > (newline)

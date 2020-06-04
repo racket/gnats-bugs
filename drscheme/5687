@@ -1,0 +1,94 @@
+From ptg@acm.org  Fri Jul 26 14:12:57 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id OAA02265
+	for <bugs>; Fri, 26 Jul 2002 14:12:56 -0400
+Message-Id: <200207261812.OAA02265@champlain.ccs.neu.edu>
+Date: Fri, 26 Jul 2002 14:12:56 -0400
+From: Paul Graunke <ptg@acm.org>
+To: bugs@plt-scheme.org
+Subject: DrScheme's exception-handlers don't allow escaping as mzscheme's and mred's do.
+
+>Number:         5687
+>Category:       drscheme
+>Synopsis:       DrScheme's exception-handlers don't allow escaping as mzscheme's and mred's do.
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Jul 26 14:20:00 -0400 2002
+>Closed-Date:    Fri Mar 11 17:56:26 -0500 2005
+>Last-Modified:  Fri Mar 11 17:56:26 -0500 2005
+>Originator:     Paul Graunke
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        200.3
+>Environment:
+unix "SunOS subra.ccs.neu.edu 5.8 Generic_108528-15 sun4u sparc SUNW,Sun-Blade-100" (sparc-solaris)
+
+Docs Installed:
+("help" "beginning" "beginning-abbr" "advanced" "intermediate" "intermediate-lambda" "drscheme" "r5rs" "mzscheme" "mzlib" "mred" "framework" "misclib" "mzc" "insidemz" "tools" "tour" "t-y-scheme" "tex2page")
+
+Collections:
+(("/home/ptg/world/ptg/collects" ("spgsql" "cgi-compiler" "format" "schema" "net-apps" "cps-jvm" "vnc" "xwin" "pj" "tests" "util" "small-web" "pages" "file" "pgscsh-0.2" "crypt")) ("/home/ptg/plt/collects" ("CVS" "afm" "algol60" "doc" "browser" "compiler" "cvs-time-stamp" "defaults" "drjava" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mrdemo" "mred" "mrflow" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "parser-tools" "readline" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "string-constants" "syntax" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xml")))
+
+Human Language: english
+>Description:
+Here's an explanation of the code that breaks.
+I want to create a function that invokes a thunk and
+restarts that thunk when a break occurs.  with-handlers
+does not work (according to the docs) because the right
+hand side of the handler isn't protected from breaks.
+The current-exception handler must not return and can not invoke full continuations, so it invokes an escaping
+continuation.  In order for the code after the escaping
+continuation to not break, the handler disables breaks
+until a new handler is set up.  (The old handler can not
+be re-used since it calls an escaping continuation, which can only be invoked once.)
+
+Here's the problem that occurs.  It works like I expect
+in mzscheme and mred.  Breaks cause the program to
+print Break! and Unbreak and then continue.  In DrScheme, even in the mzscheme language without debugging, prints in red
+
+  uncaught exception: #f
+
+which is strange.
+>How-To-Repeat:
+(define t
+  (thread (lambda ()
+            (let ([parent-exn-handler (current-exception-handler)]
+                  [unbreakable (lambda () (let l () (printf "I'm unbreakable.") (sleep 100) (l)))])
+              (let loop ()
+                (let/ec k
+                  (current-exception-handler
+                   (lambda (exn)
+                     (cond
+                       [(exn:break? exn)
+                        (printf "Break!~n") (sleep 5) (printf "Unbreak~n")
+                        (break-enabled #f)
+                        (k (void))]
+                       [else (parent-exn-handler)])))
+                  (break-enabled #t)
+                  (printf "hi~n")
+                  (sleep 3)
+                  (unbreakable))
+                (loop))))))
+
+(break-thread t)
+(break-thread t)
+(break-thread t)
+(break-thread t)
+(break-thread t)
+>Fix:
+>Release-Note:
+>Audit-Trail:
+Responsible-Changed-From-To: steck->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Mon Sep 30 08:45:17 2002
+Responsible-Changed-Why:
+    rbf
+State changed from "open" to "closed" by robby at Fri, 11 Mar 2005 17:56:26 -0500
+Reason>>> got fixed somewhere along the line
+
+>Unformatted:

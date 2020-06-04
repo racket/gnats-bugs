@@ -1,0 +1,696 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Oct 11 16:25:31 2010
+Received: from mail-gx0-f172.google.com (mail-gx0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o9BKPSph013455
+	for <bugs@bugs.plt-scheme.org>; Mon, 11 Oct 2010 16:25:28 -0400
+Message-Id: <201010112025.o9BKPPWV013448@champlain.ccs.neu.edu>
+Date: Mon, 11 Oct 2010 16:25:25 -0400
+From: clklein@eecs.northwestern.edu
+To: bugs@racket-lang.org
+Subject: Redex: restrict matching based on RHS
+
+>Number:         11307
+>Category:       redex
+>Synopsis:       Redex: restrict matching based on RHS
+>Class:          change-request
+>Responsible:    clklein
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Oct 11 16:28:01 -0400 2010
+>Last-Modified:  Tue Oct 12 08:52:01 -0400 2010
+>Originator:     Casey Klein
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1.6--2010-09-20(dca6b3a/g)
+>Environment:
+macosx "Darwin spaghetti.cs.northwestern.edu 10.4.0 Darwin Kernel Version 10.4.0: Fri Apr 23 18:28:53 PDT 2010; root:xnu-1504.7.4~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 236601200
+
+Collections:
+(("/Users/clklein/Library/Racket/5.0.1.6/collects" non-existent-path) ("/Users/clklein/git/plt/collects" ".gitignore" ".swp" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "def-menu-metafuncs.patch" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constant!
+ s" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+>Description:
+The following program produces an error by attempting to zip lists of different lengths.
+
+(define-language L
+ (e (lambda (x ...) e)
+    (e e ...)
+    x)
+ (v (lambda (x ...) e))
+ (E (v ... E e ...) hole)
+ (x variable-not-otherwise-mentioned))
+
+(apply-reduction-relation
+ (reduction-relation
+  L
+  (--> (in-hole E ((lambda (x ...) e) v ...))
+       (in-hole E (subst e (x v) ...))))
+ (term ((lambda (x) x))))
+
+Redex should examine the relation's RHS to discover this length constraint and prevent the LHS from matching when it's not satisfied.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Carl Eastlund <cce@plt-scheme.org>
+To: clklein@eecs.northwestern.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Mon, 11 Oct 2010 17:43:38 -0400
+
+ On Mon, Oct 11, 2010 at 4:28 PM,  <clklein@eecs.northwestern.edu> wrote:
+ > The following program produces an error by attempting to zip lists of dif=
+ ferent lengths.
+ >
+ > (define-language L
+ > =A0(e (lambda (x ...) e)
+ > =A0 =A0(e e ...)
+ > =A0 =A0x)
+ > =A0(v (lambda (x ...) e))
+ > =A0(E (v ... E e ...) hole)
+ > =A0(x variable-not-otherwise-mentioned))
+ >
+ > (apply-reduction-relation
+ > =A0(reduction-relation
+ > =A0L
+ > =A0(--> (in-hole E ((lambda (x ...) e) v ...))
+ > =A0 =A0 =A0 (in-hole E (subst e (x v) ...))))
+ > =A0(term ((lambda (x) x))))
+ >
+ > Redex should examine the relation's RHS to discover this length constrain=
+ t and prevent the LHS from matching when it's not satisfied.
+ 
+ I'm not sure I agree with this suggestion.  If I were debugging a
+ program trace where a beta-redex failed to reduce (even to an error),
+ I would likely have no idea why this rule were not triggered, because
+ I'd be looking at the LHS.  If you want to encode the equal lengths,
+ there is already the ..._a notation for that, right?
+ 
+ --Carl
+From: Casey Klein <clklein@eecs.northwestern.edu>
+To: Carl Eastlund <cce@plt-scheme.org>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Mon, 11 Oct 2010 18:04:03 -0500
+
+ On Mon, Oct 11, 2010 at 4:43 PM, Carl Eastlund <cce@plt-scheme.org> wrote:
+ > On Mon, Oct 11, 2010 at 4:28 PM, =A0<clklein@eecs.northwestern.edu> wrote=
+ :
+ >> The following program produces an error by attempting to zip lists of di=
+ fferent lengths.
+ >>
+ >> (define-language L
+ >> =A0(e (lambda (x ...) e)
+ >> =A0 =A0(e e ...)
+ >> =A0 =A0x)
+ >> =A0(v (lambda (x ...) e))
+ >> =A0(E (v ... E e ...) hole)
+ >> =A0(x variable-not-otherwise-mentioned))
+ >>
+ >> (apply-reduction-relation
+ >> =A0(reduction-relation
+ >> =A0L
+ >> =A0(--> (in-hole E ((lambda (x ...) e) v ...))
+ >> =A0 =A0 =A0 (in-hole E (subst e (x v) ...))))
+ >> =A0(term ((lambda (x) x))))
+ >>
+ >> Redex should examine the relation's RHS to discover this length constrai=
+ nt and prevent the LHS from matching when it's not satisfied.
+ >
+ > I'm not sure I agree with this suggestion. =A0If I were debugging a
+ > program trace where a beta-redex failed to reduce (even to an error),
+ > I would likely have no idea why this rule were not triggered, because
+ > I'd be looking at the LHS. =A0If you want to encode the equal lengths,
+ > there is already the ..._a notation for that, right?
+ >
+ 
+ Yes, you can use the ..._a notation, but it's a little unsatisfying
+ since the pencil-and-paper convention isn't so explicit.
+ 
+ You may be right, though. Maybe the convenience isn't worth the
+ potential for confusion. Anyone else have any opinion?
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Casey Klein <clklein@eecs.northwestern.edu>
+Cc: Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Mon, 11 Oct 2010 18:59:55 -0500
+
+ I think that we should do it. I can see Carl's point, but on balance I
+ think that additional expressiveness we get by considering both the
+ lhs and rhs and the fact that we are making things more symmetric
+ there is overall a win.
+ 
+ Robby
+ 
+ On Mon, Oct 11, 2010 at 6:04 PM, Casey Klein
+ <clklein@eecs.northwestern.edu> wrote:
+ > On Mon, Oct 11, 2010 at 4:43 PM, Carl Eastlund <cce@plt-scheme.org> wrote=
+ :
+ >> On Mon, Oct 11, 2010 at 4:28 PM, =C2=A0<clklein@eecs.northwestern.edu> w=
+ rote:
+ >>> The following program produces an error by attempting to zip lists of d=
+ ifferent lengths.
+ >>>
+ >>> (define-language L
+ >>> =C2=A0(e (lambda (x ...) e)
+ >>> =C2=A0 =C2=A0(e e ...)
+ >>> =C2=A0 =C2=A0x)
+ >>> =C2=A0(v (lambda (x ...) e))
+ >>> =C2=A0(E (v ... E e ...) hole)
+ >>> =C2=A0(x variable-not-otherwise-mentioned))
+ >>>
+ >>> (apply-reduction-relation
+ >>> =C2=A0(reduction-relation
+ >>> =C2=A0L
+ >>> =C2=A0(--> (in-hole E ((lambda (x ...) e) v ...))
+ >>> =C2=A0 =C2=A0 =C2=A0 (in-hole E (subst e (x v) ...))))
+ >>> =C2=A0(term ((lambda (x) x))))
+ >>>
+ >>> Redex should examine the relation's RHS to discover this length constra=
+ int and prevent the LHS from matching when it's not satisfied.
+ >>
+ >> I'm not sure I agree with this suggestion. =C2=A0If I were debugging a
+ >> program trace where a beta-redex failed to reduce (even to an error),
+ >> I would likely have no idea why this rule were not triggered, because
+ >> I'd be looking at the LHS. =C2=A0If you want to encode the equal lengths=
+ ,
+ >> there is already the ..._a notation for that, right?
+ >>
+ >
+ > Yes, you can use the ..._a notation, but it's a little unsatisfying
+ > since the pencil-and-paper convention isn't so explicit.
+ >
+ > You may be right, though. Maybe the convenience isn't worth the
+ > potential for confusion. Anyone else have any opinion?
+ >
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Mon, 11 Oct 2010 20:07:43 -0400
+
+ On Mon, Oct 11, 2010 at 7:59 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > I think that we should do it. I can see Carl's point, but on balance I
+ > think that additional expressiveness we get by considering both the
+ > lhs and rhs and the fact that we are making things more symmetric
+ > there is overall a win.
+ 
+ I'm with Carl.  The single hardest thing about using Redex is figuring
+ out why one rule fired (or more likely, didn't fire).  Making that
+ more complicated is a bad idea.  For example, right now the following
+ is a simple Redex debugging process:
+ 
+ 1. Determine the term that didn't match.
+ 2. Try `redex-match' with that term and the LHS that should have matched.
+ 3. Recursively subdivide the term until the part that isn't matching is obvious.
+ 
+ This change would totally break that debugging process - step 2 would
+ succeed, and then you'd have to start looking at the RHS.  What would
+ you replace this debugging process with?
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Mon, 11 Oct 2010 19:30:27 -0500
+
+ We could add an option to redex-match that would let you specify the
+ right-hand side as well to get the pattern constraints out. We could
+ have some debugging type thing that would, given a reduction relation,
+ spit out patterns that "stood alone" taking into account the
+ right-hand side constraints.
+ 
+ Would either of those help enough?
+ 
+ Robby
+ 
+ On Mon, Oct 11, 2010 at 7:07 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wr=
+ ote:
+ > On Mon, Oct 11, 2010 at 7:59 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> I think that we should do it. I can see Carl's point, but on balance I
+ >> think that additional expressiveness we get by considering both the
+ >> lhs and rhs and the fact that we are making things more symmetric
+ >> there is overall a win.
+ >
+ > I'm with Carl. =C2=A0The single hardest thing about using Redex is figuri=
+ ng
+ > out why one rule fired (or more likely, didn't fire). =C2=A0Making that
+ > more complicated is a bad idea. =C2=A0For example, right now the followin=
+ g
+ > is a simple Redex debugging process:
+ >
+ > 1. Determine the term that didn't match.
+ > 2. Try `redex-match' with that term and the LHS that should have matched.
+ > 3. Recursively subdivide the term until the part that isn't matching is o=
+ bvious.
+ >
+ > This change would totally break that debugging process - step 2 would
+ > succeed, and then you'd have to start looking at the RHS. =C2=A0What woul=
+ d
+ > you replace this debugging process with?
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Mon, 11 Oct 2010 22:53:29 -0400
+
+ On Oct 11, 2010, at 8:07 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > The single hardest thing about using Redex is figuring
+ > out why one rule fired (or more likely, didn't fire).  Making that
+ > more complicated is a bad idea. 
+ 
+ Correct, but perhaps you and Carl are drawing the 
+ wrong conclusion from this. Instead of less linguistic 
+ power, you may need better tools tracing and debugging 
+ Redex programs. 
+ 
+ This sentence alone reminds me of Ryan's thoughtful 
+ thesis statement for the debugger paper and perhaps
+ this is another case for Ryan. 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Robby Findler <robby@eecs.northwestern.edu>,
+        Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Mon, 11 Oct 2010 23:29:15 -0400
+
+ On Mon, Oct 11, 2010 at 10:53 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ > On Oct 11, 2010, at 8:07 PM, Sam Tobin-Hochstadt wrote:
+ >> The single hardest thing about using Redex is figuring
+ >> out why one rule fired (or more likely, didn't fire). =A0Making that
+ >> more complicated is a bad idea.
+ >
+ > Correct, but perhaps you and Carl are drawing the
+ > wrong conclusion from this. Instead of less linguistic
+ > power, you may need better tools tracing and debugging
+ > Redex programs.
+ 
+ This isn't taking away linguistic power, instead, it's encouraging you
+ to write explicitly that the two sequences need to be the same length.
+  Redex already provides a pattern language in which this constraint
+ can be expressed, which is one of the great things about Redex.  This
+ bug is just proposing to *infer* that constraint from the RHS.
+ 
+ Along these lines, what if Redex warned you when you zipped two lists
+ that weren't constrained to be the same length?  I think that would
+ encourage explicitly specifying this constraint without changing the
+ semantics of matching.
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Casey Klein <clklein@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 03:36:45 -0500
+
+ On Mon, Oct 11, 2010 at 7:07 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wr=
+ ote:
+ > On Mon, Oct 11, 2010 at 7:59 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> I think that we should do it. I can see Carl's point, but on balance I
+ >> think that additional expressiveness we get by considering both the
+ >> lhs and rhs and the fact that we are making things more symmetric
+ >> there is overall a win.
+ >
+ > I'm with Carl. =A0The single hardest thing about using Redex is figuring
+ > out why one rule fired (or more likely, didn't fire). =A0Making that
+ > more complicated is a bad idea. =A0For example, right now the following
+ > is a simple Redex debugging process:
+ >
+ > 1. Determine the term that didn't match.
+ > 2. Try `redex-match' with that term and the LHS that should have matched.
+ > 3. Recursively subdivide the term until the part that isn't matching is o=
+ bvious.
+ >
+ > This change would totally break that debugging process - step 2 would
+ > succeed, and then you'd have to start looking at the RHS.
+ 
+ The debugging process already involves more than the LHS, since the
+ rule's `side-condition' and `where' clauses also restrict matching.
+ 
+ The problem with this proposal is that the constraints imposed by the
+ RHS are not explicit, so it's easier to forget (or just not know) that
+ you must considering them in debugging.
+ 
+ Would you still oppose the change if it came with a tool that
+ extracted the "effective patterns" of a reduction-relation (one of
+ Robby's suggestions)?
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 03:33:05 -0500
+
+ One thing that's missing from this conversation: reduction relations
+ should not have different meanings from left to right than from right
+ to left.
+ 
+ That is, if I have:
+ 
+    a --> b
+ 
+ as a part of the definition of a relation then I should be able to
+ define another relation
+ 
+   b --> a
+ 
+ that matches exactly the same stuff.
+ 
+ Of course, this fails in numerous ways for Redex. In cases like the
+ example we're discussing, I think the right thing is to try to move
+ closer to the above. (In a case like unquote, I think the right thing
+ is to only allow unquote on the right-hand side, and to make it be a
+ syntax error on the left.)
+ 
+ Robby
+ 
+ On Mon, Oct 11, 2010 at 9:53 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > On Oct 11, 2010, at 8:07 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> The single hardest thing about using Redex is figuring
+ >> out why one rule fired (or more likely, didn't fire). =C2=A0Making that
+ >> more complicated is a bad idea.
+ >
+ > Correct, but perhaps you and Carl are drawing the
+ > wrong conclusion from this. Instead of less linguistic
+ > power, you may need better tools tracing and debugging
+ > Redex programs.
+ >
+ > This sentence alone reminds me of Ryan's thoughtful
+ > thesis statement for the debugger paper and perhaps
+ > this is another case for Ryan.
+ >
+From: Casey Klein <clklein@eecs.northwestern.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>, Carl Eastlund <cce@plt-scheme.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 03:39:48 -0500
+
+ On Tue, Oct 12, 2010 at 3:33 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > One thing that's missing from this conversation: reduction relations
+ > should not have different meanings from left to right than from right
+ > to left.
+ >
+ 
+ Oh, right! I forgot about that principle.
+ 
+ > That is, if I have:
+ >
+ > =A0 a --> b
+ >
+ > as a part of the definition of a relation then I should be able to
+ > define another relation
+ >
+ > =A0b --> a
+ >
+ > that matches exactly the same stuff.
+ 
+ I think you mean "that is the inverse."
+ 
+ > Of course, this fails in numerous ways for Redex. In cases like the
+ > example we're discussing, I think the right thing is to try to move
+ > closer to the above. (In a case like unquote, I think the right thing
+ > is to only allow unquote on the right-hand side, and to make it be a
+ > syntax error on the left.)
+ >
+ > Robby
+ >
+ > On Mon, Oct 11, 2010 at 9:53 PM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >>
+ >> On Oct 11, 2010, at 8:07 PM, Sam Tobin-Hochstadt wrote:
+ >>
+ >>> The single hardest thing about using Redex is figuring
+ >>> out why one rule fired (or more likely, didn't fire). =A0Making that
+ >>> more complicated is a bad idea.
+ >>
+ >> Correct, but perhaps you and Carl are drawing the
+ >> wrong conclusion from this. Instead of less linguistic
+ >> power, you may need better tools tracing and debugging
+ >> Redex programs.
+ >>
+ >> This sentence alone reminds me of Ryan's thoughtful
+ >> thesis statement for the debugger paper and perhaps
+ >> this is another case for Ryan.
+ >>
+ >
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Casey Klein <clklein@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>, Carl Eastlund <cce@plt-scheme.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 07:16:43 -0500
+
+ On Tue, Oct 12, 2010 at 3:39 AM, Casey Klein
+ <clklein@eecs.northwestern.edu> wrote:
+ > On Tue, Oct 12, 2010 at 3:33 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> One thing that's missing from this conversation: reduction relations
+ >> should not have different meanings from left to right than from right
+ >> to left.
+ >>
+ >
+ > Oh, right! I forgot about that principle.
+ >
+ >> That is, if I have:
+ >>
+ >> =C2=A0 a --> b
+ >>
+ >> as a part of the definition of a relation then I should be able to
+ >> define another relation
+ >>
+ >> =C2=A0b --> a
+ >>
+ >> that matches exactly the same stuff.
+ >
+ > I think you mean "that is the inverse."
+ 
+ Yes, you're right. (I just think of them as being the same relation,
+ since inverses are trivial for relations (unlike functions).)
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 07:31:11 -0500
+
+ On Tue, Oct 12, 2010 at 7:28 AM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > The best would be if Redex had something like Ryan's progress-tracking
+ > matching in `syntax-parse'.
+ 
+ I don't know exactly how that works (it is what goes into the
+ decisions about syntax errors?) but I think that something similar has
+ long been in the plan for Redex. Something where you could say "how
+ far did this match get?". It isn't a simple thing, tho.
+ 
+ Robby
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Casey Klein <clklein@eecs.northwestern.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 08:28:41 -0400
+
+ On Tue, Oct 12, 2010 at 4:36 AM, Casey Klein
+ <clklein@eecs.northwestern.edu> wrote:
+ > On Mon, Oct 11, 2010 at 7:07 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> =
+ wrote:
+ >> On Mon, Oct 11, 2010 at 7:59 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> I think that we should do it. I can see Carl's point, but on balance I
+ >>> think that additional expressiveness we get by considering both the
+ >>> lhs and rhs and the fact that we are making things more symmetric
+ >>> there is overall a win.
+ >>
+ >> I'm with Carl. =A0The single hardest thing about using Redex is figuring
+ >> out why one rule fired (or more likely, didn't fire). =A0Making that
+ >> more complicated is a bad idea. =A0For example, right now the following
+ >> is a simple Redex debugging process:
+ >>
+ >> 1. Determine the term that didn't match.
+ >> 2. Try `redex-match' with that term and the LHS that should have matched=
+ .
+ >> 3. Recursively subdivide the term until the part that isn't matching is =
+ obvious.
+ >>
+ >> This change would totally break that debugging process - step 2 would
+ >> succeed, and then you'd have to start looking at the RHS.
+ >
+ > The debugging process already involves more than the LHS, since the
+ > rule's `side-condition' and `where' clauses also restrict matching.
+ >
+ > The problem with this proposal is that the constraints imposed by the
+ > RHS are not explicit, so it's easier to forget (or just not know) that
+ > you must considering them in debugging.
+ 
+ Yes, indeed.  As demonstrated by my having forgotten about
+ `side-condition' and `where' clauses.  :)
+ 
+ > Would you still oppose the change if it came with a tool that
+ > extracted the "effective patterns" of a reduction-relation (one of
+ > Robby's suggestions)?
+ 
+ That would help a lot, esp. since thinking about `side-condition' and
+ `where' makes my original objection much less strong.
+ 
+ The best would be if Redex had something like Ryan's progress-tracking
+ matching in `syntax-parse'.
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 08:41:09 -0400
+
+ On Tue, Oct 12, 2010 at 8:31 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Tue, Oct 12, 2010 at 7:28 AM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> The best would be if Redex had something like Ryan's progress-tracking
+ >> matching in `syntax-parse'.
+ >
+ > I don't know exactly how that works (it is what goes into the
+ > decisions about syntax errors?) but I think that something similar has
+ > long been in the plan for Redex. Something where you could say "how
+ > far did this match get?". It isn't a simple thing, tho.
+ 
+ Yes, that's exactly it (the ICFP paper has a good explanation).  It
+ would be a great help to me in debugging redex programs.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        Casey Klein <clklein@eecs.northwestern.edu>,
+        Carl Eastlund <cce@plt-scheme.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11307: Redex: restrict matching based on RHS
+Date: Tue, 12 Oct 2010 08:48:15 -0400
+
+ Sorry but this gets you on the wrong track. 
+ 
+ Redex helps you specify relations. Period. 
+ 
+ If you so wish, you can generate equivalence closures from 
+ these relations. But there's no need to do so, and quite
+ often you don't want to. If you really want to, you should
+ distinguish _notions of reduction_ ('axioms') from the 
+ context-compatible relations you tend to specify, and you 
+ should use the NRs to generate both the contextual 
+ relations and the equivalence/congruence relation. (I 
+ tend to use ==> with --> for just that purpose -- when 
+ and only when there is a need to use =_x somewhere.) 
+ 
+ Relations are directional, and it is therefore quite 
+ acceptable to have asymmetric 
+ 
+ 
+ 
+ On Oct 12, 2010, at 4:33 AM, Robby Findler wrote:
+ 
+ > One thing that's missing from this conversation: reduction relations
+ > should not have different meanings from left to right than from right
+ > to left.
+ > 
+ > That is, if I have:
+ > 
+ >   a --> b
+ > 
+ > as a part of the definition of a relation then I should be able to
+ > define another relation
+ > 
+ >  b --> a
+ > 
+ > that matches exactly the same stuff.
+ > 
+ > Of course, this fails in numerous ways for Redex. In cases like the
+ > example we're discussing, I think the right thing is to try to move
+ > closer to the above. (In a case like unquote, I think the right thing
+ > is to only allow unquote on the right-hand side, and to make it be a
+ > syntax error on the left.)
+ > 
+ > Robby
+ > 
+ > On Mon, Oct 11, 2010 at 9:53 PM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >> 
+ >> On Oct 11, 2010, at 8:07 PM, Sam Tobin-Hochstadt wrote:
+ >> 
+ >>> The single hardest thing about using Redex is figuring
+ >>> out why one rule fired (or more likely, didn't fire).  Making that
+ >>> more complicated is a bad idea.
+ >> 
+ >> Correct, but perhaps you and Carl are drawing the
+ >> wrong conclusion from this. Instead of less linguistic
+ >> power, you may need better tools tracing and debugging
+ >> Redex programs.
+ >> 
+ >> This sentence alone reminds me of Ryan's thoughtful
+ >> thesis statement for the debugger paper and perhaps
+ >> this is another case for Ryan.
+ >> 
+ 

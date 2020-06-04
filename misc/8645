@@ -1,0 +1,416 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat May  5 10:58:52 2007
+Received: from ug-out-1314.google.com (ug-out-1314.google.com [66.249.92.174])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l45EwpgV012127
+	for <bugs@bugs.plt-scheme.org>; Sat, 5 May 2007 10:58:51 -0400
+Message-Id: <200705051458.l45EweGU012122@champlain.ccs.neu.edu>
+Date: Sat, 5 May 2007 10:58:40 -0400
+From: vyzo@media.mit.edu
+To: bugs@plt-scheme.org
+Subject: nested custom match expanders failing to expand with undefined identifiers
+
+>Number:         8645
+>Category:       misc
+>Synopsis:       nested custom match expanders failing to expand with undefined identifiers
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat May 05 11:00:01 -0400 2007
+>Closed-Date:    Tue Apr 01 09:56:59 -0400 2008
+>Last-Modified:  Tue Apr 01 10:05:01 -0400 2008
+>Originator:     vyzo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.100
+>Environment:
+linux-other
+>Description:
+When defining custom match expanders that refer to each other, the match compiler generates code with undefined identifiers.
+
+With the following definitions:
+(require (lib "plt-match.ss"))
+(define-match-expander exp1
+  #:plt-match
+  (lambda (stx)
+    (syntax-case stx ()
+      ((_match (x y))
+       #'(list (list x y))))))
+  
+(define-match-expander exp2
+  #:plt-match
+  (lambda (stx)
+    (syntax-case stx ()
+      ((_match x y)
+       #'(exp1 (x y))))))
+
+We get this expansion:
+(define oops '(define (test tp) (match tp ((exp2 x y) x))))
+> (require (lib "pretty.ss"))
+> (pretty-print (syntax-object->datum (expand oops)))
+(define-values
+  (test)
+  (lambda (tp)
+    (let-values (((x) tp))
+      (let-values (((match-failure) (lambda () (#%app match:error x))))
+        (if (#%app pair? x)
+          (let-values (((exp67) (#%app car x)))
+            (if (#%app pair? exp67)
+              (let-values (((exp68) (#%app cdr exp67)))
+                (if (if (#%app pair? exp68)
+                      (if (#%app null? (#%app cdr exp68))
+                        (#%app null? (#%app cdr x))
+                        (#%datum . #f))
+                      (#%datum . #f))
+                  (let-values (((y) (#%app car exp68)) ((x) (#%app car exp67)))
+                    (#%top . x))
+                  (#%app match-failure)))
+              (#%app match-failure)))
+          (#%app match-failure))))))
+
+The problem: x is resolved to (#%top . x) instead of the local x, resulting in an undefined identifier.
+>How-To-Repeat:
+(module match-scase mzscheme
+  (require (lib "plt-match.ss"))
+  
+  (define-match-expander exp1
+    #:plt-match
+    (lambda (stx)
+      (syntax-case stx ()
+        ((_match (x y))
+         #'(list (list x y))))))
+  
+  (define-match-expander exp2
+    #:plt-match
+    (lambda (stx)
+      (syntax-case stx ()
+        ((_match x y)
+         #'(exp1 (x y))))))
+  
+  (define (test tp)
+    (match tp ((exp2 x y) x)))
+
+)
+
+> (require "match-scase.ss")
+match-scase.ss:19:26: compile: unbound variable in module in: x
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "samth" by eli at Thu, 10 May 2007 11:23:57 -0400
+Reason>>> match
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Sam TH" <samth@plt-scheme.org>
+Cc: "Dimitris Vyzovitis" <vyzo@media.mit.edu>, eli@plt-scheme.org,
+        bugs@plt-scheme.org, "Ryan Michael Culpepper" <ryanc@ccs.neu.edu>
+Subject: Re: misc/8645: nested custom match expanders failing to expand with undefined identifiers
+Date: Thu, 13 Mar 2008 18:23:47 -0600
+
+ This seems to be clearly a bug in the macro expander, so I'm looking
+ into it.
+ 
+ Matthew
+ 
+ At Thu, 13 Mar 2008 19:44:21 -0400, "Sam TH" wrote:
+ > On Thu, Mar 13, 2008 at 7:21 PM, Dimitris Vyzovitis <vyzo@media.mit.edu> wrote:
+ > > Is anybody doing anything about this bug? It's been more than a year now,
+ > >  and it is still there - at least in 372.
+ > >
+ > >  Btw, here is a little more exploration that shows an interesting
+ > >  aspect of the bug, without requiring nested custom expanders:
+ > >
+ > >  > (version)
+ > >  "372"
+ > >  > (define-match-expander mylist1
+ > >   (lambda (stx)
+ > >     (syntax-case stx (::)
+ > >       ((_ pat ...)
+ > >        #'(list pat ...)))))
+ > >  > (match (list 1) ((mylist1 (? number? x)) x))
+ > >  1
+ > >  > (define-match-expander mylist2
+ > >   (lambda (stx)
+ > >     (syntax-case stx (::)
+ > >       ((_ pat pats ... :: tl)
+ > >        #'(list-rest pat pats ... tl))
+ > >       ((_ pat ...)
+ > >        #'(list pat ...)))))
+ > >  > (match (list 1) ((mylist2 (? number? x)) x))
+ > >  1
+ > >  > (define-match-expander mylist3
+ > >   (lambda (stx)
+ > >     (syntax-case stx (::)
+ > >       ((_ :: tl) #'tl)
+ > >       ((_ pat pats ... :: tl)
+ > >        #'(list-rest pat pats ... tl))
+ > >       ((_ pat ...)
+ > >        #'(list pat ...)))))
+ > >  > (match (list 1) ((mylist3 (? number? x)) x))
+ > >  reference to undefined identifier: x
+ > 
+ > Something really weird is going on here.  In current SVN, this program
+ > works fine:
+ > 
+ > #lang scheme
+ > (define-match-expander mylist
+ >   (lambda (stx)
+ >     (let ([x (cadr (syntax-e stx))])
+ >       #;(when (identifier? x)
+ >         (error 'never-happens))
+ >       (datum->syntax #f (cons #'list (cdr (syntax-e stx)))))))
+ > 
+ > 
+ > (match (list 1) ((mylist (? number? x)) x))
+ > 
+ > If you uncomment the `when' clause, you get 'unbound identifier x' as
+ > a syntax error.  I don't see how this could possibly happen, so I've
+ > cc'ed people who might have a better idea.
+ > 
+ > -- 
+ > sam th
+ > samth@ccs.neu.edu
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Sam TH" <samth@plt-scheme.org>
+Cc: "Dimitris Vyzovitis" <vyzo@media.mit.edu>, eli@plt-scheme.org,
+        bugs@plt-scheme.org, "Ryan Michael Culpepper" <ryanc@ccs.neu.edu>
+Subject: Re: misc/8645: nested custom match expanders failing to expand with undefined identifiers
+Date: Thu, 13 Mar 2008 18:39:40 -0600
+
+ Ok, I see the problem. An "optimization" in the syntax system is
+ masking a kind of mistake in the expansion of match patterns. Both bugs
+ are mine, since I think I added the marking and certify code in the
+ match expander.
+ 
+ For now, I've patched "simplify-patterns.ss" (committed in SVN) to
+ avoid the limitation and bug in the syntax system.
+ 
+ Matthew
+ 
+ At Thu, 13 Mar 2008 19:44:21 -0400, "Sam TH" wrote:
+ > On Thu, Mar 13, 2008 at 7:21 PM, Dimitris Vyzovitis <vyzo@media.mit.edu> wrote:
+ > > Is anybody doing anything about this bug? It's been more than a year now,
+ > >  and it is still there - at least in 372.
+ > >
+ > >  Btw, here is a little more exploration that shows an interesting
+ > >  aspect of the bug, without requiring nested custom expanders:
+ > >
+ > >  > (version)
+ > >  "372"
+ > >  > (define-match-expander mylist1
+ > >   (lambda (stx)
+ > >     (syntax-case stx (::)
+ > >       ((_ pat ...)
+ > >        #'(list pat ...)))))
+ > >  > (match (list 1) ((mylist1 (? number? x)) x))
+ > >  1
+ > >  > (define-match-expander mylist2
+ > >   (lambda (stx)
+ > >     (syntax-case stx (::)
+ > >       ((_ pat pats ... :: tl)
+ > >        #'(list-rest pat pats ... tl))
+ > >       ((_ pat ...)
+ > >        #'(list pat ...)))))
+ > >  > (match (list 1) ((mylist2 (? number? x)) x))
+ > >  1
+ > >  > (define-match-expander mylist3
+ > >   (lambda (stx)
+ > >     (syntax-case stx (::)
+ > >       ((_ :: tl) #'tl)
+ > >       ((_ pat pats ... :: tl)
+ > >        #'(list-rest pat pats ... tl))
+ > >       ((_ pat ...)
+ > >        #'(list pat ...)))))
+ > >  > (match (list 1) ((mylist3 (? number? x)) x))
+ > >  reference to undefined identifier: x
+ > 
+ > Something really weird is going on here.  In current SVN, this program
+ > works fine:
+ > 
+ > #lang scheme
+ > (define-match-expander mylist
+ >   (lambda (stx)
+ >     (let ([x (cadr (syntax-e stx))])
+ >       #;(when (identifier? x)
+ >         (error 'never-happens))
+ >       (datum->syntax #f (cons #'list (cdr (syntax-e stx)))))))
+ > 
+ > 
+ > (match (list 1) ((mylist (? number? x)) x))
+ > 
+ > If you uncomment the `when' clause, you get 'unbound identifier x' as
+ > a syntax error.  I don't see how this could possibly happen, so I've
+ > cc'ed people who might have a better idea.
+ > 
+ > -- 
+ > sam th
+ > samth@ccs.neu.edu
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Dimitris Vyzovitis <vyzo@media.mit.edu>
+Cc: Sam TH <samth@plt-scheme.org>, eli@plt-scheme.org, bugs@plt-scheme.org,
+        Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+Subject: Re: misc/8645: nested custom match expanders failing to expand with
+ undefined identifiers
+Date: Thu, 13 Mar 2008 18:48:05 -0600
+
+ At Thu, 13 Mar 2008 20:33:45 -0400 (EDT), Dimitris Vyzovitis wrote:
+ > The question is, can syntax-e mutate the syntax object?
+ > There is quite a bit of muddy hackery in the wrap propagation in
+ > stxobj.c... Specifically, when it is a pair (or a vector/box), the wraps
+ > are reused directly in the propagation.
+ 
+ `syntax-e' is not supposed to have any externally visible effect, but
+ it can rearrange the internal representation as lazy-ish operations are
+ forced. Other actions, which would normally create more delayed
+ operations, sometimes take a short cut by adjusting some unforced
+ operations. In this case, the bug is in taking a short cut that's not
+ consistent with doing things the slow way. Arguably, the root of *that*
+ problem is that the shortcut should be ok, and the slow way is wrong.
+ 
+ And, yes, it all has to do with the extra marks from the pattern
+ expander that don't have the same nesting structure as those added by
+ the normal macro expander.
+ 
+ Matthew
+ 
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Dimitris Vyzovitis <vyzo@media.mit.edu>, Sam TH <samth@plt-scheme.org>,
+        eli@plt-scheme.org, bugs@plt-scheme.org
+Subject: Re: misc/8645: nested custom match expanders failing to expand with
+ undefined identifiers
+Date: Thu, 13 Mar 2008 21:14:06 -0400
+
+ Matthew Flatt wrote:
+ > At Thu, 13 Mar 2008 20:33:45 -0400 (EDT), Dimitris Vyzovitis wrote:
+ >> The question is, can syntax-e mutate the syntax object?
+ >> There is quite a bit of muddy hackery in the wrap propagation in
+ >> stxobj.c... Specifically, when it is a pair (or a vector/box), the wraps
+ >> are reused directly in the propagation.
+ > 
+ > `syntax-e' is not supposed to have any externally visible effect, but
+ > it can rearrange the internal representation as lazy-ish operations are
+ > forced. Other actions, which would normally create more delayed
+ > operations, sometimes take a short cut by adjusting some unforced
+ > operations. In this case, the bug is in taking a short cut that's not
+ > consistent with doing things the slow way. Arguably, the root of *that*
+ > problem is that the shortcut should be ok, and the slow way is wrong.
+ > 
+ > And, yes, it all has to do with the extra marks from the pattern
+ > expander that don't have the same nesting structure as those added by
+ > the normal macro expander.
+ 
+ Does this have to do with the non-commutativity of marks?
+ 
+ I.e.,
+ 
+    (define mark1 (make-syntax-introducer))
+    (define mark2 (make-syntax-introducer))
+    (define id #'x)
+ 
+    (bound-identifier=? (mark2 (mark1 id))
+                        (mark1 (mark2 id)))
+    ;; => #f
+ 
+    (bound-identifier=? id
+                        (mark1 (mark2 (mark1 (mark2 id)))))
+    ;; => #f
+ 
+ Ryan
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: Dimitris Vyzovitis <vyzo@media.mit.edu>, Sam TH <samth@plt-scheme.org>,
+        eli@plt-scheme.org, bugs@plt-scheme.org
+Subject: Re: misc/8645: nested custom match expanders failing to expand with
+ undefined identifiers
+Date: Thu, 13 Mar 2008 19:17:35 -0600
+
+ At Thu, 13 Mar 2008 21:14:06 -0400, Ryan Culpepper wrote:
+ > Matthew Flatt wrote:
+ > > At Thu, 13 Mar 2008 20:33:45 -0400 (EDT), Dimitris Vyzovitis wrote:
+ > >> The question is, can syntax-e mutate the syntax object?
+ > >> There is quite a bit of muddy hackery in the wrap propagation in
+ > >> stxobj.c... Specifically, when it is a pair (or a vector/box), the wraps
+ > >> are reused directly in the propagation.
+ > > 
+ > > `syntax-e' is not supposed to have any externally visible effect, but
+ > > it can rearrange the internal representation as lazy-ish operations are
+ > > forced. Other actions, which would normally create more delayed
+ > > operations, sometimes take a short cut by adjusting some unforced
+ > > operations. In this case, the bug is in taking a short cut that's not
+ > > consistent with doing things the slow way. Arguably, the root of *that*
+ > > problem is that the shortcut should be ok, and the slow way is wrong.
+ > > 
+ > > And, yes, it all has to do with the extra marks from the pattern
+ > > expander that don't have the same nesting structure as those added by
+ > > the normal macro expander.
+ > 
+ > Does this have to do with the non-commutativity of marks?
+ > 
+ > I.e.,
+ > 
+ >    (define mark1 (make-syntax-introducer))
+ >    (define mark2 (make-syntax-introducer))
+ >    (define id #'x)
+ > 
+ >    (bound-identifier=? (mark2 (mark1 id))
+ >                        (mark1 (mark2 id)))
+ >    ;; => #f
+ > 
+ >    (bound-identifier=? id
+ >                        (mark1 (mark2 (mark1 (mark2 id)))))
+ >    ;; => #f
+ 
+ Yes, it's related, but in this case it's worse:
+ 
+   (mark1 (mark2 (mark2 (mark1 id))))
+ 
+ which is is sometimes turnout out to be the same as `id', and sometimes
+ not. My patch avoids the problem by changing it to
+ 
+   (mark1 (mark1 (mark2 (mark2 (mark1 (mark1 id))))))
+ 
+ which is reliably the same as `id'.
+ 
+ Matthew
+ 
+From: Dimitris Vyzovitis <vyzo@media.mit.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Sam TH <samth@plt-scheme.org>, <eli@plt-scheme.org>, <bugs@plt-scheme.org>,
+        Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+Subject: Re: misc/8645: nested custom match expanders failing to expand with
+ undefined identifiers
+Date: Thu, 13 Mar 2008 21:32:10 -0400 (EDT)
+
+ On Thu, 13 Mar 2008, Matthew Flatt wrote:
+ 
+ > For now, I've patched "simplify-patterns.ss" (committed in SVN) to
+ > avoid the limitation and bug in the syntax system.
+ 
+ It seems to work fine on 372 as well (quite unsurprising). Does it make
+ sense to make a 372.1 release at some point?
+ 
+ -- vyzo
+ 
+
+State changed from "open" to "closed" by samth at Tue, 01 Apr 2008 09:56:59 -0400
+Reason>>> fixed by new implementation
+
+From: "Sam TH" <samth@ccs.neu.edu>
+To: eli@plt-scheme.org, bugs@plt-scheme.org, samth@plt-scheme.org,
+        vyzo@media.mit.edu, "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: 
+Subject: re: misc/8645: nested custom match expanders failing to expand with undefined identifiers
+Date: Tue, 1 Apr 2008 10:03:57 -0400
+
+ Matthew -
+ 
+ I closed this bug, since its been fixed.  But then I thought that
+ maybe I should keep it open because of the underlying bug in mzscheme.
+  What would you prefer?
+ 
+ Thanks,
+ -- 
+ sam th
+ samth@ccs.neu.edu

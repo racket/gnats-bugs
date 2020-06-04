@@ -1,0 +1,161 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Jan 30 21:17:30 2015
+Received: from mail-oi0-f43.google.com (mail-oi0-f43.google.com [209.85.218.43])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t0V2HQN6000599
+	for <bugs@bugs.plt-scheme.org>; Fri, 30 Jan 2015 21:17:26 -0500
+Message-Id: <201501310217.t0V2HOMR000566@winooski.ccs.neu.edu>
+Date: Fri, 30 Jan 2015 21:17:24 -0500
+From: pcn@cs.umd.edu
+To: bugs@racket-lang.org
+Subject: TR: casting makes type checking unsound for mutable boxes/vectors/structs
+
+>Number:         14955
+>Category:       typed-scheme
+>Synopsis:       TR: casting makes type checking unsound for mutable boxes/vectors/structs
+>Class:          duplicate
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Jan 30 21:20:01 -0500 2015
+>Closed-Date:    Tue Jun 21 16:08:39 -0400 2016
+>Last-Modified:  Tue Jun 21 16:08:39 -0400 2016
+>Originator:     Phil Nguyen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.7--2015-01-17(2b8acb3/a)
+>Environment:
+unix "Linux ubuthink 3.16.0-28-generic #38-Ubuntu SMP Fri Dec 12 17:37:40 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 333255660
+raco pkg (show):
+Installation-wide:
+ Package            Checksum     Source
+ main-distribution  b660f028...  catalog main-distribution
+ racket-lib         e93899ff...  catalog racket-lib
+ [185 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ Package        Checksum              Source
+ rmacs          4bef6487...           catalog...acs/master
+ soft-contract                        link...soft-contract
+ [1 auto-installed package not shown]
+
+
+
+Collections:
+("/home/pcn/.racket/snapshot/collects"
+ (non-existent-path))
+("/home/pcn/bin/Racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+I'm not familiar with this problem. Let me guess the right fix: when we cast (Boxof A) to (Boxof B), should we wrap around it a contract ensuring anything going into the box as type A, (in addition to ensuring anything going out of the box has type B, which TR already does)?
+>How-To-Repeat:
+The following 3 expressions all produce "hi" typechecked as Integer:
+
+(begin
+  (define b1 : (Boxof Integer) (box 42))
+  (define b2 (cast b1 (Boxof String)))
+  (set-box! b2 "hi")
+  (unbox b1))
+
+(begin
+  (define v1 : (Vectorof Integer) (vector 42))
+  (define v2 (cast v1 (Vectorof String)))
+  (vector-set! v2 0 "hi")
+  (vector-ref v1 0))
+
+(begin
+  (struct (X) s ([i : X]) #:mutable)
+  (define s1 : (s Integer) (s 42))
+  (define s2 (cast s1 (s String)))
+  (set-s-i! s2 "hi")
+  (s-i s1))
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: pcn@cs.umd.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14955: TR: casting makes type checking unsound
+ for mutable boxes/vectors/structs
+Date: Fri, 30 Jan 2015 21:28:19 -0500
+
+ On 2015-01-30 21:20:02 -0500, pcn@cs.umd.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14955
+ >
+ > Reported by Phil Nguyen for release: 6.1.1.7--2015-01-17(2b8acb3/a)
+ >
+ > *** Description:
+ > I'm not familiar with this problem. Let me guess the right fix: when
+ > we cast (Boxof A) to (Boxof B), should we wrap around it a contract
+ > ensuring anything going into the box as type A, (in addition to
+ > ensuring anything going out of the box has type B, which TR already
+ > does)?
+ 
+ Yes, I think this might be the same as this bug (and I think the
+ proposed fix there is the same as your fix, though not yet implemented):
+ 
+   http://bugs.racket-lang.org/query/?cmd=view&audit-trail&database=default&pr=13626
+ 
+ Coincidentally, we just discussed this bug on IRC last night. So I don't
+ forget, it might be useful to discuss a potential solution here.
+ 
+ The implementation of the fix is potentially tricky because we need to
+ apply a contract corresponding to the type of the expression, which we
+ don't know when the `cast` macro expands.
+ 
+ To solve this, we could attach a syntax property to the casted
+ expression (`b1` in your first example) that marks it as a casted
+ expression (the property might store an identifier corresponding to a
+ contract definition we will generate later).
+ 
+ In the new pass, the entire module or top-level expression is traversed
+ and when an expression with the property is found, its type is looked up
+ in the type table and put in some table.
+ 
+ The contract generation pass would then consult the table to generate
+ contracts for casts.
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: pcn@cs.umd.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14955: TR: casting makes type checking unsound
+ for mutable boxes/vectors/structs
+Date: Fri, 30 Jan 2015 21:35:32 -0500
+
+ On 2015-01-30 21:28:19 -0500, Asumu Takikawa wrote:
+ > The implementation of the fix is potentially tricky because we need to
+ > apply a contract corresponding to the type of the expression, which we
+ > don't know when the `cast` macro expands.
+ >
+ > To solve this, we could attach a syntax property to the casted
+ > expression (`b1` in your first example) that marks it as a casted
+ > expression (the property might store an identifier corresponding to a
+ > contract definition we will generate later).
+ >
+ > In the new pass, the entire module or top-level expression is traversed
+ > and when an expression with the property is found, its type is looked up
+ > in the type table and put in some table.
+ 
+ I think that while revising this e-mail I deleted an important sentence
+ or two. I meant to say earlier that the fix might require the
+ introduction of a new pass that goes between typechecking and contract
+ generation.  This pass looks at the syntax properties that are applied
+ by the `cast` macro as I described.
+ 
+ Cheers,
+ Asumu
+
+Class changed from "sw-bug" to "duplicate" by asumu at Sat, 31 Jan 2015 18:21:04 -0500
+Reason>>> Duplicate of PR 13626
+
+
+State changed from "open" to "closed" by asumu at Tue, 21 Jun 2016 16:08:39 -0400
+Reason>>> Fixed in dev versions of TR.
+

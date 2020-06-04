@@ -1,0 +1,174 @@
+From shriram@cs.rice.edu  Thu Oct 16 16:17:28 1997
+Received: from new-world.cs.rice.edu (new-world.cs.rice.edu [128.42.6.103]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id QAA02731 for <plt-gnats@cs.rice.edu>; Thu, 16 Oct 1997 16:17:28 -0500 (CDT)
+Message-Id: <199710162117.QAA12902@new-world.cs.rice.edu>
+Date: Thu, 16 Oct 1997 16:17:28 -0500 (CDT)
+From: Shriram Krishnamurthi <shriram@cs.rice.edu>
+Reply-To: shriram@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: DrScheme interferes w/ error-escape-handler
+X-Send-Pr-Version: 3.101
+
+>Number:         344
+>Category:       mzscheme
+>Synopsis:       DrScheme interferes w/ error-escape-handler
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Oct 16 21:20:01 GMT 1997
+>Last-Modified:  Wed Oct 22 10:19:36 CDT 1997
+>Originator:     Shriram Krishnamurthi
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+africa, drscheme -x, 10/16, 16:15pm
+>Description:
+Say you have a 311 interpreter that invokes `error'.  You parameterize
+the current-eval to use this interpreter.  Then run
+read-eval-print-loop.  When the error case occurs, the error is
+flagged with the appropriate source location _in the interpreter_, and
+the DrScheme top-level REPL, not that of r-e-p-l, appears.
+>How-To-Repeat:
+(define make-Environment void)
+
+(define Interpret-E
+  (lambda (e env)
+    (error 'parse-E "raised error")))
+
+(define (waiter)
+  (let/ec escaper
+    (let ([print (lambda (s) (begin
+			       (newline)
+			       (pretty-print s)))]
+	   [eval (lambda (e) (Interpret-E e 
+			       (make-Environment '())))])
+      (error-escape-handler (lambda ()
+			      (escaper 'error)))
+      (parameterize ([current-eval eval]
+		      [current-print print])
+	(read-eval-print-loop)))))
+
+Run (waiter).
+>Fix:
+	
+>Audit-Trail:
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: shriram@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/344: DrScheme interferes w/ error-escape-handler
+Date: Thu, 16 Oct 1997 16:24:21 -0500 (CDT)
+
+ Shriram Krishnamurthi writes:
+ > In the previous bug report, the code is the wrong one.  Use this:
+ > 
+ > (define make-Environment void)
+ > 
+ > (define Interpret-E
+ >   (lambda (e env)
+ >     (error 'parse-E "raised error")))
+ > 
+ > (define (waiter)
+ >   (let/ec escaper
+ >     (let ([print (lambda (s) (begin
+ > 			       (newline)
+ > 			       (pretty-print s)))]
+ > 	   [eval (lambda (e) (Interpret-E e 
+ > 			       (make-Environment '())))])
+ >       (parameterize ([current-eval eval]
+ > 		      [current-print print])
+ > 	(read-eval-print-loop)))))
+ > 
+ > ie, no error-escape-handler overriding.
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: shriram@cs.rice.edu, robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/344: DrScheme interferes w/ error-escape-handler
+Date: Thu, 16 Oct 1997 16:27:28 -0500 (CDT)
+
+ Said Shriram Krishnamurthi:
+ > Say you have a 311 interpreter that invokes `error'.  You parameterize
+ > the current-eval to use this interpreter.  Then run
+ > read-eval-print-loop.  When the error case occurs, the error is
+ > flagged with the appropriate source location _in the interpreter_, and
+ > the DrScheme top-level REPL, not that of r-e-p-l, appears.
+ 
+ A small clarification: MzScheme's `read-eval-print-loop' and the
+ default error escape handler conspire to keep exceptions from jumping
+ out of the REPL. To fix this in DrScheme, a similar conspiracy is
+ necessary.
+ 
+ In other words, hilighting the source location is corect, but
+ execution should continue in the `read-eval-print-loop'.
+ 
+ Matthew
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: shriram@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/344: DrScheme interferes w/ error-escape-handler
+Date: Thu, 16 Oct 1997 16:37:43 -0500 (CDT)
+
+ Matthew Flatt writes:
+ > Said Shriram Krishnamurthi:
+ > > Say you have a 311 interpreter that invokes `error'.  You parameterize
+ > > the current-eval to use this interpreter.  Then run
+ > > read-eval-print-loop.  When the error case occurs, the error is
+ > > flagged with the appropriate source location _in the interpreter_, and
+ > > the DrScheme top-level REPL, not that of r-e-p-l, appears.
+ > 
+ > A small clarification: MzScheme's `read-eval-print-loop' and the
+ > default error escape handler conspire to keep exceptions from jumping
+ > out of the REPL. To fix this in DrScheme, a similar conspiracy is
+ > necessary.
+ > 
+ > In other words, hilighting the source location is corect, but
+ > execution should continue in the `read-eval-print-loop'.
+ 
+ Okay, now that I've talked with Matthew about this I understand what's
+ going on. Now, we will just think about weather it is better to change the
+ meaning of read-eval-print-loop to eliminate the conspiracy in mzscheme, or
+ create a second matching conspiracy in drscheme.
+ 
+ Robby
+
+Responsible-Changed-From-To: ptg->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Tue Oct 21 12:15:50 1997
+Responsible-Changed-Why:
+Changed read-eval-print-loop to break the conspiracy. It installs
+its own error escape handler before each call to `eval', but only
+if the eeh hasn't changed since repl was called.
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Oct 22 10:19:28 1997
+State-Changed-Why:
+Released.
+
+>Unformatted:
+Use this program instead:
+
+(define make-Environment void)
+
+(define Interpret-E
+  (lambda (e env)
+    (error 'parse-E "raised error")))
+
+(define (waiter)
+  (let/ec escaper
+    (let ([print (lambda (s) (begin
+			       (newline)
+			       (pretty-print s)))]
+	   [eval (lambda (e) (Interpret-E e 
+			       (make-Environment '())))])
+      (parameterize ([current-eval eval]
+		      [current-print print])
+	(read-eval-print-loop)))))
+
+'shriram

@@ -1,0 +1,185 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Sep 22 12:12:52 2006
+Received: from wr-out-f131.google.com (wr-out-0708.google.com [64.233.184.131])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k8MGCjTJ004254
+	for <bugs@bugs.plt-scheme.org>; Fri, 22 Sep 2006 12:12:46 -0400
+Message-Id: <200609221612.k8MGCiMR004245@champlain.ccs.neu.edu>
+Date: Fri, 22 Sep 2006 12:12:44 -0400
+From: jkoshy@freebsd.org
+To: bugs@plt-scheme.org
+Subject: [patch] DrScheme port to FreeBSD/amd64
+
+>Number:         8292
+>Category:       mzscheme
+>Synopsis:       [patch] DrScheme port to FreeBSD/amd64
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Sep 22 12:15:01 -0400 2006
+>Closed-Date:    Wed Nov 15 17:16:00 -0500 2006
+>Last-Modified:  Wed Nov 15 17:16:00 -0500 2006
+>Originator:     Joseph Koshy
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        v352
+>Environment:
+unix-other
+>Description:
+The following patch set describes the steps I took to port v352
+to FreeBSD/amd64.  These files may also be retrieved at:
+
+   http://www.freebsd.org/cgi/cvsweb.cgi/ports/lang/drscheme/
+
+1: FreeBSD/amd64 requires shared objects to be compiled with
+   -fPIC.  This is true for the i386 architecture too, but the
+   i386 architecture is apparently more forgiving than the amd64.
+   This change causes "mzdyn.o" to compiled with -fPIC.
+
+--- configure--	Mon Jul 17 18:53:27 2006
++++ configure	Fri Sep 22 14:10:56 2006
+@@ -5331,6 +5331,7 @@
+     ;;
+   FreeBSD)
+     LIBS="$LIBS -rdynamic"
++    DYN_CFLAGS="-fPIC"
+     ;;
+   OpenBSD)
+     LIBS="$LIBS -rdynamic"
+
+
+2: libffi needs to informed that FreeBSD/amd64 is a known
+   platform.  The following patch also enables FreeBSD/sparc64.
+
+--- foreign/gcc/libffi/configure.orig	Mon Apr 17 22:28:43 2006
++++ foreign/gcc/libffi/configure	Thu Sep 21 13:48:18 2006
+@@ -5377,6 +5377,7 @@
+ 
+ TARGETDIR="unknown"
+ case "$host" in
++amd64-*-freebsd* ) TARGET=X86_64; TARGETDIR=x86;;
+ i*86-*-linux*) TARGET=X86; TARGETDIR=x86;;
+ i*86-*-gnu*) TARGET=X86; TARGETDIR=x86;;
+ i*86-*-solaris2.1[0-9]*) TARGET=X86_64; TARGETDIR=x86;;
+@@ -5395,7 +5396,7 @@
+ sparc*-sun-*) TARGET=SPARC; TARGETDIR=sparc;;
+ sparc-*-linux* | sparc-*-netbsdelf* | sparc-*-knetbsd*-gnu) TARGET=SPARC; TARGETDIR=sparc;;
+ sparc*-*-rtems*) TARGET=SPARC; TARGETDIR=sparc;;
+-sparc64-*-linux* | sparc64-*-netbsd* | sparc64-*-knetbsd*-gnu) TARGET=SPARC; TARGETDIR=sparc;;
++sparc64-*-freebsd* | sparc64-*-linux* | sparc64-*-netbsd* | sparc64-*-knetbsd*-gnu) TARGET=SPARC; TARGETDIR=sparc;;
+ alpha*-*-linux* | alpha*-*-osf* | alpha*-*-freebsd* | alpha*-*-kfreebsd*-gnu | alpha*-*-netbsd* | alpha*-*-knetbsd*-gnu) TARGET=ALPHA; TARGETDIR=alpha;;
+ ia64*-*-*) TARGET=IA64; TARGETDIR=ia64;;
+ m32r*-*-linux* ) TARGET=M32R; TARGETDIR=m32r;;
+@@ -5416,7 +5417,7 @@
+ cris-*-*) TARGET=LIBFFI_CRIS; TARGETDIR=cris;;
+ s390-*-linux-*) TARGET=S390; TARGETDIR=s390;;
+ s390x-*-linux-*) TARGET=S390; TARGETDIR=s390;;
+-x86_64-*-linux* | x86_64-*-freebsd* | x86_64-*-kfreebsd*-gnu) TARGET=X86_64; TARGETDIR=x86;;
++x86_64-*-linux* | x86_64-*-kfreebsd*-gnu) TARGET=X86_64; TARGETDIR=x86;;
+ sh-*-linux* | sh[34]*-*-linux*) TARGET=SH; TARGETDIR=sh;;
+ sh-*-rtems*) TARGET=SH; TARGETDIR=sh;;
+ sh64-*-linux* | sh5*-*-linux*) TARGET=SH64; TARGETDIR=sh64;;
+
+
+3: Boehm-GC needs to be similarly informed.  This patch
+   also corrects a typo in the existing "gcconfig.h":
+
+--- mzscheme/gc/include/private/gcconfig.h.orig	Fri Jul  7 02:38:23 2006
++++ mzscheme/gc/include/private/gcconfig.h	Fri Sep 22 12:45:27 2006
+@@ -335,10 +335,14 @@
+ #    define X86_64
+ #    define mach_type_known
+ # endif
++# if defined(FREEBSD) && defined(__amd64__)
++#    define X86_64
++#    define mach_type_known
++# endif
+ # if defined(FREEBSD) && defined(__sparc__)
+ #    define SPARC
+ #    define mach_type_known
+-#endif
++# endif
+ # if defined(bsdi) && (defined(i386) || defined(__i386__))
+ #    define I386
+ #    define BSDI
+@@ -1992,6 +1996,17 @@
+ #	    define PREFETCH(x) __builtin_prefetch((x), 0, 0)
+ #	    define PREFETCH_FOR_WRITE(x) __builtin_prefetch((x), 1)
+ #	endif
++#   endif
++#   ifdef FREEBSD
++#       define OS_TYPE "FREEBSD"
++#       define SIG_SUSPEND SIGUSR1
++#       define SIG_THR_RESTART SIGUSR2
++#       ifdef __ELF__
++#           define DYNAMIC_LOADING
++#       endif
++#       define HEURISTIC2
++        extern char etext[];
++#       define SEARCH_FOR_DATA_START
+ #   endif
+ #   ifdef NETBSD
+ #	define OS_TYPE "NETBSD"
+
+4: Finally, mzscheme's "sconfig.h" needs the following changes.
+   I've neaten the FreeBSD parts of this file a bit.  This 
+   patch is relative to v352, not SVN.
+
+   FreeBSD spells the platform name as "amd64".
+
+--- mzscheme/sconfig.h.orig	Wed Jul 26 18:00:43 2006
++++ mzscheme/sconfig.h	Fri Sep 22 15:23:14 2006
+@@ -302,9 +302,23 @@
+ 
+   /************** x86/FreeBSD with gcc ****************/
+ 
+-# if defined(__FreeBSD__) && defined(i386)
++# if defined(__FreeBSD__)
+ 
+-# define SCHEME_PLATFORM_LIBRARY_SUBPATH "i386-freebsd"
++#  if defined(__i386__)
++#   define SCHEME_PLATFORM_LIBRARY_SUBPATH "i386-freebsd"
++#   define REGISTER_POOR_MACHINE
++#   define MZ_USE_JIT_I386
++#   define FREEBSD_CONTROL_387
++#  elif defined(__amd64__)
++#   define SCHEME_PLATFORM_LIBRARY_SUBPATH "amd64-freebsd"
++#   define REGISTER_POOR_MACHINE
++#   define MZ_USE_JIT_X86_64
++#  elif defined(__sparc64__)
++#   define SCHEME_PLATFORM_LIBRARY_SUBPATH "sparc64-freebsd"
++#   define FLUSH_SPARC_REGISTER_WINDOWS
++#  else
++#   error Unported platform.
++#  endif
+ 
+ # include "uconfig.h"
+ # undef HAS_STANDARD_IOB
+@@ -318,7 +332,6 @@
+ # define USE_UNDERSCORE_SETJMP
+ 
+ # define USE_IEEE_FP_PREDS
+-# define FREEBSD_CONTROL_387
+ # define POW_HANDLES_INF_CORRECTLY
+ 
+ # define USE_DYNAMIC_FDSET_SIZE
+@@ -327,9 +340,6 @@
+ 
+ # define USE_TM_GMTOFF_FIELD
+ 
+-# define REGISTER_POOR_MACHINE
+-
+-# define MZ_USE_JIT_I386
+ # define MZ_JIT_USE_MPROTECT
+ 
+ # define FLAGS_ALREADY_SET
+
+
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt at Wed, 15 Nov 2006 17:16:00 -0500
+Reason>>> patches applied a while ago
+

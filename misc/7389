@@ -1,0 +1,172 @@
+From apache@plt-scheme.org Fri May 20 10:37:08 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j4KEb5AD014963
+	for <bugs@plt-scheme.org>; Fri, 20 May 2005 10:37:05 -0400
+Message-Id: <200505201437.j4KEb5Db014961@champlain.ccs.neu.edu>
+Date: Fri, 20 May 2005 10:37:05 -0400
+From: cobbe@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: match.ss: docs out of date
+
+>Number:         7389
+>Category:       misc
+>Synopsis:       match.ss: docs out of date
+>Class:          doc-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri May 20 10:40:01 -0400 2005
+>Last-Modified:  Tue Jul 05 15:41:09 -0400 2005
+>Originator:     Richard Cobbe
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.104-cvs6may2005
+>Environment:
+mac-ppc-osx
+>Description:
+The documentation of match.ss indicates that, if no clause successfully matches the value, the result of the entire match expression is void.
+
+The implementation throws an exception in this case, however:
+
+Welcome to DrScheme, version 299.104-cvs6may2005.
+Language: Textual (MzScheme, includes R5RS).
+> (require (lib "match.ss"))
+> (match (list 1 2 3) [`(list ,x ,y) (+ x y)])
+match: no matching clause for (1 2 3): (plt:match (list 1 2 3) ((quasiquote (list (unquote x) (unquote y))) (+ x y)))
+
+And to be clear: I think throwing an exception is the correct behavior.  Please leave the implementation as it is and change the documentation to agree, rather than vice versa.
+>How-To-Repeat:
+N/A
+>Fix:
+>Audit-Trail:
+From: Paul Schlie <schlie@comcast.net>
+To: <bugs@plt-scheme.org>, <cobbe@ccs.neu.edu>
+Cc: 
+Subject: Re: all/7389: match.ss: docs out of date
+Date: Sun, 22 May 2005 10:25:24 -0400
+
+ Please don't throw an excepting in lieu of returning void, as
+ although it may be fine to do so in an interactive command line,
+ it's certainly not a generally useful behavior when embedded in
+ program code which relies a value to be returned. (So rather please
+ consider fixing the bug in the code.)
+ 
+ 
+ 
+From: Richard Cobbe <cobbe@ccs.neu.edu>
+To: Paul Schlie <schlie@comcast.net>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7389: match.ss: docs out of date
+Date: Sun, 22 May 2005 11:23:10 -0400
+
+ On Sun, May 22, 2005 at 10:25:24AM -0400, Paul Schlie wrote:
+ > Please don't throw an excepting in lieu of returning void, as
+ > although it may be fine to do so in an interactive command line,
+ > it's certainly not a generally useful behavior when embedded in
+ > program code which relies a value to be returned. (So rather please
+ > consider fixing the bug in the code.)
+ 
+ First, if match's context expects a value, it's not clear to me how that
+ context can use the void object in any useful way, other than checking
+ with void? -- which is about equivalent to catching an exception, except
+ for all the standard problems with propagating this error up the call
+ stack.
+ 
+ I suppose one might be able to use it for other things, like in a parser
+ where one would use the void object to indicate the absence of an
+ optional component in the input.  This seems awfully hackish to me,
+ though.
+ 
+ In any case, whichever way things are done, one can get the other behavior:
+ 
+   ;; if returns (void):
+   (match ...
+     ...
+     [else (raise (make-exn:fail    ;; or whatever
+                   "match failure" 
+                   (current-continuation-marks)))])
+ 
+   ;; if throws:
+   (match ...
+     ...
+     [else (void)])
+ 
+ The second is more concise.  I still vote for having match raise an exn
+ on failure.  (And the docs should also specify what kind of exception is
+ raised.)
+ 
+ BTW, is SamTH getting these messages, since he's apparently now
+ maintaining match?
+ 
+ Richard
+From: Paul Schlie <schlie@comcast.net>
+To: Richard Cobbe <cobbe@ccs.neu.edu>
+Cc: <bugs@plt-scheme.org>
+Subject: Re: all/7389: match's: docs out of date
+Date: Sun, 22 May 2005 12:47:38 -0400
+
+ > From: Richard Cobbe <cobbe@ccs.neu.edu>
+ > On Sun, May 22, 2005 at 10:25:24AM -0400, Paul Schlie wrote:
+ >> Please don't throw an excepting in lieu of returning void, as
+ >> although it may be fine to do so in an interactive command line,
+ >> it's certainly not a generally useful behavior when embedded in
+ >> program code which relies a value to be returned. (So rather please
+ >> consider fixing the bug in the code.)
+ > 
+ > First, if match's context expects a value, it's not clear to me how that
+ > context can use the void object in any useful way, other than checking
+ > with void? -- which is about equivalent to catching an exception, except
+ > for all the standard problems with propagating this error up the call
+ > stack.
+ 
+ - Return value types are typically checked for validity in most scheme
+   code, and who says its an error not to match? (Personally it seems that
+   if one wants to throw an error and create an alternate control flow path,
+   it can and should be done so explicitly by wrapping whatever desired in
+   a function which throw an error upon the receipt of a type or value
+   condition which for their purpose considers an exception, and worthy of
+   disrupting the normal control flow of the program without burdening others
+   with their interpretation; as arguably, all scheme functions should be
+   defined to return a value for any input and never generate exceptions by
+   default.)
+ 
+ > I suppose one might be able to use it for other things, like in a parser
+ > where one would use the void object to indicate the absence of an
+ > optional component in the input.  This seems awfully hackish to me,
+ > though.
+ > 
+ > In any case, whichever way things are done, one can get the other behavior:
+ > 
+ >   ;; if returns (void):
+ >   (match ...
+ >     ...
+ >     [else (raise (make-exn:fail    ;; or whatever
+ >                   "match failure"
+ >                   (current-continuation-marks)))])
+ > 
+ >   ;; if throws:
+ >   (match ...
+ >     ...
+ >     [else (void)])
+ > 
+ > The second is more concise.  I still vote for having match raise an exn
+ > on failure.  (And the docs should also specify what kind of exception is
+ > raised.)
+ > 
+ > BTW, is SamTH getting these messages, since he's apparently now
+ > maintaining match?
+ > 
+ > Richard
+ 
+ 
+
+Responsible changed from "nobody" to "samth" by eli at Mon, 20 Jun 2005 15:50:28 -0400
+Reason>>> match
+
+
+State changed from "open" to "closed" by samth at Tue, 05 Jul 2005 15:41:09 -0400
+Reason>>> Fixed in SVN (iplt revision 132).
+

@@ -1,0 +1,252 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Feb  5 15:41:57 2009
+Received: from el-out-1112.google.com (el-out-1112.google.com [209.85.162.180])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n15KfoNH005084
+	for <bugs@bugs.plt-scheme.org>; Thu, 5 Feb 2009 15:41:50 -0500
+Message-Id: <200902052041.n15KfldH005077@champlain.ccs.neu.edu>
+Date: Thu, 5 Feb 2009 15:41:47 -0500
+From: sstrickl@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Metafunction rewriters do not affect the LHS of their definitions
+
+>Number:         10054
+>Category:       redex
+>Synopsis:       Metafunction rewriters do not affect the LHS of their definitions
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Feb 05 15:44:01 -0500 2009
+>Last-Modified:  Sun Mar 15 22:24:54 -0400 2009
+>Originator:     Stevie Strickland
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.4.2-svn5feb2009
+>Environment:
+macosx "Darwin Bonn.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 197218908
+
+Collections:
+(("/Users/sstrickl/Library/PLT Scheme/4.1.4.2/collects" non-existent-path) ("/Users/sstrickl/plt/collects" ".svn" "2htdp" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "waterworld" !
+ "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+If you have a rewriter for a metafunction and apply it to rendering the definition of that metafunction, it only affects the RHS.  This makes it difficult to show the definition of a metafunction that has been rewritten.
+>How-To-Repeat:
+Run the following code:
+
+#lang scheme
+
+(require redex)
+
+(define-language core-lang
+  (x variable-not-otherwise-mentioned)
+  (e x (e e) (λ (x) e)))
+
+(define-metafunction core-lang
+  subst : e x e -> e
+  [(subst x x e) e]
+  [(subst x_1 x_2 e) x_1]
+  [(subst (e_1 e_2) x e)
+   ((subst e_1 x e) (subst e_2 x e))]
+  [(subst (λ (x) e_b) x e)
+   (λ (x) e)]
+  [(subst (λ (x_f) e_f) x_a e_a)
+   (λ (x_f) (subst e_f x_a e_a))])
+
+(define (subst-rw lws)
+  (list ""
+        (list-ref lws 2)
+        "{"
+        (list-ref lws 3)
+        ":="
+        (list-ref lws 4)
+        "}"))
+
+(with-compound-rewriter 'subst subst-rw
+  (render-metafunction subst))
+>Fix:
+>Audit-Trail:
+From: Stevie Strickland <sstrickl@plt-scheme.org>
+To: robby@plt-scheme.org
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10054: Metafunction rewriters do not affect the LHS of their definitions
+Date: Thu, 5 Feb 2009 16:21:23 -0500
+
+ On Feb 5, 2009, at 3:44 PM, sstrickl@ccs.neu.edu wrote:
+ > If you have a rewriter for a metafunction and apply it to rendering  
+ > the definition of that metafunction, it only affects the RHS.  This  
+ > makes it difficult to show the definition of a metafunction that has  
+ > been rewritten.
+ 
+ It looks like the following diff fixes the issue:
+ 
+ Index: collects/redex/private/pict.ss
+ ===================================================================
+ --- collects/redex/private/pict.ss	(revision 13453)
+ +++ collects/redex/private/pict.ss	(working copy)
+ @@ -748,7 +748,7 @@
+                        ;; the first loc wrapper is just there to make  
+ the
+                        ;; shape of this line be one that the apply- 
+ rewrites
+                        ;; function (in core-layout.ss) recognizes as a  
+ metafunction
+ -                     (make-lw ""
+ +                     (make-lw "("
+                                 (lw-line an-lw)
+                                 0
+                                 (lw-column an-lw)
+ 
+ I would apply it directly, but I wanted to make sure there's not some  
+ reason that is the way it is first.
+ 
+ Stevie
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@plt-scheme.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10054: Metafunction rewriters do not affect the LHS 
+	of their definitions
+Date: Thu, 5 Feb 2009 15:47:15 -0600
+
+ That looks right to me.
+ 
+ Can you add a test to private/bitmap-test.ss too? (Or else I'll do it
+ all, no problem.)
+ 
+ Robby
+ 
+ On Thu, Feb 5, 2009 at 3:21 PM, Stevie Strickland
+ <sstrickl@plt-scheme.org> wrote:
+ > On Feb 5, 2009, at 3:44 PM, sstrickl@ccs.neu.edu wrote:
+ >>
+ >> If you have a rewriter for a metafunction and apply it to rendering the
+ >> definition of that metafunction, it only affects the RHS.  This makes it
+ >> difficult to show the definition of a metafunction that has been rewritten.
+ >
+ > It looks like the following diff fixes the issue:
+ >
+ > Index: collects/redex/private/pict.ss
+ > ===================================================================
+ > --- collects/redex/private/pict.ss      (revision 13453)
+ > +++ collects/redex/private/pict.ss      (working copy)
+ > @@ -748,7 +748,7 @@
+ >                      ;; the first loc wrapper is just there to make the
+ >                      ;; shape of this line be one that the apply-rewrites
+ >                      ;; function (in core-layout.ss) recognizes as a
+ > metafunction
+ > -                     (make-lw ""
+ > +                     (make-lw "("
+ >                               (lw-line an-lw)
+ >                               0
+ >                               (lw-column an-lw)
+ >
+ > I would apply it directly, but I wanted to make sure there's not some reason
+ > that is the way it is first.
+ >
+ > Stevie
+ >
+From: Stevie Strickland <sstrickl@plt-scheme.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10054: Metafunction rewriters do not affect the LHS  of their definitions
+Date: Thu, 5 Feb 2009 16:59:31 -0500
+
+ On Feb 5, 2009, at 4:47 PM, Robby Findler wrote:
+ > That looks right to me.
+ >
+ > Can you add a test to private/bitmap-test.ss too? (Or else I'll do it
+ > all, no problem.)
+ 
+ Sure, no problem.  The only issue I have is that if I output the pict =20=
+ 
+ in DrScheme, then right click and do "Save image..." to save it to a =20
+ PNG, the test fails because of a slight difference on the right and =20
+ bottom sides of the image (I think it has an extra row and column of =20
+ white pixels).  Is that what you do, or should I be saving the image =20
+ in a different way?
+ 
+ (The extra test code is below, if you want to just use it directly.)
+ 
+ Stevie
+ 
+ ;; makes sure that the LHS and RHS of metafunctions are appropriately
+ ;; rewritten
+ 
+ (define-metafunction lang
+    subst : e x e -> e
+    [(subst x x e) e]
+    [(subst number x e) number]
+    [(subst x_1 x_2 e) x_1]
+    [(subst (e_1 e_2) x e)
+     ((subst e_1 x e) (subst e_2 x e))]
+    [(subst (=CE=BB (x) e_b) x e)
+     (=CE=BB (x) e)]
+    [(subst (=CE=BB (x_f) e_f) x_a e_a)
+     (=CE=BB (x_f) (subst e_f x_a e_a))])
+ 
+ (define (subst-rw lws)
+    (list ""
+          (list-ref lws 2)
+          "{"
+          (list-ref lws 3)
+          ":=3D"
+          (list-ref lws 4)
+          "}"))
+ 
+ (test (with-compound-rewriter 'subst subst-rw
+          (render-metafunction subst))
+        "metafunction-subst.png")=
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10054: Metafunction rewriters do not affect the LHS  of their definitions
+Date: Thu, 5 Feb 2009 17:01:48 -0500
+
+ On Feb 5, 2009, at 4:59 PM, Stevie Strickland wrote:
+ > Sure, no problem.  The only issue I have is that if I output the  
+ > pict in DrScheme, then right click and do "Save image..." to save it  
+ > to a PNG, the test fails because of a slight difference on the right  
+ > and bottom sides of the image (I think it has an extra row and  
+ > column of white pixels).  Is that what you do, or should I be saving  
+ > the image in a different way?
+ 
+ Nevermind, I just tried out the "Save" button on the testing GUI and  
+ that seems to have saved it appropriately, so I'm checking it in now.
+ 
+ Stevie
+
+State changed from "open" to "closed" by sstrickl at Thu, 05 Feb 2009 17:06:31 -0500
+Reason>>> Fixed on trunk r13457
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10054: Metafunction rewriters do not affect the LHS 
+	of their definitions
+Date: Thu, 5 Feb 2009 18:19:48 -0600
+
+ Right. that's what the save is for. Sorry I wasn't clear. I should
+ have also said that it is really the test case that matters more than
+ making sure it passes (that's easy for me to do).
+ 
+ Robby
+ 
+ On Thu, Feb 5, 2009 at 4:01 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ > On Feb 5, 2009, at 4:59 PM, Stevie Strickland wrote:
+ >>
+ >> Sure, no problem.  The only issue I have is that if I output the pict in
+ >> DrScheme, then right click and do "Save image..." to save it to a PNG, the
+ >> test fails because of a slight difference on the right and bottom sides of
+ >> the image (I think it has an extra row and column of white pixels).  Is that
+ >> what you do, or should I be saving the image in a different way?
+ >
+ > Nevermind, I just tried out the "Save" button on the testing GUI and that
+ > seems to have saved it appropriately, so I'm checking it in now.
+ >
+ > Stevie
+ >
+

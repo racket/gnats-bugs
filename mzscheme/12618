@@ -1,0 +1,229 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Mar  4 04:36:58 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q249aq0P024240
+	for <bugs@bugs.plt-scheme.org>; Sun, 4 Mar 2012 04:36:52 -0500
+Message-Id: <201203040936.q249amR7024234@champlain.ccs.neu.edu>
+Date: Sun, 4 Mar 2012 04:36:48 -0500
+From: BrianDamgaard@jubii.dk
+To: bugs@racket-lang.org
+Subject: Embarrassing crashes 1 of 2 - Racket crashes in "equal?" function
+
+>Number:         12618
+>Category:       mzscheme
+>Synopsis:       Embarrassing crashes 1 of 2 - Racket crashes in "equal?" function
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Mar 04 04:40:01 -0500 2012
+>Last-Modified:  Sun Mar 04 09:36:01 -0500 2012
+>Originator:     Brian Damgaard
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 137012092
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("C:\\Users\\Brian\\AppData\\Roaming\\Racket\\5.2.1\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Compilers\\Scheme\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+Racket crashes inside its "equal?" function when it's given two very deeply nested trees as input.
+
+It's one thing that user programs can make the system crash if they go to extremes, but it's not good enough that heavy-duty built-in library functions like "equal?" break so easily.
+>How-To-Repeat:
+; Run the following program.
+; Racket crashes inside its "equal?" function when N = 10 million, whereas it runs correctly with N = 1 million.
+; When the "equal?" test is commented out, Racket instead crashes inside its "write" function.
+
+#lang racket
+(require r5rs) ; mutable pairs
+
+(define (iota count) 
+; produces a list of n consequtive integers starting from 0
+  (let f ( [countdown count] [result '()] )
+    (if (> countdown 0) 
+        (f (- countdown 1)(cons (- countdown 1) result))
+        result )))
+
+(define (cdr-list->car-list list)
+; destructively turns a normal cdr-linked list into a car-linked list  
+  (let ((result list))
+    (do ((this list (car this)))
+
+        ((not (pair? this)) result)
+         
+        (let ((item (car this)))
+           (set-car! this (cdr this))
+           (set-cdr! this item)))))
+
+(define N 1000000)
+(define A '())
+(define B '())
+
+(time
+ (display "create lists..........: ")
+ (set! A (cdr-list->car-list (iota N)))
+ (set! B (cdr-list->car-list (iota N)))
+)
+(time
+  (display "equal? test...........: ")
+  (equal? A B) ; Crashes when N = 10 million. 
+) 
+(time
+  (display "garbage collection...: ")
+  (collect-garbage)
+)
+(time
+  (display "write file...........: ")
+  (with-output-to-file "C:\\Temp\\t2.txt" #:exists 'replace
+    (lambda () (write A))) ; Crashes when N = 10 million.
+)
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: BrianDamgaard@jubii.dk, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12618: Embarrassing crashes 1 of 2 - Racket
+ crashes in "equal?" function
+Date: Sun, 4 Mar 2012 08:32:23 -0600
+
+ This does not crash on my 4 gb mac os x machine (altho it does appear
+ to use upwards of 6 gb of memory), running the 64 bit version of
+ racket.
+ 
+ Is perhaps the problem that you're running a 32 bit racket and thus
+ Racket does not have enough memory to do the computation?
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: BrianDamgaard@jubii.dk, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12618: Embarrassing crashes 1 of 2 - Racket crashes in "equal?" function
+Date: Sun, 4 Mar 2012 07:33:38 -0700
+
+ When I run this in Racket, I get a clear out-of-memory error using
+ `equal?'.
+ 
+ In DrRacket, I have to turn off memory limits, of course. Then,
+ unfortunately, DrRacket only manages to report an out-of-memory error
+ at the level of the Windows event log; it doesn't have enough memory to
+ show a dialog.
+ 
+ Running out of memory is roughly what what I expect, since
+ 
+  - 10M mutable pairs already take 160MB on a 32-bit platform, and
+ 
+  - the `equal?' test or printing requires a continuation proportional
+    to to the length of that list, and the continuation frames for
+    `equal?' are somewhat large, so it can use up the rest of the 1-2 GB
+    address space that Windows allows.
+ 
+ Assuming that you were running in DrRacket, can you check your Windows
+ event log to see whether DrRacket reported an out-of-memory error?
+ 
+ At Sun, 4 Mar 2012 04:40:02 -0500, BrianDamgaard@jubii.dk wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=12618
+ > 
+ > Reported by Brian Damgaard for release: 5.2.1
+ > 
+ > *** Description:
+ > Racket crashes inside its "equal?" function when it's given two very deeply 
+ > nested trees as input.
+ > 
+ > It's one thing that user programs can make the system crash if they go to 
+ > extremes, but it's not good enough that heavy-duty built-in library functions 
+ > like "equal?" break so easily.
+ > 
+ > *** How to repeat:
+ > ; Run the following program.
+ > ; Racket crashes inside its "equal?" function when N = 10 million, whereas it 
+ > runs correctly with N = 1 million.
+ > ; When the "equal?" test is commented out, Racket instead crashes inside its 
+ > "write" function.
+ > 
+ > #lang racket
+ > (require r5rs) ; mutable pairs
+ > 
+ > (define (iota count) 
+ > ; produces a list of n consequtive integers starting from 0
+ >   (let f ( [countdown count] [result '()] )
+ >     (if (> countdown 0) 
+ >         (f (- countdown 1)(cons (- countdown 1) result))
+ >         result )))
+ > 
+ > (define (cdr-list->car-list list)
+ > ; destructively turns a normal cdr-linked list into a car-linked list  
+ >   (let ((result list))
+ >     (do ((this list (car this)))
+ > 
+ >         ((not (pair? this)) result)
+ >          
+ >         (let ((item (car this)))
+ >            (set-car! this (cdr this))
+ >            (set-cdr! this item)))))
+ > 
+ > (define N 1000000)
+ > (define A '())
+ > (define B '())
+ > 
+ > (time
+ >  (display "create lists..........: ")
+ >  (set! A (cdr-list->car-list (iota N)))
+ >  (set! B (cdr-list->car-list (iota N)))
+ > )
+ > (time
+ >   (display "equal? test...........: ")
+ >   (equal? A B) ; Crashes when N = 10 million. 
+ > ) 
+ > (time
+ >   (display "garbage collection...: ")
+ >   (collect-garbage)
+ > )
+ > (time
+ >   (display "write file...........: ")
+ >   (with-output-to-file "C:\\Temp\\t2.txt" #:exists 'replace
+ >     (lambda () (write A))) ; Crashes when N = 10 million.
+ > )
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) 
+ > (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 137012092
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links 
+ > #:user? #f #:root? #t) = ()
+ > 
+ > 
+ > Collections:
+ > ("C:\\Users\\Brian\\AppData\\Roaming\\Racket\\5.2.1\\collects"
+ >  (non-existent-path))
+ > ("C:\\Program Files\\Compilers\\Scheme\\Racket\\collects"
+ >  ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" 
+ > "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" 
+ > "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" 
+ > "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" 
+ > "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" 
+ > "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" 
+ > "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" 
+ > "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" 
+ > "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" 
+ > "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" 
+ > "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" 
+ > "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" 
+ > "web-server" "wxme" "xml" "xrepl"))
+ > 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))

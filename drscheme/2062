@@ -1,0 +1,412 @@
+From jacobm@rice.edu  Wed Sep 19 17:31:53 2001
+Return-Path: <jacobm@rice.edu>
+Received: from localhost (unknown [155.99.212.124])
+	by cs.rice.edu (Postfix) with ESMTP id DC64D17E9
+	for <plt-gnats>; Wed, 19 Sep 2001 17:31:52 -0500 (CDT)
+Message-Id: <20010919223152.DC64D17E9@cs.rice.edu>
+Date: Wed, 19 Sep 2001 17:31:52 -0500 (CDT)
+From: jacobm@rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: DrScheme fails to allow some valid macro definitions
+
+>Number:         2062
+>Category:       drscheme
+>Synopsis:       DrScheme fails to allow some valid macro definitions
+>Class:          sw-bug
+>Responsible:    steck
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Sep 19 18:45:01 -0400 2001
+>Last-Modified:  Mon May 05 17:06:59 -0400 2008
+>Originator:     Jacob Matthews
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        199.22d3
+>Environment:
+unix "SunOS sun.cs.rice.edu 5.6 Generic_105181-23 sun4u sparc SUNW,Ultra-4" (sparc-solaris) (get-display-depth) = 8
+Tools: "collection-path: collection \"drscheme\" does not have sub-collection: \"tools\" in: \"/home/jacobm/plt-neu/plt/collects/drscheme\""
+Docs Installed:
+("help" "teachpack" "icons" "r5rs" "mzscheme" "mred" "drscheme" "misclib" "framework" "tools" "mzc" "insidemz")
+Collections: 
+(("/home/jacobm/plt-neu/plt/collects" ("CVS" "doc" "browser" "compiler" "debug" "defaults" "drjava" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "readline" "setup" "slatex" "srpersist" "stepper" "string-constants" "syntax" "tests" "texpict" "userspce" "xml")))
+Human Language: English
+>Description:
+Some (possibly all?) macros that mzscheme 199.22 accepts at the
+top level are rejected by drscheme 199.22d3.
+>How-To-Repeat:
+At the REPL, type:
+> (define-syntax (c stx)
+    (syntax-case stx ()
+      [(_ p q r) (syntax (+ p q r))]))
+
+DrScheme produces the following error message:
+
+#<struct:object:derived-from-rep-text%>:4:5: compile: bad syntax;
+function application is not allowed, because no #%app transformer 
+is  bound in: (syntax-case stx () ((_p q r) (syntax (+ p q r))))
+
+mzscheme 199.22 allows the definition.
+>Fix:
+>Audit-Trail:
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: mflatt@cs.utah.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Wed, 19 Sep 2001 16:06:10 -0700 (PDT)
+
+ > At the REPL, type:
+ > > (define-syntax (c stx)
+ >     (syntax-case stx ()
+ >       [(_ p q r) (syntax (+ p q r))]))
+ > 
+ > DrScheme produces the following error message:
+ > 
+ > #<struct:object:derived-from-rep-text%>:4:5: compile: bad syntax;
+ > function application is not allowed, because no #%app transformer 
+ > is  bound in: (syntax-case stx () ((_p q r) (syntax (+ p q r))))
+ 
+ I suspect that this is because I am not initializing the namespace
+ properly. I cannot seem to find in the mzscheme manual how a namespace
+ created with 'empty might be "filled" to arrive at the same namespace
+ created with no arguments passed to make-namespace. I see some text
+ around make-namespace, but I thought I was doing all those things, so
+ I'm not sure what's missing.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Thu, 20 Sep 2001 10:02:24 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > I cannot seem to find in the mzscheme manual how a namespace
+ > created with 'empty might be "filled" to arrive at the same namespace
+ > created with no arguments passed to make-namespace.
+ 
+ I've reorganized and revised the documentation. The relevant text is
+ below.
+ 
+ But I don't see a way to get from 'empty to the MzScheme namespace,
+ because there's no way to get a list of the built-in procedures and
+ constants. Maybe there should be a way to get the list, but omitting
+ 'empty would be easiesr:
+ 
+   (let ([n (make-namespace)])
+     (parameterize ([current-namespace n])
+       (namespace-transformer-require 'mzscheme))
+     n)
+ 
+ Matthew
+ 
+ 
+ ----------------------------------------
+ 
+ A namespace actually encapsulates two top-level environments: one for
+  normal expressions, and one for macro transformer expressions; see
+  \SecRef{syntax} for more information about the transformer
+  environment. Module declarations are shared by the environments, but
+  the variable bindings, syntax bindings, and module imports are
+  distinct. More precisely, the transformer environment never contains
+  any variable or syntax bindings, and its module imports are distinct
+  from the imports of the normal top-level environment.
+ 
+ [...]
+ 
+ In the stand-alone MzScheme application, the initial namespace contains
+  module declarations for \scheme{mzscheme} and the primitive
+  \scheme{#%}-named modules (see \SecRef{modbuiltin}). The normal
+  top-level environment of the initial namespace contains imports for
+  all MzScheme syntax, and it contains variable bindings (as opposed to
+  imports) for every built-in procedure and constant. The transformer
+  environment of the initial namespace imports all MzScheme syntax,
+  procedures, and constants.
+ 
+ Applications embedding MzScheme may extend or modify the set of
+  initial bindings, but they will usually only add primitive modules
+  with \scheme{#%}-prefixed names. (MrEd adds \rawscm{\#\%mred-kernel}
+  for its graphical toolbox.)
+ 
+ [...]
+ 
+ {\SDtO{make-namespace}{flag-symbol}} creates a new namespace; the
+  \var{flag-symbol} is an option that determines the initial bindings in
+  the namespace. Currently, the only legal value for \var{flag-symbol}
+  is \SymbolFirst{empty}, which creates a namespace with no initial
+  bindings or module declarations. Otherwise, the new namespace contains
+  the module declarations of the initial namespace (see
+  \SecRef{initnamespace}); the new namespace's normal top-level
+  environment contains bindings and imports as in the initial namespace;
+  the namespace's transformer top-level environment is empty.
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Thu, 20 Sep 2001 14:18:59 -0700 (PDT)
+
+ Quoting Matthew Flatt:
+ > But I don't see a way to get from 'empty to the MzScheme namespace,
+ > because there's no way to get a list of the built-in procedures and
+ > constants. Maybe there should be a way to get the list, but omitting
+ > 'empty would be easiesr:
+ > 
+ >   (let ([n (make-namespace)])
+ >     (parameterize ([current-namespace n])
+ >       (namespace-transformer-require 'mzscheme))
+ >     n)
+ 
+ Omitting the 'empty is not easier, due to the abstraction I've designed
+ for adding languages to DrScheme. What I'd like: the language designer
+ specifies a module and "boilerplate" code creates a namespace that
+ matches that language. To that end, the "boilerplate" code creates an
+ empty namespace, attaches the language module and requires it.
+ 
+ In this particular case, what is wrong with this way of creating a
+ namespace:
+ 
+ (define n (make-namespace 'empty))
+ (let ([o (current-namespace)])
+   (parameterize ([current-namespace n])
+     (namespace-attach-module o 'mzscheme)
+     (namespace-transformer-require 'mzscheme)
+     (namespace-require 'mzscheme)))
+ ?
+ 
+ It seems to work okay:
+ 
+ > (parameterize ([current-namespace n]) (eval '(+ 1 2)))
+ 3
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Thu, 20 Sep 2001 15:30:20 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > In this particular case, what is wrong with this way of creating a
+ > namespace:
+ > 
+ > (define n (make-namespace 'empty))
+ > (let ([o (current-namespace)])
+ >   (parameterize ([current-namespace n])
+ >     (namespace-attach-module o 'mzscheme)
+ >     (namespace-transformer-require 'mzscheme)
+ >     (namespace-require 'mzscheme)))
+ > ?
+ 
+ I wish MzScheme worked that way, but I don't think R5RS allows it.
+ 
+  > (define (f) (+ 1 2)) ; + has a variable binding
+  > (define + -)         ; mutates the variable 
+  > (f)
+  -1
+ 
+  > (define n (make-namespace 'empty))
+  > (let ([o (current-namespace)])
+      (parameterize ([current-namespace n])
+        (namespace-attach-module o 'mzscheme)
+        (namespace-transformer-require 'mzscheme)
+        (namespace-require 'mzscheme)))
+  > (current-namespace n)
+  > (define (f) (+ 1 2)) ; + is an import
+  > (define + -)         ; shadows the import
+  > (f)
+  3
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Thu, 20 Sep 2001 14:45:01 -0700 (PDT)
+
+ Ouch. I see.
+ 
+ There are two changes I can imagine that might help (neither is
+ required, but your comments are appreciated).
+ 
+ 1) add a new operation that is similar to namespace-require, called
+ namespace-require/copy-to-variable-bindings that requires the module as
+ namespace-require does (ie, evaluates its body), but instead of making
+ the namespace variables point to the module for future compilation, it
+ copies the bindings as "variable bindings" into the namespace and
+ variables refer to that. Then, I would use that instead of
+ namespace-require for setting up the initial namespace for all
+ languages in DrScheme.
+ 
+ 2) make module-bound provided variables immutable (units and classes
+ are already this way (effectively) right?) and then namespace-require
+ always copies bindings. This means that a variable compiled at the
+ toplevel always refers to a "namespace" variable and never refers to a
+ "module export" variable. 
+ 
+ Of course, I could just make the "Full" languages special cases, unlike
+ the EoPL language or the HtDP languages or the languages that others
+ might come up with for their courses or research. I'm not sure that is
+ a good idea, however.
+ 
+ Personally, I like option 2) because it simplifies how namespaces work.
+ 
+ Robby
+ 
+ Quoting Matthew Flatt:
+ > Quoting Robert Bruce Findler:
+ > > In this particular case, what is wrong with this way of creating a
+ > > namespace:
+ > > 
+ > > (define n (make-namespace 'empty))
+ > > (let ([o (current-namespace)])
+ > >   (parameterize ([current-namespace n])
+ > >     (namespace-attach-module o 'mzscheme)
+ > >     (namespace-transformer-require 'mzscheme)
+ > >     (namespace-require 'mzscheme)))
+ > > ?
+ > 
+ > I wish MzScheme worked that way, but I don't think R5RS allows it.
+ > 
+ >  > (define (f) (+ 1 2)) ; + has a variable binding
+ >  > (define + -)         ; mutates the variable 
+ >  > (f)
+ >  -1
+ > 
+ >  > (define n (make-namespace 'empty))
+ >  > (let ([o (current-namespace)])
+ >      (parameterize ([current-namespace n])
+ >        (namespace-attach-module o 'mzscheme)
+ >        (namespace-transformer-require 'mzscheme)
+ >        (namespace-require 'mzscheme)))
+ >  > (current-namespace n)
+ >  > (define (f) (+ 1 2)) ; + is an import
+ >  > (define + -)         ; shadows the import
+ >  > (f)
+ >  3
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Thu, 20 Sep 2001 18:07:46 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > 1) add a new operation that is similar to namespace-require, called
+ > namespace-require/copy-to-variable-bindings that requires the module as
+ > namespace-require does (ie, evaluates its body), but instead of making
+ > the namespace variables point to the module for future compilation, it
+ > copies the bindings as "variable bindings" into the namespace and
+ > variables refer to that. 
+ 
+ That's probably the right thing...
+ 
+ > Then, I would use that instead of
+ > namespace-require for setting up the initial namespace for all
+ > languages in DrScheme.
+ 
+ but I don't think you want to use it unless you have to.
+ 
+ The problem with copying values to new bindings is that the connection
+ between the binding and its source gets lost. In particular, there's no
+ way to get from an identifier to its documentation.
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Thu, 20 Sep 2001 20:00:05 -0700 (PDT)
+
+ You advocate special casing the Full languages, then?
+ 
+ Robby
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Thu Sep 20 22:39:05 2001
+State-Changed-Why:
+
+fixed, new sources tagged with exp tag.
+
+The bug was that drshceme wasn't initializing the user's namespace
+properly. This was not a contractual violation.
+
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Fri, 21 Sep 2001 09:11:27 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > You advocate special casing the Full languages, then?
+ 
+ It is possible to make the use of `namespace-require' versus
+ `namespace-require/copy' configurable per-language?
+ 
+ I could imagine, for example, that we'd want a true R5RS language,
+ which would need the same unfortunate semantics as the MzScheme and
+ MrEd languages.
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Fri, 21 Sep 2001 08:19:02 -0700 (PDT)
+
+ Quoting Matthew Flatt:
+ > Quoting Robert Bruce Findler:
+ > > You advocate special casing the Full languages, then?
+ > 
+ > It is possible to make the use of `namespace-require' versus
+ > `namespace-require/copy' configurable per-language?
+ 
+ Certainly.
+ 
+ But, how does that work with the point you raised earlier about the
+ documentation information? In the special case of the mzscheme
+ language, I can just call make-namespace with no arguments and preserve
+ the documentation information, but that would be lost with
+ namespace-require/copy, right?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2062: DrScheme fails to allow some valid macro definitions
+Date: Fri, 21 Sep 2001 09:23:31 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > But, how does that work with the point you raised earlier about the
+ > documentation information? In the special case of the mzscheme
+ > language, I can just call make-namespace with no arguments and preserve
+ > the documentation information, but that would be lost with
+ > namespace-require/copy, right?
+ 
+ Calling `make-namespace' with no arguments is the same as
+ `namespace-require/copy':
+ 
+  > (identifier-binding #'cons)
+  #f
+  > (require mzscheme)
+  > (identifier-binding #'cons)
+  (#%kernel cons mzscheme cons)
+ 
+ In other words, documentation remains a problem for the non-modulized
+ MzScheme language in any case. It's just hopelessly broken.
+ 
+ Matthew
+ 
+>Unformatted:

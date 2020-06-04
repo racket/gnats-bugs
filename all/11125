@@ -1,0 +1,109 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Aug 23 23:50:31 2010
+Received: from mail-gx0-f172.google.com (mail-gx0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o7O3oT2D019398
+	for <bugs@bugs.plt-scheme.org>; Mon, 23 Aug 2010 23:50:29 -0400
+Message-Id: <201008240350.o7O3oR44019391@champlain.ccs.neu.edu>
+Date: Mon, 23 Aug 2010 23:50:27 -0400
+From: lzgaller@optonline.net
+To: bugs@racket-lang.org
+Subject: Persistent HTTP connections in Firefox 3.6 v. IE7
+
+>Number:         11125
+>Category:       all
+>Synopsis:       Persistent HTTP connections in Firefox 3.6 v. IE7
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Aug 23 23:52:01 -0400 2010
+>Closed-Date:    Thu Aug 26 19:14:22 -0400 2010
+>Last-Modified:  Thu Aug 26 19:14:22 -0400 2010
+>Originator:     Zack Galler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.4
+>Environment:
+windows-vista
+>Description:
+Firefox 3.6 appears to maintain a persistent connection to the web-server after receiving an HTTP response. 
+
+In contrast, Internet Explorer 7 does not, and implements the expected connectionless behavior.
+
+This can cause inconsistent and unexpected behavior in thread-cells and web-cells. (please see example below)
+
+The Firefox browser will close the connection if HTTP Header "Connection: close" is included in the response
+
+However, this relies on browser behavior to work. 
+
+It would be preferable to force the server to close the connection, when desired.
+
+If possible, could we please add a keyword argument to serve/servlet 
+
+       #:close-connection boolean?
+
+so that #:close-connection #t would close the connection with the browser after sending a response?
+
+Thanks very much.
+
+>How-To-Repeat:
+#lang scheme
+
+;REQUIRES FIREFOX 3.6 to see bug.
+
+;Run, then hit refresh button on browser to see difference in behavior
+
+;CASE I
+
+;With HTTP HEADER "Connection: close" in response, Firefox closes connection after receiving response.
+
+;Next response will use new thread, *foo* will always have initial value of #f, then toggle to #t.
+
+;CASE II
+
+;Without HTTP header "Connection: close" in response, thread stays alive.
+
+;*foo* will togggle between #t and #f.
+
+
+(require web-server/servlet 
+         xml 
+         web-server/servlet-env )
+
+(define *foo* (make-thread-cell #f))
+
+(define (start request)
+  ;toggle foo
+  (thread-cell-set! *foo* (not (thread-cell-ref *foo*)))
+  (make-response/full
+   200 #"Okay"
+   (current-seconds) TEXT/HTML-MIME-TYPE
+  (list 
+   ;START- COMMENT ME OUT TO CHANGE BEHAVIOR
+ ; (make-header #"Connection" #"close")
+  ;END- COMMMENT ME OUT TO CHANGE BEHAVIOR
+   (make-header #"Cache-control" #"no-store"))
+   (list (string->bytes/locale 
+          (xexpr->string `(html (head 
+                                (body (h1 
+                                       ,(format "foo is ~A"
+                                                (thread-cell-ref  *foo*)))))))))))
+
+(require web-server/servlet-env) 
+(serve/servlet start 
+                 #:launch-browser? #t
+                 #:quit? #f 
+                 #:listen-ip #f 
+                 #:port 8000 
+                 #:servlet-path 
+                 "/servlets/bug.ss") 
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "jay" by jay@racket-lang.org at Thu, 26 Aug 2010 19:14:22 -0400
+Reason>>> A commit by jay@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7190d423f7
+State changed from "open" to "closed" by jay@racket-lang.org at Thu, 26 Aug 2010 19:14:22 -0400
+Reason>>> A commit by jay@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7190d423f7

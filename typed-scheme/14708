@@ -1,0 +1,105 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug 29 14:27:47 2014
+Received: from mail-ig0-f177.google.com (mail-ig0-f177.google.com [209.85.213.177])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s7TIRgkl022496
+	for <bugs@bugs.plt-scheme.org>; Fri, 29 Aug 2014 14:27:43 -0400
+Message-Id: <201408291827.s7TIRZ1Z022489@winooski.ccs.neu.edu>
+Date: Fri, 29 Aug 2014 14:27:35 -0400
+From: dfeltey@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: Adding type annotation in typed racket's case-lambda form appears to be unsound
+
+>Number:         14708
+>Category:       typed-scheme
+>Synopsis:       Adding type annotation in typed racket's case-lambda form appears to be unsound
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Aug 29 14:28:01 -0400 2014
+>Last-Modified:  Fri Aug 29 14:54:59 -0400 2014
+>Originator:     Dan Feltey
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.0.3--2014-08-26(af7aa2ee/d/instrumented-object-wrapping)
+>Environment:
+macosx "Darwin Daniels-MacBook-Pro.local 13.3.0 Darwin Kernel Version 13.3.0: Tue Jun  3 21:27:35 PDT 2014; root:xnu-2422.110.17~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 1959009436
+raco pkg (show):
+/Users/dan/racket/dev/racket/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [219 auto-installed packages not shown]
+Installation-wide:
+ Package                 Checksum                                    Source
+ feature-profile         929623b92cda2f64213508a07b7ac3f80266232d    (catalog feature-profile)
+ racket-benchmark        a1e97931d68b0c99bfe0375b073b7d2f96c3dc33    (url git://github.com/stamourv/racket-benchmark)
+ raco-find-collection    696da0430a89f681a4f679abcdf2489c2f7d135a    (catalog raco-find-collection)
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/Users/dan/Library/Racket/development/collects"
+ (non-existent-path))
+("/Users/dan/racket/dev/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #t ((test) (main)) #t))
+>Description:
+The following typed racket program does not typecheck
+
+(struct foo ([syms : (Listof Symbol)] [n : Number]))
+(: make-foo (case-> (Symbol Symbol Number -> foo)
+                    (Symbol Symbol * -> foo)))
+(define make-foo
+  (case-lambda
+    [(s1 s2 n)
+     (foo (list s1 s2) n)]
+    [(s . r)
+     (foo (cons s r) 0)]))
+
+With the error that a Number is expected, but a Symbol was given in the term n.
+
+The following, however, will type check
+
+(: bad-make-foo (case-> (Symbol Symbol Number -> foo)
+                        (Symbol Symbol * -> foo)))
+(define bad-make-foo
+  (case-lambda
+    [([s1 : Symbol] [s2 : Symbol] [n : Number])
+     (foo (list s1 s2) n)]
+    [(s . r)
+     (foo (cons s r) 0)]))
+(define bad (bad-make-foo 'x 'y 'z))
+(+ 1 (foo-n bad))
+
+And throws a contract violation because + received the symbol 'z.
+>How-To-Repeat:
+Run the following typed racket program:
+
+#lang typed/racket
+
+(struct foo ([syms : (Listof Symbol)] [n : Number]))
+
+(: bad-make-foo (case-> (Symbol Symbol Number -> foo)
+                        (Symbol Symbol * -> foo)))
+
+(define bad-make-foo
+  (case-lambda
+    [([s1 : Symbol] [s2 : Symbol] [n : Number])
+     (foo (list s1 s2) n)]
+    [(s . r)
+     (foo (cons s r) 0)]))
+
+(define bad (bad-make-foo 'x 'y 'z))
+
+(+ 1 (foo-n bad))
+>Fix:

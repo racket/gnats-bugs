@@ -1,0 +1,143 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Oct 26 16:39:10 2008
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.235])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m9QKd3uw025419
+	for <bugs@bugs.plt-scheme.org>; Sun, 26 Oct 2008 16:39:03 -0400
+Message-Id: <200810262038.m9QKcxsw025412@champlain.ccs.neu.edu>
+Date: Sun, 26 Oct 2008 16:38:59 -0400
+From: quaoarp@gmail.com
+To: bugs@plt-scheme.org
+Subject: DrScheme crashes when running a simple program.
+
+>Number:         9866
+>Category:       misc
+>Synopsis:       DrScheme crashes when running a simple program.
+>Class:          not-a-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Oct 26 16:40:01 -0400 2008
+>Last-Modified:  Sun Oct 26 20:00:45 -0400 2008
+>Originator:     Alessandro Pasquino
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.1
+>Environment:
+windows "Windows NT 6.0 (Build 6001) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 89662348
+
+Collections:
+(("C:\\Users\\Frog\\AppData\\Roaming\\PLT Scheme\\4.1.1\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n"))
+>Description:
+I wrote a 'dummy' program to generate a list of triples with values in the range 0..255 and save the values (as bytes) in a file.
+I put no memory limitation but after a few seconds DrScheme doesn't respond anymore and Windows Vista (my current OS) asks to kill the process.
+>How-To-Repeat:
+Just try to run the following program :
+#lang scheme
+
+; Generates triplets ((r1 g1 b1)....) and save the values in consecutive
+; bytes in a file.
+
+(define (gen-rgb)
+  (define (gen-rgb-TR r g b acc)
+    (cond ((> r 255) acc)
+          ((> g 255) (gen-rgb-TR (+ r 1) 0 0 acc))
+          ((> b 255) (gen-rgb-TR r (+ g 1) 0 acc))
+          (else 
+           (gen-rgb-TR r g (+ b 1) (cons (list r g b) acc)))))
+  (gen-rgb-TR 0 0 0 '()))
+
+
+(define (gen-and-save filename)
+  (let ((oport (open-output-file filename #:mode 'binary #:exists 'replace)))
+    (let ((lrgb (gen-rgb)))
+      (for-each (lambda (rgb)
+                  (write (integer->char (car lrgb)) oport)
+                  (write (integer->char (cdar lrgb)) oport)
+                  (write (integer->char (cddar lrgb)) oport))
+                lrgb)
+      (close-output-port oport))))
+
+(gen-and-save "dummy.dat")
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: quaoarp@gmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, matthias@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org, robby@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/9866: DrScheme crashes when running a simple program.
+Date: Sun, 26 Oct 2008 19:59:20 -0400
+
+ On Oct 26, quaoarp@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=9866
+ > 
+ > Reported by Alessandro Pasquino for release: 4.1.1
+ > 
+ > *** Description:
+ > I wrote a 'dummy' program to generate a list of triples with values
+ > in the range 0..255 and save the values (as bytes) in a file.
+ > I put no memory limitation but after a few seconds DrScheme doesn't
+ > respond anymore and Windows Vista (my current OS) asks to kill the
+ > process.
+ 
+ This sounds very reasonable: your program is trying to collect a list
+ of 2^24 triplets in memory.  On my 64 bit machine it comes up to about
+ 2gb of RAM, and the GC will need somewhere around twice that, meaning
+ that I cannot really run this code on my machine.
+ 
+ A better approach, if you really want this kind of file, is to just
+ write out the data to the file.  But you should also look into the
+ `byte string' type, instead of relying on `integer->char', which is
+ not going to work in general for random binary data.
+ 
+ 
+ > *** How to repeat:
+ > Just try to run the following program :
+ > #lang scheme
+ > 
+ > ; Generates triplets ((r1 g1 b1)....) and save the values in consecutive
+ > ; bytes in a file.
+ > 
+ > (define (gen-rgb)
+ >   (define (gen-rgb-TR r g b acc)
+ >     (cond ((> r 255) acc)
+ >           ((> g 255) (gen-rgb-TR (+ r 1) 0 0 acc))
+ >           ((> b 255) (gen-rgb-TR r (+ g 1) 0 acc))
+ >           (else 
+ >            (gen-rgb-TR r g (+ b 1) (cons (list r g b) acc)))))
+ >   (gen-rgb-TR 0 0 0 '()))
+ > 
+ > 
+ > (define (gen-and-save filename)
+ >   (let ((oport (open-output-file filename #:mode 'binary #:exists 'replace)))
+ >     (let ((lrgb (gen-rgb)))
+ >       (for-each (lambda (rgb)
+ >                   (write (integer->char (car lrgb)) oport)
+ >                   (write (integer->char (cdar lrgb)) oport)
+ >                   (write (integer->char (cddar lrgb)) oport))
+ >                 lrgb)
+ >       (close-output-port oport))))
+ > 
+ > (gen-and-save "dummy.dat")
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+Class changed from "sw-bug" to "not-a-bug" by eli at Sun, 26 Oct 2008 20:00:45 -0400
+Reason>>> see reply
+
+Responsible changed from "nobody" to "eli" by eli at Sun, 26 Oct 2008 20:00:45 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Sun, 26 Oct 2008 20:00:45 -0400
+Reason>>> Not a bug.
+

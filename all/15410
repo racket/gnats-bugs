@@ -1,0 +1,2182 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Feb 24 20:22:42 2017
+Received: from mail-io0-f169.google.com (mail-io0-f169.google.com [209.85.223.169])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id v1P1Metr031418
+	for <bugs@bugs.plt-scheme.org>; Fri, 24 Feb 2017 20:22:41 -0500
+Message-Id: <201702250122.v1P1Mc7j031403@winooski.ccs.neu.edu>
+Date: Fri, 24 Feb 2017 20:22:38 -0500
+From: clements@racket-lang.org
+To: bugs@racket-lang.org
+Subject: reproducible DrR-only seg fault
+
+>Number:         15410
+>Category:       all
+>Synopsis:       reproducible DrR-only seg fault
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Feb 24 20:24:01 -0500 2017
+>Last-Modified:  Sat Feb 25 11:00:01 -0500 2017
+>Originator:     John Clements
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.8.0.2--2017-02-18(-/f)
+>Environment:
+macosx "Darwin pcp143172pcs.wireless.calpoly.edu 16.4.0 Darwin Kernel Version 16.4.0: Thu Dec 22 22:53:21 PST 2016; root:xnu-3789.41.3~3/RELEASE_X86_64 x86_64" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 270655780
+raco pkg (show):
+Installation-wide:
+ Package            Checksum             Source
+ main-distribution  9801b7b68d1fc7cb...  catalog...tribution
+ racket-lib         935757d50614499a...  catalog racket-lib
+ [189 auto-installed packages not shown]
+User-specific for installation "6.8.0.2":
+ [none]
+
+
+
+Collections:
+("/Users/clements/Library/Racket/6.8.0.2/collects"
+ (non-existent-path))
+("/Applications/Racket v6.8.0.2/collects"
+ ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t ((test) (main)) #t))
+>Description:
+A student of mine today reported a full-on seg
+fault in DrR, and it turns out to be reproducible.
+
+It appears to affect 6.8 and also the current 
+nightly build in both 32-bit and 64-bit versions.
+
+It behaves very nicely, and I've managed to cut it
+from a file of ~1000 lines down to 154, and I 
+could probably cut it further, but I need to leave.
+
+Running this file using racket at the command-line
+results in what appears to be an infinite loop.
+Breaking this loop results in this terminal
+output:
+
+^Cuser break
+  context...:
+   /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/any-wrap.rkt:82:4: extract-functions
+   /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/any-wrap.rkt:80:2: wrap-struct15
+   /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/any-wrap.rkt:118:2: any-wrap/traverse
+   [repeats 3 more times]
+>How-To-Repeat:
+Start DrR, open this file, click run:
+
+#lang typed/racket
+(require typed/rackunit)
+
+; ***********************************************************
+; Represents an ExprC
+
+(define-type ExprC (U numC trueC falseC idC stringC appC binopC ifC lamC varC recC))
+(struct numC ([n : Real]) #:transparent)
+(struct trueC ([t : #t]) #:transparent)
+(struct falseC ([f : #f]) #:transparent)
+(struct idC ([s : Symbol]) #:transparent)
+(struct stringC ([s : String]) #:transparent)
+(struct appC ([fun : ExprC] [arg : (Listof ExprC)]) #:transparent)
+(struct binopC ([symb : Symbol] [l : ExprC] [r : ExprC]) #:transparent)
+(struct ifC ([condition : ExprC] [thenC : ExprC] [elseC : ExprC]) #:transparent)
+(struct lamC ([args : (Listof Symbol)] [body : ExprC]) #:transparent)
+(struct varC ([id : ExprC] [body : (Listof ExprC)]) #:transparent)
+(struct recC ([name : Symbol] [rhs : ExprC] [body : ExprC]) #:transparent)
+
+; ***********************************************************
+
+; ***********************************************************
+; Represents an Environment
+
+(define-type Binding (U bind))
+(struct bind ([name : Symbol] [val : (Boxof Value)]) #:transparent)
+ 
+(define-type-alias Env (Listof Binding))
+(define mt-env empty)
+(define extend-env append)
+
+; ***********************************************************
+
+(struct class-bind ([name : Symbol] [def : Sexp]) #:transparent)
+
+; ***********************************************************
+; Represents a Value
+
+(define-type Value (U numV boolV stringV nullV closV primV))
+(struct numV ([n : Real]) #:transparent)
+(struct boolV ([b : Boolean]) #:transparent)
+(struct stringV ([s : String]) #:transparent)
+(struct nullV ([n : Null]) #:transparent)
+(struct closV ([args : (Listof Symbol)] [body : ExprC] [env : Env]) #:transparent)
+(struct primV ([f : (Value Value -> Value)]) #:transparent)
+
+; ***********************************************************
+
+(define top-level-env : Env
+  (list
+   (bind 'true (box (boolV #t)))
+   (bind 'false (box (boolV #t)))
+   (bind 'null (box (nullV null)))))
+
+
+
+; ******************************************************
+
+
+; This function consumes an ExprC and produces a Value,
+; which is currently a (numV closV).
+;; lookup : (Symbol Env -> Value)
+
+(define (lookup [for : Symbol] [env : Env]) : Value
+  (cond
+    [(empty? env) (error 'lookup (string-append "PHYM: " (string-append (symbol->string for) " name not found.")))]
+    [else (cond
+            [(eq? for (bind-name (first env)))
+             (unbox (bind-val (first env)))]
+            [else (lookup for (rest env))])]))
+
+; ******************************************************
+
+; ******************************************************
+; This function consumes a list of symbols and a list of
+; values and produces a a list of bindings of symbols to
+; value.
+;; make-binding-list : ((Listof Symbol) (Listof Value) -> (Listof Binding))
+
+(define (make-binding-list [arg-names : (Listof Symbol)] [values : (Listof (Boxof Value))])
+  : (Listof Binding)
+  (cond
+    [(not (= (length arg-names) (length values)))
+     (error 'make-binding-list "PHYM: Length of arg-names and values are not equal.")]
+    [else
+     (cond
+       [(empty? arg-names) empty]
+       [else (cons (bind (first arg-names) (first values))
+                   (make-binding-list (rest arg-names) (rest values)))])]))
+
+; ******************************************************
+
+(define (interp-args [args : (Listof ExprC)] [env : Env]) : (Listof Value)
+  (cond
+    [(empty? args) empty]
+    [else
+     (cons (interp (first args) env) (interp-args (rest args) env))]))
+
+(define (make-boxes [values : (Listof Value)]) : (Listof (Boxof Value))
+  (cond
+    [(empty? values) empty]
+    [else
+     (cons ((inst box Value) (first values)) (make-boxes (rest values)))]))
+
+; ******************************************************
+; This function consumes an ExprC and an Env and
+; produces a Value, which is currently a (numV closV).
+;; interp : (ExprC Env -> Value)
+
+(define (interp [exp : ExprC] [env : Env]) : Value
+  (match exp
+    [(numC n) (numV n)]
+    [(idC id) (lookup id env)]
+    [(lamC a b) (closV a b env)]
+    [(recC name rhs body)
+     (define val-box ((inst box Value) (stringV "dummy")))
+     (define new-env (extend-env (list (bind name val-box)) env))
+     (define rhs-val (interp rhs new-env))
+     (set-box! val-box rhs-val)
+     (interp body new-env)]
+    [(appC f (? list? args))
+     (local ([define f-value (interp f env)])
+       (define f-clos (cast (ann f-value Any) closV))
+       (interp (closV-body f-clos)
+               ; extend environment before applying function so all arguments are bound
+               (extend-env
+                (make-binding-list (closV-args f-clos)
+                                   (make-boxes (interp-args args env)))
+                (closV-env f-clos))))]))
+
+
+; **********
+; Test Cases
+; **********
+
+(interp (recC
+         'Object
+         (lamC '() (lamC '(mesg) (stringC "NO METHODS")))
+         (recC
+          'Point
+          (lamC
+           '(x y)
+           (appC
+            (lamC
+             '(parent)
+             (lamC
+              '(mesg)
+              (stringC "abcd")))
+            (list (appC (idC 'Object) '()))))
+          (appC (idC 'Point) (list (numC 1) (numC 2)))))
+        top-level-env)
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: clements@racket-lang.org, bugs@racket-lang.org, samth@cs.indiana.edu
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15410: reproducible DrR-only seg fault
+Date: Sat, 25 Feb 2017 08:39:19 -0700
+
+ I've pushed a repair.
+ 
+ Beware that, with the repaired Racket, printing the result will fail by
+ recurring until hitting the memory limit. I think that's the result of
+ instantiating a polymorphic contract on a cyclic value, so the printer
+ never finishes.
+ 
+ More concretely, a cyclic value is wrapped via the result of
+ `late-neg-projection` from "typed-racket/utils/any-wrap.rkt" (so far,
+ ok) is printed (=> contract wrappers prevent cycle detection by the
+ printer).
+ 
+ The infinite printing loop reliably exposed a memory-management problem
+ with `struct->vector` and impersonated vectors by calling
+ `struct->vector` enough times that a GC happened while accessing a
+ struct field.
+ 
+ At Fri, 24 Feb 2017 20:24:01 -0500, clements@racket-lang.org wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15410
+ > 
+ > Reported by John Clements for release: 6.8.0.2--2017-02-18(-/f)
+ > 
+ > *** Description:
+ > A student of mine today reported a full-on seg
+ > fault in DrR, and it turns out to be reproducible.
+ > 
+ > It appears to affect 6.8 and also the current 
+ > nightly build in both 32-bit and 64-bit versions.
+ > 
+ > It behaves very nicely, and I've managed to cut it
+ > from a file of ~1000 lines down to 154, and I 
+ > could probably cut it further, but I need to leave.
+ > 
+ > Running this file using racket at the command-line
+ > results in what appears to be an infinite loop.
+ > Breaking this loop results in this terminal
+ > output:
+ > 
+ > ^Cuser break
+ >   context...:
+ >    
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > y-wrap.rkt:82:4: extract-functions
+ >    
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > y-wrap.rkt:80:2: wrap-struct15
+ >    
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > y-wrap.rkt:118:2: any-wrap/traverse
+ >    [repeats 3 more times]
+ > 
+ > *** How to repeat:
+ > Start DrR, open this file, click run:
+ > 
+ > #lang typed/racket
+ > (require typed/rackunit)
+ > 
+ > ; ***********************************************************
+ > ; Represents an ExprC
+ > 
+ > (define-type ExprC (U numC trueC falseC idC stringC appC binopC ifC lamC varC 
+ > recC))
+ > (struct numC ([n : Real]) #:transparent)
+ > (struct trueC ([t : #t]) #:transparent)
+ > (struct falseC ([f : #f]) #:transparent)
+ > (struct idC ([s : Symbol]) #:transparent)
+ > (struct stringC ([s : String]) #:transparent)
+ > (struct appC ([fun : ExprC] [arg : (Listof ExprC)]) #:transparent)
+ > (struct binopC ([symb : Symbol] [l : ExprC] [r : ExprC]) #:transparent)
+ > (struct ifC ([condition : ExprC] [thenC : ExprC] [elseC : ExprC]) 
+ > #:transparent)
+ > (struct lamC ([args : (Listof Symbol)] [body : ExprC]) #:transparent)
+ > (struct varC ([id : ExprC] [body : (Listof ExprC)]) #:transparent)
+ > (struct recC ([name : Symbol] [rhs : ExprC] [body : ExprC]) #:transparent)
+ > 
+ > ; ***********************************************************
+ > 
+ > ; ***********************************************************
+ > ; Represents an Environment
+ > 
+ > (define-type Binding (U bind))
+ > (struct bind ([name : Symbol] [val : (Boxof Value)]) #:transparent)
+ >  
+ > (define-type-alias Env (Listof Binding))
+ > (define mt-env empty)
+ > (define extend-env append)
+ > 
+ > ; ***********************************************************
+ > 
+ > (struct class-bind ([name : Symbol] [def : Sexp]) #:transparent)
+ > 
+ > ; ***********************************************************
+ > ; Represents a Value
+ > 
+ > (define-type Value (U numV boolV stringV nullV closV primV))
+ > (struct numV ([n : Real]) #:transparent)
+ > (struct boolV ([b : Boolean]) #:transparent)
+ > (struct stringV ([s : String]) #:transparent)
+ > (struct nullV ([n : Null]) #:transparent)
+ > (struct closV ([args : (Listof Symbol)] [body : ExprC] [env : Env]) 
+ > #:transparent)
+ > (struct primV ([f : (Value Value -> Value)]) #:transparent)
+ > 
+ > ; ***********************************************************
+ > 
+ > (define top-level-env : Env
+ >   (list
+ >    (bind 'true (box (boolV #t)))
+ >    (bind 'false (box (boolV #t)))
+ >    (bind 'null (box (nullV null)))))
+ > 
+ > 
+ > 
+ > ; ******************************************************
+ > 
+ > 
+ > ; This function consumes an ExprC and produces a Value,
+ > ; which is currently a (numV closV).
+ > ;; lookup : (Symbol Env -> Value)
+ > 
+ > (define (lookup [for : Symbol] [env : Env]) : Value
+ >   (cond
+ >     [(empty? env) (error 'lookup (string-append "PHYM: " (string-append 
+ > (symbol->string for) " name not found.")))]
+ >     [else (cond
+ >             [(eq? for (bind-name (first env)))
+ >              (unbox (bind-val (first env)))]
+ >             [else (lookup for (rest env))])]))
+ > 
+ > ; ******************************************************
+ > 
+ > ; ******************************************************
+ > ; This function consumes a list of symbols and a list of
+ > ; values and produces a a list of bindings of symbols to
+ > ; value.
+ > ;; make-binding-list : ((Listof Symbol) (Listof Value) -> (Listof Binding))
+ > 
+ > (define (make-binding-list [arg-names : (Listof Symbol)] [values : (Listof 
+ > (Boxof Value))])
+ >   : (Listof Binding)
+ >   (cond
+ >     [(not (= (length arg-names) (length values)))
+ >      (error 'make-binding-list "PHYM: Length of arg-names and values are not 
+ > equal.")]
+ >     [else
+ >      (cond
+ >        [(empty? arg-names) empty]
+ >        [else (cons (bind (first arg-names) (first values))
+ >                    (make-binding-list (rest arg-names) (rest values)))])]))
+ > 
+ > ; ******************************************************
+ > 
+ > (define (interp-args [args : (Listof ExprC)] [env : Env]) : (Listof Value)
+ >   (cond
+ >     [(empty? args) empty]
+ >     [else
+ >      (cons (interp (first args) env) (interp-args (rest args) env))]))
+ > 
+ > (define (make-boxes [values : (Listof Value)]) : (Listof (Boxof Value))
+ >   (cond
+ >     [(empty? values) empty]
+ >     [else
+ >      (cons ((inst box Value) (first values)) (make-boxes (rest values)))]))
+ > 
+ > ; ******************************************************
+ > ; This function consumes an ExprC and an Env and
+ > ; produces a Value, which is currently a (numV closV).
+ > ;; interp : (ExprC Env -> Value)
+ > 
+ > (define (interp [exp : ExprC] [env : Env]) : Value
+ >   (match exp
+ >     [(numC n) (numV n)]
+ >     [(idC id) (lookup id env)]
+ >     [(lamC a b) (closV a b env)]
+ >     [(recC name rhs body)
+ >      (define val-box ((inst box Value) (stringV "dummy")))
+ >      (define new-env (extend-env (list (bind name val-box)) env))
+ >      (define rhs-val (interp rhs new-env))
+ >      (set-box! val-box rhs-val)
+ >      (interp body new-env)]
+ >     [(appC f (? list? args))
+ >      (local ([define f-value (interp f env)])
+ >        (define f-clos (cast (ann f-value Any) closV))
+ >        (interp (closV-body f-clos)
+ >                ; extend environment before applying function so all arguments 
+ > are bound
+ >                (extend-env
+ >                 (make-binding-list (closV-args f-clos)
+ >                                    (make-boxes (interp-args args env)))
+ >                 (closV-env f-clos))))]))
+ > 
+ > 
+ > ; **********
+ > ; Test Cases
+ > ; **********
+ > 
+ > (interp (recC
+ >          'Object
+ >          (lamC '() (lamC '(mesg) (stringC "NO METHODS")))
+ >          (recC
+ >           'Point
+ >           (lamC
+ >            '(x y)
+ >            (appC
+ >             (lamC
+ >              '(parent)
+ >              (lamC
+ >               '(mesg)
+ >               (stringC "abcd")))
+ >             (list (appC (idC 'Object) '()))))
+ >           (appC (idC 'Point) (list (numC 1) (numC 2)))))
+ >         top-level-env)
+ > 
+ > *** Environment:
+ > macosx "Darwin pcp143172pcs.wireless.calpoly.edu 16.4.0 Darwin Kernel Version 
+ > 16.4.0: Thu Dec 22 22:53:21 PST 2016; root:xnu-3789.41.3~3/RELEASE_X86_64 
+ > x86_64" (i386-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 270655780
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package            Checksum             Source
+ >  main-distribution  9801b7b68d1fc7cb...  catalog...tribution
+ >  racket-lib         935757d50614499a...  catalog racket-lib
+ >  [189 auto-installed packages not shown]
+ > User-specific for installation "6.8.0.2":
+ >  [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/Users/clements/Library/Racket/6.8.0.2/collects"
+ >  (non-existent-path))
+ > ("/Applications/Racket v6.8.0.2/collects"
+ >  ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" 
+ > "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" 
+ > "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" 
+ > "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t ((test) 
+ > (main)) #t))
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>,
+        "clements@racket-lang.org" <clements@racket-lang.org>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>
+Cc: "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>
+Subject: Re: [racket-bug] all/15410: reproducible DrR-only seg fault
+Date: Sat, 25 Feb 2017 15:41:59 +0000
+
+ --001a1141b0948367c605495cb021
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Is there a reasonable way that the any-wrap/c contract could avoid this
+ problem? Or is this inherent to the issue?
+ 
+ On Sat, Feb 25, 2017, 10:39 AM Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > I've pushed a repair.
+ >
+ > Beware that, with the repaired Racket, printing the result will fail by
+ > recurring until hitting the memory limit. I think that's the result of
+ > instantiating a polymorphic contract on a cyclic value, so the printer
+ > never finishes.
+ >
+ > More concretely, a cyclic value is wrapped via the result of
+ > `late-neg-projection` from "typed-racket/utils/any-wrap.rkt" (so far,
+ > ok) is printed (=> contract wrappers prevent cycle detection by the
+ > printer).
+ >
+ > The infinite printing loop reliably exposed a memory-management problem
+ > with `struct->vector` and impersonated vectors by calling
+ > `struct->vector` enough times that a GC happened while accessing a
+ > struct field.
+ >
+ > At Fri, 24 Feb 2017 20:24:01 -0500, clements@racket-lang.org wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=15410
+ > >
+ > > Reported by John Clements for release: 6.8.0.2--2017-02-18(-/f)
+ > >
+ > > *** Description:
+ > > A student of mine today reported a full-on seg
+ > > fault in DrR, and it turns out to be reproducible.
+ > >
+ > > It appears to affect 6.8 and also the current
+ > > nightly build in both 32-bit and 64-bit versions.
+ > >
+ > > It behaves very nicely, and I've managed to cut it
+ > > from a file of ~1000 lines down to 154, and I
+ > > could probably cut it further, but I need to leave.
+ > >
+ > > Running this file using racket at the command-line
+ > > results in what appears to be an infinite loop.
+ > > Breaking this loop results in this terminal
+ > > output:
+ > >
+ > > ^Cuser break
+ > >   context...:
+ > >
+ > >
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > > y-wrap.rkt:82:4: extract-functions
+ > >
+ > >
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > > y-wrap.rkt:80:2: wrap-struct15
+ > >
+ > >
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > > y-wrap.rkt:118:2: any-wrap/traverse
+ > >    [repeats 3 more times]
+ > >
+ > > *** How to repeat:
+ > > Start DrR, open this file, click run:
+ > >
+ > > #lang typed/racket
+ > > (require typed/rackunit)
+ > >
+ > > ; ***********************************************************
+ > > ; Represents an ExprC
+ > >
+ > > (define-type ExprC (U numC trueC falseC idC stringC appC binopC ifC lamC
+ > varC
+ > > recC))
+ > > (struct numC ([n : Real]) #:transparent)
+ > > (struct trueC ([t : #t]) #:transparent)
+ > > (struct falseC ([f : #f]) #:transparent)
+ > > (struct idC ([s : Symbol]) #:transparent)
+ > > (struct stringC ([s : String]) #:transparent)
+ > > (struct appC ([fun : ExprC] [arg : (Listof ExprC)]) #:transparent)
+ > > (struct binopC ([symb : Symbol] [l : ExprC] [r : ExprC]) #:transparent)
+ > > (struct ifC ([condition : ExprC] [thenC : ExprC] [elseC : ExprC])
+ > > #:transparent)
+ > > (struct lamC ([args : (Listof Symbol)] [body : ExprC]) #:transparent)
+ > > (struct varC ([id : ExprC] [body : (Listof ExprC)]) #:transparent)
+ > > (struct recC ([name : Symbol] [rhs : ExprC] [body : ExprC])
+ > #:transparent)
+ > >
+ > > ; ***********************************************************
+ > >
+ > > ; ***********************************************************
+ > > ; Represents an Environment
+ > >
+ > > (define-type Binding (U bind))
+ > > (struct bind ([name : Symbol] [val : (Boxof Value)]) #:transparent)
+ > >
+ > > (define-type-alias Env (Listof Binding))
+ > > (define mt-env empty)
+ > > (define extend-env append)
+ > >
+ > > ; ***********************************************************
+ > >
+ > > (struct class-bind ([name : Symbol] [def : Sexp]) #:transparent)
+ > >
+ > > ; ***********************************************************
+ > > ; Represents a Value
+ > >
+ > > (define-type Value (U numV boolV stringV nullV closV primV))
+ > > (struct numV ([n : Real]) #:transparent)
+ > > (struct boolV ([b : Boolean]) #:transparent)
+ > > (struct stringV ([s : String]) #:transparent)
+ > > (struct nullV ([n : Null]) #:transparent)
+ > > (struct closV ([args : (Listof Symbol)] [body : ExprC] [env : Env])
+ > > #:transparent)
+ > > (struct primV ([f : (Value Value -> Value)]) #:transparent)
+ > >
+ > > ; ***********************************************************
+ > >
+ > > (define top-level-env : Env
+ > >   (list
+ > >    (bind 'true (box (boolV #t)))
+ > >    (bind 'false (box (boolV #t)))
+ > >    (bind 'null (box (nullV null)))))
+ > >
+ > >
+ > >
+ > > ; ******************************************************
+ > >
+ > >
+ > > ; This function consumes an ExprC and produces a Value,
+ > > ; which is currently a (numV closV).
+ > > ;; lookup : (Symbol Env -> Value)
+ > >
+ > > (define (lookup [for : Symbol] [env : Env]) : Value
+ > >   (cond
+ > >     [(empty? env) (error 'lookup (string-append "PHYM: " (string-append
+ > > (symbol->string for) " name not found.")))]
+ > >     [else (cond
+ > >             [(eq? for (bind-name (first env)))
+ > >              (unbox (bind-val (first env)))]
+ > >             [else (lookup for (rest env))])]))
+ > >
+ > > ; ******************************************************
+ > >
+ > > ; ******************************************************
+ > > ; This function consumes a list of symbols and a list of
+ > > ; values and produces a a list of bindings of symbols to
+ > > ; value.
+ > > ;; make-binding-list : ((Listof Symbol) (Listof Value) -> (Listof
+ > Binding))
+ > >
+ > > (define (make-binding-list [arg-names : (Listof Symbol)] [values :
+ > (Listof
+ > > (Boxof Value))])
+ > >   : (Listof Binding)
+ > >   (cond
+ > >     [(not (= (length arg-names) (length values)))
+ > >      (error 'make-binding-list "PHYM: Length of arg-names and values are
+ > not
+ > > equal.")]
+ > >     [else
+ > >      (cond
+ > >        [(empty? arg-names) empty]
+ > >        [else (cons (bind (first arg-names) (first values))
+ > >                    (make-binding-list (rest arg-names) (rest
+ > values)))])]))
+ > >
+ > > ; ******************************************************
+ > >
+ > > (define (interp-args [args : (Listof ExprC)] [env : Env]) : (Listof
+ > Value)
+ > >   (cond
+ > >     [(empty? args) empty]
+ > >     [else
+ > >      (cons (interp (first args) env) (interp-args (rest args) env))]))
+ > >
+ > > (define (make-boxes [values : (Listof Value)]) : (Listof (Boxof Value))
+ > >   (cond
+ > >     [(empty? values) empty]
+ > >     [else
+ > >      (cons ((inst box Value) (first values)) (make-boxes (rest
+ > values)))]))
+ > >
+ > > ; ******************************************************
+ > > ; This function consumes an ExprC and an Env and
+ > > ; produces a Value, which is currently a (numV closV).
+ > > ;; interp : (ExprC Env -> Value)
+ > >
+ > > (define (interp [exp : ExprC] [env : Env]) : Value
+ > >   (match exp
+ > >     [(numC n) (numV n)]
+ > >     [(idC id) (lookup id env)]
+ > >     [(lamC a b) (closV a b env)]
+ > >     [(recC name rhs body)
+ > >      (define val-box ((inst box Value) (stringV "dummy")))
+ > >      (define new-env (extend-env (list (bind name val-box)) env))
+ > >      (define rhs-val (interp rhs new-env))
+ > >      (set-box! val-box rhs-val)
+ > >      (interp body new-env)]
+ > >     [(appC f (? list? args))
+ > >      (local ([define f-value (interp f env)])
+ > >        (define f-clos (cast (ann f-value Any) closV))
+ > >        (interp (closV-body f-clos)
+ > >                ; extend environment before applying function so all
+ > arguments
+ > > are bound
+ > >                (extend-env
+ > >                 (make-binding-list (closV-args f-clos)
+ > >                                    (make-boxes (interp-args args env)))
+ > >                 (closV-env f-clos))))]))
+ > >
+ > >
+ > > ; **********
+ > > ; Test Cases
+ > > ; **********
+ > >
+ > > (interp (recC
+ > >          'Object
+ > >          (lamC '() (lamC '(mesg) (stringC "NO METHODS")))
+ > >          (recC
+ > >           'Point
+ > >           (lamC
+ > >            '(x y)
+ > >            (appC
+ > >             (lamC
+ > >              '(parent)
+ > >              (lamC
+ > >               '(mesg)
+ > >               (stringC "abcd")))
+ > >             (list (appC (idC 'Object) '()))))
+ > >           (appC (idC 'Point) (list (numC 1) (numC 2)))))
+ > >         top-level-env)
+ > >
+ > > *** Environment:
+ > > macosx "Darwin pcp143172pcs.wireless.calpoly.edu 16.4.0 Darwin Kernel
+ > Version
+ > > 16.4.0: Thu Dec 22 22:53:21 PST 2016; root:xnu-3789.41.3~3/RELEASE_X86_64
+ > > x86_64" (i386-macosx/3m) (get-display-depth) = 32
+ > > Human Language: english
+ > > (current-memory-use) 270655780
+ > > raco pkg (show):
+ > > Installation-wide:
+ > >  Package            Checksum             Source
+ > >  main-distribution  9801b7b68d1fc7cb...  catalog...tribution
+ > >  racket-lib         935757d50614499a...  catalog racket-lib
+ > >  [189 auto-installed packages not shown]
+ > > User-specific for installation "6.8.0.2":
+ > >  [none]
+ > >
+ > >
+ > >
+ > > Collections:
+ > > ("/Users/clements/Library/Racket/6.8.0.2/collects"
+ > >  (non-existent-path))
+ > > ("/Applications/Racket v6.8.0.2/collects"
+ > >  ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info"
+ > "info-domain"
+ > > "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit"
+ > "raco"
+ > > "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable"
+ > "version"
+ > > "xml"))
+ > >
+ > > Recent Internal Errors:
+ > > Computer Language: (("Determine language from source") (#(#t print
+ > > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t
+ > ((test)
+ > > (main)) #t))
+ >
+ 
+ --001a1141b0948367c605495cb021
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Is there a reasonable way that the any-wrap/c contract could avoid this pro=
+ blem? Or is this inherent to the issue?<br><br><div class=3D"gmail_quote"><=
+ div dir=3D"ltr">On Sat, Feb 25, 2017, 10:39 AM Matthew Flatt &lt;<a href=3D=
+ "mailto:mflatt@cs.utah.edu">mflatt@cs.utah.edu</a>&gt; wrote:<br></div><blo=
+ ckquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #c=
+ cc solid;padding-left:1ex">I&#39;ve pushed a repair.<br class=3D"gmail_msg"=
+ >
+ <br class=3D"gmail_msg">
+ Beware that, with the repaired Racket, printing the result will fail by<br =
+ class=3D"gmail_msg">
+ recurring until hitting the memory limit. I think that&#39;s the result of<=
+ br class=3D"gmail_msg">
+ instantiating a polymorphic contract on a cyclic value, so the printer<br c=
+ lass=3D"gmail_msg">
+ never finishes.<br class=3D"gmail_msg">
+ <br class=3D"gmail_msg">
+ More concretely, a cyclic value is wrapped via the result of<br class=3D"gm=
+ ail_msg">
+ `late-neg-projection` from &quot;typed-racket/utils/any-wrap.rkt&quot; (so =
+ far,<br class=3D"gmail_msg">
+ ok) is printed (=3D&gt; contract wrappers prevent cycle detection by the<br=
+  class=3D"gmail_msg">
+ printer).<br class=3D"gmail_msg">
+ <br class=3D"gmail_msg">
+ The infinite printing loop reliably exposed a memory-management problem<br =
+ class=3D"gmail_msg">
+ with `struct-&gt;vector` and impersonated vectors by calling<br class=3D"gm=
+ ail_msg">
+ `struct-&gt;vector` enough times that a GC happened while accessing a<br cl=
+ ass=3D"gmail_msg">
+ struct field.<br class=3D"gmail_msg">
+ <br class=3D"gmail_msg">
+ At Fri, 24 Feb 2017 20:24:01 -0500, <a href=3D"mailto:clements@racket-lang.=
+ org" class=3D"gmail_msg" target=3D"_blank">clements@racket-lang.org</a> wro=
+ te:<br class=3D"gmail_msg">
+ &gt; A new problem report is waiting at<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D15410" rel=3D"noreferrer" class=3D"gmail_msg" target=3D"_blank">htt=
+ p://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D15410</a><br class=3D"g=
+ mail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; Reported by John Clements for release: 6.8.0.2--2017-02-18(-/f)<br cla=
+ ss=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; *** Description:<br class=3D"gmail_msg">
+ &gt; A student of mine today reported a full-on seg<br class=3D"gmail_msg">
+ &gt; fault in DrR, and it turns out to be reproducible.<br class=3D"gmail_m=
+ sg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; It appears to affect 6.8 and also the current<br class=3D"gmail_msg">
+ &gt; nightly build in both 32-bit and 64-bit versions.<br class=3D"gmail_ms=
+ g">
+ &gt;<br class=3D"gmail_msg">
+ &gt; It behaves very nicely, and I&#39;ve managed to cut it<br class=3D"gma=
+ il_msg">
+ &gt; from a file of ~1000 lines down to 154, and I<br class=3D"gmail_msg">
+ &gt; could probably cut it further, but I need to leave.<br class=3D"gmail_=
+ msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; Running this file using racket at the command-line<br class=3D"gmail_m=
+ sg">
+ &gt; results in what appears to be an infinite loop.<br class=3D"gmail_msg"=
+ >
+ &gt; Breaking this loop results in this terminal<br class=3D"gmail_msg">
+ &gt; output:<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ^Cuser break<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0context...:<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket=
+ /utils/an<br class=3D"gmail_msg">
+ &gt; y-wrap.rkt:82:4: extract-functions<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket=
+ /utils/an<br class=3D"gmail_msg">
+ &gt; y-wrap.rkt:80:2: wrap-struct15<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket=
+ /utils/an<br class=3D"gmail_msg">
+ &gt; y-wrap.rkt:118:2: any-wrap/traverse<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 [repeats 3 more times]<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; *** How to repeat:<br class=3D"gmail_msg">
+ &gt; Start DrR, open this file, click run:<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; #lang typed/racket<br class=3D"gmail_msg">
+ &gt; (require typed/rackunit)<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ***********************************************************<br class=
+ =3D"gmail_msg">
+ &gt; ; Represents an ExprC<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define-type ExprC (U numC trueC falseC idC stringC appC binopC ifC la=
+ mC varC<br class=3D"gmail_msg">
+ &gt; recC))<br class=3D"gmail_msg">
+ &gt; (struct numC ([n : Real]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct trueC ([t : #t]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct falseC ([f : #f]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct idC ([s : Symbol]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct stringC ([s : String]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct appC ([fun : ExprC] [arg : (Listof ExprC)]) #:transparent)<br =
+ class=3D"gmail_msg">
+ &gt; (struct binopC ([symb : Symbol] [l : ExprC] [r : ExprC]) #:transparent=
+ )<br class=3D"gmail_msg">
+ &gt; (struct ifC ([condition : ExprC] [thenC : ExprC] [elseC : ExprC])<br c=
+ lass=3D"gmail_msg">
+ &gt; #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct lamC ([args : (Listof Symbol)] [body : ExprC]) #:transparent)<=
+ br class=3D"gmail_msg">
+ &gt; (struct varC ([id : ExprC] [body : (Listof ExprC)]) #:transparent)<br =
+ class=3D"gmail_msg">
+ &gt; (struct recC ([name : Symbol] [rhs : ExprC] [body : ExprC]) #:transpar=
+ ent)<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ***********************************************************<br class=
+ =3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ***********************************************************<br class=
+ =3D"gmail_msg">
+ &gt; ; Represents an Environment<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define-type Binding (U bind))<br class=3D"gmail_msg">
+ &gt; (struct bind ([name : Symbol] [val : (Boxof Value)]) #:transparent)<br=
+  class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define-type-alias Env (Listof Binding))<br class=3D"gmail_msg">
+ &gt; (define mt-env empty)<br class=3D"gmail_msg">
+ &gt; (define extend-env append)<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ***********************************************************<br class=
+ =3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (struct class-bind ([name : Symbol] [def : Sexp]) #:transparent)<br cl=
+ ass=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ***********************************************************<br class=
+ =3D"gmail_msg">
+ &gt; ; Represents a Value<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define-type Value (U numV boolV stringV nullV closV primV))<br class=
+ =3D"gmail_msg">
+ &gt; (struct numV ([n : Real]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct boolV ([b : Boolean]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct stringV ([s : String]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct nullV ([n : Null]) #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct closV ([args : (Listof Symbol)] [body : ExprC] [env : Env])<br=
+  class=3D"gmail_msg">
+ &gt; #:transparent)<br class=3D"gmail_msg">
+ &gt; (struct primV ([f : (Value Value -&gt; Value)]) #:transparent)<br clas=
+ s=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ***********************************************************<br class=
+ =3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define top-level-env : Env<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0(list<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 (bind &#39;true (box (boolV #t)))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 (bind &#39;false (box (boolV #t)))<br class=3D"gmail_msg"=
+ >
+ &gt;=C2=A0 =C2=A0 (bind &#39;null (box (nullV null)))))<br class=3D"gmail_m=
+ sg">
+ &gt;<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ******************************************************<br class=3D"g=
+ mail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; This function consumes an ExprC and produces a Value,<br class=3D"gm=
+ ail_msg">
+ &gt; ; which is currently a (numV closV).<br class=3D"gmail_msg">
+ &gt; ;; lookup : (Symbol Env -&gt; Value)<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define (lookup [for : Symbol] [env : Env]) : Value<br class=3D"gmail_=
+ msg">
+ &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(empty? env) (error &#39;lookup (string-append &qu=
+ ot;PHYM: &quot; (string-append<br class=3D"gmail_msg">
+ &gt; (symbol-&gt;string for) &quot; name not found.&quot;)))]<br class=3D"g=
+ mail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[else (cond<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[(eq? for (bind-name (f=
+ irst env)))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (unbox (bind-val (firs=
+ t env)))]<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[else (lookup for (rest=
+  env))])]))<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ******************************************************<br class=3D"g=
+ mail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ******************************************************<br class=3D"g=
+ mail_msg">
+ &gt; ; This function consumes a list of symbols and a list of<br class=3D"g=
+ mail_msg">
+ &gt; ; values and produces a a list of bindings of symbols to<br class=3D"g=
+ mail_msg">
+ &gt; ; value.<br class=3D"gmail_msg">
+ &gt; ;; make-binding-list : ((Listof Symbol) (Listof Value) -&gt; (Listof B=
+ inding))<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define (make-binding-list [arg-names : (Listof Symbol)] [values : (Li=
+ stof<br class=3D"gmail_msg">
+ &gt; (Boxof Value))])<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0: (Listof Binding)<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(not (=3D (length arg-names) (length values)))<br =
+ class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (error &#39;make-binding-list &quot;PHYM: Length o=
+ f arg-names and values are not<br class=3D"gmail_msg">
+ &gt; equal.&quot;)]<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[else<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (cond<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 [(empty? arg-names) empty]<br class=3D"gmai=
+ l_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 [else (cons (bind (first arg-names) (first =
+ values))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (=
+ make-binding-list (rest arg-names) (rest values)))])]))<br class=3D"gmail_m=
+ sg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ******************************************************<br class=3D"g=
+ mail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define (interp-args [args : (Listof ExprC)] [env : Env]) : (Listof Va=
+ lue)<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(empty? args) empty]<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[else<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (cons (interp (first args) env) (interp-args (rest=
+  args) env))]))<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define (make-boxes [values : (Listof Value)]) : (Listof (Boxof Value)=
+ )<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(empty? values) empty]<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[else<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (cons ((inst box Value) (first values)) (make-boxe=
+ s (rest values)))]))<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; ******************************************************<br class=3D"g=
+ mail_msg">
+ &gt; ; This function consumes an ExprC and an Env and<br class=3D"gmail_msg=
+ ">
+ &gt; ; produces a Value, which is currently a (numV closV).<br class=3D"gma=
+ il_msg">
+ &gt; ;; interp : (ExprC Env -&gt; Value)<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (define (interp [exp : ExprC] [env : Env]) : Value<br class=3D"gmail_m=
+ sg">
+ &gt;=C2=A0 =C2=A0(match exp<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(numC n) (numV n)]<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(idC id) (lookup id env)]<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(lamC a b) (closV a b env)]<br class=3D"gmail_msg"=
+ >
+ &gt;=C2=A0 =C2=A0 =C2=A0[(recC name rhs body)<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (define val-box ((inst box Value) (stringV &quot;d=
+ ummy&quot;)))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (define new-env (extend-env (list (bind name val-b=
+ ox)) env))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (define rhs-val (interp rhs new-env))<br class=3D"=
+ gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (set-box! val-box rhs-val)<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (interp body new-env)]<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0[(appC f (? list? args))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 (local ([define f-value (interp f env)])<br class=
+ =3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 (define f-clos (cast (ann f-value Any) clos=
+ V))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 (interp (closV-body f-clos)<br class=3D"gma=
+ il_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ; extend enviro=
+ nment before applying function so all arguments<br class=3D"gmail_msg">
+ &gt; are bound<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (extend-env<br =
+ class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(make-bin=
+ ding-list (closV-args f-clos)<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (make-boxes (interp=
+ -args args env)))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(closV-en=
+ v f-clos))))]))<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; ; **********<br class=3D"gmail_msg">
+ &gt; ; Test Cases<br class=3D"gmail_msg">
+ &gt; ; **********<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; (interp (recC<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;Object<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (lamC &#39;() (lamC &#39;(mesg) (str=
+ ingC &quot;NO METHODS&quot;)))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (recC<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&#39;Point<br class=3D"gmail_m=
+ sg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lamC<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;(x y)<br class=3D"gmail_=
+ msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (appC<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lamC<br class=3D"gmail=
+ _msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;(parent)<br class=
+ =3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (lamC<br class=3D"gmai=
+ l_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&#39;(mesg)<br c=
+ lass=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(stringC &quot;a=
+ bcd&quot;)))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(list (appC (idC &#39;O=
+ bject) &#39;()))))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(appC (idC &#39;Point) (list (=
+ numC 1) (numC 2)))))<br class=3D"gmail_msg">
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0top-level-env)<br class=3D"gmail_msg"=
+ >
+ &gt;<br class=3D"gmail_msg">
+ &gt; *** Environment:<br class=3D"gmail_msg">
+ &gt; macosx &quot;Darwin <a href=3D"http://pcp143172pcs.wireless.calpoly.ed=
+ u" rel=3D"noreferrer" class=3D"gmail_msg" target=3D"_blank">pcp143172pcs.wi=
+ reless.calpoly.edu</a> 16.4.0 Darwin Kernel Version<br class=3D"gmail_msg">
+ &gt; 16.4.0: Thu Dec 22 22:53:21 PST 2016; root:xnu-3789.41.3~3/RELEASE_X86=
+ _64<br class=3D"gmail_msg">
+ &gt; x86_64&quot; (i386-macosx/3m) (get-display-depth) =3D 32<br class=3D"g=
+ mail_msg">
+ &gt; Human Language: english<br class=3D"gmail_msg">
+ &gt; (current-memory-use) 270655780<br class=3D"gmail_msg">
+ &gt; raco pkg (show):<br class=3D"gmail_msg">
+ &gt; Installation-wide:<br class=3D"gmail_msg">
+ &gt;=C2=A0 Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Checksum=C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Source<br class=3D"gmail_msg">
+ &gt;=C2=A0 main-distribution=C2=A0 9801b7b68d1fc7cb...=C2=A0 catalog...trib=
+ ution<br class=3D"gmail_msg">
+ &gt;=C2=A0 racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0935757d50614499a...=
+ =C2=A0 catalog racket-lib<br class=3D"gmail_msg">
+ &gt;=C2=A0 [189 auto-installed packages not shown]<br class=3D"gmail_msg">
+ &gt; User-specific for installation &quot;6.8.0.2&quot;:<br class=3D"gmail_=
+ msg">
+ &gt;=C2=A0 [none]<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; Collections:<br class=3D"gmail_msg">
+ &gt; (&quot;/Users/clements/Library/Racket/<a href=3D"http://6.8.0.2/collec=
+ ts" rel=3D"noreferrer" class=3D"gmail_msg" target=3D"_blank">6.8.0.2/collec=
+ ts</a>&quot;<br class=3D"gmail_msg">
+ &gt;=C2=A0 (non-existent-path))<br class=3D"gmail_msg">
+ &gt; (&quot;/Applications/Racket v6.8.0.2/collects&quot;<br class=3D"gmail_=
+ msg">
+ &gt;=C2=A0 (&quot;acks&quot; &quot;compiler&quot; &quot;data&quot; &quot;db=
+ &quot; &quot;dynext&quot; &quot;ffi&quot; &quot;file&quot; &quot;info&quot;=
+  &quot;info-domain&quot;<br class=3D"gmail_msg">
+ &gt; &quot;json&quot; &quot;launcher&quot; &quot;net&quot; &quot;openssl&qu=
+ ot; &quot;pkg&quot; &quot;planet&quot; &quot;racket&quot; &quot;rackunit&qu=
+ ot; &quot;raco&quot;<br class=3D"gmail_msg">
+ &gt; &quot;reader&quot; &quot;realm&quot; &quot;s-exp&quot; &quot;scheme&qu=
+ ot; &quot;setup&quot; &quot;srfi&quot; &quot;syntax&quot; &quot;unstable&qu=
+ ot; &quot;version&quot;<br class=3D"gmail_msg">
+ &gt; &quot;xml&quot;))<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; Recent Internal Errors:<br class=3D"gmail_msg">
+ &gt; Computer Language: ((&quot;Determine language from source&quot;) (#(#t=
+  print<br class=3D"gmail_msg">
+ &gt; mixed-fraction-e #f #t debug) (default) #() &quot;#lang racket\n&quot;=
+  #f #t ((test)<br class=3D"gmail_msg">
+ &gt; (main)) #t))<br class=3D"gmail_msg">
+ </blockquote></div>
+ 
+ --001a1141b0948367c605495cb021--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        "clements@racket-lang.org" <clements@racket-lang.org>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>
+Subject: Re: [racket-bug] all/15410: reproducible DrR-only seg fault
+Date: Sat, 25 Feb 2017 09:57:22 -0600
+
+ Could any-wrap/c keep a parameter that tracked all mutable stuff in
+ the context and then preserved eq?-ness? Perhaps via weak boxes?
+ 
+ Robby
+ 
+ On Sat, Feb 25, 2017 at 9:41 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > Is there a reasonable way that the any-wrap/c contract could avoid this
+ > problem? Or is this inherent to the issue?
+ >
+ > On Sat, Feb 25, 2017, 10:39 AM Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >>
+ >> I've pushed a repair.
+ >>
+ >> Beware that, with the repaired Racket, printing the result will fail by
+ >> recurring until hitting the memory limit. I think that's the result of
+ >> instantiating a polymorphic contract on a cyclic value, so the printer
+ >> never finishes.
+ >>
+ >> More concretely, a cyclic value is wrapped via the result of
+ >> `late-neg-projection` from "typed-racket/utils/any-wrap.rkt" (so far,
+ >> ok) is printed (=> contract wrappers prevent cycle detection by the
+ >> printer).
+ >>
+ >> The infinite printing loop reliably exposed a memory-management problem
+ >> with `struct->vector` and impersonated vectors by calling
+ >> `struct->vector` enough times that a GC happened while accessing a
+ >> struct field.
+ >>
+ >> At Fri, 24 Feb 2017 20:24:01 -0500, clements@racket-lang.org wrote:
+ >> > A new problem report is waiting at
+ >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=15410
+ >> >
+ >> > Reported by John Clements for release: 6.8.0.2--2017-02-18(-/f)
+ >> >
+ >> > *** Description:
+ >> > A student of mine today reported a full-on seg
+ >> > fault in DrR, and it turns out to be reproducible.
+ >> >
+ >> > It appears to affect 6.8 and also the current
+ >> > nightly build in both 32-bit and 64-bit versions.
+ >> >
+ >> > It behaves very nicely, and I've managed to cut it
+ >> > from a file of ~1000 lines down to 154, and I
+ >> > could probably cut it further, but I need to leave.
+ >> >
+ >> > Running this file using racket at the command-line
+ >> > results in what appears to be an infinite loop.
+ >> > Breaking this loop results in this terminal
+ >> > output:
+ >> >
+ >> > ^Cuser break
+ >> >   context...:
+ >> >
+ >> >
+ >> > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ >> > y-wrap.rkt:82:4: extract-functions
+ >> >
+ >> >
+ >> > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ >> > y-wrap.rkt:80:2: wrap-struct15
+ >> >
+ >> >
+ >> > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ >> > y-wrap.rkt:118:2: any-wrap/traverse
+ >> >    [repeats 3 more times]
+ >> >
+ >> > *** How to repeat:
+ >> > Start DrR, open this file, click run:
+ >> >
+ >> > #lang typed/racket
+ >> > (require typed/rackunit)
+ >> >
+ >> > ; ***********************************************************
+ >> > ; Represents an ExprC
+ >> >
+ >> > (define-type ExprC (U numC trueC falseC idC stringC appC binopC ifC lamC
+ >> > varC
+ >> > recC))
+ >> > (struct numC ([n : Real]) #:transparent)
+ >> > (struct trueC ([t : #t]) #:transparent)
+ >> > (struct falseC ([f : #f]) #:transparent)
+ >> > (struct idC ([s : Symbol]) #:transparent)
+ >> > (struct stringC ([s : String]) #:transparent)
+ >> > (struct appC ([fun : ExprC] [arg : (Listof ExprC)]) #:transparent)
+ >> > (struct binopC ([symb : Symbol] [l : ExprC] [r : ExprC]) #:transparent)
+ >> > (struct ifC ([condition : ExprC] [thenC : ExprC] [elseC : ExprC])
+ >> > #:transparent)
+ >> > (struct lamC ([args : (Listof Symbol)] [body : ExprC]) #:transparent)
+ >> > (struct varC ([id : ExprC] [body : (Listof ExprC)]) #:transparent)
+ >> > (struct recC ([name : Symbol] [rhs : ExprC] [body : ExprC])
+ >> > #:transparent)
+ >> >
+ >> > ; ***********************************************************
+ >> >
+ >> > ; ***********************************************************
+ >> > ; Represents an Environment
+ >> >
+ >> > (define-type Binding (U bind))
+ >> > (struct bind ([name : Symbol] [val : (Boxof Value)]) #:transparent)
+ >> >
+ >> > (define-type-alias Env (Listof Binding))
+ >> > (define mt-env empty)
+ >> > (define extend-env append)
+ >> >
+ >> > ; ***********************************************************
+ >> >
+ >> > (struct class-bind ([name : Symbol] [def : Sexp]) #:transparent)
+ >> >
+ >> > ; ***********************************************************
+ >> > ; Represents a Value
+ >> >
+ >> > (define-type Value (U numV boolV stringV nullV closV primV))
+ >> > (struct numV ([n : Real]) #:transparent)
+ >> > (struct boolV ([b : Boolean]) #:transparent)
+ >> > (struct stringV ([s : String]) #:transparent)
+ >> > (struct nullV ([n : Null]) #:transparent)
+ >> > (struct closV ([args : (Listof Symbol)] [body : ExprC] [env : Env])
+ >> > #:transparent)
+ >> > (struct primV ([f : (Value Value -> Value)]) #:transparent)
+ >> >
+ >> > ; ***********************************************************
+ >> >
+ >> > (define top-level-env : Env
+ >> >   (list
+ >> >    (bind 'true (box (boolV #t)))
+ >> >    (bind 'false (box (boolV #t)))
+ >> >    (bind 'null (box (nullV null)))))
+ >> >
+ >> >
+ >> >
+ >> > ; ******************************************************
+ >> >
+ >> >
+ >> > ; This function consumes an ExprC and produces a Value,
+ >> > ; which is currently a (numV closV).
+ >> > ;; lookup : (Symbol Env -> Value)
+ >> >
+ >> > (define (lookup [for : Symbol] [env : Env]) : Value
+ >> >   (cond
+ >> >     [(empty? env) (error 'lookup (string-append "PHYM: " (string-append
+ >> > (symbol->string for) " name not found.")))]
+ >> >     [else (cond
+ >> >             [(eq? for (bind-name (first env)))
+ >> >              (unbox (bind-val (first env)))]
+ >> >             [else (lookup for (rest env))])]))
+ >> >
+ >> > ; ******************************************************
+ >> >
+ >> > ; ******************************************************
+ >> > ; This function consumes a list of symbols and a list of
+ >> > ; values and produces a a list of bindings of symbols to
+ >> > ; value.
+ >> > ;; make-binding-list : ((Listof Symbol) (Listof Value) -> (Listof
+ >> > Binding))
+ >> >
+ >> > (define (make-binding-list [arg-names : (Listof Symbol)] [values :
+ >> > (Listof
+ >> > (Boxof Value))])
+ >> >   : (Listof Binding)
+ >> >   (cond
+ >> >     [(not (= (length arg-names) (length values)))
+ >> >      (error 'make-binding-list "PHYM: Length of arg-names and values are
+ >> > not
+ >> > equal.")]
+ >> >     [else
+ >> >      (cond
+ >> >        [(empty? arg-names) empty]
+ >> >        [else (cons (bind (first arg-names) (first values))
+ >> >                    (make-binding-list (rest arg-names) (rest
+ >> > values)))])]))
+ >> >
+ >> > ; ******************************************************
+ >> >
+ >> > (define (interp-args [args : (Listof ExprC)] [env : Env]) : (Listof
+ >> > Value)
+ >> >   (cond
+ >> >     [(empty? args) empty]
+ >> >     [else
+ >> >      (cons (interp (first args) env) (interp-args (rest args) env))]))
+ >> >
+ >> > (define (make-boxes [values : (Listof Value)]) : (Listof (Boxof Value))
+ >> >   (cond
+ >> >     [(empty? values) empty]
+ >> >     [else
+ >> >      (cons ((inst box Value) (first values)) (make-boxes (rest
+ >> > values)))]))
+ >> >
+ >> > ; ******************************************************
+ >> > ; This function consumes an ExprC and an Env and
+ >> > ; produces a Value, which is currently a (numV closV).
+ >> > ;; interp : (ExprC Env -> Value)
+ >> >
+ >> > (define (interp [exp : ExprC] [env : Env]) : Value
+ >> >   (match exp
+ >> >     [(numC n) (numV n)]
+ >> >     [(idC id) (lookup id env)]
+ >> >     [(lamC a b) (closV a b env)]
+ >> >     [(recC name rhs body)
+ >> >      (define val-box ((inst box Value) (stringV "dummy")))
+ >> >      (define new-env (extend-env (list (bind name val-box)) env))
+ >> >      (define rhs-val (interp rhs new-env))
+ >> >      (set-box! val-box rhs-val)
+ >> >      (interp body new-env)]
+ >> >     [(appC f (? list? args))
+ >> >      (local ([define f-value (interp f env)])
+ >> >        (define f-clos (cast (ann f-value Any) closV))
+ >> >        (interp (closV-body f-clos)
+ >> >                ; extend environment before applying function so all
+ >> > arguments
+ >> > are bound
+ >> >                (extend-env
+ >> >                 (make-binding-list (closV-args f-clos)
+ >> >                                    (make-boxes (interp-args args env)))
+ >> >                 (closV-env f-clos))))]))
+ >> >
+ >> >
+ >> > ; **********
+ >> > ; Test Cases
+ >> > ; **********
+ >> >
+ >> > (interp (recC
+ >> >          'Object
+ >> >          (lamC '() (lamC '(mesg) (stringC "NO METHODS")))
+ >> >          (recC
+ >> >           'Point
+ >> >           (lamC
+ >> >            '(x y)
+ >> >            (appC
+ >> >             (lamC
+ >> >              '(parent)
+ >> >              (lamC
+ >> >               '(mesg)
+ >> >               (stringC "abcd")))
+ >> >             (list (appC (idC 'Object) '()))))
+ >> >           (appC (idC 'Point) (list (numC 1) (numC 2)))))
+ >> >         top-level-env)
+ >> >
+ >> > *** Environment:
+ >> > macosx "Darwin pcp143172pcs.wireless.calpoly.edu 16.4.0 Darwin Kernel
+ >> > Version
+ >> > 16.4.0: Thu Dec 22 22:53:21 PST 2016;
+ >> > root:xnu-3789.41.3~3/RELEASE_X86_64
+ >> > x86_64" (i386-macosx/3m) (get-display-depth) = 32
+ >> > Human Language: english
+ >> > (current-memory-use) 270655780
+ >> > raco pkg (show):
+ >> > Installation-wide:
+ >> >  Package            Checksum             Source
+ >> >  main-distribution  9801b7b68d1fc7cb...  catalog...tribution
+ >> >  racket-lib         935757d50614499a...  catalog racket-lib
+ >> >  [189 auto-installed packages not shown]
+ >> > User-specific for installation "6.8.0.2":
+ >> >  [none]
+ >> >
+ >> >
+ >> >
+ >> > Collections:
+ >> > ("/Users/clements/Library/Racket/6.8.0.2/collects"
+ >> >  (non-existent-path))
+ >> > ("/Applications/Racket v6.8.0.2/collects"
+ >> >  ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info"
+ >> > "info-domain"
+ >> > "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit"
+ >> > "raco"
+ >> > "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable"
+ >> > "version"
+ >> > "xml"))
+ >> >
+ >> > Recent Internal Errors:
+ >> > Computer Language: (("Determine language from source") (#(#t print
+ >> > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t
+ >> > ((test)
+ >> > (main)) #t))
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "clements@racket-lang.org" <clements@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>
+Subject: Re: [racket-bug] all/15410: reproducible DrR-only seg fault
+Date: Sat, 25 Feb 2017 16:01:11 +0000
+
+ --001a113eea5a2ac3f205495cf50c
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Would we want to do this for other contracts on mutable data, like
+ vector/c? Or does this problem not appear there?
+ 
+ Sam
+ 
+ On Sat, Feb 25, 2017, 10:57 AM Robby Findler <robby@eecs.northwestern.edu>
+ wrote:
+ 
+ > Could any-wrap/c keep a parameter that tracked all mutable stuff in
+ > the context and then preserved eq?-ness? Perhaps via weak boxes?
+ >
+ > Robby
+ >
+ > On Sat, Feb 25, 2017 at 9:41 AM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ > > Is there a reasonable way that the any-wrap/c contract could avoid this
+ > > problem? Or is this inherent to the issue?
+ > >
+ > > On Sat, Feb 25, 2017, 10:39 AM Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > >>
+ > >> I've pushed a repair.
+ > >>
+ > >> Beware that, with the repaired Racket, printing the result will fail by
+ > >> recurring until hitting the memory limit. I think that's the result of
+ > >> instantiating a polymorphic contract on a cyclic value, so the printer
+ > >> never finishes.
+ > >>
+ > >> More concretely, a cyclic value is wrapped via the result of
+ > >> `late-neg-projection` from "typed-racket/utils/any-wrap.rkt" (so far,
+ > >> ok) is printed (=> contract wrappers prevent cycle detection by the
+ > >> printer).
+ > >>
+ > >> The infinite printing loop reliably exposed a memory-management problem
+ > >> with `struct->vector` and impersonated vectors by calling
+ > >> `struct->vector` enough times that a GC happened while accessing a
+ > >> struct field.
+ > >>
+ > >> At Fri, 24 Feb 2017 20:24:01 -0500, clements@racket-lang.org wrote:
+ > >> > A new problem report is waiting at
+ > >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=15410
+ > >> >
+ > >> > Reported by John Clements for release: 6.8.0.2--2017-02-18(-/f)
+ > >> >
+ > >> > *** Description:
+ > >> > A student of mine today reported a full-on seg
+ > >> > fault in DrR, and it turns out to be reproducible.
+ > >> >
+ > >> > It appears to affect 6.8 and also the current
+ > >> > nightly build in both 32-bit and 64-bit versions.
+ > >> >
+ > >> > It behaves very nicely, and I've managed to cut it
+ > >> > from a file of ~1000 lines down to 154, and I
+ > >> > could probably cut it further, but I need to leave.
+ > >> >
+ > >> > Running this file using racket at the command-line
+ > >> > results in what appears to be an infinite loop.
+ > >> > Breaking this loop results in this terminal
+ > >> > output:
+ > >> >
+ > >> > ^Cuser break
+ > >> >   context...:
+ > >> >
+ > >> >
+ > >> >
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > >> > y-wrap.rkt:82:4: extract-functions
+ > >> >
+ > >> >
+ > >> >
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > >> > y-wrap.rkt:80:2: wrap-struct15
+ > >> >
+ > >> >
+ > >> >
+ > /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typed-racket/utils/an
+ > >> > y-wrap.rkt:118:2: any-wrap/traverse
+ > >> >    [repeats 3 more times]
+ > >> >
+ > >> > *** How to repeat:
+ > >> > Start DrR, open this file, click run:
+ > >> >
+ > >> > #lang typed/racket
+ > >> > (require typed/rackunit)
+ > >> >
+ > >> > ; ***********************************************************
+ > >> > ; Represents an ExprC
+ > >> >
+ > >> > (define-type ExprC (U numC trueC falseC idC stringC appC binopC ifC
+ > lamC
+ > >> > varC
+ > >> > recC))
+ > >> > (struct numC ([n : Real]) #:transparent)
+ > >> > (struct trueC ([t : #t]) #:transparent)
+ > >> > (struct falseC ([f : #f]) #:transparent)
+ > >> > (struct idC ([s : Symbol]) #:transparent)
+ > >> > (struct stringC ([s : String]) #:transparent)
+ > >> > (struct appC ([fun : ExprC] [arg : (Listof ExprC)]) #:transparent)
+ > >> > (struct binopC ([symb : Symbol] [l : ExprC] [r : ExprC])
+ > #:transparent)
+ > >> > (struct ifC ([condition : ExprC] [thenC : ExprC] [elseC : ExprC])
+ > >> > #:transparent)
+ > >> > (struct lamC ([args : (Listof Symbol)] [body : ExprC]) #:transparent)
+ > >> > (struct varC ([id : ExprC] [body : (Listof ExprC)]) #:transparent)
+ > >> > (struct recC ([name : Symbol] [rhs : ExprC] [body : ExprC])
+ > >> > #:transparent)
+ > >> >
+ > >> > ; ***********************************************************
+ > >> >
+ > >> > ; ***********************************************************
+ > >> > ; Represents an Environment
+ > >> >
+ > >> > (define-type Binding (U bind))
+ > >> > (struct bind ([name : Symbol] [val : (Boxof Value)]) #:transparent)
+ > >> >
+ > >> > (define-type-alias Env (Listof Binding))
+ > >> > (define mt-env empty)
+ > >> > (define extend-env append)
+ > >> >
+ > >> > ; ***********************************************************
+ > >> >
+ > >> > (struct class-bind ([name : Symbol] [def : Sexp]) #:transparent)
+ > >> >
+ > >> > ; ***********************************************************
+ > >> > ; Represents a Value
+ > >> >
+ > >> > (define-type Value (U numV boolV stringV nullV closV primV))
+ > >> > (struct numV ([n : Real]) #:transparent)
+ > >> > (struct boolV ([b : Boolean]) #:transparent)
+ > >> > (struct stringV ([s : String]) #:transparent)
+ > >> > (struct nullV ([n : Null]) #:transparent)
+ > >> > (struct closV ([args : (Listof Symbol)] [body : ExprC] [env : Env])
+ > >> > #:transparent)
+ > >> > (struct primV ([f : (Value Value -> Value)]) #:transparent)
+ > >> >
+ > >> > ; ***********************************************************
+ > >> >
+ > >> > (define top-level-env : Env
+ > >> >   (list
+ > >> >    (bind 'true (box (boolV #t)))
+ > >> >    (bind 'false (box (boolV #t)))
+ > >> >    (bind 'null (box (nullV null)))))
+ > >> >
+ > >> >
+ > >> >
+ > >> > ; ******************************************************
+ > >> >
+ > >> >
+ > >> > ; This function consumes an ExprC and produces a Value,
+ > >> > ; which is currently a (numV closV).
+ > >> > ;; lookup : (Symbol Env -> Value)
+ > >> >
+ > >> > (define (lookup [for : Symbol] [env : Env]) : Value
+ > >> >   (cond
+ > >> >     [(empty? env) (error 'lookup (string-append "PHYM: "
+ > (string-append
+ > >> > (symbol->string for) " name not found.")))]
+ > >> >     [else (cond
+ > >> >             [(eq? for (bind-name (first env)))
+ > >> >              (unbox (bind-val (first env)))]
+ > >> >             [else (lookup for (rest env))])]))
+ > >> >
+ > >> > ; ******************************************************
+ > >> >
+ > >> > ; ******************************************************
+ > >> > ; This function consumes a list of symbols and a list of
+ > >> > ; values and produces a a list of bindings of symbols to
+ > >> > ; value.
+ > >> > ;; make-binding-list : ((Listof Symbol) (Listof Value) -> (Listof
+ > >> > Binding))
+ > >> >
+ > >> > (define (make-binding-list [arg-names : (Listof Symbol)] [values :
+ > >> > (Listof
+ > >> > (Boxof Value))])
+ > >> >   : (Listof Binding)
+ > >> >   (cond
+ > >> >     [(not (= (length arg-names) (length values)))
+ > >> >      (error 'make-binding-list "PHYM: Length of arg-names and values
+ > are
+ > >> > not
+ > >> > equal.")]
+ > >> >     [else
+ > >> >      (cond
+ > >> >        [(empty? arg-names) empty]
+ > >> >        [else (cons (bind (first arg-names) (first values))
+ > >> >                    (make-binding-list (rest arg-names) (rest
+ > >> > values)))])]))
+ > >> >
+ > >> > ; ******************************************************
+ > >> >
+ > >> > (define (interp-args [args : (Listof ExprC)] [env : Env]) : (Listof
+ > >> > Value)
+ > >> >   (cond
+ > >> >     [(empty? args) empty]
+ > >> >     [else
+ > >> >      (cons (interp (first args) env) (interp-args (rest args) env))]))
+ > >> >
+ > >> > (define (make-boxes [values : (Listof Value)]) : (Listof (Boxof
+ > Value))
+ > >> >   (cond
+ > >> >     [(empty? values) empty]
+ > >> >     [else
+ > >> >      (cons ((inst box Value) (first values)) (make-boxes (rest
+ > >> > values)))]))
+ > >> >
+ > >> > ; ******************************************************
+ > >> > ; This function consumes an ExprC and an Env and
+ > >> > ; produces a Value, which is currently a (numV closV).
+ > >> > ;; interp : (ExprC Env -> Value)
+ > >> >
+ > >> > (define (interp [exp : ExprC] [env : Env]) : Value
+ > >> >   (match exp
+ > >> >     [(numC n) (numV n)]
+ > >> >     [(idC id) (lookup id env)]
+ > >> >     [(lamC a b) (closV a b env)]
+ > >> >     [(recC name rhs body)
+ > >> >      (define val-box ((inst box Value) (stringV "dummy")))
+ > >> >      (define new-env (extend-env (list (bind name val-box)) env))
+ > >> >      (define rhs-val (interp rhs new-env))
+ > >> >      (set-box! val-box rhs-val)
+ > >> >      (interp body new-env)]
+ > >> >     [(appC f (? list? args))
+ > >> >      (local ([define f-value (interp f env)])
+ > >> >        (define f-clos (cast (ann f-value Any) closV))
+ > >> >        (interp (closV-body f-clos)
+ > >> >                ; extend environment before applying function so all
+ > >> > arguments
+ > >> > are bound
+ > >> >                (extend-env
+ > >> >                 (make-binding-list (closV-args f-clos)
+ > >> >                                    (make-boxes (interp-args args
+ > env)))
+ > >> >                 (closV-env f-clos))))]))
+ > >> >
+ > >> >
+ > >> > ; **********
+ > >> > ; Test Cases
+ > >> > ; **********
+ > >> >
+ > >> > (interp (recC
+ > >> >          'Object
+ > >> >          (lamC '() (lamC '(mesg) (stringC "NO METHODS")))
+ > >> >          (recC
+ > >> >           'Point
+ > >> >           (lamC
+ > >> >            '(x y)
+ > >> >            (appC
+ > >> >             (lamC
+ > >> >              '(parent)
+ > >> >              (lamC
+ > >> >               '(mesg)
+ > >> >               (stringC "abcd")))
+ > >> >             (list (appC (idC 'Object) '()))))
+ > >> >           (appC (idC 'Point) (list (numC 1) (numC 2)))))
+ > >> >         top-level-env)
+ > >> >
+ > >> > *** Environment:
+ > >> > macosx "Darwin pcp143172pcs.wireless.calpoly.edu 16.4.0 Darwin Kernel
+ > >> > Version
+ > >> > 16.4.0: Thu Dec 22 22:53:21 PST 2016;
+ > >> > root:xnu-3789.41.3~3/RELEASE_X86_64
+ > >> > x86_64" (i386-macosx/3m) (get-display-depth) = 32
+ > >> > Human Language: english
+ > >> > (current-memory-use) 270655780
+ > >> > raco pkg (show):
+ > >> > Installation-wide:
+ > >> >  Package            Checksum             Source
+ > >> >  main-distribution  9801b7b68d1fc7cb...  catalog...tribution
+ > >> >  racket-lib         935757d50614499a...  catalog racket-lib
+ > >> >  [189 auto-installed packages not shown]
+ > >> > User-specific for installation "6.8.0.2":
+ > >> >  [none]
+ > >> >
+ > >> >
+ > >> >
+ > >> > Collections:
+ > >> > ("/Users/clements/Library/Racket/6.8.0.2/collects"
+ > >> >  (non-existent-path))
+ > >> > ("/Applications/Racket v6.8.0.2/collects"
+ > >> >  ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info"
+ > >> > "info-domain"
+ > >> > "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit"
+ > >> > "raco"
+ > >> > "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable"
+ > >> > "version"
+ > >> > "xml"))
+ > >> >
+ > >> > Recent Internal Errors:
+ > >> > Computer Language: (("Determine language from source") (#(#t print
+ > >> > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t
+ > >> > ((test)
+ > >> > (main)) #t))
+ >
+ 
+ --001a113eea5a2ac3f205495cf50c
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Would we want to do this for other contracts on mutable data, like vector/c=
+ ? Or does this problem not appear there?<div><br></div><div>Sam<br><br><div=
+  class=3D"gmail_quote"><div dir=3D"ltr">On Sat, Feb 25, 2017, 10:57 AM Robb=
+ y Findler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.nor=
+ thwestern.edu</a>&gt; wrote:<br></div><blockquote class=3D"gmail_quote" sty=
+ le=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">Could =
+ any-wrap/c keep a parameter that tracked all mutable stuff in<br class=3D"g=
+ mail_msg">
+ the context and then preserved eq?-ness? Perhaps via weak boxes?<br class=
+ =3D"gmail_msg">
+ <br class=3D"gmail_msg">
+ Robby<br class=3D"gmail_msg">
+ <br class=3D"gmail_msg">
+ On Sat, Feb 25, 2017 at 9:41 AM, Sam Tobin-Hochstadt<br class=3D"gmail_msg"=
+ >
+ &lt;<a href=3D"mailto:samth@cs.indiana.edu" class=3D"gmail_msg" target=3D"_=
+ blank">samth@cs.indiana.edu</a>&gt; wrote:<br class=3D"gmail_msg">
+ &gt; Is there a reasonable way that the any-wrap/c contract could avoid thi=
+ s<br class=3D"gmail_msg">
+ &gt; problem? Or is this inherent to the issue?<br class=3D"gmail_msg">
+ &gt;<br class=3D"gmail_msg">
+ &gt; On Sat, Feb 25, 2017, 10:39 AM Matthew Flatt &lt;<a href=3D"mailto:mfl=
+ att@cs.utah.edu" class=3D"gmail_msg" target=3D"_blank">mflatt@cs.utah.edu</=
+ a>&gt; wrote:<br class=3D"gmail_msg">
+ &gt;&gt;<br class=3D"gmail_msg">
+ &gt;&gt; I&#39;ve pushed a repair.<br class=3D"gmail_msg">
+ &gt;&gt;<br class=3D"gmail_msg">
+ &gt;&gt; Beware that, with the repaired Racket, printing the result will fa=
+ il by<br class=3D"gmail_msg">
+ &gt;&gt; recurring until hitting the memory limit. I think that&#39;s the r=
+ esult of<br class=3D"gmail_msg">
+ &gt;&gt; instantiating a polymorphic contract on a cyclic value, so the pri=
+ nter<br class=3D"gmail_msg">
+ &gt;&gt; never finishes.<br class=3D"gmail_msg">
+ &gt;&gt;<br class=3D"gmail_msg">
+ &gt;&gt; More concretely, a cyclic value is wrapped via the result of<br cl=
+ ass=3D"gmail_msg">
+ &gt;&gt; `late-neg-projection` from &quot;typed-racket/utils/any-wrap.rkt&q=
+ uot; (so far,<br class=3D"gmail_msg">
+ &gt;&gt; ok) is printed (=3D&gt; contract wrappers prevent cycle detection =
+ by the<br class=3D"gmail_msg">
+ &gt;&gt; printer).<br class=3D"gmail_msg">
+ &gt;&gt;<br class=3D"gmail_msg">
+ &gt;&gt; The infinite printing loop reliably exposed a memory-management pr=
+ oblem<br class=3D"gmail_msg">
+ &gt;&gt; with `struct-&gt;vector` and impersonated vectors by calling<br cl=
+ ass=3D"gmail_msg">
+ &gt;&gt; `struct-&gt;vector` enough times that a GC happened while accessin=
+ g a<br class=3D"gmail_msg">
+ &gt;&gt; struct field.<br class=3D"gmail_msg">
+ &gt;&gt;<br class=3D"gmail_msg">
+ &gt;&gt; At Fri, 24 Feb 2017 20:24:01 -0500, <a href=3D"mailto:clements@rac=
+ ket-lang.org" class=3D"gmail_msg" target=3D"_blank">clements@racket-lang.or=
+ g</a> wrote:<br class=3D"gmail_msg">
+ &gt;&gt; &gt; A new problem report is waiting at<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=
+ =3Dview&amp;pr=3D15410" rel=3D"noreferrer" class=3D"gmail_msg" target=3D"_b=
+ lank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D15410</a><br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Reported by John Clements for release: 6.8.0.2--2017-02-18(-/=
+ f)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; *** Description:<br class=3D"gmail_msg">
+ &gt;&gt; &gt; A student of mine today reported a full-on seg<br class=3D"gm=
+ ail_msg">
+ &gt;&gt; &gt; fault in DrR, and it turns out to be reproducible.<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; It appears to affect 6.8 and also the current<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt; nightly build in both 32-bit and 64-bit versions.<br class=3D=
+ "gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; It behaves very nicely, and I&#39;ve managed to cut it<br cla=
+ ss=3D"gmail_msg">
+ &gt;&gt; &gt; from a file of ~1000 lines down to 154, and I<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt; could probably cut it further, but I need to leave.<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Running this file using racket at the command-line<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt; results in what appears to be an infinite loop.<br class=3D"g=
+ mail_msg">
+ &gt;&gt; &gt; Breaking this loop results in this terminal<br class=3D"gmail=
+ _msg">
+ &gt;&gt; &gt; output:<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ^Cuser break<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0context...:<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typ=
+ ed-racket/utils/an<br class=3D"gmail_msg">
+ &gt;&gt; &gt; y-wrap.rkt:82:4: extract-functions<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typ=
+ ed-racket/utils/an<br class=3D"gmail_msg">
+ &gt;&gt; &gt; y-wrap.rkt:80:2: wrap-struct15<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; /Users/clements/racket/racket/share/pkgs/typed-racket-lib/typ=
+ ed-racket/utils/an<br class=3D"gmail_msg">
+ &gt;&gt; &gt; y-wrap.rkt:118:2: any-wrap/traverse<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 [repeats 3 more times]<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; *** How to repeat:<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Start DrR, open this file, click run:<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; #lang typed/racket<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (require typed/rackunit)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ***********************************************************=
+ <br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; Represents an ExprC<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define-type ExprC (U numC trueC falseC idC stringC appC bino=
+ pC ifC lamC<br class=3D"gmail_msg">
+ &gt;&gt; &gt; varC<br class=3D"gmail_msg">
+ &gt;&gt; &gt; recC))<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct numC ([n : Real]) #:transparent)<br class=3D"gmail_ms=
+ g">
+ &gt;&gt; &gt; (struct trueC ([t : #t]) #:transparent)<br class=3D"gmail_msg=
+ ">
+ &gt;&gt; &gt; (struct falseC ([f : #f]) #:transparent)<br class=3D"gmail_ms=
+ g">
+ &gt;&gt; &gt; (struct idC ([s : Symbol]) #:transparent)<br class=3D"gmail_m=
+ sg">
+ &gt;&gt; &gt; (struct stringC ([s : String]) #:transparent)<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt; (struct appC ([fun : ExprC] [arg : (Listof ExprC)]) #:transpa=
+ rent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct binopC ([symb : Symbol] [l : ExprC] [r : ExprC]) #:tr=
+ ansparent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct ifC ([condition : ExprC] [thenC : ExprC] [elseC : Exp=
+ rC])<br class=3D"gmail_msg">
+ &gt;&gt; &gt; #:transparent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct lamC ([args : (Listof Symbol)] [body : ExprC]) #:tran=
+ sparent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct varC ([id : ExprC] [body : (Listof ExprC)]) #:transpa=
+ rent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct recC ([name : Symbol] [rhs : ExprC] [body : ExprC])<b=
+ r class=3D"gmail_msg">
+ &gt;&gt; &gt; #:transparent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ***********************************************************=
+ <br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ***********************************************************=
+ <br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; Represents an Environment<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define-type Binding (U bind))<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct bind ([name : Symbol] [val : (Boxof Value)]) #:transp=
+ arent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define-type-alias Env (Listof Binding))<br class=3D"gmail_ms=
+ g">
+ &gt;&gt; &gt; (define mt-env empty)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define extend-env append)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ***********************************************************=
+ <br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct class-bind ([name : Symbol] [def : Sexp]) #:transpare=
+ nt)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ***********************************************************=
+ <br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; Represents a Value<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define-type Value (U numV boolV stringV nullV closV primV))<=
+ br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct numV ([n : Real]) #:transparent)<br class=3D"gmail_ms=
+ g">
+ &gt;&gt; &gt; (struct boolV ([b : Boolean]) #:transparent)<br class=3D"gmai=
+ l_msg">
+ &gt;&gt; &gt; (struct stringV ([s : String]) #:transparent)<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt; (struct nullV ([n : Null]) #:transparent)<br class=3D"gmail_m=
+ sg">
+ &gt;&gt; &gt; (struct closV ([args : (Listof Symbol)] [body : ExprC] [env :=
+  Env])<br class=3D"gmail_msg">
+ &gt;&gt; &gt; #:transparent)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (struct primV ([f : (Value Value -&gt; Value)]) #:transparent=
+ )<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ***********************************************************=
+ <br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define top-level-env : Env<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0(list<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 (bind &#39;true (box (boolV #t)))<br class=3D"gm=
+ ail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 (bind &#39;false (box (boolV #t)))<br class=3D"g=
+ mail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 (bind &#39;null (box (nullV null)))))<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ******************************************************<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; This function consumes an ExprC and produces a Value,<br cl=
+ ass=3D"gmail_msg">
+ &gt;&gt; &gt; ; which is currently a (numV closV).<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ;; lookup : (Symbol Env -&gt; Value)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define (lookup [for : Symbol] [env : Env]) : Value<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(empty? env) (error &#39;lookup (string-a=
+ ppend &quot;PHYM: &quot; (string-append<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (symbol-&gt;string for) &quot; name not found.&quot;)))]<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[else (cond<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[(eq? for (bin=
+ d-name (first env)))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (unbox (bind-=
+ val (first env)))]<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[else (lookup =
+ for (rest env))])]))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ******************************************************<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ******************************************************<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt; ; This function consumes a list of symbols and a list of<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt; ; values and produces a a list of bindings of symbols to<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt; ; value.<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ;; make-binding-list : ((Listof Symbol) (Listof Value) -&gt; =
+ (Listof<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Binding))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define (make-binding-list [arg-names : (Listof Symbol)] [val=
+ ues :<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (Listof<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (Boxof Value))])<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0: (Listof Binding)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(not (=3D (length arg-names) (length valu=
+ es)))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (error &#39;make-binding-list &quot;PHYM:=
+  Length of arg-names and values are<br class=3D"gmail_msg">
+ &gt;&gt; &gt; not<br class=3D"gmail_msg">
+ &gt;&gt; &gt; equal.&quot;)]<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[else<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (cond<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 [(empty? arg-names) empty]<br clas=
+ s=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 [else (cons (bind (first arg-names=
+ ) (first values))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 (make-binding-list (rest arg-names) (rest<br class=3D"gmail_msg">
+ &gt;&gt; &gt; values)))])]))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ******************************************************<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define (interp-args [args : (Listof ExprC)] [env : Env]) : (=
+ Listof<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Value)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(empty? args) empty]<br class=3D"gmail_ms=
+ g">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[else<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (cons (interp (first args) env) (interp-a=
+ rgs (rest args) env))]))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define (make-boxes [values : (Listof Value)]) : (Listof (Box=
+ of Value))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0(cond<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(empty? values) empty]<br class=3D"gmail_=
+ msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[else<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (cons ((inst box Value) (first values)) (=
+ make-boxes (rest<br class=3D"gmail_msg">
+ &gt;&gt; &gt; values)))]))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; ******************************************************<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt; ; This function consumes an ExprC and an Env and<br class=3D"=
+ gmail_msg">
+ &gt;&gt; &gt; ; produces a Value, which is currently a (numV closV).<br cla=
+ ss=3D"gmail_msg">
+ &gt;&gt; &gt; ;; interp : (ExprC Env -&gt; Value)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (define (interp [exp : ExprC] [env : Env]) : Value<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0(match exp<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(numC n) (numV n)]<br class=3D"gmail_msg"=
+ >
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(idC id) (lookup id env)]<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(lamC a b) (closV a b env)]<br class=3D"g=
+ mail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(recC name rhs body)<br class=3D"gmail_ms=
+ g">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (define val-box ((inst box Value) (string=
+ V &quot;dummy&quot;)))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (define new-env (extend-env (list (bind n=
+ ame val-box)) env))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (define rhs-val (interp rhs new-env))<br =
+ class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (set-box! val-box rhs-val)<br class=3D"gm=
+ ail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (interp body new-env)]<br class=3D"gmail_=
+ msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0[(appC f (? list? args))<br class=3D"gmail=
+ _msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 (local ([define f-value (interp f env)])<=
+ br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 (define f-clos (cast (ann f-value =
+ Any) closV))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 (interp (closV-body f-clos)<br cla=
+ ss=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ; exte=
+ nd environment before applying function so all<br class=3D"gmail_msg">
+ &gt;&gt; &gt; arguments<br class=3D"gmail_msg">
+ &gt;&gt; &gt; are bound<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (exten=
+ d-env<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+ (make-binding-list (closV-args f-clos)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (make-boxes=
+  (interp-args args env)))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+ (closV-env f-clos))))]))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; **********<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; Test Cases<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ; **********<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (interp (recC<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;Object<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (lamC &#39;() (lamC &#39;(m=
+ esg) (stringC &quot;NO METHODS&quot;)))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (recC<br class=3D"gmail_msg=
+ ">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&#39;Point<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lamC<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;(x y)<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (appC<br class=3D"gm=
+ ail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lamC<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;(parent)=
+ <br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (lamC<br clas=
+ s=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&#39;(m=
+ esg)<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(string=
+ C &quot;abcd&quot;)))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(list (appC (i=
+ dC &#39;Object) &#39;()))))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(appC (idC &#39;Point=
+ ) (list (numC 1) (numC 2)))))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0top-level-env)<br class=3D"g=
+ mail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; *** Environment:<br class=3D"gmail_msg">
+ &gt;&gt; &gt; macosx &quot;Darwin <a href=3D"http://pcp143172pcs.wireless.c=
+ alpoly.edu" rel=3D"noreferrer" class=3D"gmail_msg" target=3D"_blank">pcp143=
+ 172pcs.wireless.calpoly.edu</a> 16.4.0 Darwin Kernel<br class=3D"gmail_msg"=
+ >
+ &gt;&gt; &gt; Version<br class=3D"gmail_msg">
+ &gt;&gt; &gt; 16.4.0: Thu Dec 22 22:53:21 PST 2016;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; root:xnu-3789.41.3~3/RELEASE_X86_64<br class=3D"gmail_msg">
+ &gt;&gt; &gt; x86_64&quot; (i386-macosx/3m) (get-display-depth) =3D 32<br c=
+ lass=3D"gmail_msg">
+ &gt;&gt; &gt; Human Language: english<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (current-memory-use) 270655780<br class=3D"gmail_msg">
+ &gt;&gt; &gt; raco pkg (show):<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Installation-wide:<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Checks=
+ um=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Source<br class=3D"gmail_=
+ msg">
+ &gt;&gt; &gt;=C2=A0 main-distribution=C2=A0 9801b7b68d1fc7cb...=C2=A0 catal=
+ og...tribution<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0935757d5061=
+ 4499a...=C2=A0 catalog racket-lib<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 [189 auto-installed packages not shown]<br class=3D"gma=
+ il_msg">
+ &gt;&gt; &gt; User-specific for installation &quot;6.8.0.2&quot;:<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 [none]<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Collections:<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (&quot;/Users/clements/Library/Racket/<a href=3D"http://6.8.0=
+ .2/collects" rel=3D"noreferrer" class=3D"gmail_msg" target=3D"_blank">6.8.0=
+ .2/collects</a>&quot;<br class=3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 (non-existent-path))<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (&quot;/Applications/Racket v6.8.0.2/collects&quot;<br class=
+ =3D"gmail_msg">
+ &gt;&gt; &gt;=C2=A0 (&quot;acks&quot; &quot;compiler&quot; &quot;data&quot;=
+  &quot;db&quot; &quot;dynext&quot; &quot;ffi&quot; &quot;file&quot; &quot;i=
+ nfo&quot;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; &quot;info-domain&quot;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; &quot;json&quot; &quot;launcher&quot; &quot;net&quot; &quot;o=
+ penssl&quot; &quot;pkg&quot; &quot;planet&quot; &quot;racket&quot; &quot;ra=
+ ckunit&quot;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; &quot;raco&quot;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; &quot;reader&quot; &quot;realm&quot; &quot;s-exp&quot; &quot;=
+ scheme&quot; &quot;setup&quot; &quot;srfi&quot; &quot;syntax&quot; &quot;un=
+ stable&quot;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; &quot;version&quot;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; &quot;xml&quot;))<br class=3D"gmail_msg">
+ &gt;&gt; &gt;<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Recent Internal Errors:<br class=3D"gmail_msg">
+ &gt;&gt; &gt; Computer Language: ((&quot;Determine language from source&quo=
+ t;) (#(#t print<br class=3D"gmail_msg">
+ &gt;&gt; &gt; mixed-fraction-e #f #t debug) (default) #() &quot;#lang racke=
+ t\n&quot; #f #t<br class=3D"gmail_msg">
+ &gt;&gt; &gt; ((test)<br class=3D"gmail_msg">
+ &gt;&gt; &gt; (main)) #t))<br class=3D"gmail_msg">
+ </blockquote></div></div>
+ 
+ --001a113eea5a2ac3f205495cf50c--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "clements@racket-lang.org" <clements@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>
+Subject: Re: [racket-bug] all/15410: reproducible DrR-only seg fault
+Date: Sat, 25 Feb 2017 10:09:19 -0600
+
+ It does seem to happen, but it requires recursive contracts too:
+ 
+ #lang racket
+ (define v (vector #f))
+ (vector-set! v 0 v)
+ (contract (letrec ([c (vector/c any/c (recursive-contract c))])
+             c)
+           v
+           'pos 'neg)
+ 
+ I'm not sure what is the right thing in general. Maybe the change
+ belongs in recursive-contract.
+ 
+ Robby

@@ -1,0 +1,229 @@
+From Christian.Queinnec@lip6.fr  Sun Nov 12 10:30:01 2000
+Received: from localhost (d078.dhcp212-170.cybercable.fr [212.198.170.78])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id KAA00032
+	for <plt-gnats>; Sun, 12 Nov 2000 10:30:00 -0600 (CST)
+Message-Id: <200011121630.KAA00032@cs.rice.edu>
+Date: Sun, 12 Nov 2000 10:30:00 -0600 (CST)
+From: Christian.Queinnec@lip6.fr
+To: plt-gnats@cs.rice.edu
+Subject: modules
+
+>Number:         1768
+>Category:       mzscheme
+>Synopsis:       modules
+>Class:          sw-bug
+>Responsible:    steck
+>Severity:       non-critical
+>Priority:       low
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Nov 12 11:30:01 -0500 2000
+>Last-Modified:  Mon May 05 15:45:12 -0400 2008
+>Originator:     Queinnec
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        102
+>Environment:
+unix (i386-linux) (get-display-depth) = 16
+Tools: ("project-manager" "syncheck")
+Docs Installed:
+("advanced" "beginning" "drscheme" "help" "icons" "intermediate" "misclib" "mred" "mzscheme" "r5rs" "teachpack" "mzc")
+Collections:
+(("/usr/local/lib/plt-102/collects" ("afm" "browser" "compiler" "defaults" "doc" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guserspce" "help" "hierlist" "htdp" "icons" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "slibinit" "stepper" "userspce" "xml" "zodiac" "mias")))
+>Description:
+Hi,
+
+ Trying to have teachpacks and tools for our course, I'm trying
+to master DrScheme module system. I'm using version 102 (not 103).
+Here is a little teachpack:
+
+;;; Teachpack example.
+;;; NOTE: add teachpack then evaluate:
+;;;      tpa
+;;;      (tpa 3)
+
+(unit/sig
+ (tpa)
+ (import plt:userspace^)
+
+ ;;; require-library is unknown here:                       (1)
+ ;(require-library "bar.ss" "mias")
+
+ (define (tpa x)
+   ;; This seems possible! but (tpa 3) is erroneous if invoked as below,
+   ;; it may only be called from the out.                   (2)
+   (require-library "bar.ss" "mias")
+   ;; barb does not exist here:
+   ;(barb (list x x x))
+   )
+
+ ;; says that require-library is still unknown:
+ '''(tpa 3)                                                 (3)
+ ;; however to invoke (tpa 3) from the outside works!
+
+)
+
+;;; end of tp.ss
+
+
+What I do not understand is why the call to require-library within 
+the tpa function is known after this module is loaded and not before.
+It seems to me lexically curious!
+
+The bar.ss module is simply:
+
+(define (barb x)
+  (foob (list x a)) )
+
+I probably miss something with your module system. Bye,
+
+
+>How-To-Repeat:
+create collects/mias/bar.ss with 
+
+(define (barb x)
+  (foob (list x a)) )
+
+then create teachpack/tp.ss with 
+
+;;; Teachpack example.
+;;; NOTE: add teachpack then evaluate:
+;;;      tpa
+;;;      (tpa 3)
+
+(unit/sig
+ (tpa)
+ (import plt:userspace^)
+
+ ;;; require-library is unknown here:
+ ;(require-library "bar.ss" "mias")
+
+ (define (tpa x)
+   ;; This seems possible! but (tpa 3) is erroneous if invoked as below,
+   ;; it may only be called from the out.
+   (require-library "bar.ss" "mias")
+   ;; barb does not exist here:
+   ;(barb (list x x x))
+   )
+
+ ;; says that require-library is still unknown:
+ '''(tpa 3)
+ ;; however to invoke (tpa 3) from the outside works!
+
+)
+
+;;; end of tp.ss
+
+add teachpack tp.ss, then evaluates 
+
+tpa
+
+check that barb is undefined
+
+                           evaluates
+(tpa 3)
+check that barb is now defined. Writing (tpa 3) instead in the
+teachpack yields a require-library error (and a freeze of Drscheme).
+
+>Fix:
+>Audit-Trail:
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Christian.Queinnec@lip6.fr
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1768: modules
+Date: Sun, 12 Nov 2000 13:36:27 -0600
+
+ Hi, Christian,
+ 
+ The problem you are having is that require-library is basically a 
+ fancy form of load so any definitions in bar.ss in the mias 
+ collection are being stuck into the top-level when the 
+ require-library is evaluated. Since there are multiple top-levels 
+ (one for the student's program, one for drscheme itself), things get 
+ confusing quickly. Rather than taking you down the torturous logical 
+ path to explain exactly what happens in your examples, let me suggest 
+ two other ways to write that teachpack and hopefully one of them will 
+ be right for you.
+ 
+ First, you can make a `compound-unit/sig' that combines the mias 
+ collection's bar.ss file with the teachpack, like this:
+ 
+    (compound-unit/sig
+      (import [p : plt:userspace^])
+      (link
+        [bar : bar-signature^ ((require-library "bar.ss" "mias") p)]
+        [tpa : tpa-signature^ ((require-library "tpa.ss" "mias") bar p)])
+      (export (open tpa)))
+ 
+ If the bar.ss and tpa.ss both contain `unit/sig's, where bar.ss's 
+ unit/sig imports plt:userspace^ and tpa.ss's unit/sig imports 
+ plt:userspace^ and bar-signature^, the above compound-unit/sig is a 
+ teachpack that puts tpa's exports into the student's programming 
+ environment.
+ 
+ Second, you can write something like this:
+ 
+    (unit/sig (tpa)
+      (import plt:userspace^)
+ 
+      (include "bar.ss")
+ 
+      (define (tpa x)
+        (barb (list x x x))))
+ 
+ This version assumes that bar.ss contains a bunch of definitions (and 
+ expressions) and those definitions are textually substituted into the 
+ body of the unit/sig before any scoping decisions are made, so those 
+ definitions become unit-local instead of being top-level.
+ 
+ A hack variation on that, if you need the bar.ss file to be in the 
+ mias collection:
+ 
+    (unit/sig (tpa)
+      (import plt:userspace^)
+ 
+      (include (begin-elaboration-time (build-path (collection-path "mias")
+                                                   "bar.ss")))
+ 
+      (define (tpa x)
+        (barb (list x x x))))
+ 
+ This particular hack will go away once we get the top-level figured 
+ out (something on our medium-term list of "things to do"), but it 
+ should work for you, for now.
+ 
+ Hope that helps!
+ 
+ Robby
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: Christian.Queinnec@lip6.fr
+Cc: plt-gnats@cs.rice.edu, robby@cs.rice.edu
+Subject: Re: all/1768: modules
+Date: Sun, 12 Nov 2000 21:12:55 -0600 (CST)
+
+ Christian, take a look at some of the teachpacks in htdp. 
+ You are missing the "currying" of modules. Basically you want
+ 
+  bar.ss x plt:userspace^ -> tpa 
+ 
+ but our interface accepts only 
+ 
+  plt:userspace^ -> tpa 
+ 
+ So you make one of the above and use compounding to discharge the
+ first argument. Just search for compound in teachpack/htdp or 
+ collects/htdp and you will find an example. I always bind in some
+ standard error/check functions. 
+ 
+ -- Matthias
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Tue Nov 28 09:37:14 2000
+State-Changed-Why:
+
+Christiam seems to be happy with our replies. (not really a bug report)
+
+>Unformatted:

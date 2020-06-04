@@ -1,0 +1,555 @@
+From apache@plt-scheme.org Fri May  7 18:54:09 2004
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id i47Ms91W003483
+	for <bugs@plt-scheme.org>; Fri, 7 May 2004 18:54:09 -0400
+Message-Id: <200405072254.i47Ms9QL003481@champlain.ccs.neu.edu>
+Date: Fri, 7 May 2004 18:54:09 -0400
+From: bburns@cs.umass.edu
+To: bugs@plt-scheme.org
+Subject: OpenGL fix and GLU implementation.
+
+>Number:         6850
+>Category:       mred
+>Synopsis:       OpenGL fix and GLU implementation.
+>Class:          change-request
+>Responsible:    sowens
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun May 09 23:44:22 -0400 2004
+>Last-Modified:  Tue May 25 16:14:23 -0400 2004
+>Originator:     Brendan Burns
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        2.06p1
+>Environment:
+mac-ppc-osx
+>Description:
+Hello,
+In teaching a graphics course with DrScheme I discovered a bug in the glFogfv and glFogiv implementations in gl-prims.c  Also I added support for a number of glu functions to gl-prims.c and gl.ss.
+
+A patch for all of this follows:
+
+diff -aur /plt/collects/sgl/gl-prims.c /plt-new/collects/sgl/gl-prims.c
+--- /plt/collects/sgl/gl-prims.c	Thu Jun 19 22:57:26 2003
++++ /plt-new/collects/sgl/gl-prims.c	Fri May  7 12:57:33 2004
+@@ -2547,6 +2547,16 @@
+ /*---------------------------------------------------------------------------*/
+ /* 3.10. Fog								     */
+ 
++static int pnum_Fog(GLenum pname)
++{
++  if (pname==GL_FOG_COLOR) {
++    return 4;
++  }
++  else {
++    return 1;
++  }
++}
++
+ static Scheme_Object *scm_Fogi(void *p, int c, Scheme_Object **v)
+ {
+ 	glFogi(arg_GLenum(0), arg_GLint(1));
+@@ -2561,14 +2571,17 @@
+ 
+ static Scheme_Object *scm_Fogiv(void *p, int c, Scheme_Object **v)
+ {
+-	glFogiv(arg_GLenum(0), arg_GLintv(1, 1));
+-	return scheme_void;
++  GLenum e = arg_GLenum(0);
++  glFogiv(e, arg_GLintv(1, pnum_Fog(e)));
++  return scheme_void;
+ }
+ 
+ static Scheme_Object *scm_Fogfv(void *p, int c, Scheme_Object **v)
+ {
+-	glFogfv(arg_GLenum(0), arg_GLfloatv(1, 1));
+-	return scheme_void;
++  GLenum e = arg_GLenum(0);
++
++  glFogfv(e, arg_GLfloatv(1, pnum_Fog(e)));
++  return scheme_void;
+ }
+ 
+ /*===========================================================================*/
+@@ -3400,6 +3413,111 @@
+ 	return scheme_void;
+ }
+ 
++
++/** GLU Support **/
++typedef struct {
++  Scheme_Type type; /* Every Scheme value starts with a type tag.  The
++		       format for the rest of the structure is
++		       anything we want it to be. */
++  GLUquadricObj *quad;
++} scm_Quadric;
++
++static Scheme_Type quadric_type;
++
++static scm_Quadric *arg_quad(const char *name, Scheme_Object *arg,
++		    int which, int argc, Scheme_Object **argv)
++{
++  if (arg->type == quadric_type) {
++    return (scm_Quadric *)arg;
++  }
++  else
++    scheme_wrong_type(name, "glu-quadric", which, argc, argv);
++  
++  return 0;
++}
++
++static void free_quad(void *p, void *data) {
++  scm_Quadric *q = (scm_Quadric *)p;
++  if (q->quad) {
++    gluDeleteQuadric(q->quad);
++  }
++}
++
++Scheme_Object *scm_gluNewQuadric(void *p, int c, Scheme_Object **v) {
++  scm_Quadric *q = (scm_Quadric *)scheme_malloc(sizeof(scm_Quadric));
++  q->quad = gluNewQuadric();
++  q->type = quadric_type;
++  scheme_register_finalizer(q, free_quad, NULL, NULL, NULL);
++
++  return (Scheme_Object *)q;
++}
++
++Scheme_Object *scm_gluQuadricNormals(void *p, int c, Scheme_Object **v) {
++  gluQuadricNormals(arg_quad((char *)p, v[0], 0, c, v)->quad,
++		    arg_GLenum(1));
++  return scheme_void;
++}
++
++Scheme_Object *scm_gluQuadricTexture(void *p, int c, Scheme_Object **v) {
++  gluQuadricTexture(arg_quad((char *)p, v[0], 0, c, v)->quad,
++		    arg_GLenum(1));
++  return scheme_void;
++}
++
++Scheme_Object *scm_gluCylinder(void *p, int c, Scheme_Object **v) {
++  gluCylinder(arg_quad((char *)p, v[0], 0, c, v)->quad,
++	      arg_GLdouble(1),
++	      arg_GLdouble(2),
++	      arg_GLdouble(3),
++	      arg_GLint(4),
++	      arg_GLint(5));
++  return scheme_void;
++}
++
++
++Scheme_Object *scm_gluDisk(void *p, int c, Scheme_Object **v) {
++  gluDisk(arg_quad((char *)p, v[0], 0, c, v)->quad,
++	  arg_GLdouble(1),
++	  arg_GLdouble(2),
++	  arg_GLint(3),
++	  arg_GLint(4));
++  return scheme_void;
++}
++
++Scheme_Object *scm_gluSphere(void *p, int c, Scheme_Object **v) {
++  gluSphere(arg_quad((char *)p, v[0], 0, c, v)->quad,
++	    arg_GLdouble(1),
++	    arg_GLint(2),
++	    arg_GLint(3));
++  return scheme_void;
++}
++
++Scheme_Object *scm_gluPartialDisk(void *p, int c, Scheme_Object **v) {
++  gluPartialDisk(arg_quad((char *)p, v[0], 0, c, v)->quad,
++		 arg_GLdouble(1),
++		 arg_GLdouble(2),
++		 arg_GLint(3),
++		 arg_GLint(4),
++		 arg_GLdouble(5),
++		 arg_GLdouble(6));
++  return scheme_void;
++}
++
++Scheme_Object *scm_gluBuild2DMipmaps(void *p, int c, Scheme_Object **v) {
++  GLsizei width = arg_GLsizei(2);
++  GLsizei height = arg_GLsizei(3);
++  GLenum t = arg_GLenum(5);
++  gluBuild2DMipmaps(arg_GLenum(0),
++		    arg_GLint(1),
++		    width,
++		    height,
++		    arg_GLenum(4),
++		    t,
++		    arg_GLvoidv(6, width * height, t));
++  return scheme_void;
++}
++		    
++
+ /*****************************************************************************/
+ /* Scheme environment initialization					     */
+ 
+@@ -4169,6 +4287,7 @@
+ 	MAKE_ENUM(GL_TRANSPOSE_TEXTURE_MATRIX),
+ 	MAKE_ENUM(GL_UNPACK_IMAGE_HEIGHT),
+ 	MAKE_ENUM(GL_UNPACK_SKIP_IMAGES),
++	MAKE_ENUM(GLU_SMOOTH),
+ 
+ #endif /* GL_VERSION_1_3 */
+ };
+@@ -4577,9 +4696,15 @@
+ 	{ "glMultiTexCoord4s",		scm_MultiTexCoord4s,		5, 5 },
+ 	{ "glMultiTexCoord4sv",		scm_MultiTexCoord4sv,		2, 2 },
+ 	{ "glSampleCoverage",		scm_SampleCoverage,		2, 2 },
+-
+ #endif /* GL_VERSION_1_3 */
+-
++	{ "gluNewQuadric", scm_gluNewQuadric, 0, 0},
++	{ "gluQuadricNormals", scm_gluQuadricNormals, 2, 2},
++	{ "gluQuadricTexture", scm_gluQuadricTexture, 2, 2},
++	{ "gluCylinder", scm_gluCylinder, 6, 6},
++	{ "gluDisk", scm_gluDisk, 5, 5},
++	{ "gluSphere", scm_gluSphere, 4, 4},
++	{ "gluPartialDisk", scm_gluPartialDisk, 7, 7},
++	{ "gluBuild2DMipmaps", scm_gluBuild2DMipmaps, 7, 7},
+ };
+ 
+ /*---------------------------------------------------------------------------*/
+@@ -4611,6 +4736,7 @@
+ Scheme_Object *scheme_initialize(Scheme_Env *env)
+ {
+   scheme_set_types();
++  quadric_type = scheme_make_type("<glu-quadric>");
+   return scheme_reload(env);
+ }
+ 
+diff -aur /plt/collects/sgl/sgl/gl-prims.h /plt-new/collects/sgl/gl-prims.h
+--- /plt/colllects/sgl/gl-prims.h	Wed Apr 28 14:06:41 2004
++++ /plt-new/collects/sgl/gl-prims.h	Fri May  7 09:45:38 2004
+@@ -25,11 +25,14 @@
+ 
+ #ifdef XONX
+ #include <GL/gl.h>
++#include <GL/glu.h>
+ #else
+ #ifdef OS_X
+ #include <OpenGL/gl.h>
++#include <OpenGL/glu.h>
+ #else
+ #include <GL/gl.h>
++#include <GL/glu.h>
+ #endif
+ #endif
+
+--- /plt/collects/sgl/gl.ss	Wed Oct  8 17:16:12 2003
++++ /plt-new/collects/sgl/gl.ss	Fri May  7 12:49:41 2004
+@@ -310,6 +310,15 @@
+   (r p glVertex4sv)
+   (r p glViewport)
+   
++  (r p gluNewQuadric)
++  (r p gluQuadricNormals)
++  (r p gluQuadricTexture)
++  (r p gluCylinder)
++  (r p gluDisk)
++  (r p gluSphere)
++  (r p gluPartialDisk)
++  (r p gluBuild2DMipmaps)
++
+   (r p GL_2D)
+   (r p GL_2_BYTES)
+   (r p GL_3D)
+@@ -1130,5 +1139,6 @@
+   (r13s p GL_UNPACK_IMAGE_HEIGHT)
+   (r13s p GL_UNPACK_SKIP_IMAGES)
+   
++  (r p GLU_SMOOTH)
+   
+   )
+
+Thanks
+Brendan Burns
+bburns@cs.umass.edu
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "sowens" by eli at Sun, 09 May 2004 23:48:14 -0400
+Reason>>> opengl request
+
+From: Scott Owens <sowens@cs.utah.edu>
+To: bburns@cs.umass.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/6850: OpenGL fix and GLU implementation.
+Date: Thu, 20 May 2004 19:35:30 -0600
+
+ Thank you for the bug fixes for fog and the GLU implementation.  I'd love to 
+ hear about your experience teaching with DrScheme and OpenGL.
+ 
+ Before I add the GLU functions into gl-prims.c, I'd like to verify two points.  
+ First, that the GLU functions are safe.  They look safe to me, but I'd like 
+ you to verify that you took this into account when writing them, in case I 
+ missed something.  Second, that the GLU functions are supposed to be present 
+ on any OpenGL installation, version 1.1 and higher.  I want sgl to compile on 
+ those older versions of GL, while still supporting more recent additions (1.2 
+ and 1.3) if they are present.
+ 
+ -Scott
+ 
+ On Sunday 09 May 2004 09:44 pm, bburns@cs.umass.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=6850
+ >
+ > Reported by Brendan Burns for release: 2.06p1
+ >
+ > *** Description:
+ > Hello,
+ > In teaching a graphics course with DrScheme I discovered a bug in the
+ > glFogfv and glFogiv implementations in gl-prims.c  Also I added support for
+ > a number of glu functions to gl-prims.c and gl.ss.
+ >
+ > A patch for all of this follows:
+ >
+ > diff -aur /plt/collects/sgl/gl-prims.c /plt-new/collects/sgl/gl-prims.c
+ > --- /plt/collects/sgl/gl-prims.c	Thu Jun 19 22:57:26 2003
+ > +++ /plt-new/collects/sgl/gl-prims.c	Fri May  7 12:57:33 2004
+ > @@ -2547,6 +2547,16 @@
+ > 
+ > /*-------------------------------------------------------------------------
+ >--*/ /* 3.10. Fog								     */
+ >
+ > +static int pnum_Fog(GLenum pname)
+ > +{
+ > +  if (pname==GL_FOG_COLOR) {
+ > +    return 4;
+ > +  }
+ > +  else {
+ > +    return 1;
+ > +  }
+ > +}
+ > +
+ >  static Scheme_Object *scm_Fogi(void *p, int c, Scheme_Object **v)
+ >  {
+ >  	glFogi(arg_GLenum(0), arg_GLint(1));
+ > @@ -2561,14 +2571,17 @@
+ >
+ >  static Scheme_Object *scm_Fogiv(void *p, int c, Scheme_Object **v)
+ >  {
+ > -	glFogiv(arg_GLenum(0), arg_GLintv(1, 1));
+ > -	return scheme_void;
+ > +  GLenum e = arg_GLenum(0);
+ > +  glFogiv(e, arg_GLintv(1, pnum_Fog(e)));
+ > +  return scheme_void;
+ >  }
+ >
+ >  static Scheme_Object *scm_Fogfv(void *p, int c, Scheme_Object **v)
+ >  {
+ > -	glFogfv(arg_GLenum(0), arg_GLfloatv(1, 1));
+ > -	return scheme_void;
+ > +  GLenum e = arg_GLenum(0);
+ > +
+ > +  glFogfv(e, arg_GLfloatv(1, pnum_Fog(e)));
+ > +  return scheme_void;
+ >  }
+ >
+ > 
+ > /*=========================================================================
+ >==*/ @@ -3400,6 +3413,111 @@
+ >  	return scheme_void;
+ >  }
+ >
+ > +
+ > +/** GLU Support **/
+ > +typedef struct {
+ > +  Scheme_Type type; /* Every Scheme value starts with a type tag.  The
+ > +		       format for the rest of the structure is
+ > +		       anything we want it to be. */
+ > +  GLUquadricObj *quad;
+ > +} scm_Quadric;
+ > +
+ > +static Scheme_Type quadric_type;
+ > +
+ > +static scm_Quadric *arg_quad(const char *name, Scheme_Object *arg,
+ > +		    int which, int argc, Scheme_Object **argv)
+ > +{
+ > +  if (arg->type == quadric_type) {
+ > +    return (scm_Quadric *)arg;
+ > +  }
+ > +  else
+ > +    scheme_wrong_type(name, "glu-quadric", which, argc, argv);
+ > +
+ > +  return 0;
+ > +}
+ > +
+ > +static void free_quad(void *p, void *data) {
+ > +  scm_Quadric *q = (scm_Quadric *)p;
+ > +  if (q->quad) {
+ > +    gluDeleteQuadric(q->quad);
+ > +  }
+ > +}
+ > +
+ > +Scheme_Object *scm_gluNewQuadric(void *p, int c, Scheme_Object **v) {
+ > +  scm_Quadric *q = (scm_Quadric *)scheme_malloc(sizeof(scm_Quadric));
+ > +  q->quad = gluNewQuadric();
+ > +  q->type = quadric_type;
+ > +  scheme_register_finalizer(q, free_quad, NULL, NULL, NULL);
+ > +
+ > +  return (Scheme_Object *)q;
+ > +}
+ > +
+ > +Scheme_Object *scm_gluQuadricNormals(void *p, int c, Scheme_Object **v) {
+ > +  gluQuadricNormals(arg_quad((char *)p, v[0], 0, c, v)->quad,
+ > +		    arg_GLenum(1));
+ > +  return scheme_void;
+ > +}
+ > +
+ > +Scheme_Object *scm_gluQuadricTexture(void *p, int c, Scheme_Object **v) {
+ > +  gluQuadricTexture(arg_quad((char *)p, v[0], 0, c, v)->quad,
+ > +		    arg_GLenum(1));
+ > +  return scheme_void;
+ > +}
+ > +
+ > +Scheme_Object *scm_gluCylinder(void *p, int c, Scheme_Object **v) {
+ > +  gluCylinder(arg_quad((char *)p, v[0], 0, c, v)->quad,
+ > +	      arg_GLdouble(1),
+ > +	      arg_GLdouble(2),
+ > +	      arg_GLdouble(3),
+ > +	      arg_GLint(4),
+ > +	      arg_GLint(5));
+ > +  return scheme_void;
+ > +}
+ > +
+ > +
+ > +Scheme_Object *scm_gluDisk(void *p, int c, Scheme_Object **v) {
+ > +  gluDisk(arg_quad((char *)p, v[0], 0, c, v)->quad,
+ > +	  arg_GLdouble(1),
+ > +	  arg_GLdouble(2),
+ > +	  arg_GLint(3),
+ > +	  arg_GLint(4));
+ > +  return scheme_void;
+ > +}
+ > +
+ > +Scheme_Object *scm_gluSphere(void *p, int c, Scheme_Object **v) {
+ > +  gluSphere(arg_quad((char *)p, v[0], 0, c, v)->quad,
+ > +	    arg_GLdouble(1),
+ > +	    arg_GLint(2),
+ > +	    arg_GLint(3));
+ > +  return scheme_void;
+ > +}
+ > +
+ > +Scheme_Object *scm_gluPartialDisk(void *p, int c, Scheme_Object **v) {
+ > +  gluPartialDisk(arg_quad((char *)p, v[0], 0, c, v)->quad,
+ > +		 arg_GLdouble(1),
+ > +		 arg_GLdouble(2),
+ > +		 arg_GLint(3),
+ > +		 arg_GLint(4),
+ > +		 arg_GLdouble(5),
+ > +		 arg_GLdouble(6));
+ > +  return scheme_void;
+ > +}
+ > +
+ > +Scheme_Object *scm_gluBuild2DMipmaps(void *p, int c, Scheme_Object **v) {
+ > +  GLsizei width = arg_GLsizei(2);
+ > +  GLsizei height = arg_GLsizei(3);
+ > +  GLenum t = arg_GLenum(5);
+ > +  gluBuild2DMipmaps(arg_GLenum(0),
+ > +		    arg_GLint(1),
+ > +		    width,
+ > +		    height,
+ > +		    arg_GLenum(4),
+ > +		    t,
+ > +		    arg_GLvoidv(6, width * height, t));
+ > +  return scheme_void;
+ > +}
+ > +
+ > +
+ > 
+ > /**************************************************************************
+ >***/ /* Scheme environment initialization					     */
+ >
+ > @@ -4169,6 +4287,7 @@
+ >  	MAKE_ENUM(GL_TRANSPOSE_TEXTURE_MATRIX),
+ >  	MAKE_ENUM(GL_UNPACK_IMAGE_HEIGHT),
+ >  	MAKE_ENUM(GL_UNPACK_SKIP_IMAGES),
+ > +	MAKE_ENUM(GLU_SMOOTH),
+ >
+ >  #endif /* GL_VERSION_1_3 */
+ >  };
+ > @@ -4577,9 +4696,15 @@
+ >  	{ "glMultiTexCoord4s",		scm_MultiTexCoord4s,		5, 5 },
+ >  	{ "glMultiTexCoord4sv",		scm_MultiTexCoord4sv,		2, 2 },
+ >  	{ "glSampleCoverage",		scm_SampleCoverage,		2, 2 },
+ > -
+ >  #endif /* GL_VERSION_1_3 */
+ > -
+ > +	{ "gluNewQuadric", scm_gluNewQuadric, 0, 0},
+ > +	{ "gluQuadricNormals", scm_gluQuadricNormals, 2, 2},
+ > +	{ "gluQuadricTexture", scm_gluQuadricTexture, 2, 2},
+ > +	{ "gluCylinder", scm_gluCylinder, 6, 6},
+ > +	{ "gluDisk", scm_gluDisk, 5, 5},
+ > +	{ "gluSphere", scm_gluSphere, 4, 4},
+ > +	{ "gluPartialDisk", scm_gluPartialDisk, 7, 7},
+ > +	{ "gluBuild2DMipmaps", scm_gluBuild2DMipmaps, 7, 7},
+ >  };
+ >
+ > 
+ > /*-------------------------------------------------------------------------
+ >--*/ @@ -4611,6 +4736,7 @@
+ >  Scheme_Object *scheme_initialize(Scheme_Env *env)
+ >  {
+ >    scheme_set_types();
+ > +  quadric_type = scheme_make_type("<glu-quadric>");
+ >    return scheme_reload(env);
+ >  }
+ >
+ > diff -aur /plt/collects/sgl/sgl/gl-prims.h /plt-new/collects/sgl/gl-prims.h
+ > --- /plt/colllects/sgl/gl-prims.h	Wed Apr 28 14:06:41 2004
+ > +++ /plt-new/collects/sgl/gl-prims.h	Fri May  7 09:45:38 2004
+ > @@ -25,11 +25,14 @@
+ >
+ >  #ifdef XONX
+ >  #include <GL/gl.h>
+ > +#include <GL/glu.h>
+ >  #else
+ >  #ifdef OS_X
+ >  #include <OpenGL/gl.h>
+ > +#include <OpenGL/glu.h>
+ >  #else
+ >  #include <GL/gl.h>
+ > +#include <GL/glu.h>
+ >  #endif
+ >  #endif
+ >
+ > --- /plt/collects/sgl/gl.ss	Wed Oct  8 17:16:12 2003
+ > +++ /plt-new/collects/sgl/gl.ss	Fri May  7 12:49:41 2004
+ > @@ -310,6 +310,15 @@
+ >    (r p glVertex4sv)
+ >    (r p glViewport)
+ >
+ > +  (r p gluNewQuadric)
+ > +  (r p gluQuadricNormals)
+ > +  (r p gluQuadricTexture)
+ > +  (r p gluCylinder)
+ > +  (r p gluDisk)
+ > +  (r p gluSphere)
+ > +  (r p gluPartialDisk)
+ > +  (r p gluBuild2DMipmaps)
+ > +
+ >    (r p GL_2D)
+ >    (r p GL_2_BYTES)
+ >    (r p GL_3D)
+ > @@ -1130,5 +1139,6 @@
+ >    (r13s p GL_UNPACK_IMAGE_HEIGHT)
+ >    (r13s p GL_UNPACK_SKIP_IMAGES)
+ >
+ > +  (r p GLU_SMOOTH)
+ >
+ >    )
+ >
+ > Thanks
+ > Brendan Burns
+ > bburns@cs.umass.edu
+ >
+ > *** How to repeat:
+ >
+ > *** Environment:
+ > mac-ppc-osx
+State changed from "open" to "closed" by sowens at Tue, 25 May 2004 16:14:23 -0400
+Reason>>> Bug fixed and changes added 
+

@@ -1,0 +1,237 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug 26 14:41:16 2016
+Received: from mail-it0-f41.google.com (mail-it0-f41.google.com [209.85.214.41])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u7QIfDS5015521
+	for <bugs@bugs.plt-scheme.org>; Fri, 26 Aug 2016 14:41:13 -0400
+Message-Id: <201608261841.u7QIfB6A015514@winooski.ccs.neu.edu>
+Date: Fri, 26 Aug 2016 14:41:11 -0400
+From: schuster@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: Insertion order affects mutable-set equality
+
+>Number:         15342
+>Category:       all
+>Synopsis:       Insertion order affects mutable-set equality
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Aug 26 14:44:01 -0400 2016
+>Last-Modified:  Fri Aug 26 15:24:01 -0400 2016
+>Originator:     Jonathan Schuster
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.6
+>Environment:
+unix "Linux atlantis 4.6.4-1-ARCH #1 SMP PREEMPT Mon Jul 11 19:12:32 CEST 2016 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 375020936
+raco pkg (show):
+Installation-wide:
+ Package            Checksum             Source
+ main-distribution  e24e5af07557ac0f...  catalog...tribution
+ racket-lib         21b7fee99c95a8d7...  catalog racket-lib
+ [185 auto-installed packages not shown]
+User-specific for installation "6.6":
+ [none]
+
+
+
+Collections:
+("/home/schu/.racket/6.6/collects"
+ (non-existent-path))
+("/usr/share/racket/collects"
+ ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test)) #t))
+>Description:
+When nesting mutable hash sets, it appears that the order the sets are inserted into each other affects the equality of the end result. See the program in the "Steps to reproduce" section for an example.
+
+In #racket, georges-duperon observed that this might be a result of hash tables having unpredictable behavior if the key is mutated. If that's the case, this should be mentioned in the mutable-sets documentation (but obviously a fix for this issue would be preferable, if possible).
+>How-To-Repeat:
+Run the following program:
+
+#lang racket
+
+;; The order in which mutable sets are nested appears to matter, even though it shouldn't. Below, s1
+;; is not equal? to s2 or s3, even though they all have equal? elements.
+
+(require rackunit)
+
+(define s1
+  (let ()
+    (define outer-set (mutable-set))
+    (define middle-set (mutable-set))
+    (set-add! outer-set middle-set)
+    (set-add! middle-set (mutable-set))
+    outer-set))
+
+(define s2
+  (let ()
+    (define outer-set (mutable-set))
+    (define middle-set (mutable-set))
+    (set-add! middle-set (mutable-set))
+    (set-add! outer-set middle-set)
+    outer-set))
+
+(define s3
+  (mutable-set
+   (mutable-set
+    (mutable-set))))
+
+(check-equal? (set->list s1) (set->list s2))
+(check-equal? (set->list s1) (set->list s3))
+(check-equal? (set->list s2) (set->list s3))
+(check-equal? s1 s2) ; this test fails
+(check-equal? s1 s3) ; this test fails, too
+(check-equal? s2 s3)
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: schuster@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15342: Insertion order affects mutable-set equality
+Date: Fri, 26 Aug 2016 12:52:21 -0600
+
+ Mutable keys and `equal?` hashing don't mix.
+ 
+ Maybe the docs for mutable hash sets should point to the "Caveat
+ concerning mutable keys" in the hash-table docs:
+ 
+ http://docs.racket-lang.org/reference/hashtables.html?q=hash-set#%28elem._%28caveat._mutable-keys%29%29
+ 
+ At Fri, 26 Aug 2016 14:44:02 -0400, schuster@ccs.neu.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15342
+ > 
+ > Reported by Jonathan Schuster for release: 6.6
+ > 
+ > *** Description:
+ > When nesting mutable hash sets, it appears that the order the sets are 
+ > inserted into each other affects the equality of the end result. See the 
+ > program in the "Steps to reproduce" section for an example.
+ > 
+ > In #racket, georges-duperon observed that this might be a result of hash 
+ > tables having unpredictable behavior if the key is mutated. If that's the 
+ > case, this should be mentioned in the mutable-sets documentation (but 
+ > obviously a fix for this issue would be preferable, if possible).
+ > 
+ > *** How to repeat:
+ > Run the following program:
+ > 
+ > #lang racket
+ > 
+ > ;; The order in which mutable sets are nested appears to matter, even though 
+ > it shouldn't. Below, s1
+ > ;; is not equal? to s2 or s3, even though they all have equal? elements.
+ > 
+ > (require rackunit)
+ > 
+ > (define s1
+ >   (let ()
+ >     (define outer-set (mutable-set))
+ >     (define middle-set (mutable-set))
+ >     (set-add! outer-set middle-set)
+ >     (set-add! middle-set (mutable-set))
+ >     outer-set))
+ > 
+ > (define s2
+ >   (let ()
+ >     (define outer-set (mutable-set))
+ >     (define middle-set (mutable-set))
+ >     (set-add! middle-set (mutable-set))
+ >     (set-add! outer-set middle-set)
+ >     outer-set))
+ > 
+ > (define s3
+ >   (mutable-set
+ >    (mutable-set
+ >     (mutable-set))))
+ > 
+ > (check-equal? (set->list s1) (set->list s2))
+ > (check-equal? (set->list s1) (set->list s3))
+ > (check-equal? (set->list s2) (set->list s3))
+ > (check-equal? s1 s2) ; this test fails
+ > (check-equal? s1 s3) ; this test fails, too
+ > (check-equal? s2 s3)
+ > 
+ > *** Environment:
+ > unix "Linux atlantis 4.6.4-1-ARCH #1 SMP PREEMPT Mon Jul 11 19:12:32 CEST 2016 
+ > x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 375020936
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package            Checksum             Source
+ >  main-distribution  e24e5af07557ac0f...  catalog...tribution
+ >  racket-lib         21b7fee99c95a8d7...  catalog racket-lib
+ >  [185 auto-installed packages not shown]
+ > User-specific for installation "6.6":
+ >  [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/home/schu/.racket/6.6/collects"
+ >  (non-existent-path))
+ > ("/usr/share/racket/collects"
+ >  ("acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" 
+ > "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" 
+ > "realm" "s-exp" "setup" "syntax" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) 
+ > (test)) #t))
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Jonathan Schuster <schuster@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15342: Insertion order affects mutable-set equality
+Date: Fri, 26 Aug 2016 14:12:04 -0500
+
+ On Fri, Aug 26, 2016 at 1:52 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > Mutable keys and `equal?` hashing don't mix.
+ >
+ > Maybe the docs for mutable hash sets should point to the "Caveat
+ > concerning mutable keys" in the hash-table docs:
+ >
+ > http://docs.racket-lang.org/reference/hashtables.html?q=hash-set#%28elem._%28caveat._mutable-keys%29%29
+ 
+ There should be a way to make a contract violation here, I feel like.
+ Not sure how, tho.
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Jonathan Schuster <schuster@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15342: Insertion order affects mutable-set equality
+Date: Fri, 26 Aug 2016 14:26:14 -0500
+
+ After some local discussion, we seem to be in agreement that updating
+ the docs (perhaps with some more aggressive language that explains how
+ bad the problems can get) is the right way to go.
+ 
+ Robby
+ 
+ 
+ On Fri, Aug 26, 2016 at 2:12 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Fri, Aug 26, 2016 at 1:52 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >> Mutable keys and `equal?` hashing don't mix.
+ >>
+ >> Maybe the docs for mutable hash sets should point to the "Caveat
+ >> concerning mutable keys" in the hash-table docs:
+ >>
+ >> http://docs.racket-lang.org/reference/hashtables.html?q=hash-set#%28elem._%28caveat._mutable-keys%29%29
+ >
+ > There should be a way to make a contract violation here, I feel like.
+ > Not sure how, tho.
+ >
+ > Robby

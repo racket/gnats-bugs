@@ -1,0 +1,82 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Oct  3 02:30:01 2014
+Received: from mail-ig0-f179.google.com (mail-ig0-f179.google.com [209.85.213.179])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s936TvMY015044
+	for <bugs@bugs.plt-scheme.org>; Fri, 3 Oct 2014 02:29:58 -0400
+Message-Id: <201410030629.s936TsGb015036@winooski.ccs.neu.edu>
+Date: Fri, 3 Oct 2014 02:29:54 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: `prefix-out' broken with spaces?
+
+>Number:         14761
+>Category:       all
+>Synopsis:       `prefix-out' broken with spaces?
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Oct 03 02:32:01 -0400 2014
+>Last-Modified:  Sat Nov 08 18:20:01 -0500 2014
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1
+>Environment:
+Any
+>Description:
+Running the code below barfs that | +| is undefined.  Un-commenting the
+`rename-out' shows that it's possible to get it bounf.  Also, changing
+the space into something else like "\-" in both places makes it work --
+so the issue seems to be with `prefix-out' and spaces.
+>How-To-Repeat:
+#lang racket/load
+(module foo racket
+  (provide (prefix-out \  (all-from-out racket))
+           ;; (rename-out [+ \ +])
+           #%app #%module-begin #%datum #%top))
+(require 'foo)
+(displayln \ +)
+>Fix:
+>Audit-Trail:
+From: Gustavo Massaccesi <gustavo@oma.org.ar>
+To: Bugs Racket <bugs@racket-lang.org>
+Cc: 
+Subject: Fwd: all/14761: `prefix-out' broken with spaces?
+Date: Sat, 8 Nov 2014 20:17:00 -0300
+
+ The second "argument" of prefix-out has the same problem:
+ 
+ #lang racket/load
+ (module foo racket
+   (define | | 0)
+   (provide (prefix-out | | +))
+   (provide (prefix-out + | |))
+ )
+ (require 'foo)
+ (displayln | +|)
+ (displayln |+ |)
+ 
+ The problem is in [plt]/racket/collects/racket/private/reqprov.rkt in
+ the line 1074. It calls something like
+     (string->symbol (format "~s~s" '\  '+)) ;==> '\|\ \|+
+ but it should call
+     (string->symbol (format "~a~a" '\  '+)) ;==> '| +|
+ (note: prefix-in already uses "~a~a")
+ 
+ I'm sending a PR to github.
+ 
+ I looked for other similar patterns in the Racket repository:
+ http://git.racket-lang.org//plt?a=search&h=b7d2722d7da3db3a664857f7e0854a08abb2f45f&st=grep&s=%7Es%7Es
+ 
+ I think there are other 6 instances that should be fixed:
+ [plt] pkgs/redex-pkgs/redex-lib/redex/private/compiler/match.rkt (3 instances)
+ [plt] pkgs/redex-pkgs/redex-lib/redex/private/compiler/redextomatrix.rkt
+  (3 instances)
+ and a few places that should not change.
+ 
+ But I don't know enough about redex to be sure that this is the correct fix.
+ 
+ Gustavo

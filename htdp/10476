@@ -1,0 +1,478 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Sep 21 12:27:19 2009
+Received: from mail-yx0-f192.google.com (mail-yx0-f192.google.com [209.85.210.192])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n8LGREjl001272
+	for <bugs@bugs.plt-scheme.org>; Mon, 21 Sep 2009 12:27:14 -0400
+Message-Id: <200909211627.n8LGRC0h001265@champlain.ccs.neu.edu>
+Date: Mon, 21 Sep 2009 12:27:12 -0400
+From: kfisler@cs.wpi.edu
+To: bugs@plt-scheme.org
+Subject: width/height seems to require a times-two
+
+>Number:         10476
+>Category:       htdp
+>Synopsis:       width/height seems to require a times-two
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Sep 21 12:28:01 -0400 2009
+>Closed-Date:    Fri May 06 02:24:34 -0400 2011
+>Last-Modified:  Fri May 06 02:24:34 -0400 2011
+>Originator:     Kathi Fisler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.1
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 107476016
+
+Collections:
+(("C:\\Documents and Settings\\kfisler\\Application Data\\PLT Scheme\\4.2.1\\collects" non-existent-path) ("C:\\Program Files\\PLT\\4.2.1\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced Student") (#(#t constructor repeating-decimal #t #t none) #f ((lib "universe.ss" "teachpack" "2htdp"))))
+>Description:
+This program seems to require a * 2 of width and height to get things of the right size. I have another program at home that seems to have the same problem.
+>How-To-Repeat:
+; Filter out UFOs that get above or below a line.
+; This motivates list->list functions.
+
+(define WIDTH 600)
+(define HEIGHT 200)
+(define BOUNDARY 25)
+
+; A list-of-UFOs is
+; - empty, or
+; - (cons posn list-of-UFOs)
+
+; A world is a list-of-UFOs
+
+(define initial-world empty)
+
+(define UFO (overlay (circle 10 "solid" "red") 
+                     (rectangle 40 5 "solid" "blue")))
+
+(define BACKGROUND
+  (place-image (rectangle (* WIDTH 2) 1 "solid" "blue")
+               0
+               BOUNDARY
+               (place-image (rectangle (* WIDTH 2) 1 "solid" "brown")
+                            0
+                            (- HEIGHT BOUNDARY)
+                            (empty-scene WIDTH HEIGHT))))
+
+; draw: world -> scene
+(define (draw w)
+  (cond
+    [(empty? w) BACKGROUND]
+    [(cons? w) (place-image UFO
+                            (posn-x (first w))
+                            (posn-y (first w))
+                            (draw (rest w)))]))
+
+; perturb-within: num[low] num[high] num[the-value] -> num[the-new-value]
+(define (perturb-within low high v)
+  (max low (min high (+ v (- (random 11) 5)))))
+
+; move-one-ufo: posn -> posn
+(define (move-one-ufo p)
+  (make-posn (perturb-within 0 WIDTH (posn-x p))
+             (perturb-within 0 HEIGHT (posn-y p))))
+
+; move-all-ufos: world -> world
+(define (move-all-ufos w)
+  (cond
+    [(empty? w) empty]
+    [(cons? w) (cons (move-one-ufo (first w))
+                     (move-all-ufos (rest w)))]))
+
+; oob?: posn -> bool
+(define (in-bound? p)
+  (< BOUNDARY (posn-y p) (- HEIGHT BOUNDARY)))
+
+; remove-oob-ufos: world -> world
+(define (remove-oob-ufos w)
+  (cond
+    [(empty? w) empty]
+    [(cons? w) (if (in-bound? (first w))
+                   (cons (first w) (remove-oob-ufos (rest w)))
+                   (rest w))]))
+
+; move-all-remaining-ufos: world -> world
+(define (move-all-remaining-ufos w)
+  (remove-oob-ufos (move-all-ufos w)))
+
+; create-ufo: world key -> world
+(define (create-ufo w key)
+  (cond
+    [(key=? key "release") w]
+    [else (cons (make-posn (random WIDTH)
+                           (random HEIGHT))
+                w)]))
+
+(big-bang initial-world
+          (on-draw draw)
+          (on-key create-ufo)
+          (on-tick move-all-remaining-ufos 1/10))
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: kfisler@cs.wpi.edu, bugs@plt-scheme.org
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [plt-bug] all/10476: width/height seems to require a times-two
+Date: Mon, 21 Sep 2009 11:38:23 -0500
+
+ Is there perhaps a smaller program that illustrates what you mean more
+ clearly? I'm just guessing, but it looks like there is something about
+ place-image that seems wrong to you?
+ 
+ Robby
+ 
+ On Mon, Sep 21, 2009 at 11:28 AM,  <kfisler@cs.wpi.edu> wrote:
+ > A new problem report is waiting at
+ > =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10476
+ >
+ > Reported by Kathi Fisler for release: 4.2.1
+ >
+ > *** Description:
+ > This program seems to require a * 2 of width and height to get things of =
+ the right size. I have another program at home that seems to have the same =
+ problem.
+ >
+ > *** How to repeat:
+ > ; Filter out UFOs that get above or below a line.
+ > ; This motivates list->list functions.
+ >
+ > (define WIDTH 600)
+ > (define HEIGHT 200)
+ > (define BOUNDARY 25)
+ >
+ > ; A list-of-UFOs is
+ > ; - empty, or
+ > ; - (cons posn list-of-UFOs)
+ >
+ > ; A world is a list-of-UFOs
+ >
+ > (define initial-world empty)
+ >
+ > (define UFO (overlay (circle 10 "solid" "red")
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (re=
+ ctangle 40 5 "solid" "blue")))
+ >
+ > (define BACKGROUND
+ > =C2=A0(place-image (rectangle (* WIDTH 2) 1 "solid" "blue")
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 0
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 BOUNDARY
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (place-image (rectangle =
+ (* WIDTH 2) 1 "solid" "brown")
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A00
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(- HEIGHT BOUNDARY)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(empty-scene WIDTH HEIGHT))))
+ >
+ > ; draw: world -> scene
+ > (define (draw w)
+ > =C2=A0(cond
+ > =C2=A0 =C2=A0[(empty? w) BACKGROUND]
+ > =C2=A0 =C2=A0[(cons? w) (place-image UFO
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(posn-x (first w))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(posn-y (first w))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(draw (rest w)))]))
+ >
+ > ; perturb-within: num[low] num[high] num[the-value] -> num[the-new-value]
+ > (define (perturb-within low high v)
+ > =C2=A0(max low (min high (+ v (- (random 11) 5)))))
+ >
+ > ; move-one-ufo: posn -> posn
+ > (define (move-one-ufo p)
+ > =C2=A0(make-posn (perturb-within 0 WIDTH (posn-x p))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (perturb-within 0 HEIGHT (posn-=
+ y p))))
+ >
+ > ; move-all-ufos: world -> world
+ > (define (move-all-ufos w)
+ > =C2=A0(cond
+ > =C2=A0 =C2=A0[(empty? w) empty]
+ > =C2=A0 =C2=A0[(cons? w) (cons (move-one-ufo (first w))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (mo=
+ ve-all-ufos (rest w)))]))
+ >
+ > ; oob?: posn -> bool
+ > (define (in-bound? p)
+ > =C2=A0(< BOUNDARY (posn-y p) (- HEIGHT BOUNDARY)))
+ >
+ > ; remove-oob-ufos: world -> world
+ > (define (remove-oob-ufos w)
+ > =C2=A0(cond
+ > =C2=A0 =C2=A0[(empty? w) empty]
+ > =C2=A0 =C2=A0[(cons? w) (if (in-bound? (first w))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (cons (fir=
+ st w) (remove-oob-ufos (rest w)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (rest w))]=
+ ))
+ >
+ > ; move-all-remaining-ufos: world -> world
+ > (define (move-all-remaining-ufos w)
+ > =C2=A0(remove-oob-ufos (move-all-ufos w)))
+ >
+ > ; create-ufo: world key -> world
+ > (define (create-ufo w key)
+ > =C2=A0(cond
+ > =C2=A0 =C2=A0[(key=3D? key "release") w]
+ > =C2=A0 =C2=A0[else (cons (make-posn (random WIDTH)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (random HEIGHT))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0w)]))
+ >
+ > (big-bang initial-world
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(on-draw draw)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(on-key create-ufo)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(on-tick move-all-remaining-ufos 1/10))
+ >
+ > *** Environment:
+ > windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386\3m) (get=
+ -display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 107476016
+ >
+ > Collections:
+ > (("C:\\Documents and Settings\\kfisler\\Application Data\\PLT Scheme\\4.2=
+ .1\\collects" non-existent-path) ("C:\\Program Files\\PLT\\4.2.1\\collects"=
+  "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" =
+ "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl=
+ " "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-de=
+ bugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang=
+ " "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom=
+ " "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "prepro=
+ cessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "=
+ scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slidesh=
+ ow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "synt=
+ ax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict=
+ " "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+ > Computer Language: (("Teaching Languages" "How to Design Programs" "Advan=
+ ced Student") (#(#t constructor repeating-decimal #t #t none) #f ((lib "uni=
+ verse.ss" "teachpack" "2htdp"))))
+ >
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: kfisler@cs.wpi.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10476: width/height seems to require a times-two
+Date: Mon, 21 Sep 2009 13:31:57 -0400
+
+ --Apple-Mail-46-369210813
+ Content-Type: text/plain;
+ 	charset=US-ASCII;
+ 	format=flowed
+ Content-Transfer-Encoding: 7bit
+ 
+ 
+ Kathi, I believe you're talking about the following problem.
+ 
+ When you replace (* WIDTH 2) with WIDTH in the following definition,
+ 
+ (define BACKGROUND
+   (place-image (rectangle WIDTH #;(* WIDTH 2) 1 "solid" "blue")
+                0
+                BOUNDARY
+                (place-image (rectangle (* WIDTH 2) 1 "solid" "brown")
+                             0
+                             (- HEIGHT BOUNDARY)
+                             (empty-scene WIDTH HEIGHT))))
+ 
+ 
+ you get a blue line/rectangle that is only half as wide as the brown
+ one below, for which you chose WIDTH. I am attaching the image you
+ get for clarity (embedded if you are using Mail on Mac).
+ 
+ 
+ --Apple-Mail-46-369210813
+ Content-Disposition: inline;
+ 	filename=10476.png
+ Content-Type: image/png;
+ 	x-unix-mode=0644;
+ 	name="10476.png"
+ Content-Transfer-Encoding: base64
+ 
+ iVBORw0KGgoAAAANSUhEUgAAAlgAAADICAYAAAA0n5+2AAADz0lEQVR4nO3ZwWlDAQwFQSm4lJSR
+ 8tK3XEJyWPhgZip4J7GgnZkbAAAyr5mZO40FAFDY3fl6egQAwKcRWAAAMYEFABATWAAAMYEFABAT
+ WAAAMYEFABATWAAAMYEFABATWAAAMYEFABATWAAAMYEFABATWAAAMYEFABATWAAAMYEFABATWAAA
+ MYEFABATWAAAMYEFABATWAAAMYEFABB7zdzsPj0D4G93Ty8A+J/XzM65WgAAGS9CAICYwAIAiAks
+ AICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICY
+ wAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIA
+ iAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAks
+ AICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICY
+ wAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIA
+ iAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAks
+ AICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICY
+ wAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIA
+ iAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAks
+ AICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICY
+ wAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiAksAICYwAIA
+ iAksAICYwAIAiAksAICYwAIAiAksAICYwAIAiO3vz/c9PQIA4JPszNydxgIAKOyuFyEAQE1gAQDE
+ BBYAQExgAQDEBBYAQExgAQDEBBYAQExgAQDEBBYAQExgAQDEBBYAQExgAQDEBBYAQExgAQDEBBYA
+ QExgAQDEBBYAQExgAQDEBBYAQExgAQDEBBYAQExgAQDEdmbu6REAAJ/kDUlyEnBzMG1LAAAAAElF
+ TkSuQmCC
+ 
+ --Apple-Mail-46-369210813
+ Content-Type: text/plain;
+ 	charset=US-ASCII;
+ 	format=flowed;
+ 	delsp=yes
+ Content-Transfer-Encoding: 7bit
+ 
+ 
+ 
+ 
+ 
+ This isn't a problem of Universe but a common simple bug in your
+ program due to the pinholes. The pinhole is in the center, and
+ when you use placeimage, you are putting the x pinhole on the
+ left boundary -- asking for the rest of the blue rectangle to be
+ cut off.
+ 
+ Use nw:rectange instead, and your program works fine.
+ 
+ Better still, use scene+line instead:
+ 
+ (define mt (empty-scene WIDTH HEIGHT))
+ (define mt+blue (scene+line mt 0 BOUNDARY WIDTH BOUNDARY "blue"))
+ (define mt+brown (scene+line mt+blue 0 (- HEIGHT BOUNDARY) WIDTH (-  
+ HEIGHT BOUNDARY) "brown"))
+ (define BACKGROUND mt+brown)
+ 
+ ;; ---
+ 
+ It it's any consolation, I tend to forget about pinholes in rectangles.
+ 
+ Plus Robby's working on making pinholes disappear.
+ 
+ 
+ 
+ 
+ --Apple-Mail-46-369210813--
+From: Shriram Krishnamurthi <sk@cs.brown.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, kfisler@cs.wpi.edu, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10476: width/height seems to require a times-two
+Date: Mon, 21 Sep 2009 14:13:35 -0400
+
+ --0015177404c6b2417a04741a70c9
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Aaaah!  Doh, I totally missed that.  Thanks!
+ 
+ On Sep 21, 2009 1:32 PM, "Matthias Felleisen" <matthias@ccs.neu.edu> wrote:
+ 
+ 
+ Kathi, I believe you're talking about the following problem.
+ 
+ When you replace (* WIDTH 2) with WIDTH in the following definition,
+ 
+ (define BACKGROUND
+  (place-image (rectangle WIDTH #;(* WIDTH 2) 1 "solid" "blue")
+ 
+              0              BOUNDARY              (place-image (rectangle (*
+ WIDTH 2) 1 "solid" "br...
+ you get a blue line/rectangle that is only half as wide as the brown
+ one below, for which you chose WIDTH. I am attaching the image you
+ get for clarity (embedded if you are using Mail on Mac).
+ 
+ 
+ 
+ 
+ 
+ 
+ This isn't a problem of Universe but a common simple bug in your
+ program due to the pinholes. The pinhole is in the center, and
+ when you use placeimage, you are putting the x pinhole on the
+ left boundary -- asking for the rest of the blue rectangle to be
+ cut off.
+ 
+ Use nw:rectange instead, and your program works fine.
+ 
+ Better still, use scene+line instead:
+ 
+ (define mt (empty-scene WIDTH HEIGHT))
+ (define mt+blue (scene+line mt 0 BOUNDARY WIDTH BOUNDARY "blue"))
+ (define mt+brown (scene+line mt+blue 0 (- HEIGHT BOUNDARY) WIDTH (- HEIGHT
+ BOUNDARY) "brown"))
+ (define BACKGROUND mt+brown)
+ 
+ ;; ---
+ 
+ It it's any consolation, I tend to forget about pinholes in rectangles.
+ 
+ Plus Robby's working on making pinholes disappear.
+ 
+ --0015177404c6b2417a04741a70c9
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p>Aaaah!=A0 Doh, I totally missed that.=A0 Thanks!</p>
+ <p><blockquote type=3D"cite">On Sep 21, 2009 1:32 PM, &quot;Matthias Fellei=
+ sen&quot; &lt;<a href=3D"mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu<=
+ /a>&gt; wrote:<br><br><br>
+ Kathi, I believe you&#39;re talking about the following problem.<br>
+ <br>
+ When you replace (* WIDTH 2) with WIDTH in the following definition,<br>
+ <br>
+ (define BACKGROUND<br>
+ =A0(place-image (rectangle WIDTH #;(* WIDTH 2) 1 &quot;solid&quot; &quot;bl=
+ ue&quot;)<p><font color=3D"#500050">
+ =A0 =A0 =A0 =A0 =A0 =A0 =A00
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0BOUNDARY
+ =A0 =A0 =A0 =A0 =A0 =A0 =A0(place-image (rectangle (* WIDTH 2) 1 &quot;soli=
+ d&quot; &quot;br...</font></p>
+ you get a blue line/rectangle that is only half as wide as the brown<br>
+ one below, for which you chose WIDTH. I am attaching the image you<br>
+ get for clarity (embedded if you are using Mail on Mac).<br>
+ <br>
+ <br><br>
+ <br>
+ <br>
+ <br>
+ This isn&#39;t a problem of Universe but a common simple bug in your<br>
+ program due to the pinholes. The pinhole is in the center, and<br>
+ when you use placeimage, you are putting the x pinhole on the<br>
+ left boundary -- asking for the rest of the blue rectangle to be<br>
+ cut off.<br>
+ <br>
+ Use nw:rectange instead, and your program works fine.<br>
+ <br>
+ Better still, use scene+line instead:<br>
+ <br>
+ (define mt (empty-scene WIDTH HEIGHT))<br>
+ (define mt+blue (scene+line mt 0 BOUNDARY WIDTH BOUNDARY &quot;blue&quot;))=
+ <br>
+ (define mt+brown (scene+line mt+blue 0 (- HEIGHT BOUNDARY) WIDTH (- HEIGHT =
+ BOUNDARY) &quot;brown&quot;))<br>
+ (define BACKGROUND mt+brown)<br>
+ <br>
+ ;; ---<br>
+ <br>
+ It it&#39;s any consolation, I tend to forget about pinholes in rectangles.=
+ <br>
+ <br>
+ Plus Robby&#39;s working on making pinholes disappear.<br>
+ <br>
+ <br>
+ <br>
+ <br></blockquote></p>
+ 
+ --0015177404c6b2417a04741a70c9--
+
+Responsible changed from "nobody" to "robby" by ryanc at Fri, 06 May 2011 02:24:34 -0400
+Reason>>> image
+
+State changed from "open" to "closed" by ryanc at Fri, 06 May 2011 02:24:34 -0400
+Reason>>> resolved
+

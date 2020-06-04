@@ -1,0 +1,1671 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Feb  2 15:25:24 2015
+Received: from mail-oi0-f42.google.com (mail-oi0-f42.google.com [209.85.218.42])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t12KPIh4020628
+	for <bugs@bugs.plt-scheme.org>; Mon, 2 Feb 2015 15:25:18 -0500
+Message-Id: <201502022025.t12KPGti020621@winooski.ccs.neu.edu>
+Date: Mon, 2 Feb 2015 15:25:16 -0500
+From: samth@cs.indiana.edu
+To: bugs@racket-lang.org
+Subject: reentrant promise error from lazy-require
+
+>Number:         14963
+>Category:       all
+>Synopsis:       reentrant promise error from lazy-require
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Feb 02 15:28:01 -0500 2015
+>Last-Modified:  Wed Feb 04 10:28:01 -0500 2015
+>Originator:     Sam Tobin-Hochstadt
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.6
+>Environment:
+unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15 22:27:29 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 141846036
+raco pkg (show):
+Installation-wide:
+ Package                 Checksum           Source
+ ansi                    9813d6df...        catalog.../master
+ bit-struct              63f99d15...        url.../bit-struct
+ cext-lib                cc22e245...        catalog...ext-lib
+ check-sexp-equal        3e200dc8...        url...-sexp-equal
+ disassemble             cf0ee3a5...        catalog...ssemble
+ drdr                    0e391ddb...        clone...cket/drdr
+ drracket-solarized      039c3181...        url...t-solarized
+ find-parent-dir                            link...parent-dir
+ frog                    0a04c70c...        catalog frog
+ git-slice               1f06d26f...        clone...git-slice
+ gradual-typing-bib                         link...typing-bib
+ honu                    6a982c11...        catalog...et/honu
+ langs                                      link...2014/langs
+ main-distribution       490d0883...        catalog...ibution
+ main-distribution-test  f0f27322...        catalog...on-test
+ mongodb                 76b8b080...        clone...e/mongodb
+ net                     81b8f896...        clone...?path=net
+ optimization-coach      085854ec...        catalog...n-coach
+ paste_rkt                                  link.../paste.rkt
+ pict-utils                                 link...pict-utils
+ pkg-dep-draw            10ccd520...        clone...-dep-draw
+ pkg-index               5a04dc61...        clone...pkg-index
+ plai-typed              c3ffba5e...        catalog.../master
+ ppict-slide-grid        1e992183...        catalog...de-grid
+ pycket-lang                                link...ycket-lang
+ racket-lib                                 static-link...lib
+ racket-test-core                           static-link...ore
+ raco-bug                21d5b6aa...        clone.../raco-bug
+ raco-find-collection    8793a731...        catalog.../master
+ ralist                  560c7062...        catalog.../master
+ sandbox-lib             3987e672...        clone...ndbox-lib
+ scheme-lib              5574d486...        clone...cheme-lib
+ typed-racket            29e4be44...        clone...ed-racket
+ [206 auto-installed packages not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/samth/sw/plt/add-on/development/collects"
+ (non-existent-path))
+("/home/samth/sw/plt/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+>Description:
+Run this program, and then enter 3 at the prompt:
+
+#lang racket
+
+(require racket/sandbox)
+
+(define past-input (list))
+
+(define ev (make-evaluator 'racket/base))
+
+(define (restore i)
+  (set! past-input i)
+  (set! ev (make-evaluator 'racket/base))
+  (for ([e i]) (ev e)))
+(require syntax/parse)
+(define (new-eval v)
+  (syntax-parse v 
+    [(_ . U:id)
+     #:when (eq? (syntax-e #'U) 'UNDO)
+     (restore past-input)]
+    [_ (set! past-input (cons v past-input))
+       (ev v)]))
+
+(parameterize ([current-eval new-eval])
+  (read-eval-print-loop))
+
+You get the error: force: reentrant promise `fun-p'
+It seems to come from the implementation of `lazy-require`.
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: samth@cs.indiana.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14963: reentrant promise error from lazy-require
+Date: Tue, 03 Feb 2015 14:18:00 -0500
+
+ I think the problem is that syntax-parse uses lazy-require with 
+ functions protected by contracts. When a function is needed at runtime, 
+ lazy-require performs a dynamic-require, which for syntax exports (like 
+ contracted functions), calls eval, which apparently has been overridden 
+ using the current-eval parameter.
+ 
+ One solution would be to have the procedures created by lazy-require 
+ remember and restore the value of current-eval from when they're 
+ created. Or maybe it should capture the whole parameterization?
+ 
+ A workaround is to remember the original evaluator as old-eval and 
+ parameterize current-eval to old-eval immediately inside the body of 
+ new-eval. Optionally, parameterize it back around the calls to ev and 
+ restore, depending on what you want the behavior of interactions like
+ 
+    > (eval 'UNDO)
+ 
+ to mean.
+ 
+ Ryan
+ 
+ 
+ 
+ On 02/02/2015 03:28 PM, samth@cs.indiana.edu wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=14963
+ >
+ > Reported by Sam Tobin-Hochstadt for release: 6.1.1.6
+ >
+ > *** Description:
+ > Run this program, and then enter 3 at the prompt:
+ >
+ > #lang racket
+ >
+ > (require racket/sandbox)
+ >
+ > (define past-input (list))
+ >
+ > (define ev (make-evaluator 'racket/base))
+ >
+ > (define (restore i)
+ >    (set! past-input i)
+ >    (set! ev (make-evaluator 'racket/base))
+ >    (for ([e i]) (ev e)))
+ > (require syntax/parse)
+ > (define (new-eval v)
+ >    (syntax-parse v
+ >      [(_ . U:id)
+ >       #:when (eq? (syntax-e #'U) 'UNDO)
+ >       (restore past-input)]
+ >      [_ (set! past-input (cons v past-input))
+ >         (ev v)]))
+ >
+ > (parameterize ([current-eval new-eval])
+ >    (read-eval-print-loop))
+ >
+ > You get the error: force: reentrant promise `fun-p'
+ > It seems to come from the implementation of `lazy-require`.
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15 22:27:29 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 141846036
+ > raco pkg (show):
+ > Installation-wide:
+ >   Package                 Checksum           Source
+ >   ansi                    9813d6df...        catalog.../master
+ >   bit-struct              63f99d15...        url.../bit-struct
+ >   cext-lib                cc22e245...        catalog...ext-lib
+ >   check-sexp-equal        3e200dc8...        url...-sexp-equal
+ >   disassemble             cf0ee3a5...        catalog...ssemble
+ >   drdr                    0e391ddb...        clone...cket/drdr
+ >   drracket-solarized      039c3181...        url...t-solarized
+ >   find-parent-dir                            link...parent-dir
+ >   frog                    0a04c70c...        catalog frog
+ >   git-slice               1f06d26f...        clone...git-slice
+ >   gradual-typing-bib                         link...typing-bib
+ >   honu                    6a982c11...        catalog...et/honu
+ >   langs                                      link...2014/langs
+ >   main-distribution       490d0883...        catalog...ibution
+ >   main-distribution-test  f0f27322...        catalog...on-test
+ >   mongodb                 76b8b080...        clone...e/mongodb
+ >   net                     81b8f896...        clone...?path=net
+ >   optimization-coach      085854ec...        catalog...n-coach
+ >   paste_rkt                                  link.../paste.rkt
+ >   pict-utils                                 link...pict-utils
+ >   pkg-dep-draw            10ccd520...        clone...-dep-draw
+ >   pkg-index               5a04dc61...        clone...pkg-index
+ >   plai-typed              c3ffba5e...        catalog.../master
+ >   ppict-slide-grid        1e992183...        catalog...de-grid
+ >   pycket-lang                                link...ycket-lang
+ >   racket-lib                                 static-link...lib
+ >   racket-test-core                           static-link...ore
+ >   raco-bug                21d5b6aa...        clone.../raco-bug
+ >   raco-find-collection    8793a731...        catalog.../master
+ >   ralist                  560c7062...        catalog.../master
+ >   sandbox-lib             3987e672...        clone...ndbox-lib
+ >   scheme-lib              5574d486...        clone...cheme-lib
+ >   typed-racket            29e4be44...        clone...ed-racket
+ >   [206 auto-installed packages not shown]
+ > User-specific for installation "development":
+ >   [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/home/samth/sw/plt/add-on/development/collects"
+ >   (non-existent-path))
+ > ("/home/samth/sw/plt/racket/collects"
+ >   (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >
+ 
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14963: reentrant promise error from lazy-require
+Date: Tue, 3 Feb 2015 16:18:40 -0500
+
+ It seems wrong to me that `current-eval` affects the behavior of
+ `lazy-require`. That doesn't mean I have a strong opinion about how it
+ should interact with `dynamic-require`, though.
+ 
+ Sam
+ 
+ On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ > I think the problem is that syntax-parse uses lazy-require with functions
+ > protected by contracts. When a function is needed at runtime, lazy-require
+ > performs a dynamic-require, which for syntax exports (like contracted
+ > functions), calls eval, which apparently has been overridden using the
+ > current-eval parameter.
+ >
+ > One solution would be to have the procedures created by lazy-require
+ > remember and restore the value of current-eval from when they're created. Or
+ > maybe it should capture the whole parameterization?
+ >
+ > A workaround is to remember the original evaluator as old-eval and
+ > parameterize current-eval to old-eval immediately inside the body of
+ > new-eval. Optionally, parameterize it back around the calls to ev and
+ > restore, depending on what you want the behavior of interactions like
+ >
+ >   > (eval 'UNDO)
+ >
+ > to mean.
+ >
+ > Ryan
+ >
+ >
+ >
+ >
+ > On 02/02/2015 03:28 PM, samth@cs.indiana.edu wrote:
+ >>
+ >> A new problem report is waiting at
+ >>    http://bugs.racket-lang.org/query/?cmd=view&pr=14963
+ >>
+ >> Reported by Sam Tobin-Hochstadt for release: 6.1.1.6
+ >>
+ >> *** Description:
+ >> Run this program, and then enter 3 at the prompt:
+ >>
+ >> #lang racket
+ >>
+ >> (require racket/sandbox)
+ >>
+ >> (define past-input (list))
+ >>
+ >> (define ev (make-evaluator 'racket/base))
+ >>
+ >> (define (restore i)
+ >>    (set! past-input i)
+ >>    (set! ev (make-evaluator 'racket/base))
+ >>    (for ([e i]) (ev e)))
+ >> (require syntax/parse)
+ >> (define (new-eval v)
+ >>    (syntax-parse v
+ >>      [(_ . U:id)
+ >>       #:when (eq? (syntax-e #'U) 'UNDO)
+ >>       (restore past-input)]
+ >>      [_ (set! past-input (cons v past-input))
+ >>         (ev v)]))
+ >>
+ >> (parameterize ([current-eval new-eval])
+ >>    (read-eval-print-loop))
+ >>
+ >> You get the error: force: reentrant promise `fun-p'
+ >> It seems to come from the implementation of `lazy-require`.
+ >>
+ >> *** How to repeat:
+ >>
+ >>
+ >> *** Environment:
+ >> unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15 22:27:29
+ >> UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >> (get-display-depth) = 32
+ >> Human Language: english
+ >> (current-memory-use) 141846036
+ >> raco pkg (show):
+ >> Installation-wide:
+ >>   Package                 Checksum           Source
+ >>   ansi                    9813d6df...        catalog.../master
+ >>   bit-struct              63f99d15...        url.../bit-struct
+ >>   cext-lib                cc22e245...        catalog...ext-lib
+ >>   check-sexp-equal        3e200dc8...        url...-sexp-equal
+ >>   disassemble             cf0ee3a5...        catalog...ssemble
+ >>   drdr                    0e391ddb...        clone...cket/drdr
+ >>   drracket-solarized      039c3181...        url...t-solarized
+ >>   find-parent-dir                            link...parent-dir
+ >>   frog                    0a04c70c...        catalog frog
+ >>   git-slice               1f06d26f...        clone...git-slice
+ >>   gradual-typing-bib                         link...typing-bib
+ >>   honu                    6a982c11...        catalog...et/honu
+ >>   langs                                      link...2014/langs
+ >>   main-distribution       490d0883...        catalog...ibution
+ >>   main-distribution-test  f0f27322...        catalog...on-test
+ >>   mongodb                 76b8b080...        clone...e/mongodb
+ >>   net                     81b8f896...        clone...?path=net
+ >>   optimization-coach      085854ec...        catalog...n-coach
+ >>   paste_rkt                                  link.../paste.rkt
+ >>   pict-utils                                 link...pict-utils
+ >>   pkg-dep-draw            10ccd520...        clone...-dep-draw
+ >>   pkg-index               5a04dc61...        clone...pkg-index
+ >>   plai-typed              c3ffba5e...        catalog.../master
+ >>   ppict-slide-grid        1e992183...        catalog...de-grid
+ >>   pycket-lang                                link...ycket-lang
+ >>   racket-lib                                 static-link...lib
+ >>   racket-test-core                           static-link...ore
+ >>   raco-bug                21d5b6aa...        clone.../raco-bug
+ >>   raco-find-collection    8793a731...        catalog.../master
+ >>   ralist                  560c7062...        catalog.../master
+ >>   sandbox-lib             3987e672...        clone...ndbox-lib
+ >>   scheme-lib              5574d486...        clone...cheme-lib
+ >>   typed-racket            29e4be44...        clone...ed-racket
+ >>   [206 auto-installed packages not shown]
+ >> User-specific for installation "development":
+ >>   [none]
+ >>
+ >>
+ >>
+ >> Collections:
+ >> ("/home/samth/sw/plt/add-on/development/collects"
+ >>   (non-existent-path))
+ >> ("/home/samth/sw/plt/racket/collects"
+ >>   (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info"
+ >> "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ >> "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ >> "xml"))
+ >>
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14963: reentrant promise error from lazy-require
+Date: Tue, 3 Feb 2015 16:19:23 -0600
+
+ --001a11c1e3dc86fb95050e3676ee
+ Content-Type: text/plain; charset=UTF-8
+ 
+ What would you say is different about lazy require and dynamic require here?
+ 
+ On Tuesday, February 3, 2015, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ wrote:
+ 
+ > It seems wrong to me that `current-eval` affects the behavior of
+ > `lazy-require`. That doesn't mean I have a strong opinion about how it
+ > should interact with `dynamic-require`, though.
+ >
+ > Sam
+ >
+ > On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper <ryanc@ccs.neu.edu
+ > <javascript:;>> wrote:
+ > > I think the problem is that syntax-parse uses lazy-require with functions
+ > > protected by contracts. When a function is needed at runtime,
+ > lazy-require
+ > > performs a dynamic-require, which for syntax exports (like contracted
+ > > functions), calls eval, which apparently has been overridden using the
+ > > current-eval parameter.
+ > >
+ > > One solution would be to have the procedures created by lazy-require
+ > > remember and restore the value of current-eval from when they're
+ > created. Or
+ > > maybe it should capture the whole parameterization?
+ > >
+ > > A workaround is to remember the original evaluator as old-eval and
+ > > parameterize current-eval to old-eval immediately inside the body of
+ > > new-eval. Optionally, parameterize it back around the calls to ev and
+ > > restore, depending on what you want the behavior of interactions like
+ > >
+ > >   > (eval 'UNDO)
+ > >
+ > > to mean.
+ > >
+ > > Ryan
+ > >
+ > >
+ > >
+ > >
+ > > On 02/02/2015 03:28 PM, samth@cs.indiana.edu <javascript:;> wrote:
+ > >>
+ > >> A new problem report is waiting at
+ > >>    http://bugs.racket-lang.org/query/?cmd=view&pr=14963
+ > >>
+ > >> Reported by Sam Tobin-Hochstadt for release: 6.1.1.6
+ > >>
+ > >> *** Description:
+ > >> Run this program, and then enter 3 at the prompt:
+ > >>
+ > >> #lang racket
+ > >>
+ > >> (require racket/sandbox)
+ > >>
+ > >> (define past-input (list))
+ > >>
+ > >> (define ev (make-evaluator 'racket/base))
+ > >>
+ > >> (define (restore i)
+ > >>    (set! past-input i)
+ > >>    (set! ev (make-evaluator 'racket/base))
+ > >>    (for ([e i]) (ev e)))
+ > >> (require syntax/parse)
+ > >> (define (new-eval v)
+ > >>    (syntax-parse v
+ > >>      [(_ . U:id)
+ > >>       #:when (eq? (syntax-e #'U) 'UNDO)
+ > >>       (restore past-input)]
+ > >>      [_ (set! past-input (cons v past-input))
+ > >>         (ev v)]))
+ > >>
+ > >> (parameterize ([current-eval new-eval])
+ > >>    (read-eval-print-loop))
+ > >>
+ > >> You get the error: force: reentrant promise `fun-p'
+ > >> It seems to come from the implementation of `lazy-require`.
+ > >>
+ > >> *** How to repeat:
+ > >>
+ > >>
+ > >> *** Environment:
+ > >> unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15 22:27:29
+ > >> UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ > >> (get-display-depth) = 32
+ > >> Human Language: english
+ > >> (current-memory-use) 141846036
+ > >> raco pkg (show):
+ > >> Installation-wide:
+ > >>   Package                 Checksum           Source
+ > >>   ansi                    9813d6df...        catalog.../master
+ > >>   bit-struct              63f99d15...        url.../bit-struct
+ > >>   cext-lib                cc22e245...        catalog...ext-lib
+ > >>   check-sexp-equal        3e200dc8...        url...-sexp-equal
+ > >>   disassemble             cf0ee3a5...        catalog...ssemble
+ > >>   drdr                    0e391ddb...        clone...cket/drdr
+ > >>   drracket-solarized      039c3181...        url...t-solarized
+ > >>   find-parent-dir                            link...parent-dir
+ > >>   frog                    0a04c70c...        catalog frog
+ > >>   git-slice               1f06d26f...        clone...git-slice
+ > >>   gradual-typing-bib                         link...typing-bib
+ > >>   honu                    6a982c11...        catalog...et/honu
+ > >>   langs                                      link...2014/langs
+ > >>   main-distribution       490d0883...        catalog...ibution
+ > >>   main-distribution-test  f0f27322...        catalog...on-test
+ > >>   mongodb                 76b8b080...        clone...e/mongodb
+ > >>   net                     81b8f896...        clone...?path=net
+ > >>   optimization-coach      085854ec...        catalog...n-coach
+ > >>   paste_rkt                                  link.../paste.rkt
+ > >>   pict-utils                                 link...pict-utils
+ > >>   pkg-dep-draw            10ccd520...        clone...-dep-draw
+ > >>   pkg-index               5a04dc61...        clone...pkg-index
+ > >>   plai-typed              c3ffba5e...        catalog.../master
+ > >>   ppict-slide-grid        1e992183...        catalog...de-grid
+ > >>   pycket-lang                                link...ycket-lang
+ > >>   racket-lib                                 static-link...lib
+ > >>   racket-test-core                           static-link...ore
+ > >>   raco-bug                21d5b6aa...        clone.../raco-bug
+ > >>   raco-find-collection    8793a731...        catalog.../master
+ > >>   ralist                  560c7062...        catalog.../master
+ > >>   sandbox-lib             3987e672...        clone...ndbox-lib
+ > >>   scheme-lib              5574d486...        clone...cheme-lib
+ > >>   typed-racket            29e4be44...        clone...ed-racket
+ > >>   [206 auto-installed packages not shown]
+ > >> User-specific for installation "development":
+ > >>   [none]
+ > >>
+ > >>
+ > >>
+ > >> Collections:
+ > >> ("/home/samth/sw/plt/add-on/development/collects"
+ > >>   (non-existent-path))
+ > >> ("/home/samth/sw/plt/racket/collects"
+ > >>   (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ > "info"
+ > >> "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ > >> "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ > >> "xml"))
+ > >>
+ > >
+ >
+ 
+ --001a11c1e3dc86fb95050e3676ee
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ What would you say is different about lazy require and dynamic<span></span>=
+ =C2=A0require here?<br><br>On Tuesday, February 3, 2015, Sam Tobin-Hochstad=
+ t &lt;<a href=3D"mailto:samth@cs.indiana.edu">samth@cs.indiana.edu</a>&gt; =
+ wrote:<br><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;bord=
+ er-left:1px #ccc solid;padding-left:1ex">It seems wrong to me that `current=
+ -eval` affects the behavior of<br>
+ `lazy-require`. That doesn&#39;t mean I have a strong opinion about how it<=
+ br>
+ should interact with `dynamic-require`, though.<br>
+ <br>
+ Sam<br>
+ <br>
+ On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper &lt;<a href=3D"javascript:;"=
+  onclick=3D"_e(event, &#39;cvml&#39;, &#39;ryanc@ccs.neu.edu&#39;)">ryanc@c=
+ cs.neu.edu</a>&gt; wrote:<br>
+ &gt; I think the problem is that syntax-parse uses lazy-require with functi=
+ ons<br>
+ &gt; protected by contracts. When a function is needed at runtime, lazy-req=
+ uire<br>
+ &gt; performs a dynamic-require, which for syntax exports (like contracted<=
+ br>
+ &gt; functions), calls eval, which apparently has been overridden using the=
+ <br>
+ &gt; current-eval parameter.<br>
+ &gt;<br>
+ &gt; One solution would be to have the procedures created by lazy-require<b=
+ r>
+ &gt; remember and restore the value of current-eval from when they&#39;re c=
+ reated. Or<br>
+ &gt; maybe it should capture the whole parameterization?<br>
+ &gt;<br>
+ &gt; A workaround is to remember the original evaluator as old-eval and<br>
+ &gt; parameterize current-eval to old-eval immediately inside the body of<b=
+ r>
+ &gt; new-eval. Optionally, parameterize it back around the calls to ev and<=
+ br>
+ &gt; restore, depending on what you want the behavior of interactions like<=
+ br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0&gt; (eval &#39;UNDO)<br>
+ &gt;<br>
+ &gt; to mean.<br>
+ &gt;<br>
+ &gt; Ryan<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On 02/02/2015 03:28 PM, <a href=3D"javascript:;" onclick=3D"_e(event, =
+ &#39;cvml&#39;, &#39;samth@cs.indiana.edu&#39;)">samth@cs.indiana.edu</a> w=
+ rote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt;=C2=A0 =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dv=
+ iew&amp;pr=3D14963" target=3D"_blank">http://bugs.racket-lang.org/query/?cm=
+ d=3Dview&amp;pr=3D14963</a><br>
+ &gt;&gt;<br>
+ &gt;&gt; Reported by Sam Tobin-Hochstadt for release: 6.1.1.6<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>
+ &gt;&gt; Run this program, and then enter 3 at the prompt:<br>
+ &gt;&gt;<br>
+ &gt;&gt; #lang racket<br>
+ &gt;&gt;<br>
+ &gt;&gt; (require racket/sandbox)<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define past-input (list))<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define ev (make-evaluator &#39;racket/base))<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define (restore i)<br>
+ &gt;&gt;=C2=A0 =C2=A0 (set! past-input i)<br>
+ &gt;&gt;=C2=A0 =C2=A0 (set! ev (make-evaluator &#39;racket/base))<br>
+ &gt;&gt;=C2=A0 =C2=A0 (for ([e i]) (ev e)))<br>
+ &gt;&gt; (require syntax/parse)<br>
+ &gt;&gt; (define (new-eval v)<br>
+ &gt;&gt;=C2=A0 =C2=A0 (syntax-parse v<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 [(_ . U:id)<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0#:when (eq? (syntax-e #&#39;U) &#39;UNDO=
+ )<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0(restore past-input)]<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 [_ (set! past-input (cons v past-input))<br>
+ &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(ev v)]))<br>
+ &gt;&gt;<br>
+ &gt;&gt; (parameterize ([current-eval new-eval])<br>
+ &gt;&gt;=C2=A0 =C2=A0 (read-eval-print-loop))<br>
+ &gt;&gt;<br>
+ &gt;&gt; You get the error: force: reentrant promise `fun-p&#39;<br>
+ &gt;&gt; It seems to come from the implementation of `lazy-require`.<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** How to repeat:<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>
+ &gt;&gt; unix &quot;Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 1=
+ 5 22:27:29<br>
+ &gt;&gt; UTC 2014 x86_64 x86_64 x86_64 GNU/Linux&quot; (x86_64-linux/3m)<br=
+ >
+ &gt;&gt; (get-display-depth) =3D 32<br>
+ &gt;&gt; Human Language: english<br>
+ &gt;&gt; (current-memory-use) 141846036<br>
+ &gt;&gt; raco pkg (show):<br>
+ &gt;&gt; Installation-wide:<br>
+ &gt;&gt;=C2=A0 =C2=A0Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0Checksum=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Source<br=
+ >
+ &gt;&gt;=C2=A0 =C2=A0ansi=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 9813d6df...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog.../mast=
+ er<br>
+ &gt;&gt;=C2=A0 =C2=A0bit-struct=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 63f99d15...=C2=A0 =C2=A0 =C2=A0 =C2=A0 url.../bit-struct<br>
+ &gt;&gt;=C2=A0 =C2=A0cext-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 cc22e245...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...ext-lib<br>
+ &gt;&gt;=C2=A0 =C2=A0check-sexp-equal=C2=A0 =C2=A0 =C2=A0 =C2=A0 3e200dc8..=
+ .=C2=A0 =C2=A0 =C2=A0 =C2=A0 url...-sexp-equal<br>
+ &gt;&gt;=C2=A0 =C2=A0disassemble=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0cf0ee3a5...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...ssemble<br>
+ &gt;&gt;=C2=A0 =C2=A0drdr=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 0e391ddb...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...cket/dr=
+ dr<br>
+ &gt;&gt;=C2=A0 =C2=A0drracket-solarized=C2=A0 =C2=A0 =C2=A0 039c3181...=C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 url...t-solarized<br>
+ &gt;&gt;=C2=A0 =C2=A0find-parent-dir=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 link...parent-d=
+ ir<br>
+ &gt;&gt;=C2=A0 =C2=A0frog=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 0a04c70c...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog frog<br=
+ >
+ &gt;&gt;=C2=A0 =C2=A0git-slice=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A01f06d26f...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...git-slice<br>
+ &gt;&gt;=C2=A0 =C2=A0gradual-typing-bib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0link...typing-bib<br=
+ >
+ &gt;&gt;=C2=A0 =C2=A0honu=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 6a982c11...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...et/ho=
+ nu<br>
+ &gt;&gt;=C2=A0 =C2=A0langs=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 link...2014/langs<br>
+ &gt;&gt;=C2=A0 =C2=A0main-distribution=C2=A0 =C2=A0 =C2=A0 =C2=A0490d0883..=
+ .=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...ibution<br>
+ &gt;&gt;=C2=A0 =C2=A0main-distribution-test=C2=A0 f0f27322...=C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 catalog...on-test<br>
+ &gt;&gt;=C2=A0 =C2=A0mongodb=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A076b8b080...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...e/mongodb<b=
+ r>
+ &gt;&gt;=C2=A0 =C2=A0net=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A081b8f896...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...?=
+ path=3Dnet<br>
+ &gt;&gt;=C2=A0 =C2=A0optimization-coach=C2=A0 =C2=A0 =C2=A0 085854ec...=C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 catalog...n-coach<br>
+ &gt;&gt;=C2=A0 =C2=A0paste_rkt=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 l=
+ ink.../paste.rkt<br>
+ &gt;&gt;=C2=A0 =C2=A0pict-utils=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0link...pict-utils<br>
+ &gt;&gt;=C2=A0 =C2=A0pkg-dep-draw=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ 10ccd520...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...-dep-draw<br>
+ &gt;&gt;=C2=A0 =C2=A0pkg-index=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A05a04dc61...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...pkg-index<br>
+ &gt;&gt;=C2=A0 =C2=A0plai-typed=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 c3ffba5e...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog.../master<br>
+ &gt;&gt;=C2=A0 =C2=A0ppict-slide-grid=C2=A0 =C2=A0 =C2=A0 =C2=A0 1e992183..=
+ .=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...de-grid<br>
+ &gt;&gt;=C2=A0 =C2=A0pycket-lang=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 link.=
+ ..ycket-lang<br>
+ &gt;&gt;=C2=A0 =C2=A0racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0static-link...lib<br>
+ &gt;&gt;=C2=A0 =C2=A0racket-test-core=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0static-link...or=
+ e<br>
+ &gt;&gt;=C2=A0 =C2=A0raco-bug=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 21d5b6aa...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone.../raco-bug<br>
+ &gt;&gt;=C2=A0 =C2=A0raco-find-collection=C2=A0 =C2=A0 8793a731...=C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 catalog.../master<br>
+ &gt;&gt;=C2=A0 =C2=A0ralist=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 560c7062...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog.../master<br>
+ &gt;&gt;=C2=A0 =C2=A0sandbox-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A03987e672...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...ndbox-lib<br>
+ &gt;&gt;=C2=A0 =C2=A0scheme-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 5574d486...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...cheme-lib<br>
+ &gt;&gt;=C2=A0 =C2=A0typed-racket=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ 29e4be44...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...ed-racket<br>
+ &gt;&gt;=C2=A0 =C2=A0[206 auto-installed packages not shown]<br>
+ &gt;&gt; User-specific for installation &quot;development&quot;:<br>
+ &gt;&gt;=C2=A0 =C2=A0[none]<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; Collections:<br>
+ &gt;&gt; (&quot;/home/samth/sw/plt/add-on/development/collects&quot;<br>
+ &gt;&gt;=C2=A0 =C2=A0(non-existent-path))<br>
+ &gt;&gt; (&quot;/home/samth/sw/plt/racket/collects&quot;<br>
+ &gt;&gt;=C2=A0 =C2=A0(&quot;.gitignore&quot; &quot;acks&quot; &quot;compile=
+ r&quot; &quot;data&quot; &quot;db&quot; &quot;dynext&quot; &quot;ffi&quot; =
+ &quot;file&quot; &quot;info&quot;<br>
+ &gt;&gt; &quot;info-domain&quot; &quot;json&quot; &quot;launcher&quot; &quo=
+ t;net&quot; &quot;openssl&quot; &quot;pkg&quot; &quot;planet&quot; &quot;ra=
+ cket&quot;<br>
+ &gt;&gt; &quot;raco&quot; &quot;reader&quot; &quot;realm&quot; &quot;s-exp&=
+ quot; &quot;setup&quot; &quot;syntax&quot; &quot;unstable&quot; &quot;versi=
+ on&quot;<br>
+ &gt;&gt; &quot;xml&quot;))<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ </blockquote>
+ 
+ --001a11c1e3dc86fb95050e3676ee--
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14963: reentrant promise error from lazy-require
+Date: Tue, 3 Feb 2015 18:28:46 -0500
+
+ On Tue, Feb 3, 2015 at 5:19 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > What would you say is different about lazy require and dynamic require here?
+ 
+ That `dynamic-require` seems to be saying explicitly "do some
+ evaluation here", but `lazy-require` is "make this happen
+ transparently".
+ 
+ Sam
+ 
+ > On Tuesday, February 3, 2015, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ > wrote:
+ >>
+ >> It seems wrong to me that `current-eval` affects the behavior of
+ >> `lazy-require`. That doesn't mean I have a strong opinion about how it
+ >> should interact with `dynamic-require`, though.
+ >>
+ >> Sam
+ >>
+ >> On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ >> > I think the problem is that syntax-parse uses lazy-require with
+ >> > functions
+ >> > protected by contracts. When a function is needed at runtime,
+ >> > lazy-require
+ >> > performs a dynamic-require, which for syntax exports (like contracted
+ >> > functions), calls eval, which apparently has been overridden using the
+ >> > current-eval parameter.
+ >> >
+ >> > One solution would be to have the procedures created by lazy-require
+ >> > remember and restore the value of current-eval from when they're
+ >> > created. Or
+ >> > maybe it should capture the whole parameterization?
+ >> >
+ >> > A workaround is to remember the original evaluator as old-eval and
+ >> > parameterize current-eval to old-eval immediately inside the body of
+ >> > new-eval. Optionally, parameterize it back around the calls to ev and
+ >> > restore, depending on what you want the behavior of interactions like
+ >> >
+ >> >   > (eval 'UNDO)
+ >> >
+ >> > to mean.
+ >> >
+ >> > Ryan
+ >> >
+ >> >
+ >> >
+ >> >
+ >> > On 02/02/2015 03:28 PM, samth@cs.indiana.edu wrote:
+ >> >>
+ >> >> A new problem report is waiting at
+ >> >>    http://bugs.racket-lang.org/query/?cmd=view&pr=14963
+ >> >>
+ >> >> Reported by Sam Tobin-Hochstadt for release: 6.1.1.6
+ >> >>
+ >> >> *** Description:
+ >> >> Run this program, and then enter 3 at the prompt:
+ >> >>
+ >> >> #lang racket
+ >> >>
+ >> >> (require racket/sandbox)
+ >> >>
+ >> >> (define past-input (list))
+ >> >>
+ >> >> (define ev (make-evaluator 'racket/base))
+ >> >>
+ >> >> (define (restore i)
+ >> >>    (set! past-input i)
+ >> >>    (set! ev (make-evaluator 'racket/base))
+ >> >>    (for ([e i]) (ev e)))
+ >> >> (require syntax/parse)
+ >> >> (define (new-eval v)
+ >> >>    (syntax-parse v
+ >> >>      [(_ . U:id)
+ >> >>       #:when (eq? (syntax-e #'U) 'UNDO)
+ >> >>       (restore past-input)]
+ >> >>      [_ (set! past-input (cons v past-input))
+ >> >>         (ev v)]))
+ >> >>
+ >> >> (parameterize ([current-eval new-eval])
+ >> >>    (read-eval-print-loop))
+ >> >>
+ >> >> You get the error: force: reentrant promise `fun-p'
+ >> >> It seems to come from the implementation of `lazy-require`.
+ >> >>
+ >> >> *** How to repeat:
+ >> >>
+ >> >>
+ >> >> *** Environment:
+ >> >> unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15 22:27:29
+ >> >> UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >> >> (get-display-depth) = 32
+ >> >> Human Language: english
+ >> >> (current-memory-use) 141846036
+ >> >> raco pkg (show):
+ >> >> Installation-wide:
+ >> >>   Package                 Checksum           Source
+ >> >>   ansi                    9813d6df...        catalog.../master
+ >> >>   bit-struct              63f99d15...        url.../bit-struct
+ >> >>   cext-lib                cc22e245...        catalog...ext-lib
+ >> >>   check-sexp-equal        3e200dc8...        url...-sexp-equal
+ >> >>   disassemble             cf0ee3a5...        catalog...ssemble
+ >> >>   drdr                    0e391ddb...        clone...cket/drdr
+ >> >>   drracket-solarized      039c3181...        url...t-solarized
+ >> >>   find-parent-dir                            link...parent-dir
+ >> >>   frog                    0a04c70c...        catalog frog
+ >> >>   git-slice               1f06d26f...        clone...git-slice
+ >> >>   gradual-typing-bib                         link...typing-bib
+ >> >>   honu                    6a982c11...        catalog...et/honu
+ >> >>   langs                                      link...2014/langs
+ >> >>   main-distribution       490d0883...        catalog...ibution
+ >> >>   main-distribution-test  f0f27322...        catalog...on-test
+ >> >>   mongodb                 76b8b080...        clone...e/mongodb
+ >> >>   net                     81b8f896...        clone...?path=net
+ >> >>   optimization-coach      085854ec...        catalog...n-coach
+ >> >>   paste_rkt                                  link.../paste.rkt
+ >> >>   pict-utils                                 link...pict-utils
+ >> >>   pkg-dep-draw            10ccd520...        clone...-dep-draw
+ >> >>   pkg-index               5a04dc61...        clone...pkg-index
+ >> >>   plai-typed              c3ffba5e...        catalog.../master
+ >> >>   ppict-slide-grid        1e992183...        catalog...de-grid
+ >> >>   pycket-lang                                link...ycket-lang
+ >> >>   racket-lib                                 static-link...lib
+ >> >>   racket-test-core                           static-link...ore
+ >> >>   raco-bug                21d5b6aa...        clone.../raco-bug
+ >> >>   raco-find-collection    8793a731...        catalog.../master
+ >> >>   ralist                  560c7062...        catalog.../master
+ >> >>   sandbox-lib             3987e672...        clone...ndbox-lib
+ >> >>   scheme-lib              5574d486...        clone...cheme-lib
+ >> >>   typed-racket            29e4be44...        clone...ed-racket
+ >> >>   [206 auto-installed packages not shown]
+ >> >> User-specific for installation "development":
+ >> >>   [none]
+ >> >>
+ >> >>
+ >> >>
+ >> >> Collections:
+ >> >> ("/home/samth/sw/plt/add-on/development/collects"
+ >> >>   (non-existent-path))
+ >> >> ("/home/samth/sw/plt/racket/collects"
+ >> >>   (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ >> >> "info"
+ >> >> "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ >> >> "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ >> >> "xml"))
+ >> >>
+ >> >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14963: reentrant promise error from lazy-require
+Date: Tue, 3 Feb 2015 17:46:50 -0600
+
+ --047d7b5d997f549f02050e37afdb
+ Content-Type: text/plain; charset=UTF-8
+ 
+ That would seem to suggest that grabbing the parameterization is the right
+ thing I suppose.
+ 
+ Robby
+ 
+ On Tuesday, February 3, 2015, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ wrote:
+ 
+ > On Tue, Feb 3, 2015 at 5:19 PM, Robby Findler
+ > <robby@eecs.northwestern.edu <javascript:;>> wrote:
+ > > What would you say is different about lazy require and dynamic require
+ > here?
+ >
+ > That `dynamic-require` seems to be saying explicitly "do some
+ > evaluation here", but `lazy-require` is "make this happen
+ > transparently".
+ >
+ > Sam
+ >
+ > > On Tuesday, February 3, 2015, Sam Tobin-Hochstadt <samth@cs.indiana.edu
+ > <javascript:;>>
+ > > wrote:
+ > >>
+ > >> It seems wrong to me that `current-eval` affects the behavior of
+ > >> `lazy-require`. That doesn't mean I have a strong opinion about how it
+ > >> should interact with `dynamic-require`, though.
+ > >>
+ > >> Sam
+ > >>
+ > >> On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper <ryanc@ccs.neu.edu
+ > <javascript:;>> wrote:
+ > >> > I think the problem is that syntax-parse uses lazy-require with
+ > >> > functions
+ > >> > protected by contracts. When a function is needed at runtime,
+ > >> > lazy-require
+ > >> > performs a dynamic-require, which for syntax exports (like contracted
+ > >> > functions), calls eval, which apparently has been overridden using the
+ > >> > current-eval parameter.
+ > >> >
+ > >> > One solution would be to have the procedures created by lazy-require
+ > >> > remember and restore the value of current-eval from when they're
+ > >> > created. Or
+ > >> > maybe it should capture the whole parameterization?
+ > >> >
+ > >> > A workaround is to remember the original evaluator as old-eval and
+ > >> > parameterize current-eval to old-eval immediately inside the body of
+ > >> > new-eval. Optionally, parameterize it back around the calls to ev and
+ > >> > restore, depending on what you want the behavior of interactions like
+ > >> >
+ > >> >   > (eval 'UNDO)
+ > >> >
+ > >> > to mean.
+ > >> >
+ > >> > Ryan
+ > >> >
+ > >> >
+ > >> >
+ > >> >
+ > >> > On 02/02/2015 03:28 PM, samth@cs.indiana.edu <javascript:;> wrote:
+ > >> >>
+ > >> >> A new problem report is waiting at
+ > >> >>    http://bugs.racket-lang.org/query/?cmd=view&pr=14963
+ > >> >>
+ > >> >> Reported by Sam Tobin-Hochstadt for release: 6.1.1.6
+ > >> >>
+ > >> >> *** Description:
+ > >> >> Run this program, and then enter 3 at the prompt:
+ > >> >>
+ > >> >> #lang racket
+ > >> >>
+ > >> >> (require racket/sandbox)
+ > >> >>
+ > >> >> (define past-input (list))
+ > >> >>
+ > >> >> (define ev (make-evaluator 'racket/base))
+ > >> >>
+ > >> >> (define (restore i)
+ > >> >>    (set! past-input i)
+ > >> >>    (set! ev (make-evaluator 'racket/base))
+ > >> >>    (for ([e i]) (ev e)))
+ > >> >> (require syntax/parse)
+ > >> >> (define (new-eval v)
+ > >> >>    (syntax-parse v
+ > >> >>      [(_ . U:id)
+ > >> >>       #:when (eq? (syntax-e #'U) 'UNDO)
+ > >> >>       (restore past-input)]
+ > >> >>      [_ (set! past-input (cons v past-input))
+ > >> >>         (ev v)]))
+ > >> >>
+ > >> >> (parameterize ([current-eval new-eval])
+ > >> >>    (read-eval-print-loop))
+ > >> >>
+ > >> >> You get the error: force: reentrant promise `fun-p'
+ > >> >> It seems to come from the implementation of `lazy-require`.
+ > >> >>
+ > >> >> *** How to repeat:
+ > >> >>
+ > >> >>
+ > >> >> *** Environment:
+ > >> >> unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15
+ > 22:27:29
+ > >> >> UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ > >> >> (get-display-depth) = 32
+ > >> >> Human Language: english
+ > >> >> (current-memory-use) 141846036
+ > >> >> raco pkg (show):
+ > >> >> Installation-wide:
+ > >> >>   Package                 Checksum           Source
+ > >> >>   ansi                    9813d6df...        catalog.../master
+ > >> >>   bit-struct              63f99d15...        url.../bit-struct
+ > >> >>   cext-lib                cc22e245...        catalog...ext-lib
+ > >> >>   check-sexp-equal        3e200dc8...        url...-sexp-equal
+ > >> >>   disassemble             cf0ee3a5...        catalog...ssemble
+ > >> >>   drdr                    0e391ddb...        clone...cket/drdr
+ > >> >>   drracket-solarized      039c3181...        url...t-solarized
+ > >> >>   find-parent-dir                            link...parent-dir
+ > >> >>   frog                    0a04c70c...        catalog frog
+ > >> >>   git-slice               1f06d26f...        clone...git-slice
+ > >> >>   gradual-typing-bib                         link...typing-bib
+ > >> >>   honu                    6a982c11...        catalog...et/honu
+ > >> >>   langs                                      link...2014/langs
+ > >> >>   main-distribution       490d0883...        catalog...ibution
+ > >> >>   main-distribution-test  f0f27322...        catalog...on-test
+ > >> >>   mongodb                 76b8b080...        clone...e/mongodb
+ > >> >>   net                     81b8f896...        clone...?path=net
+ > >> >>   optimization-coach      085854ec...        catalog...n-coach
+ > >> >>   paste_rkt                                  link.../paste.rkt
+ > >> >>   pict-utils                                 link...pict-utils
+ > >> >>   pkg-dep-draw            10ccd520...        clone...-dep-draw
+ > >> >>   pkg-index               5a04dc61...        clone...pkg-index
+ > >> >>   plai-typed              c3ffba5e...        catalog.../master
+ > >> >>   ppict-slide-grid        1e992183...        catalog...de-grid
+ > >> >>   pycket-lang                                link...ycket-lang
+ > >> >>   racket-lib                                 static-link...lib
+ > >> >>   racket-test-core                           static-link...ore
+ > >> >>   raco-bug                21d5b6aa...        clone.../raco-bug
+ > >> >>   raco-find-collection    8793a731...        catalog.../master
+ > >> >>   ralist                  560c7062...        catalog.../master
+ > >> >>   sandbox-lib             3987e672...        clone...ndbox-lib
+ > >> >>   scheme-lib              5574d486...        clone...cheme-lib
+ > >> >>   typed-racket            29e4be44...        clone...ed-racket
+ > >> >>   [206 auto-installed packages not shown]
+ > >> >> User-specific for installation "development":
+ > >> >>   [none]
+ > >> >>
+ > >> >>
+ > >> >>
+ > >> >> Collections:
+ > >> >> ("/home/samth/sw/plt/add-on/development/collects"
+ > >> >>   (non-existent-path))
+ > >> >> ("/home/samth/sw/plt/racket/collects"
+ > >> >>   (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ > >> >> "info"
+ > >> >> "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet"
+ > "racket"
+ > >> >> "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ > >> >> "xml"))
+ > >> >>
+ > >> >
+ >
+ 
+ --047d7b5d997f549f02050e37afdb
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ That would seem to suggest that grabbing the parameterization is the right =
+ thing I suppose.=C2=A0<div><br></div><div>Robby<span></span><br><br>On Tues=
+ day, February 3, 2015, Sam Tobin-Hochstadt &lt;<a href=3D"mailto:samth@cs.i=
+ ndiana.edu">samth@cs.indiana.edu</a>&gt; wrote:<br><blockquote class=3D"gma=
+ il_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-lef=
+ t:1ex">On Tue, Feb 3, 2015 at 5:19 PM, Robby Findler<br>
+ &lt;<a href=3D"javascript:;" onclick=3D"_e(event, &#39;cvml&#39;, &#39;robb=
+ y@eecs.northwestern.edu&#39;)">robby@eecs.northwestern.edu</a>&gt; wrote:<b=
+ r>
+ &gt; What would you say is different about lazy require and dynamic require=
+  here?<br>
+ <br>
+ That `dynamic-require` seems to be saying explicitly &quot;do some<br>
+ evaluation here&quot;, but `lazy-require` is &quot;make this happen<br>
+ transparently&quot;.<br>
+ <br>
+ Sam<br>
+ <br>
+ &gt; On Tuesday, February 3, 2015, Sam Tobin-Hochstadt &lt;<a href=3D"javas=
+ cript:;" onclick=3D"_e(event, &#39;cvml&#39;, &#39;samth@cs.indiana.edu&#39=
+ ;)">samth@cs.indiana.edu</a>&gt;<br>
+ &gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; It seems wrong to me that `current-eval` affects the behavior of<b=
+ r>
+ &gt;&gt; `lazy-require`. That doesn&#39;t mean I have a strong opinion abou=
+ t how it<br>
+ &gt;&gt; should interact with `dynamic-require`, though.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Sam<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper &lt;<a href=3D"java=
+ script:;" onclick=3D"_e(event, &#39;cvml&#39;, &#39;ryanc@ccs.neu.edu&#39;)=
+ ">ryanc@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt; &gt; I think the problem is that syntax-parse uses lazy-require wi=
+ th<br>
+ &gt;&gt; &gt; functions<br>
+ &gt;&gt; &gt; protected by contracts. When a function is needed at runtime,=
+ <br>
+ &gt;&gt; &gt; lazy-require<br>
+ &gt;&gt; &gt; performs a dynamic-require, which for syntax exports (like co=
+ ntracted<br>
+ &gt;&gt; &gt; functions), calls eval, which apparently has been overridden =
+ using the<br>
+ &gt;&gt; &gt; current-eval parameter.<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; One solution would be to have the procedures created by lazy-=
+ require<br>
+ &gt;&gt; &gt; remember and restore the value of current-eval from when they=
+ &#39;re<br>
+ &gt;&gt; &gt; created. Or<br>
+ &gt;&gt; &gt; maybe it should capture the whole parameterization?<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; A workaround is to remember the original evaluator as old-eva=
+ l and<br>
+ &gt;&gt; &gt; parameterize current-eval to old-eval immediately inside the =
+ body of<br>
+ &gt;&gt; &gt; new-eval. Optionally, parameterize it back around the calls t=
+ o ev and<br>
+ &gt;&gt; &gt; restore, depending on what you want the behavior of interacti=
+ ons like<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;=C2=A0 =C2=A0&gt; (eval &#39;UNDO)<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; to mean.<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; Ryan<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt;<br>
+ &gt;&gt; &gt; On 02/02/2015 03:28 PM, <a href=3D"javascript:;" onclick=3D"_=
+ e(event, &#39;cvml&#39;, &#39;samth@cs.indiana.edu&#39;)">samth@cs.indiana.=
+ edu</a> wrote:<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 <a href=3D"http://bugs.racket-lang.org/query=
+ /?cmd=3Dview&amp;pr=3D14963" target=3D"_blank">http://bugs.racket-lang.org/=
+ query/?cmd=3Dview&amp;pr=3D14963</a><br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; Reported by Sam Tobin-Hochstadt for release: 6.1.1.6<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; *** Description:<br>
+ &gt;&gt; &gt;&gt; Run this program, and then enter 3 at the prompt:<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; #lang racket<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; (require racket/sandbox)<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; (define past-input (list))<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; (define ev (make-evaluator &#39;racket/base))<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; (define (restore i)<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 (set! past-input i)<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 (set! ev (make-evaluator &#39;racket/base))<=
+ br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 (for ([e i]) (ev e)))<br>
+ &gt;&gt; &gt;&gt; (require syntax/parse)<br>
+ &gt;&gt; &gt;&gt; (define (new-eval v)<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 (syntax-parse v<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 =C2=A0 [(_ . U:id)<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0#:when (eq? (syntax-e #&#39;U) =
+ &#39;UNDO)<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0(restore past-input)]<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 =C2=A0 [_ (set! past-input (cons v past-inpu=
+ t))<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(ev v)]))<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; (parameterize ([current-eval new-eval])<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0 (read-eval-print-loop))<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; You get the error: force: reentrant promise `fun-p&#39;<b=
+ r>
+ &gt;&gt; &gt;&gt; It seems to come from the implementation of `lazy-require=
+ `.<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; *** How to repeat:<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; *** Environment:<br>
+ &gt;&gt; &gt;&gt; unix &quot;Linux hermes 3.16.0-29-generic #39-Ubuntu SMP =
+ Mon Dec 15 22:27:29<br>
+ &gt;&gt; &gt;&gt; UTC 2014 x86_64 x86_64 x86_64 GNU/Linux&quot; (x86_64-lin=
+ ux/3m)<br>
+ &gt;&gt; &gt;&gt; (get-display-depth) =3D 32<br>
+ &gt;&gt; &gt;&gt; Human Language: english<br>
+ &gt;&gt; &gt;&gt; (current-memory-use) 141846036<br>
+ &gt;&gt; &gt;&gt; raco pkg (show):<br>
+ &gt;&gt; &gt;&gt; Installation-wide:<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0Checksum=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0So=
+ urce<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0ansi=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 9813d6df...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog=
+ .../master<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0bit-struct=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 63f99d15...=C2=A0 =C2=A0 =C2=A0 =C2=A0 url.../bit-struct<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0cext-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 cc22e245...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...ext-l=
+ ib<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0check-sexp-equal=C2=A0 =C2=A0 =C2=A0 =C2=A0 3=
+ e200dc8...=C2=A0 =C2=A0 =C2=A0 =C2=A0 url...-sexp-equal<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0disassemble=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0cf0ee3a5...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...ssemble<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0drdr=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 0e391ddb...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone..=
+ .cket/drdr<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0drracket-solarized=C2=A0 =C2=A0 =C2=A0 039c31=
+ 81...=C2=A0 =C2=A0 =C2=A0 =C2=A0 url...t-solarized<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0find-parent-dir=C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 link.=
+ ..parent-dir<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0frog=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 0a04c70c...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog=
+  frog<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0git-slice=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A01f06d26f...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...git-slic=
+ e<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0gradual-typing-bib=C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0link...typin=
+ g-bib<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0honu=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 6a982c11...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog=
+ ...et/honu<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0langs=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 link...2014/langs<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0main-distribution=C2=A0 =C2=A0 =C2=A0 =C2=A04=
+ 90d0883...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...ibution<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0main-distribution-test=C2=A0 f0f27322...=C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 catalog...on-test<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0mongodb=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A076b8b080...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...e/mo=
+ ngodb<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0net=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A081b8f896...=C2=A0 =C2=A0 =C2=A0 =C2=A0 cl=
+ one...?path=3Dnet<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0optimization-coach=C2=A0 =C2=A0 =C2=A0 085854=
+ ec...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...n-coach<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0paste_rkt=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 link.../paste.rkt<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0pict-utils=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0link...pict-utils<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0pkg-dep-draw=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 10ccd520...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...-dep-draw<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0pkg-index=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A05a04dc61...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...pkg-inde=
+ x<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0plai-typed=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 c3ffba5e...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog.../master<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0ppict-slide-grid=C2=A0 =C2=A0 =C2=A0 =C2=A0 1=
+ e992183...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog...de-grid<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0pycket-lang=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 link...ycket-lang<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0static-link...lib<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0racket-test-core=C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0static=
+ -link...ore<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0raco-bug=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 21d5b6aa...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone.../raco-b=
+ ug<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0raco-find-collection=C2=A0 =C2=A0 8793a731...=
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog.../master<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0ralist=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 560c7062...=C2=A0 =C2=A0 =C2=A0 =C2=A0 catalog.../=
+ master<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0sandbox-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A03987e672...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...ndbox-lib<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0scheme-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 5574d486...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...cheme-lib<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0typed-racket=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 29e4be44...=C2=A0 =C2=A0 =C2=A0 =C2=A0 clone...ed-racket<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0[206 auto-installed packages not shown]<br>
+ &gt;&gt; &gt;&gt; User-specific for installation &quot;development&quot;:<b=
+ r>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0[none]<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;&gt; Collections:<br>
+ &gt;&gt; &gt;&gt; (&quot;/home/samth/sw/plt/add-on/development/collects&quo=
+ t;<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0(non-existent-path))<br>
+ &gt;&gt; &gt;&gt; (&quot;/home/samth/sw/plt/racket/collects&quot;<br>
+ &gt;&gt; &gt;&gt;=C2=A0 =C2=A0(&quot;.gitignore&quot; &quot;acks&quot; &quo=
+ t;compiler&quot; &quot;data&quot; &quot;db&quot; &quot;dynext&quot; &quot;f=
+ fi&quot; &quot;file&quot;<br>
+ &gt;&gt; &gt;&gt; &quot;info&quot;<br>
+ &gt;&gt; &gt;&gt; &quot;info-domain&quot; &quot;json&quot; &quot;launcher&q=
+ uot; &quot;net&quot; &quot;openssl&quot; &quot;pkg&quot; &quot;planet&quot;=
+  &quot;racket&quot;<br>
+ &gt;&gt; &gt;&gt; &quot;raco&quot; &quot;reader&quot; &quot;realm&quot; &qu=
+ ot;s-exp&quot; &quot;setup&quot; &quot;syntax&quot; &quot;unstable&quot; &q=
+ uot;version&quot;<br>
+ &gt;&gt; &gt;&gt; &quot;xml&quot;))<br>
+ &gt;&gt; &gt;&gt;<br>
+ &gt;&gt; &gt;<br>
+ </blockquote></div>
+ 
+ --047d7b5d997f549f02050e37afdb--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14963: reentrant promise error from lazy-require
+Date: Tue, 3 Feb 2015 19:09:47 -0500
+
+ I don't get the details but 'lazy' means 'delayed' and if you take its full meaning, you get to 'dynamically evaluated' rather quickly. No? 
+ 
+ 
+ 
+ 
+ On Feb 3, 2015, at 6:28 PM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ 
+ > On Tue, Feb 3, 2015 at 5:19 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> What would you say is different about lazy require and dynamic require here?
+ > 
+ > That `dynamic-require` seems to be saying explicitly "do some
+ > evaluation here", but `lazy-require` is "make this happen
+ > transparently".
+ > 
+ > Sam
+ > 
+ >> On Tuesday, February 3, 2015, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ >> wrote:
+ >>> 
+ >>> It seems wrong to me that `current-eval` affects the behavior of
+ >>> `lazy-require`. That doesn't mean I have a strong opinion about how it
+ >>> should interact with `dynamic-require`, though.
+ >>> 
+ >>> Sam
+ >>> 
+ >>> On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ >>>> I think the problem is that syntax-parse uses lazy-require with
+ >>>> functions
+ >>>> protected by contracts. When a function is needed at runtime,
+ >>>> lazy-require
+ >>>> performs a dynamic-require, which for syntax exports (like contracted
+ >>>> functions), calls eval, which apparently has been overridden using the
+ >>>> current-eval parameter.
+ >>>> 
+ >>>> One solution would be to have the procedures created by lazy-require
+ >>>> remember and restore the value of current-eval from when they're
+ >>>> created. Or
+ >>>> maybe it should capture the whole parameterization?
+ >>>> 
+ >>>> A workaround is to remember the original evaluator as old-eval and
+ >>>> parameterize current-eval to old-eval immediately inside the body of
+ >>>> new-eval. Optionally, parameterize it back around the calls to ev and
+ >>>> restore, depending on what you want the behavior of interactions like
+ >>>> 
+ >>>>> (eval 'UNDO)
+ >>>> 
+ >>>> to mean.
+ >>>> 
+ >>>> Ryan
+ >>>> 
+ >>>> 
+ >>>> 
+ >>>> 
+ >>>> On 02/02/2015 03:28 PM, samth@cs.indiana.edu wrote:
+ >>>>> 
+ >>>>> A new problem report is waiting at
+ >>>>>   http://bugs.racket-lang.org/query/?cmd=view&pr=14963
+ >>>>> 
+ >>>>> Reported by Sam Tobin-Hochstadt for release: 6.1.1.6
+ >>>>> 
+ >>>>> *** Description:
+ >>>>> Run this program, and then enter 3 at the prompt:
+ >>>>> 
+ >>>>> #lang racket
+ >>>>> 
+ >>>>> (require racket/sandbox)
+ >>>>> 
+ >>>>> (define past-input (list))
+ >>>>> 
+ >>>>> (define ev (make-evaluator 'racket/base))
+ >>>>> 
+ >>>>> (define (restore i)
+ >>>>>   (set! past-input i)
+ >>>>>   (set! ev (make-evaluator 'racket/base))
+ >>>>>   (for ([e i]) (ev e)))
+ >>>>> (require syntax/parse)
+ >>>>> (define (new-eval v)
+ >>>>>   (syntax-parse v
+ >>>>>     [(_ . U:id)
+ >>>>>      #:when (eq? (syntax-e #'U) 'UNDO)
+ >>>>>      (restore past-input)]
+ >>>>>     [_ (set! past-input (cons v past-input))
+ >>>>>        (ev v)]))
+ >>>>> 
+ >>>>> (parameterize ([current-eval new-eval])
+ >>>>>   (read-eval-print-loop))
+ >>>>> 
+ >>>>> You get the error: force: reentrant promise `fun-p'
+ >>>>> It seems to come from the implementation of `lazy-require`.
+ >>>>> 
+ >>>>> *** How to repeat:
+ >>>>> 
+ >>>>> 
+ >>>>> *** Environment:
+ >>>>> unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15 22:27:29
+ >>>>> UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >>>>> (get-display-depth) = 32
+ >>>>> Human Language: english
+ >>>>> (current-memory-use) 141846036
+ >>>>> raco pkg (show):
+ >>>>> Installation-wide:
+ >>>>>  Package                 Checksum           Source
+ >>>>>  ansi                    9813d6df...        catalog.../master
+ >>>>>  bit-struct              63f99d15...        url.../bit-struct
+ >>>>>  cext-lib                cc22e245...        catalog...ext-lib
+ >>>>>  check-sexp-equal        3e200dc8...        url...-sexp-equal
+ >>>>>  disassemble             cf0ee3a5...        catalog...ssemble
+ >>>>>  drdr                    0e391ddb...        clone...cket/drdr
+ >>>>>  drracket-solarized      039c3181...        url...t-solarized
+ >>>>>  find-parent-dir                            link...parent-dir
+ >>>>>  frog                    0a04c70c...        catalog frog
+ >>>>>  git-slice               1f06d26f...        clone...git-slice
+ >>>>>  gradual-typing-bib                         link...typing-bib
+ >>>>>  honu                    6a982c11...        catalog...et/honu
+ >>>>>  langs                                      link...2014/langs
+ >>>>>  main-distribution       490d0883...        catalog...ibution
+ >>>>>  main-distribution-test  f0f27322...        catalog...on-test
+ >>>>>  mongodb                 76b8b080...        clone...e/mongodb
+ >>>>>  net                     81b8f896...        clone...?path=net
+ >>>>>  optimization-coach      085854ec...        catalog...n-coach
+ >>>>>  paste_rkt                                  link.../paste.rkt
+ >>>>>  pict-utils                                 link...pict-utils
+ >>>>>  pkg-dep-draw            10ccd520...        clone...-dep-draw
+ >>>>>  pkg-index               5a04dc61...        clone...pkg-index
+ >>>>>  plai-typed              c3ffba5e...        catalog.../master
+ >>>>>  ppict-slide-grid        1e992183...        catalog...de-grid
+ >>>>>  pycket-lang                                link...ycket-lang
+ >>>>>  racket-lib                                 static-link...lib
+ >>>>>  racket-test-core                           static-link...ore
+ >>>>>  raco-bug                21d5b6aa...        clone.../raco-bug
+ >>>>>  raco-find-collection    8793a731...        catalog.../master
+ >>>>>  ralist                  560c7062...        catalog.../master
+ >>>>>  sandbox-lib             3987e672...        clone...ndbox-lib
+ >>>>>  scheme-lib              5574d486...        clone...cheme-lib
+ >>>>>  typed-racket            29e4be44...        clone...ed-racket
+ >>>>>  [206 auto-installed packages not shown]
+ >>>>> User-specific for installation "development":
+ >>>>>  [none]
+ >>>>> 
+ >>>>> 
+ >>>>> 
+ >>>>> Collections:
+ >>>>> ("/home/samth/sw/plt/add-on/development/collects"
+ >>>>>  (non-existent-path))
+ >>>>> ("/home/samth/sw/plt/racket/collects"
+ >>>>>  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ >>>>> "info"
+ >>>>> "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ >>>>> "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ >>>>> "xml"))
+ >>>>> 
+ >>>> 
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14963: reentrant promise error from lazy-require
+Date: Wed, 4 Feb 2015 09:25:39 -0600
+
+ Here's the basic issue, as I understand it. Boiled down to it's lazy
+ essence, the program looks something like this:
+ 
+ #lang racket
+ (define p (make-parameter 'init))
+ (define d (delay (p)))
+ (parameterize ([p 'later-on])
+   (force d))
+ 
+ where what's delayed is actually a dynamic-require (lazy-require
+ expands into the dynamic-require in order to implement the laziness)
+ and the parameter actually holds the evaluator.
+ 
+ The current behavior is something like what you get when you run the
+ above, ie the evaluator from 'later-on. But Sam is arguing that the
+ right behavior should instead be something like getting 'init, ie you
+ want the evaluator in place at the point where the promise was
+ created, not the one in place at the point where the promise was
+ forced.
+ 
+ What Sam says seems reasonable to me but one thing to check is the GC
+ performance implications of grabbing and holding onto the
+ parameterization. I think it should be okay, since you hold onto the
+ namespace, but you're likely to be holding onto that anyway to access
+ your global variables. But someone should probably think thru the
+ implications of holding onto lots of parameter values like that just
+ to be sure. Maybe use Matthew's cool new heap visualization and see if
+ things get worse when you change the implementation of lazy-require?
+ 
+ Robby
+ 
+ 
+ On Tue, Feb 3, 2015 at 6:09 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >
+ > I don't get the details but 'lazy' means 'delayed' and if you take its full meaning, you get to 'dynamically evaluated' rather quickly. No?
+ >
+ >
+ >
+ >
+ > On Feb 3, 2015, at 6:28 PM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >
+ >> On Tue, Feb 3, 2015 at 5:19 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> What would you say is different about lazy require and dynamic require here?
+ >>
+ >> That `dynamic-require` seems to be saying explicitly "do some
+ >> evaluation here", but `lazy-require` is "make this happen
+ >> transparently".
+ >>
+ >> Sam
+ >>
+ >>> On Tuesday, February 3, 2015, Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+ >>> wrote:
+ >>>>
+ >>>> It seems wrong to me that `current-eval` affects the behavior of
+ >>>> `lazy-require`. That doesn't mean I have a strong opinion about how it
+ >>>> should interact with `dynamic-require`, though.
+ >>>>
+ >>>> Sam
+ >>>>
+ >>>> On Tue, Feb 3, 2015 at 2:18 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ >>>>> I think the problem is that syntax-parse uses lazy-require with
+ >>>>> functions
+ >>>>> protected by contracts. When a function is needed at runtime,
+ >>>>> lazy-require
+ >>>>> performs a dynamic-require, which for syntax exports (like contracted
+ >>>>> functions), calls eval, which apparently has been overridden using the
+ >>>>> current-eval parameter.
+ >>>>>
+ >>>>> One solution would be to have the procedures created by lazy-require
+ >>>>> remember and restore the value of current-eval from when they're
+ >>>>> created. Or
+ >>>>> maybe it should capture the whole parameterization?
+ >>>>>
+ >>>>> A workaround is to remember the original evaluator as old-eval and
+ >>>>> parameterize current-eval to old-eval immediately inside the body of
+ >>>>> new-eval. Optionally, parameterize it back around the calls to ev and
+ >>>>> restore, depending on what you want the behavior of interactions like
+ >>>>>
+ >>>>>> (eval 'UNDO)
+ >>>>>
+ >>>>> to mean.
+ >>>>>
+ >>>>> Ryan
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>> On 02/02/2015 03:28 PM, samth@cs.indiana.edu wrote:
+ >>>>>>
+ >>>>>> A new problem report is waiting at
+ >>>>>>   http://bugs.racket-lang.org/query/?cmd=view&pr=14963
+ >>>>>>
+ >>>>>> Reported by Sam Tobin-Hochstadt for release: 6.1.1.6
+ >>>>>>
+ >>>>>> *** Description:
+ >>>>>> Run this program, and then enter 3 at the prompt:
+ >>>>>>
+ >>>>>> #lang racket
+ >>>>>>
+ >>>>>> (require racket/sandbox)
+ >>>>>>
+ >>>>>> (define past-input (list))
+ >>>>>>
+ >>>>>> (define ev (make-evaluator 'racket/base))
+ >>>>>>
+ >>>>>> (define (restore i)
+ >>>>>>   (set! past-input i)
+ >>>>>>   (set! ev (make-evaluator 'racket/base))
+ >>>>>>   (for ([e i]) (ev e)))
+ >>>>>> (require syntax/parse)
+ >>>>>> (define (new-eval v)
+ >>>>>>   (syntax-parse v
+ >>>>>>     [(_ . U:id)
+ >>>>>>      #:when (eq? (syntax-e #'U) 'UNDO)
+ >>>>>>      (restore past-input)]
+ >>>>>>     [_ (set! past-input (cons v past-input))
+ >>>>>>        (ev v)]))
+ >>>>>>
+ >>>>>> (parameterize ([current-eval new-eval])
+ >>>>>>   (read-eval-print-loop))
+ >>>>>>
+ >>>>>> You get the error: force: reentrant promise `fun-p'
+ >>>>>> It seems to come from the implementation of `lazy-require`.
+ >>>>>>
+ >>>>>> *** How to repeat:
+ >>>>>>
+ >>>>>>
+ >>>>>> *** Environment:
+ >>>>>> unix "Linux hermes 3.16.0-29-generic #39-Ubuntu SMP Mon Dec 15 22:27:29
+ >>>>>> UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >>>>>> (get-display-depth) = 32
+ >>>>>> Human Language: english
+ >>>>>> (current-memory-use) 141846036
+ >>>>>> raco pkg (show):
+ >>>>>> Installation-wide:
+ >>>>>>  Package                 Checksum           Source
+ >>>>>>  ansi                    9813d6df...        catalog.../master
+ >>>>>>  bit-struct              63f99d15...        url.../bit-struct
+ >>>>>>  cext-lib                cc22e245...        catalog...ext-lib
+ >>>>>>  check-sexp-equal        3e200dc8...        url...-sexp-equal
+ >>>>>>  disassemble             cf0ee3a5...        catalog...ssemble
+ >>>>>>  drdr                    0e391ddb...        clone...cket/drdr
+ >>>>>>  drracket-solarized      039c3181...        url...t-solarized
+ >>>>>>  find-parent-dir                            link...parent-dir
+ >>>>>>  frog                    0a04c70c...        catalog frog
+ >>>>>>  git-slice               1f06d26f...        clone...git-slice
+ >>>>>>  gradual-typing-bib                         link...typing-bib
+ >>>>>>  honu                    6a982c11...        catalog...et/honu
+ >>>>>>  langs                                      link...2014/langs
+ >>>>>>  main-distribution       490d0883...        catalog...ibution
+ >>>>>>  main-distribution-test  f0f27322...        catalog...on-test
+ >>>>>>  mongodb                 76b8b080...        clone...e/mongodb
+ >>>>>>  net                     81b8f896...        clone...?path=net
+ >>>>>>  optimization-coach      085854ec...        catalog...n-coach
+ >>>>>>  paste_rkt                                  link.../paste.rkt
+ >>>>>>  pict-utils                                 link...pict-utils
+ >>>>>>  pkg-dep-draw            10ccd520...        clone...-dep-draw
+ >>>>>>  pkg-index               5a04dc61...        clone...pkg-index
+ >>>>>>  plai-typed              c3ffba5e...        catalog.../master
+ >>>>>>  ppict-slide-grid        1e992183...        catalog...de-grid
+ >>>>>>  pycket-lang                                link...ycket-lang
+ >>>>>>  racket-lib                                 static-link...lib
+ >>>>>>  racket-test-core                           static-link...ore
+ >>>>>>  raco-bug                21d5b6aa...        clone.../raco-bug
+ >>>>>>  raco-find-collection    8793a731...        catalog.../master
+ >>>>>>  ralist                  560c7062...        catalog.../master
+ >>>>>>  sandbox-lib             3987e672...        clone...ndbox-lib
+ >>>>>>  scheme-lib              5574d486...        clone...cheme-lib
+ >>>>>>  typed-racket            29e4be44...        clone...ed-racket
+ >>>>>>  [206 auto-installed packages not shown]
+ >>>>>> User-specific for installation "development":
+ >>>>>>  [none]
+ >>>>>>
+ >>>>>>
+ >>>>>>
+ >>>>>> Collections:
+ >>>>>> ("/home/samth/sw/plt/add-on/development/collects"
+ >>>>>>  (non-existent-path))
+ >>>>>> ("/home/samth/sw/plt/racket/collects"
+ >>>>>>  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file"
+ >>>>>> "info"
+ >>>>>> "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ >>>>>> "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ >>>>>> "xml"))
+ >>>>>>
+ >>>>>
+ >

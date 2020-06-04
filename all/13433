@@ -1,0 +1,312 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jan 15 04:39:10 2013
+Received: from mail-ob0-f169.google.com (mail-ob0-f169.google.com [209.85.214.169])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r0F9d2wD018107
+	for <bugs@bugs.plt-scheme.org>; Tue, 15 Jan 2013 04:39:02 -0500
+Message-Id: <201301150938.r0F9cx7i018099@champlain.ccs.neu.edu>
+Date: Tue, 15 Jan 2013 04:38:59 -0500
+From: tobias.hammer@dlr.de
+To: bugs@racket-lang.org
+Subject: Bug in wrap-evt
+
+>Number:         13433
+>Category:       all
+>Synopsis:       Bug in wrap-evt
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Jan 15 04:40:02 -0500 2013
+>Last-Modified:  Sun Feb 10 10:04:01 -0500 2013
+>Originator:     Tobias Hammer
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.1
+>Environment:
+unix "Linux thoosa 2.6.32.59-0.7-pae #1 SMP 2012-07-13 15:50:56 +0200 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 362108672
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug/profile) (default) #() "#lang racket\n" #f #t ((main) (test))))
+>Description:
+wrap-evt errors on multiple return values. the docs say it should be the same as handle-evt with breaks disabled
+>How-To-Repeat:
+;; OK
+(sync (handle-evt
+       always-evt
+       (lambda (_)
+         (values 1 2 3))))
+1
+2
+3
+
+;; ERROR
+(sync (wrap-evt
+       always-evt
+       (lambda (_)
+         (values 1 2 3))))
+
+result arity mismatch;
+ expected number of values not received
+  expected: 1
+  received: 3
+  values...:
+   1
+   2
+   3
+>Fix:
+>Audit-Trail:
+From: Tobias Hammer <tobias.hammer@dlr.de>
+To: <bugs@racket-lang.org>, <bug-notification@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/13433: Bug in wrap-evt
+Date: Fri, 8 Feb 2013 12:27:51 +0100
+
+ Patched by allowing multiple returns values from calling the wrapping  
+ function.
+ 
+ diff --git a/src/racket/src/thread.c b/src/racket/src/thread.c
+ index 5db40fc..7b19ce1 100644
+ --- a/src/racket/src/thread.c
+ +++ b/src/racket/src/thread.c
+ @@ -6687,7 +6687,7 @@ static Scheme_Object *do_sync(const char *name, int  
+ argc, Scheme_Object *argv[],
+            if (tailok) {
+              return _scheme_tail_apply(to_call, 1, args);
+            } else {
+ -       o = scheme_apply(to_call, 1, args);
+ +       o = scheme_apply_multi(to_call, 1, args);
+              if (!to_call_is_handle)
+                scheme_pop_break_enable(&cframe, 1);
+              return o;
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Tobias Hammer <tobias.hammer@dlr.de>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13433: Bug in wrap-evt
+Date: Sun, 10 Feb 2013 07:13:44 -0700
+
+ I'm reluctant to make this generalization, because then we'll have to
+ generalize `wrap-evt' to propagate multiple results as multiple
+ arguments to a wrapping function, and so on.
+ 
+ I'm inclined to instead fix the docs, which would mean correcting the
+ contract on `wrap-evt' and changing the prose for `handle-evt'. Would
+ that be ok for your purposes?
+ 
+ [JFYI, with respect to the patch below: Multiple results from
+ scheme_apply_multi() are represented by a constant value that indicates
+ the actual values are stored in the thread record. Those values have to
+ be moved out of the thread record before doing anything that might run
+ more code or trigger a GC, which is the case for
+ scheme_pop_break_enable() with a non-zero second argument.]
+ 
+ At Fri, 8 Feb 2013 12:27:51 +0100, Tobias Hammer wrote:
+ > Patched by allowing multiple returns values from calling the wrapping  
+ > function.
+ > 
+ > diff --git a/src/racket/src/thread.c b/src/racket/src/thread.c
+ > index 5db40fc..7b19ce1 100644
+ > --- a/src/racket/src/thread.c
+ > +++ b/src/racket/src/thread.c
+ > @@ -6687,7 +6687,7 @@ static Scheme_Object *do_sync(const char *name, int  
+ > argc, Scheme_Object *argv[],
+ >            if (tailok) {
+ >              return _scheme_tail_apply(to_call, 1, args);
+ >            } else {
+ > -       o = scheme_apply(to_call, 1, args);
+ > +       o = scheme_apply_multi(to_call, 1, args);
+ >              if (!to_call_is_handle)
+ >                scheme_pop_break_enable(&cframe, 1);
+ >              return o;
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Tobias Hammer <tobias.hammer@dlr.de>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13433: Bug in wrap-evt
+Date: Sun, 10 Feb 2013 08:19:05 -0600
+
+ --e89a8ff1c6d6984fab04d55f795b
+ Content-Type: text/plain; charset=UTF-8
+ 
+ It has seemed very useful to me to be able to send multiple values thru a
+ channel into multiple arguments in the procedure passed to handle-evt (and
+ probably a few other places), FWIW.
+ 
+ But I agree with Matthew that changing the existing functions is probably
+ not the way to go. We should probably instead figure out a new set of
+ functions that support multiple values.
+ 
+ Robby
+ 
+ 
+ On Sun, Feb 10, 2013 at 8:13 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > I'm reluctant to make this generalization, because then we'll have to
+ > generalize `wrap-evt' to propagate multiple results as multiple
+ > arguments to a wrapping function, and so on.
+ >
+ > I'm inclined to instead fix the docs, which would mean correcting the
+ > contract on `wrap-evt' and changing the prose for `handle-evt'. Would
+ > that be ok for your purposes?
+ >
+ > [JFYI, with respect to the patch below: Multiple results from
+ > scheme_apply_multi() are represented by a constant value that indicates
+ > the actual values are stored in the thread record. Those values have to
+ > be moved out of the thread record before doing anything that might run
+ > more code or trigger a GC, which is the case for
+ > scheme_pop_break_enable() with a non-zero second argument.]
+ >
+ > At Fri, 8 Feb 2013 12:27:51 +0100, Tobias Hammer wrote:
+ > > Patched by allowing multiple returns values from calling the wrapping
+ > > function.
+ > >
+ > > diff --git a/src/racket/src/thread.c b/src/racket/src/thread.c
+ > > index 5db40fc..7b19ce1 100644
+ > > --- a/src/racket/src/thread.c
+ > > +++ b/src/racket/src/thread.c
+ > > @@ -6687,7 +6687,7 @@ static Scheme_Object *do_sync(const char *name, int
+ > > argc, Scheme_Object *argv[],
+ > >            if (tailok) {
+ > >              return _scheme_tail_apply(to_call, 1, args);
+ > >            } else {
+ > > -       o = scheme_apply(to_call, 1, args);
+ > > +       o = scheme_apply_multi(to_call, 1, args);
+ > >              if (!to_call_is_handle)
+ > >                scheme_pop_break_enable(&cframe, 1);
+ > >              return o;
+ >
+ 
+ --e89a8ff1c6d6984fab04d55f795b
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">It has seemed very useful to me to be able to send multipl=
+ e values thru a channel into multiple arguments in the procedure passed to =
+ handle-evt (and probably a few other places), FWIW.<div><br></div><div>But =
+ I agree with Matthew that changing the existing functions is probably not t=
+ he way to go. We should probably instead figure out a new set of functions =
+ that support multiple values.</div>
+ <div><br></div><div>Robby</div></div><div class=3D"gmail_extra"><br><br><di=
+ v class=3D"gmail_quote">On Sun, Feb 10, 2013 at 8:13 AM, Matthew Flatt <spa=
+ n dir=3D"ltr">&lt;<a href=3D"mailto:mflatt@cs.utah.edu" target=3D"_blank">m=
+ flatt@cs.utah.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">I&#39;m reluctant to make this generalizatio=
+ n, because then we&#39;ll have to<br>
+ generalize `wrap-evt&#39; to propagate multiple results as multiple<br>
+ arguments to a wrapping function, and so on.<br>
+ <br>
+ I&#39;m inclined to instead fix the docs, which would mean correcting the<b=
+ r>
+ contract on `wrap-evt&#39; and changing the prose for `handle-evt&#39;. Wou=
+ ld<br>
+ that be ok for your purposes?<br>
+ <br>
+ [JFYI, with respect to the patch below: Multiple results from<br>
+ scheme_apply_multi() are represented by a constant value that indicates<br>
+ the actual values are stored in the thread record. Those values have to<br>
+ be moved out of the thread record before doing anything that might run<br>
+ more code or trigger a GC, which is the case for<br>
+ scheme_pop_break_enable() with a non-zero second argument.]<br>
+ <div class=3D"HOEnZb"><div class=3D"h5"><br>
+ At Fri, 8 Feb 2013 12:27:51 +0100, Tobias Hammer wrote:<br>
+ &gt; Patched by allowing multiple returns values from calling the wrapping<=
+ br>
+ &gt; function.<br>
+ &gt;<br>
+ &gt; diff --git a/src/racket/src/thread.c b/src/racket/src/thread.c<br>
+ &gt; index 5db40fc..7b19ce1 100644<br>
+ &gt; --- a/src/racket/src/thread.c<br>
+ &gt; +++ b/src/racket/src/thread.c<br>
+ &gt; @@ -6687,7 +6687,7 @@ static Scheme_Object *do_sync(const char *name, =
+ int<br>
+ &gt; argc, Scheme_Object *argv[],<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0if (tailok) {<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0return _scheme_tail_ap=
+ ply(to_call, 1, args);<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0} else {<br>
+ &gt; - =C2=A0 =C2=A0 =C2=A0 o =3D scheme_apply(to_call, 1, args);<br>
+ &gt; + =C2=A0 =C2=A0 =C2=A0 o =3D scheme_apply_multi(to_call, 1, args);<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0if (!to_call_is_handle=
+ )<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0scheme_pop_brea=
+ k_enable(&amp;cframe, 1);<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0return o;<br>
+ </div></div></blockquote></div><br></div>
+ 
+ --e89a8ff1c6d6984fab04d55f795b--
+From: Tobias Hammer <tobias.hammer@dlr.de>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: <bugs@racket-lang.org>, <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13433: Bug in wrap-evt
+Date: Sun, 10 Feb 2013 15:37:48 +0100
+
+ I agree with Robby, that is might be a useful feature.
+ It would then be possible to prevent such inconsistencies like they exist  
+ e.g. with tcp-accept vs. tcp-accept-evt. But i am not able to predict the  
+ impact and complexity that such changes would have, so i will trust and  
+ agree with your recommendation.
+ But i still think it would be good to place that at least on the long-term  
+ todo-list.
+ 
+ [Shame on me, i should have read the notes on multiple values first before  
+ creating that patch.]
+ 
+ 
+ On Sun, 10 Feb 2013 15:13:44 +0100, Matthew Flatt <mflatt@cs.utah.edu>  
+ wrote:
+ 
+ > I'm reluctant to make this generalization, because then we'll have to
+ > generalize `wrap-evt' to propagate multiple results as multiple
+ > arguments to a wrapping function, and so on.
+ >
+ > I'm inclined to instead fix the docs, which would mean correcting the
+ > contract on `wrap-evt' and changing the prose for `handle-evt'. Would
+ > that be ok for your purposes?
+ >
+ > [JFYI, with respect to the patch below: Multiple results from
+ > scheme_apply_multi() are represented by a constant value that indicates
+ > the actual values are stored in the thread record. Those values have to
+ > be moved out of the thread record before doing anything that might run
+ > more code or trigger a GC, which is the case for
+ > scheme_pop_break_enable() with a non-zero second argument.]
+ >
+ > At Fri, 8 Feb 2013 12:27:51 +0100, Tobias Hammer wrote:
+ >> Patched by allowing multiple returns values from calling the wrapping
+ >> function.
+ >>
+ >> diff --git a/src/racket/src/thread.c b/src/racket/src/thread.c
+ >> index 5db40fc..7b19ce1 100644
+ >> --- a/src/racket/src/thread.c
+ >> +++ b/src/racket/src/thread.c
+ >> @@ -6687,7 +6687,7 @@ static Scheme_Object *do_sync(const char *name,  
+ >> int
+ >> argc, Scheme_Object *argv[],
+ >>            if (tailok) {
+ >>              return _scheme_tail_apply(to_call, 1, args);
+ >>            } else {
+ >> -       o = scheme_apply(to_call, 1, args);
+ >> +       o = scheme_apply_multi(to_call, 1, args);
+ >>              if (!to_call_is_handle)
+ >>                scheme_pop_break_enable(&cframe, 1);
+ >>              return o;
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Tobias Hammer <tobias.hammer@dlr.de>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13433: Bug in wrap-evt
+Date: Sun, 10 Feb 2013 08:01:59 -0700
+
+ At Sun, 10 Feb 2013 15:37:48 +0100, Tobias Hammer wrote:
+ > [Shame on me, i should have read the notes on multiple values first before  
+ > creating that patch.]
+ 
+ [It's perhaps not reasonable to expect to consult the documentation
+ every time you add a line of code. There are a lot of invariants in the
+ implementation, unfortunately.]
+ 

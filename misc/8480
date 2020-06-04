@@ -1,0 +1,124 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jan 10 02:06:53 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.226])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l0A76RRL005587
+	for <bugs@bugs.plt-scheme.org>; Wed, 10 Jan 2007 02:06:27 -0500
+Message-Id: <200701100706.l0A76M0a005580@champlain.ccs.neu.edu>
+Date: Wed, 10 Jan 2007 02:06:22 -0500
+From: derick_eddington@yahoo.com
+To: bugs@plt-scheme.org
+Subject: lazy/force.ss do-!! named-let wrong name
+
+>Number:         8480
+>Category:       misc
+>Synopsis:       lazy/force.ss do-!! named-let wrong name
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jan 10 02:10:01 -0500 2007
+>Closed-Date:    Wed Jan 10 03:28:56 -0500 2007
+>Last-Modified:  Wed Jan 10 03:30:01 -0500 2007
+>Originator:     Derick Eddington
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        360
+>Environment:
+unix "" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+(("/home/plt/plt-360/share/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 93368320
+
+Collections:
+(("/home/plt/.plt-scheme/360/collects" "divascheme" "info-domain") ("/home/plt/plt-360/lib/plt/collects" "afm" "ffi" "net" "sgl" "xml" "eopl" "help" "htdp" "html" "lang" "lazy" "make" "r5rs" "mred" "plot" "srfi" "framework" "teachpack" "profjBoxes" "mzscheme" "games" "icons" "htdch" "mrlib" "mzlib" "graphics" "profj" "setup" "tests" "trace" "preprocessor" "tex2page" "test-suite" "texpict" "profjWizard" "stepper" "web-server" "config" "compiler" "swindle" "dynext" "hierlist" "macro-debugger" "frtime" "defaults" "drscheme" "syntax-color" "mztake" "slibinit" "planet" "errortrace" "slatex" "syntax" "version" "algol60" "parser-tools" "openssl" "embedded-gui" "slideshow" "info-domain" "readline" "launcher" "string-constants" "browser"))
+Teachpack filenames: ()
+Computer Language: (("Experimental Languages" "Lazy Scheme") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+In collects/lazy/force.ss do-!!, the named-let in the cond branch for vectors uses the name "loop" but the enclosing named-let also uses that name, which causes the vector branch's loop to be used when the enclosing loop was intended.  See my "; BUG: ..." comments in the bellow code.
+
+(define (do-!! x translate-procedures?)
+    (define table (make-hash-table)) ; avoid loops due to sharing
+    (split-values ; see below
+     (let loop ([x x])
+       (let ([x (! x)])
+         (unless (hash-table-get table x (lambda () #f))
+           (hash-table-put! table x #t)
+           (cond [(pair? x)
+                  (set-car! x (loop (car x)))
+                  (set-cdr! x (loop (cdr x)))]
+                 [(vector? x)
+                  (let loop ([i 0])  ; BUG: should use a different name
+                    (when (< i (vector-length x))
+                      (vector-set! x (loop (vector-ref x i)))  ; BUG: uses wrong loop
+                      (loop (add1 i))))]
+                 [(box? x) (set-box! x (loop (unbox x)))]
+                 [(struct? x)
+                  (let-values ([(type skipped?) (struct-info x)])
+                    (if type
+                      (let*-values ([(name initk autok ref set imms spr skp?)
+                                     (struct-type-info type)]
+                                    [(k) (+ initk autok)])
+                        (let sloop ([i 0])
+                          (unless (= i k)
+                            (set x i (loop (ref x i)))
+                            (sloop (add1 i)))))
+                      x))]))
+         (if (and (procedure? x) translate-procedures?)
+           (lambda args (do-!! (apply x args) #t))
+           x)))))
+>How-To-Repeat:
+(module do-!!-bug (lib "lazy.ss" "lazy")
+  (define v (vector (vector 1 2 3)))
+  (!! v))
+
+(require do-!!-bug)
+
+#| Results in error:
+<: expected argument of type <real number>; given #<struct:promise>
+|#
+>Fix:
+>Audit-Trail:
+From: Derick Eddington <derick_eddington@yahoo.com>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8480: lazy/force.ss do-!! named-let wrong name
+Date: Tue, 9 Jan 2007 23:34:15 -0800 (PST)
+
+ Also, the vector-set! in the vector cond branch is missing the argument for i.
+ 
+ 
+ 
+ 
+ __________________________________________________
+ Do You Yahoo!?
+ Tired of spam?  Yahoo! Mail has the best spam protection around 
+ http://mail.yahoo.com 
+
+Responsible changed from "nobody" to "eli" by eli at Wed, 10 Jan 2007 03:28:56 -0500
+Reason>>> lazy
+
+State changed from "open" to "closed" by eli at Wed, 10 Jan 2007 03:28:56 -0500
+Reason>>> fixed in svn
+
+From: Eli Barzilay <eli@barzilay.org>
+To: derick_eddington@yahoo.com, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8480: lazy/force.ss do-!! named-let wrong name
+Date: Wed, 10 Jan 2007 03:28:08 -0500
+
+ On Jan 10, derick_eddington@yahoo.com wrote:
+ > In collects/lazy/force.ss do-!!, the named-let in the cond branch
+ > for vectors uses the name "loop" but the enclosing named-let also
+ > uses that name, which causes the vector branch's loop to be used
+ > when the enclosing loop was intended.  See my "; BUG: ..." comments
+ > in the bellow code.
+ 
+ Whew -- good catch, and good hunting for the location...  Thank you
+ very much.  Fixed in svn (both problems).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!

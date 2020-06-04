@@ -1,0 +1,149 @@
+From benderjg2@aol.com  Sat Apr 12 00:45:29 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id AAA10183
+	for <bugs>; Sat, 12 Apr 2003 00:45:28 -0400
+Message-Id: <200304120445.AAA10183@champlain.ccs.neu.edu>
+Date: Sat, 12 Apr 2003 00:45:28 -0400
+From: Jim Bender <benderjg2@aol.com>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: (pre ...) or (post ...) in pretty-print input can cause extra call to pre or post print hooks
+
+>Number:         6216
+>Category:       mzscheme
+>Synopsis:       (pre ...) or (post ...) in pretty-print input can cause extra call to pre or post print hooks
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sat Apr 12 00:50:00 EDT 2003
+>Closed-Date:    Sat Apr 12 13:16:39 EDT 2003
+>Last-Modified:  Sat Apr 12 13:16:39 EDT 2003
+>Originator:     Jim Bender
+>Release:        202
+>Organization:
+plt
+>Environment:
+windows "Windows 9x 4.90 (Build 3000)" (win32\i386)
+
+Docs Installed:
+("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack" "misclib" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "framework" "mred" "tex2page" "tools" "tour" "t-y-scheme")
+
+Collections:
+(("c:\\program files\\plt\\.\\collects\\setup\\..\\..\\collects" ("browser" "compiler" "defaults" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper" "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm" "version" "eopl" "web-server" "tex2page" "doc" "siteml" "siql" "sardou" "webit" "sxpath-webit" "webit-ext" "ssax-webit" "ssax" "sxml" "webit-sxml" "algol60" "srfi")))
+
+Human Language: english
+>Description:
+When I supply a "pretty-print-size-hook" and a 
+pretty-print-print-hook, which "hook" on to the printing 
+of symbols, I get strange behaviour if the object to be 
+pretty-printed includes a list whose car is the symbols 
+pre or post. With these two handlers, I have also supplied 
+pre- and post- pretty-print hooks.
+
+Specifically, when the symbol pre is seen in the list 
+(pre "text"), I get an extra call to my pre-print hook,
+with the object 3. When the symbol post is seen in the 
+list (post "text"), I get an extra call to my 
+post-print hook, with the object 4.
+
+It seems that 'pre and 'post are used internally in 
+the pretty printer, and that in at least this case, there 
+a "capture" problem, when these symbols appear in the 
+input. I have created a modified version of pretty.ss, 
+where the uses of 'pre and 'post within the pretty printer 
+instead use unique objects as "pre-marks" and "post-marks". 
+This seems to solve my problem.
+
+Also, with just the pre- and post- hooks (i.e.
+without the size hook and print hook) the problem
+does not occur.
+
+
+
+
+>How-To-Repeat:
+The following code will illustrate the problem.
+
+(require (lib "pretty.ss"))
+
+(define (symbol->write-format s)
+  (let ((p (open-output-string)))
+    (write s p)
+    (get-output-string p)))
+
+(define (test obj)
+  (parameterize ([pretty-print-size-hook
+                  (lambda (x display? port)
+                    (and (symbol? x)
+                         (string-length (symbol->write-format x))))]
+                 [pretty-print-print-hook 
+                  (lambda (x display? port)
+                    (display (symbol->write-format x)))]
+                 [pretty-print-pre-print-hook
+                  (lambda (obj p)
+                    (display (format "~nin pre-hook: given ~s~n" obj))
+                    (void))]
+                 [pretty-print-post-print-hook
+                  (lambda (obj p)
+                    (display (format "~nin post-hook: given ~s" obj))
+                    (void))])
+    (pretty-print obj)
+    (void)))
+
+Calling (test '(a (pre "text") b)) will show in the 
+output the following lines:
+> in pre-hook: given pre
+> in pre-hook: given 3
+> in post-hook: given pre 
+
+When called with a list which includes (post "text"),
+one will see a similar, "unbalanced" call to the 
+post-hook, but with 4 as the object.
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Jim Bender <benderjg2@aol.com>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6216: (pre ...) or (post ...) in pretty-print input can cause extra call to pre or post print hooks
+Date: Sat, 12 Apr 2003 08:19:04 -0600
+
+ At Sat, 12 Apr 2003 00:45:28 -0400, Jim Bender wrote:
+ > It seems that 'pre and 'post are used internally in 
+ > the pretty printer, and that in at least this case, there 
+ > a "capture" problem, when these symbols appear in the 
+ > input.
+ 
+ You're right. If you look at collects/mzlib/pretty.ss, you'll find uses
+ or 'pre and 'post, and it looks to me that they get mingled with the
+ value to print. (Who wrote this junk?! Er, according to the CVS logs, I
+ did...)
+ 
+ In CVS, I've changed the uses or 'pre and 'post to pre-sym and
+ post-sym:
+ 
+    (define pre-sym (gensym 'pre))
+    (define post-sym (gensym 'post))
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sat Apr 12 13:16:39 2003
+Responsible-Changed-Why:
+    mzlib
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Sat Apr 12 13:16:39 2003
+State-Changed-Why:
+    fixed
+>Unformatted:
+

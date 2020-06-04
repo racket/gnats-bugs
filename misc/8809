@@ -1,0 +1,371 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jul 17 17:21:33 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.239])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l6HLLXqM017388
+	for <bugs@bugs.plt-scheme.org>; Tue, 17 Jul 2007 17:21:33 -0400
+Message-Id: <200707172120.l6HLKAYh017378@champlain.ccs.neu.edu>
+Date: Tue, 17 Jul 2007 17:20:10 -0400
+From: offby1@blarg.net
+To: bugs@plt-scheme.org
+Subject: url->string or string->url is appending an = where there oughtn't be one
+
+>Number:         8809
+>Category:       misc
+>Synopsis:       url->string or string->url is appending an = where there oughtn't be one
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jul 17 17:25:01 -0400 2007
+>Closed-Date:    Tue Jul 17 23:43:00 -0400 2007
+>Last-Modified:  Wed Jul 18 00:30:01 -0400 2007
+>Originator:     Eric Hanchrow
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        370
+>Environment:
+unix "Linux hanchrow.desktop.amazon.com 2.4.21-37a8 #1 Thu Jun 22 19:18:06 PDT 2006 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/home/hanchrow/.plt-scheme/370/doc" "web-server") ("/apollo/package/remote-apollo-dev-nfs-0101.sea3.amazon.com_3/Generic/InstallPLTScheme/InstallPLTScheme-1.1-0/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced") (* "/home/hanchrow/.plt-scheme/planet/300/370/cache/neil/htmlprag.plt/1/3/doc" "/home/hanchrow/.plt-scheme/planet/300/370/cache/untyped/delicious.plt/1/0/doc/html"))
+Human Language: english
+(current-memory-use) 81861652
+
+Collections:
+(("/home/hanchrow/.plt-scheme/370/collects") ("/apollo/package/remote-apollo-dev-nfs-0101.sea3.amazon.com_3/Generic/InstallPLTScheme/InstallPLTScheme-1.1-0/collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "readline" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "tests" "tex2page" "texpict" "trace" "version" "web-server" "wxme" "xml"))
+>Description:
+I am not 100% sure this is a bug, but it's surprising, and at least one web site rejects URLs that end with an =, but happily accepts the same URL without the = (specifically: http://www.emacswiki.org/cgi-bin/wiki?w3m= versus http://www.emacswiki.org/cgi-bin/wiki?w3m)
+>How-To-Repeat:
+(require (lib "url.ss" "net"))
+(url->string  (string->url "http://foo.bar/baz?ugh"))
+
+I see http://foo.bar/baz?ugh=
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "eli" by eli at Tue, 17 Jul 2007 23:43:00 -0400
+Reason>>> fixing
+
+State changed from "open" to "closed" by eli at Tue, 17 Jul 2007 23:43:00 -0400
+Reason>>> fixed (unless someone objects...)
+
+From: Eli Barzilay <eli@barzilay.org>
+To: offby1@blarg.net, bugs@plt-scheme.org
+Cc: matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        robby@plt-scheme.org, clements@plt-scheme.org, jay@plt-scheme.org,
+        meunier@plt-scheme.org, sowens@plt-scheme.org, kathyg@plt-scheme.org,
+        awick@plt-scheme.org, jacobm@plt-scheme.org, cce@plt-scheme.org,
+        dalev@plt-scheme.org, samth@plt-scheme.org, ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Tue, 17 Jul 2007 23:41:28 -0400
+
+ There are some additional problems with parsing these urls.  These:
+ 
+   (url->string (string->url "http://foo.bar/baz?ugh;x=y;1=2"))
+   (url->string (string->url "http://foo.bar/baz?ugh&x=y&1=2"))
+ 
+ show that the first ";" or "&" is taken as part of a keyname, which
+ I'm sure is wrong (although the query part structure is not mentioned
+ in the url rfc).
+ 
+ Anyway, fixing this is impossible with the current contract -- the
+ query part is a (listof (cons/c symbol? string?)).  I'm going to
+ change this to be: (listof (cons/c symbol? (or/c string? false/c)))
+ which is reasonable since #f is used for other optional parts too.
+ Also updating "net/doc.txt" and adding tests.  The only test that I
+ needed to change is exactly the one that tests that no "=value" part
+ makes it as an empty string:
+ 
+ -  (test '((key . ""))  form-urlencoded->alist "key")
+ +  (test '((key . #f))  form-urlencoded->alist "key")
+ 
+ I'm doing this all as a single commit, in case someone sees any
+ problems with this.  (Problems would be with code that assumes that a
+ value is always a string -- but the current behavior is broken for
+ value-less arguments anyway.)
+ 
+ 
+ On Jul 17, offby1@blarg.net wrote:
+ > Reported by Eric Hanchrow for release: 370
+ > 
+ > *** Description:
+ > I am not 100% sure this is a bug, but it's surprising, and at least
+ > one web site rejects URLs that end with an =, but happily accepts
+ > the same URL without the = (specifically:
+ > http://www.emacswiki.org/cgi-bin/wiki?w3m= versus
+ > http://www.emacswiki.org/cgi-bin/wiki?w3m)
+ > 
+ > *** How to repeat:
+ > (require (lib "url.ss" "net"))
+ > (url->string  (string->url "http://foo.bar/baz?ugh"))
+ > 
+ > I see http://foo.bar/baz?ugh=
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: offby1@blarg.net, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Tue, 17 Jul 2007 22:48:26 -0500
+
+ Just to ask the obvious question: is there really a difference between
+ the empty string and no string at all?
+ 
+ Robby
+ 
+ On 7/17/07, Eli Barzilay <eli@barzilay.org> wrote:
+ > There are some additional problems with parsing these urls.  These:
+ >
+ >   (url->string (string->url "http://foo.bar/baz?ugh;x=y;1=2"))
+ >   (url->string (string->url "http://foo.bar/baz?ugh&x=y&1=2"))
+ >
+ > show that the first ";" or "&" is taken as part of a keyname, which
+ > I'm sure is wrong (although the query part structure is not mentioned
+ > in the url rfc).
+ >
+ > Anyway, fixing this is impossible with the current contract -- the
+ > query part is a (listof (cons/c symbol? string?)).  I'm going to
+ > change this to be: (listof (cons/c symbol? (or/c string? false/c)))
+ > which is reasonable since #f is used for other optional parts too.
+ > Also updating "net/doc.txt" and adding tests.  The only test that I
+ > needed to change is exactly the one that tests that no "=value" part
+ > makes it as an empty string:
+ >
+ > -  (test '((key . ""))  form-urlencoded->alist "key")
+ > +  (test '((key . #f))  form-urlencoded->alist "key")
+ >
+ > I'm doing this all as a single commit, in case someone sees any
+ > problems with this.  (Problems would be with code that assumes that a
+ > value is always a string -- but the current behavior is broken for
+ > value-less arguments anyway.)
+ >
+ >
+ > On Jul 17, offby1@blarg.net wrote:
+ > > Reported by Eric Hanchrow for release: 370
+ > >
+ > > *** Description:
+ > > I am not 100% sure this is a bug, but it's surprising, and at least
+ > > one web site rejects URLs that end with an =, but happily accepts
+ > > the same URL without the = (specifically:
+ > > http://www.emacswiki.org/cgi-bin/wiki?w3m= versus
+ > > http://www.emacswiki.org/cgi-bin/wiki?w3m)
+ > >
+ > > *** How to repeat:
+ > > (require (lib "url.ss" "net"))
+ > > (url->string  (string->url "http://foo.bar/baz?ugh"))
+ > >
+ > > I see http://foo.bar/baz?ugh=
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                   http://www.barzilay.org/                 Maze is Life!
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: offby1@blarg.net, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Tue, 17 Jul 2007 23:57:20 -0400
+
+ On Jul 17, Robby Findler wrote:
+ > Just to ask the obvious question: is there really a difference
+ > between the empty string and no string at all?
+ 
+ I don't know if you're asking about the code or URLs.  For the first
+ -- there wasn't any difference, now there is.  And for the second --
+ the PR is mentioning a server that uses the query part with no `='s in
+ it (http://www.emacswiki.org/cgi-bin/wiki?w3m).  It looks like the RFC
+ says that anything can be there, which I think is a problem that was
+ raised once (or maybe it was about the path part?).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: offby1@blarg.net, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Tue, 17 Jul 2007 23:00:45 -0500
+
+ I understand the change you're proposing. I'm asking about URLs in general.
+ 
+ Here's another way to ask my question: why not special case the empty
+ string in the url generation code and avoid using an equal sign in
+ that case?
+ 
+ Robby
+ 
+ On 7/17/07, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Jul 17, Robby Findler wrote:
+ > > Just to ask the obvious question: is there really a difference
+ > > between the empty string and no string at all?
+ >
+ > I don't know if you're asking about the code or URLs.  For the first
+ > -- there wasn't any difference, now there is.  And for the second --
+ > the PR is mentioning a server that uses the query part with no `='s in
+ > it (http://www.emacswiki.org/cgi-bin/wiki?w3m).  It looks like the RFC
+ > says that anything can be there, which I think is a problem that was
+ > raised once (or maybe it was about the path part?).
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                   http://www.barzilay.org/                 Maze is Life!
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: offby1@blarg.net, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Wed, 18 Jul 2007 00:13:07 -0400
+
+ On Jul 17, Robby Findler wrote:
+ > I understand the change you're proposing. I'm asking about URLs in
+ > general.
+ > 
+ > Here's another way to ask my question: why not special case the
+ > empty string in the url generation code and avoid using an equal
+ > sign in that case?
+ 
+ Ah.  I can only point back at the RFC that says that:
+ 
+    The query component contains non-hierarchical data that, [...]  The
+    query component is indicated by the first question mark ("?")
+    character and terminated by a number sign ("#") character or by the
+    end of the URI.
+ 
+ No mention of `key=val'.  And then:
+ 
+    However, as query components are often used to carry identifying
+    information in the form of "key=value" pairs [...]
+ 
+ and from that "often" it seems that you're free to do whatever you
+ want with these things.  (Like using `query=' as a query for the empty
+ string (eg: "error, invalid query") and `query' to indicate that
+ you're on the initial query page and the user didn't type a value
+ yet.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: offby1@blarg.net, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Tue, 17 Jul 2007 23:16:11 -0500
+
+ I see. I think your interpretation makes sense. I remember this issue now. Ugh.
+ 
+ Robby
+ 
+ On 7/17/07, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Jul 17, Robby Findler wrote:
+ > > I understand the change you're proposing. I'm asking about URLs in
+ > > general.
+ > >
+ > > Here's another way to ask my question: why not special case the
+ > > empty string in the url generation code and avoid using an equal
+ > > sign in that case?
+ >
+ > Ah.  I can only point back at the RFC that says that:
+ >
+ >    The query component contains non-hierarchical data that, [...]  The
+ >    query component is indicated by the first question mark ("?")
+ >    character and terminated by a number sign ("#") character or by the
+ >    end of the URI.
+ >
+ > No mention of `key=val'.  And then:
+ >
+ >    However, as query components are often used to carry identifying
+ >    information in the form of "key=value" pairs [...]
+ >
+ > and from that "often" it seems that you're free to do whatever you
+ > want with these things.  (Like using `query=' as a query for the empty
+ > string (eg: "error, invalid query") and `query' to indicate that
+ > you're on the initial query page and the user didn't type a value
+ > yet.)
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                   http://www.barzilay.org/                 Maze is Life!
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: offby1@blarg.net, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Wed, 18 Jul 2007 00:21:56 -0400
+
+ On Jul 17, Robby Findler wrote:
+ > I see. I think your interpretation makes sense. I remember this
+ > issue now. Ugh.
+ 
+ Ugh indeed...
+ 
+ But I'm pretty sure that it came up with the earlier parts.  Something
+ about schemes that do not interpret the path part as a hierarchical
+ location.  I think that I suggested holding the strings as-is in
+ addition to the interpreted path -- but it still didn't get to bite
+ anyone yet.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: offby1@blarg.net, bugs@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, sowens@plt-scheme.org,
+        kathyg@plt-scheme.org, awick@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8809: url->string or string->url is appending an = where there oughtn't be one
+Date: Tue, 17 Jul 2007 23:26:03 -0500
+
+ Right.
+ 
+ On 7/17/07, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Jul 17, Robby Findler wrote:
+ > > I see. I think your interpretation makes sense. I remember this
+ > > issue now. Ugh.
+ >
+ > Ugh indeed...
+ >
+ > But I'm pretty sure that it came up with the earlier parts.  Something
+ > about schemes that do not interpret the path part as a hierarchical
+ > location.  I think that I suggested holding the strings as-is in
+ > addition to the interpreted path -- but it still didn't get to bite
+ > anyone yet.
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                   http://www.barzilay.org/                 Maze is Life!
+ >

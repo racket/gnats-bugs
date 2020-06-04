@@ -1,0 +1,149 @@
+From nobody@cs.rice.edu  Sat Apr  3 16:18:10 1999
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id QAA08178
+	for <plt-gnats@cs.rice.edu>; Sat, 3 Apr 1999 16:18:10 -0600 (CST)
+Message-Id: <199904032218.QAA14388@web.cs.rice.edu>
+Date: Sat, 3 Apr 1999 16:18:10 -0600 (CST)
+From: robby@cs.ric.edu
+Reply-To: robby@cs.ric.edu
+To: plt-gnats@cs.rice.edu
+Subject: problems with tabbing under windows 
+
+>Number:         950
+>Category:       mred
+>Synopsis:       problems with tabbing under windows
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sat Apr 03 17:30:02 -0500 1999
+>Last-Modified:  Sun Mar 28 02:39:25 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        100/33
+>Organization:
+titan
+>Environment:
+MS Windows 98
+>Description:
+I was (unsucessfully) trying to narrow down a windows-specific bug in 
+DrScheme's preferences dialog when I found the follows bug(s). The
+preferences dialog bug exhibits itself when tabbing in the preferences
+dialog. To see it, start up DrScheme, open the preferences dialog, and
+type "tab". DrScheme will start doing a lot of work, mostly garbage
+collection.
+
+The other bugs are also related to tabbing in dialogs under windows, but
+are much more mudane. To see them, evaluate the code below and tab around
+in the dialog. There are two different manifestations. To see the second
+manifestation, swap the order of the definitions of single:panel%.
+One of them only tabs through invisble items, the other seems to tab-off
+and never return.
+>How-To-Repeat:
+
+(define panel:single%
+  (class horizontal-panel% args
+    (inherit get-alignment)
+    (rename [super-on-new-child on-new-child])
+    (private [state #t])
+    (override
+     [on-new-child
+      (lambda (c)
+	(if state
+	    (set! state #f)
+	    (send c show #f)))])
+    (sequence
+      (apply super-init args))))
+
+(define panel:single%
+  (class panel% args
+    (inherit get-alignment)
+    (rename [super-on-new-child on-new-child])
+    (override
+     [on-new-child
+      (lambda (c)
+	(if current-active-child
+	    (send c show #f)
+	    (set! current-active-child c)))]
+     [container-size
+      (lambda (l)
+	(if (null? l)
+	    (values 0 0)
+	    (values (apply max (map car l)) (apply max (map cadr l)))))]
+     [place-children
+      (lambda (l width height)
+	(let-values ([(h-align-spec v-align-spec) (get-alignment)])
+	  (let ([align
+		 (lambda (total-size spec item-size)
+		   (floor
+		    (case spec
+		      [(center) (- (/ total-size 2) (/ item-size 2))]
+		      [(left top) 0]
+		      [(right bottom) (- total-size item-size)]
+		      [else (error 'place-children "alignment spec is unknown ~a~n" spec)])))])
+	    (map (lambda (l) 
+		   (let*-values ([(min-width min-height v-stretch? h-stretch?) (apply values l)]
+				 [(x this-width) (if h-stretch?
+						     (values 0 width)
+						     (values (align width h-align-spec min-width) min-width))]
+				 [(y this-height) (if v-stretch?
+						      (values 0 height)
+						      (values (align height v-align-spec min-height) min-height))])
+		     (list x y this-width this-height)))
+		 l))))])
+    
+    (inherit get-children)
+    (private [current-active-child #f])
+    (public
+      [active-child
+       (case-lambda
+	[() current-active-child]
+	[(x) 
+	 (unless (eq? x current-active-child)
+	   (for-each (lambda (x) (send x show #f))
+		     (get-children))
+	   (set! current-active-child x)
+	   (send current-active-child show #t))])])
+    (sequence
+      (apply super-init args))))
+
+(define gc-frame (make-object frame% "gc"))
+(send gc-frame show #t)
+
+(define single (make-object panel:single% gc-frame))
+(define p1 (make-object horizontal-panel% single))
+(define p2 (make-object horizontal-panel% single))
+(define p3 (make-object horizontal-panel% single))
+(make-object check-box% "check1" p1 void)
+(make-object check-box% "check1" p1 void)
+(make-object check-box% "check2" p2 void)
+(make-object check-box% "check2" p2 void)
+(make-object check-box% "check3" p3 void)
+(make-object check-box% "check3" p3 void)
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Thu Apr  8 08:37:53 1999
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: mflatt
+State-Changed-When: Thu Apr  8 08:38:04 1999
+State-Changed-Why:
+Fixed for the next release.
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: mflatt
+State-Changed-When: Thu Apr  8 12:18:05 1999
+State-Changed-Why:
+Fixed
+
+>Unformatted:

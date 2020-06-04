@@ -1,0 +1,164 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed May 28 10:21:52 2014
+Received: from mail-ob0-f170.google.com (mail-ob0-f170.google.com [209.85.214.170])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s4SELinT011181
+	for <bugs@bugs.plt-scheme.org>; Wed, 28 May 2014 10:21:44 -0400
+Message-Id: <201405281421.s4SELfwS011175@winooski.ccs.neu.edu>
+Date: Wed, 28 May 2014 10:21:41 -0400
+From: matthias@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: check syntax fails to draw arrow across sub-sub-module boundary 
+
+>Number:         14529
+>Category:       all
+>Synopsis:       check syntax fails to draw arrow across sub-sub-module boundary
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed May 28 10:24:01 -0400 2014
+>Last-Modified:  Wed May 28 18:00:01 -0400 2014
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1.11--2014-05-28(2b33b8d9/d)
+>Environment:
+macosx "Darwin antarctica.ccs.neu.edu 12.5.0 Darwin Kernel Version 12.5.0: Sun Sep 29 13:33:47 PDT 2013; root:xnu-2050.48.12~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 499471388
+raco pkg (show):
+/Users/matthias/plt/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [215 auto-installed packages not shown]
+Installation-wide:
+ [none]
+User-specific for installation "6.0.1.11":
+ [none]
+
+
+
+Collections:
+("/Users/matthias/0Unison/collects/"
+ (".DS_Store" "compiled" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web"))
+("/Users/matthias/Library/Racket/6.0.1.11/collects"
+ (non-existent-path))
+("/Users/matthias/plt/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket" #t #t ((test) (main)) #t))
+>Description:
+Live CS does not connect module-defined identifiers across module+ boundaries. 
+>How-To-Repeat:
+The following program is syntactically correct and runs fine: 
+
+#lang racket
+
+(module client racket
+  (define d 3)
+  (module+ test (exn:fail? (lambda () (new d)))))
+
+CS connects exn:fail? and lanbda and new to racket but does not connect d to (define d ...
+
+I thought that this had been fixed at some point. If not, ignore. 
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14529: check syntax fails to draw arrow across
+ sub-sub-module boundary
+Date: Wed, 28 May 2014 16:57:43 -0500
+
+ Check Syntax changed, but I think this might be a problem with the
+ expander or perhaps a problem with a different part of check syntax.
+ In particular, this program returns #f, but check syntax won't draw
+ the arrow unless it returns #t.
+ 
+ #lang racket
+ 
+ (current-namespace (make-base-namespace))
+ (define stx
+   (expand
+    #'(module client racket
+        (define d 3)
+        (module+ test (exn:fail? (lambda () (new d)))))))
+ 
+ (define ids '())
+ 
+ (define (consider stx)
+   (when (equal? (syntax-e stx) 'd)
+     (set! ids (cons stx ids))))
+ 
+ (let loop ([stx stx])
+   (cond
+     [(syntax? stx)
+      (when (identifier? stx)
+        (consider stx))
+      ;(loop (syntax-property stx 'origin))
+      (loop (syntax-e stx))]
+     [(pair? stx)
+      (loop (car stx))
+      (loop (cdr stx))]
+     [else (void)]))
+ 
+ (free-identifier=? (list-ref ids 0)
+                    (list-ref ids 1))
+ 
+ On Wed, May 28, 2014 at 9:24 AM,  <matthias@ccs.neu.edu> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14529
+ >
+ > Reported by matthias for release: 6.0.1.11--2014-05-28(2b33b8d9/d)
+ >
+ > *** Description:
+ > Live CS does not connect module-defined identifiers across module+ boundaries.
+ >
+ > *** How to repeat:
+ > The following program is syntactically correct and runs fine:
+ >
+ > #lang racket
+ >
+ > (module client racket
+ >   (define d 3)
+ >   (module+ test (exn:fail? (lambda () (new d)))))
+ >
+ > CS connects exn:fail? and lanbda and new to racket but does not connect d to (define d ...
+ >
+ > I thought that this had been fixed at some point. If not, ignore.
+ >
+ > *** Environment:
+ > macosx "Darwin antarctica.ccs.neu.edu 12.5.0 Darwin Kernel Version 12.5.0: Sun Sep 29 13:33:47 PDT 2013; root:xnu-2050.48.12~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 499471388
+ > raco pkg (show):
+ > /Users/matthias/plt/racket/share/devel-pkgs:
+ >  Package              Checksum    Source
+ >  main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ >  plt-services         #f          (static-link ../../../pkgs/plt-services)
+ >  racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ >  [215 auto-installed packages not shown]
+ > Installation-wide:
+ >  [none]
+ > User-specific for installation "6.0.1.11":
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/Users/matthias/0Unison/collects/"
+ >  (".DS_Store" "compiled" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web"))
+ > ("/Users/matthias/Library/Racket/6.0.1.11/collects"
+ >  (non-existent-path))
+ > ("/Users/matthias/plt/racket/collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+ >
+ > Recent Internal Errors:
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket" #t #t ((test) (main)) #t))
+ >

@@ -1,0 +1,349 @@
+From apache@plt-scheme.org Thu Mar 16 18:23:28 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k2GNNQZ4007729
+	for <bugs@plt-scheme.org>; Thu, 16 Mar 2006 18:23:26 -0500
+Message-Id: <200603162323.k2GNNQOH007727@champlain.ccs.neu.edu>
+Date: Thu, 16 Mar 2006 18:23:26 -0500
+From: la@iki.fi
+To: bugs@plt-scheme.org
+Subject: Parameterizations have unexpected space behavior
+
+>Number:         7966
+>Category:       mzscheme
+>Synopsis:       Parameterizations have unexpected space behavior
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Mar 16 18:25:00 -0500 2006
+>Last-Modified:  Sat May 20 00:26:27 -0400 2006
+>Originator:     Lauri Alanko
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301.8
+>Environment:
+linux-other
+>Description:
+The manual says (7.9):
+
+"The parameterize form introduces a fresh thread cell for the dynamic extend of its body expressions."
+
+This led me to believe that a parameterization can be viewed as a local cell whose value can be altered to prevent space leakage. Hence I expected the following to be tail-recursive:
+
+(define param (make-parameter #f))
+
+(define (loop1)
+  (let/ec k
+    (parameterize ((param k))
+      (param #f)
+      (loop1))))
+
+However, it leaks space. The captured continuation captures the previous parameterization, and despite trying to set the parameterization to #f, the previous continuation was still captured, creating an ever-lengthening chain, even though after (param #f) the original value k is unreachable in code through the parameter.
+
+In contrast, the following works in constant space.
+
+(define (loop2)
+  (let/ec k
+    (parameterize ((param (box k)))
+      (set-box! (param) #f)
+      (loop2))))
+
+Now the previous continuation is really unreachable through the parameter or the next continuation, so the previous continuation and box can be freed.
+
+This was the source of a space leak that took me quite a while to figure out. I'd like either the manual to be very clear about the fact that the value given to a parameterization will be kept alive for the whole extent of the parameterization in all situations, or, preferably, for the implementation to actually behave like the manual currently leads to expect.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: la@iki.fi, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7966: Parameterizations have unexpected space behavior
+Date: Thu, 16 Mar 2006 17:25:10 -0700
+
+ At Thu, 16 Mar 2006 18:25:03 -0500, la@iki.fi wrote:
+ > (define param (make-parameter #f))
+ > 
+ > (define (loop1)
+ >   (let/ec k
+ >     (parameterize ((param k))
+ >       (param #f)
+ >       (loop1))))
+ > 
+ > However, it leaks space. The captured continuation captures the previous 
+ > parameterization, and despite trying to set the parameterization to #f, the 
+ > previous continuation was still captured, 
+ 
+ I think there's a slight misunderstanding here. It's not that the
+ continuation captures the parameter value; the continuation really does
+ capture the cell. But it's a *thread cell*, so the parameter assignment
+ affects only the current thread, not all threads.
+ 
+ > creating an ever-lengthening chain, 
+ > even though after (param #f) the original value k is unreachable in code 
+ > through the parameter.
+ 
+ Only because the parameterization key (used to map continuation frames
+ to parameterizations via a continuation mark) is private to the
+ run-time system. As far as the GC can tell, the run-time system might
+ extract the continuation marks associated with the most recently
+ captured continuation, and then it might lookup a parameter value
+ within a different thread. The run-time system doesn't currently do
+ that, but I can imagine that it might, one day.
+ 
+ > I'd like either the manual to be very clear about the fact that the value 
+ > given to a parameterization will be kept alive for the whole extent of the 
+ > parameterization in all situations,
+ 
+ I'll add a note to clarify this implication of using thread cells.
+ 
+ Thanks,
+ Matthew
+ 
+From: Lauri Alanko <la@iki.fi>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7966: Parameterizations have unexpected space behavior
+Date: Fri, 17 Mar 2006 09:40:31 +0200
+
+ On Thu, Mar 16, 2006 at 05:25:10PM -0700, Matthew Flatt wrote:
+ > I think there's a slight misunderstanding here.
+ 
+ Right. I had overlooked the fact that the initialization value of a
+ thread cell is global across threads and lives as long as the cell
+ lives, whereas setting it only affects the value associated with the
+ current thread. With parameters this only comes relevant when migrating
+ the continuation to another thread:
+ 
+ > (let ((p (make-parameter #f))
+       (c1 (make-channel))
+       (c2 (make-channel)))
+   (thread (lambda () ((channel-get c1) #f)))
+   (thread (lambda ()
+             (let/cc e
+               (parameterize ((p 'foo))
+                 (p 'bar)
+                 (let/cc k2
+                   (channel-put c1 k2)
+                   (e #f))
+                 (channel-put c2 (p))))
+             'magic-tail))
+   (channel-get c2))
+ foo
+ 
+ (Incidentally, without the 'magic-tail the (channel-put c2 (p)) is never
+ called and the whole expression never returns. This seems like some
+ utterly bizarre bug.)
+ 
+ So obviously (in hindsight) here the value 'foo needs to be stored
+ somewhere even after the (p 'bar).
+ 
+ I'm not sure if this behavior is very intuitive or useful, though. To my
+ mind it would perhaps be less surprising if instead of a thread cell, a
+ parameterization installed an ordinary cell that was only used from the
+ local thread. Its current value would be copied whenever the
+ continuation was copied. In that case the above expression would return
+ 'bar which, I think, is what one would expect in the first place...
+ 
+ Thanks for clearing this up.
+ 
+ 
+ Lauri
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Lauri Alanko <la@iki.fi>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7966: Parameterizations have unexpected space behavior
+Date: Fri, 17 Mar 2006 09:52:48 -0700
+
+ At Fri, 17 Mar 2006 09:40:31 +0200, Lauri Alanko wrote:
+ > (Incidentally, without the 'magic-tail the (channel-put c2 (p)) is never
+ > called and the whole expression never returns. This seems like some
+ > utterly bizarre bug.)
+ 
+ This is worrying, and I can't reproduce the problem. Same platform and
+ version as in your PR? Running in DrScheme or MzScheme?
+ 
+ Thanks,
+ Matthew
+ 
+From: Lauri Alanko <la@iki.fi>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7966: Parameterizations have unexpected space behavior
+Date: Fri, 17 Mar 2006 19:24:55 +0200
+
+ On Fri, Mar 17, 2006 at 09:52:48AM -0700, Matthew Flatt wrote:
+ > This is worrying, and I can't reproduce the problem. Same platform and
+ > version as in your PR? Running in DrScheme or MzScheme?
+ 
+ I built from SVN yesterday, and it appears in that build, too. Both in
+ MzScheme and in DrScheme. Debian unstable, Athlon64, glibc 2.3.6, Linux
+ 2.6.15.
+ 
+ Welcome to MzScheme version 301.9, Copyright (c) 2004-2006 PLT Scheme Inc.
+ > (let ((p (make-parameter #f))
+       (c1 (make-channel))
+       (c2 (make-channel)))
+   (thread (lambda () ((channel-get c1) #f)))
+   (thread (lambda ()
+             (let/cc e
+               (parameterize ((p 'foo))
+                 (p 'bar)
+                 (let/cc k2
+                   (channel-put c1 k2)
+                   (e #f))
+                 (channel-put c2 (p))))
+             'magic-tail))
+   (channel-get c2))
+ foo
+ > (let ((p (make-parameter #f))
+       (c1 (make-channel))
+       (c2 (make-channel)))
+   (thread (lambda () ((channel-get c1) #f)))
+   (thread (lambda ()
+             (let/cc e
+               (parameterize ((p 'foo))
+                 (p 'bar)
+                 (let/cc k2
+                   (channel-put c1 k2)
+                   (e #f))
+                 (channel-put c2 (p))))))
+   (channel-get c2))
+ 
+ ...and it hangs.
+ 
+ GDB's backtrace isn't much use, since it only shows that the main
+ thread is waiting at the channel. I don't know how to show the other
+ threads' stacks.
+ 
+ #0  0x00002aaaab31f4d5 in select () from /lib/libc.so.6
+ #1  0x00002aaaaac42e75 in default_sleep (v=0, fds=0x7d8550) at ./port.c:7705
+ #2  0x00002aaaaac8e51e in check_sleep (need_activity=<value optimized out>, 
+     sleep_now=1) at ./thread.c:3120
+ #3  0x00002aaaaac94387 in scheme_thread_block (sleep_time=0) at ./thread.c:3648
+ #4  0x00002aaaaac94699 in scheme_block_until (_f=0x2aaaaac63fc0 <out_of_line>, fdf=0, 
+     data=0x19ff708, delay=0) at ./thread.c:3780
+ #5  0x00002aaaaac64a83 in scheme_wait_semas_chs (n=1, o=0xc1f980, 
+     just_try=<value optimized out>, syncing=0x182e540) at ./sema.c:631
+ #6  0x00002aaaaac94b19 in syncing_ready (s=0x182e540, sinfo=0x7fffffc23a80)
+     at ./thread.c:5009
+ #7  0x00002aaaaac94641 in scheme_block_until (_f=0x2aaaaac94830 <syncing_ready>, 
+     fdf=0x2aaaaac8fea0 <syncing_needs_wakeup>, data=0x182e540, delay=0)
+     at ./thread.c:3760
+ #8  0x00002aaaaac955c8 in do_sync (name=0x2aaaaacabfd6 "sync", 
+     argc=<value optimized out>, argv=0x5d5e48, with_break=0, 
+     with_timeout=<value optimized out>, _tailok=<value optimized out>)
+     at ./thread.c:5238
+ #9  0x00002aaaaabfbdf9 in scheme_do_eval (obj=0x10, num_rands=1, 
+     rands=<value optimized out>, get_value=-1) at ./eval.c:4297
+ #10 0x00002aaaaabfdbfe in eval_k () at ./eval.c:5348
+ #11 0x00002aaaaabfbdf9 in scheme_do_eval (obj=0x24, num_rands=1, 
+     rands=<value optimized out>, get_value=-1) at ./eval.c:4297
+ #12 0x00002aaaaac08256 in call_with_values (argc=2, argv=0x5d5e70) at ./fun.c:2612
+ #13 0x00002aaaaabfbdf9 in scheme_do_eval (obj=0x4, num_rands=2, 
+     rands=<value optimized out>, get_value=-1) at ./eval.c:4297
+ #14 0x00002aaaaac0af09 in scheme_dynamic_wind (pre=0x2aaaaac0ac20 <pre_dyn_wind>, 
+     act=0x2aaaaac0ac00 <do_dyn_wind>, post=0x2aaaaac0ac30 <post_dyn_wind>, 
+     jmp_handler=0, data=0x19e7180) at ./fun.c:4214
+ #15 0x00002aaaaac0b1e4 in dynamic_wind (c=3, argv=0x5d5e90) at ./fun.c:4112
+ #16 0x00002aaaaabfbdf9 in scheme_do_eval (obj=0x5d5ea8, num_rands=3, 
+     rands=<value optimized out>, get_value=-1) at ./eval.c:4297
+ #17 0x00002aaaaac08721 in scheme_call_ec (argc=<value optimized out>, argv=0x5d5ec8)
+     at ./fun.c:2795
+ #18 0x00002aaaaabfbdf9 in scheme_do_eval (obj=0x20, num_rands=1, 
+     rands=<value optimized out>, get_value=-1) at ./eval.c:4297
+ #19 0x00002aaaaabfbb5d in scheme_do_eval (obj=<value optimized out>, 
+     num_rands=<value optimized out>, rands=<value optimized out>, get_value=-1)
+     at ./eval.c:5016
+ #20 0x00002aaaaac08721 in scheme_call_ec (argc=<value optimized out>, argv=0x5d5ef0)
+     at ./fun.c:2795
+ #21 0x00002aaaaabfbdf9 in scheme_do_eval (obj=0x20, num_rands=1, 
+     rands=<value optimized out>, get_value=-1) at ./eval.c:4297
+ #22 0x00002aaaaac0af09 in scheme_dynamic_wind (pre=0x2aaaaac0ac20 <pre_dyn_wind>, 
+     act=0x2aaaaac0ac00 <do_dyn_wind>, post=0x2aaaaac0ac30 <post_dyn_wind>, 
+     jmp_handler=0, data=0x19d5f78) at ./fun.c:4214
+ #23 0x00002aaaaac0b1e4 in dynamic_wind (c=3, argv=0x5d5f08) at ./fun.c:4112
+ #24 0x00002aaaaabfbdf9 in scheme_do_eval (obj=0x5d5f20, num_rands=3, 
+     rands=<value optimized out>, get_value=1) at ./eval.c:4297
+ #25 0x00002aaaaac05cd3 in top_level_do (k=0x2aaaaac063f0 <apply_k>, eb=1, 
+     sj_start=0x7fffffc24a00) at ./fun.c:1313
+ #26 0x00002aaaaac06223 in scheme_top_level_do (k=0x400, eb=8226128) at ./fun.c:1358
+ #27 0x00000000004032f1 in do_scheme_rep (env=<value optimized out>) at ./main.c:404
+ #28 0x00000000004021b6 in finish_cmd_line_run (fa=0x5fd658, 
+     repl=0x4032d0 <do_scheme_rep>) at cmdline.inc:412
+ #29 0x0000000000402737 in actual_main (argc=1, argv=<value optimized out>)
+     at cmdline.inc:1092
+ #30 0x000000000040233f in main (argc=1, argv=0x7fffffc24ce8) at ./main.c:284
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Lauri Alanko <la@iki.fi>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7966: Parameterizations have unexpected space behavior
+Date: Fri, 17 Mar 2006 10:30:25 -0700
+
+ At Fri, 17 Mar 2006 19:24:55 +0200, Lauri Alanko wrote:
+ > On Fri, Mar 17, 2006 at 09:52:48AM -0700, Matthew Flatt wrote:
+ > > This is worrying, and I can't reproduce the problem. Same platform and
+ > > version as in your PR? Running in DrScheme or MzScheme?
+ > 
+ > I built from SVN yesterday, and it appears in that build, too. Both in
+ > MzScheme and in DrScheme. Debian unstable, Athlon64, glibc 2.3.6, Linux
+ > 2.6.15.
+ 
+ 64-bit mode or 32-bit mode?
+ 
+ > GDB's backtrace isn't much use, since it only shows that the main
+ > thread is waiting at the channel. I don't know how to show the other
+ > threads' stacks.
+ 
+ Me either.
+ 
+ Thanks,
+ Matthew
+ 
+From: Lauri Alanko <la@iki.fi>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7966: Parameterizations have unexpected space behavior
+Date: Fri, 17 Mar 2006 20:38:33 +0200
+
+ On Fri, Mar 17, 2006 at 10:30:25AM -0700, Matthew Flatt wrote:
+ > 64-bit mode or 32-bit mode?
+ 
+ Ah, sorry. Pure 64-bit all the way.
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Lauri Alanko <la@iki.fi>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7966: Parameterizations have unexpected space behavior
+Date: Fri, 31 Mar 2006 15:38:58 -0700
+
+ At Fri, 17 Mar 2006 19:24:55 +0200, Lauri Alanko wrote:
+ > > (let ((p (make-parameter #f))
+ >       (c1 (make-channel))
+ >       (c2 (make-channel)))
+ >   (thread (lambda () ((channel-get c1) #f)))
+ >   (thread (lambda ()
+ >             (let/cc e
+ >               (parameterize ((p 'foo))
+ >                 (p 'bar)
+ >                 (let/cc k2
+ >                   (channel-put c1 k2)
+ >                   (e #f))
+ >                 (channel-put c2 (p))))))
+ >   (channel-get c2))
+ > 
+ > ...and it hangs.
+ 
+ This is fixed in SVN, now.
+ 
+ The bug was related to recent changes in the representation of nested
+ continuations. It appears that stack copies have to be word-aligned.
+ I don't understand why, but I'm happy to just align them, for now.
+ 
+ Matthew
+ 
+
+Responsible changed from "nobody" to "mflatt" by eli at Sat, 20 May 2006 00:26:27 -0400
+Reason>>> to be closed
+

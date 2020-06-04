@@ -1,0 +1,178 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Feb  8 02:13:41 2015
+Received: from mail-oi0-f47.google.com (mail-oi0-f47.google.com [209.85.218.47])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t187Deg9019319
+	for <bugs@bugs.plt-scheme.org>; Sun, 8 Feb 2015 02:13:40 -0500
+Message-Id: <201502080713.t187Da3V019312@winooski.ccs.neu.edu>
+Date: Sun, 8 Feb 2015 02:13:36 -0500
+From: lexi.lambda@gmail.com
+To: bugs@racket-lang.org
+Subject: impersonate-struct and chaperone-struct don't support adding impersonator properties without impersonating procedures
+
+>Number:         14970
+>Category:       all
+>Synopsis:       impersonate-struct and chaperone-struct don't support adding impersonator properties without impersonating procedures
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Feb 08 02:16:01 -0500 2015
+>Last-Modified:  Sun Feb 08 09:32:17 -0500 2015
+>Originator:     Alexis King
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.8--2015-01-31(-/f)
+>Environment:
+macosx "Darwin jbook 14.1.0 Darwin Kernel Version 14.1.0: Mon Dec 22 23:10:38 PST 2014; root:xnu-2782.10.72~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 325882096
+raco pkg (show):
+Installation-wide:
+ Package                 Checksum           Source
+ main-distribution       67868e03...        catalog...ibution
+ main-distribution-test  ca4a870e...        catalog...on-test
+ racket-lib                                 static-link...lib
+ typed-racket-lib        787df491...        clone...acket-lib
+ [217 auto-installed packages not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/Users/Jake/Library/Racket/development/collects"
+ (non-existent-path))
+("/Users/Jake/gits/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+I would, in certain cases, like to use impersonate-struct or chaperone-struct on a struct instance without actually modifying the behavior of struct accessors or mutators. Unfortunately, those two functions require at least one method to be impersonated. This can be worked around by supplying a dummy struct-info property, but it is inconveneient.
+
+(See the How-To-Repeat section for code examples.)
+>How-To-Repeat:
+;; define a struct and an impersonator property
+(struct foo ())
+(define-values (prop pred acc) (make-impersonator-property 'foo-prop))
+
+;; this works (note the dummy struct-info impersonator)
+(chaperone-struct
+ (foo)
+ struct-info (λ (a b) (values a b))
+ prop #f)
+
+;; this fails with a contract violation
+(chaperone-struct
+ (foo)
+ prop #f)
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: lexi.lambda@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14970: impersonate-struct and chaperone-struct don't support adding impersonator properties without impersonating procedures
+Date: Sun, 8 Feb 2015 03:39:06 -0700
+
+ I think your example exposes a problem in the specification of
+ `chaperone-struct`: `struct-info` should be like impersonator
+ properties, where it's not allowed unless you supply some witness that
+ the value is a structure.
+ 
+ You can attach impersonator properties to a structure without modifying
+ a selector or mutator by supplying `#f` as the wrapper function.
+ 
+ The point of supplying a selector or mutator is to demonstrate that
+ your (potentially privileged) knowledge that the value's representation
+ is compatible with impersonation. In principle, everything is
+ implemented through structures --- even fixnums. Since you don't have
+ any structure selectors for fixnums, though, the run-time system is
+ free to specialize the representation of fixnums.
+ 
+ Here's what goes wrong when `chaperone-struct` doesn't require a
+ witness of structureness:
+ 
+  > (chaperone-struct 10 struct-info (lambda (a b) (values a b)))
+  Segmentation fault
+ 
+ Finally, your example demonstrates another potential problem, which is
+ that there's no way to attach impersonator properties to a structure
+ that has 0 fields. I have trouble seeing how that could be useful, but
+ possibly `impersonate-struct` and `chaperone-struct` need to accept a
+ structure type as a witness.
+ 
+ At Sun, 8 Feb 2015 02:16:02 -0500, lexi.lambda@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14970
+ > 
+ > Reported by Alexis King for release: 6.1.1.8--2015-01-31(-/f)
+ > 
+ > *** Description:
+ > I would, in certain cases, like to use impersonate-struct or chaperone-struct 
+ > on a struct instance without actually modifying the behavior of struct 
+ > accessors or mutators. Unfortunately, those two functions require at least one 
+ > method to be impersonated. This can be worked around by supplying a dummy 
+ > struct-info property, but it is inconveneient.
+ > 
+ > (See the How-To-Repeat section for code examples.)
+ > 
+ > *** How to repeat:
+ > ;; define a struct and an impersonator property
+ > (struct foo ())
+ > (define-values (prop pred acc) (make-impersonator-property 'foo-prop))
+ > 
+ > ;; this works (note the dummy struct-info impersonator)
+ > (chaperone-struct
+ >  (foo)
+ >  struct-info (Î» (a b) (values a b))
+ >  prop #f)
+ > 
+ > ;; this fails with a contract violation
+ > (chaperone-struct
+ >  (foo)
+ >  prop #f)
+ > 
+ > *** Environment:
+ > macosx "Darwin jbook 14.1.0 Darwin Kernel Version 14.1.0: Mon Dec 22 23:10:38 
+ > PST 2014; root:xnu-2782.10.72~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) 
+ > (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 325882096
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package                 Checksum           Source
+ >  main-distribution       67868e03...        catalog...ibution
+ >  main-distribution-test  ca4a870e...        catalog...on-test
+ >  racket-lib                                 static-link...lib
+ >  typed-racket-lib        787df491...        clone...acket-lib
+ >  [217 auto-installed packages not shown]
+ > User-specific for installation "development":
+ >  [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/Users/Jake/Library/Racket/development/collects"
+ >  (non-existent-path))
+ > ("/Users/Jake/gits/racket/racket/collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" 
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" 
+ > "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) 
+ > (main)) #t))
+ 
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sun, 08 Feb 2015 09:32:17 -0500
+Reason>>> A commit by mflatt@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/2ada651dd3
+  | {chaperone,impersonate}-struct: allow structure type as a witness
+  | 
+  | Also, do not allow `struct-type` as a wrapped operation in
+  | `chaperone-stuct` without a witness.
+  | 
+  | Related to PR 14970
+

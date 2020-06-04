@@ -1,0 +1,284 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Mar 28 17:55:56 2016
+Received: from mail-io0-f176.google.com (mail-io0-f176.google.com [209.85.223.176])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u2SLtr0w003175
+	for <bugs@bugs.plt-scheme.org>; Mon, 28 Mar 2016 17:55:53 -0400
+Message-Id: <201603282155.u2SLtobR003168@winooski.ccs.neu.edu>
+Date: Mon, 28 Mar 2016 17:55:50 -0400
+From: jpf@primfilat.com
+To: bugs@racket-lang.org
+Subject: difference between launcher and executable: dynamic-require and parameters
+
+>Number:         15278
+>Category:       all
+>Synopsis:       difference between launcher and executable: dynamic-require and parameters
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Mar 28 17:56:02 -0400 2016
+>Last-Modified:  Tue Mar 29 09:12:01 -0400 2016
+>Originator:     Josep Portella Florit
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.4
+>Environment:
+Linux, Windows, Mac OS X
+>Description:
+`dynamic-require` and parameters work as expected with a launcher, but
+different with a executable.
+>How-To-Repeat:
+Create 3 files:
+-----------------------------
+a.rkt
+-----------------------------
+#lang racket
+(require "b.rkt")
+(dynamic-require "c.rkt" #f)
+(printf "~a~%" (x))
+-----------------------------
+b.rkt
+-----------------------------
+#lang racket
+(define x (make-parameter 1))
+(provide x)
+-----------------------------
+c.rkt
+-----------------------------
+#lang racket
+(require "b.rkt")
+(x 2)
+-----------------------------
+
+First difference between launcher and executable:
+
+$ raco exe -l a.rkt; ./a
+2
+$ raco exe a.rkt; ./a
+standard-module-name-resolver: collection not found
+  for module path: racket/lang/reader
+  collection: "racket/lang"
+  in collection directories:
+  context...:
+   show-collection-err
+   standard-module-name-resolver
+   standard-module-name-resolver
+   #%mzc:a: [running body]
+
+
+Second difference, after adding '(require racket/lang/reader)' to
+'a.rkt':
+
+$ raco exe -l a.rkt; ./a
+2
+$ raco exe a.rkt; ./a
+1
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: jpf@primfilat.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15278: difference between launcher and executable: dynamic-require and parameters
+Date: Mon, 28 Mar 2016 17:51:15 -0600
+
+ When you create a non-launcher executable, the result is intended to be
+ stand-alone --- ultimately movable to a different machine (although
+ that requires `raco distribute` to finalize) and disconnected from
+ source modules.
+ 
+ One consequence is that the executable keeps only the modules its needs
+ for run time. For "a.rkt", that set of modules doesn't include
+ `racket/lang/reader`, which is needed to read a source that starts
+ `#lang racket`. As you observed, you can add that module as a
+ dependency of "a.rkt", or you can provide `++lib racket/lang/reader` to
+ `raco exe`. Another possibility is to use `define-runtime-module-path`
+ to make "c.rkt" pulled along with the executable.
+ 
+ A second consequence of making a stand-alone executable is that the
+ "b.rkt" module embedded in the executable becomes disconnected and
+ unrelated to any "b.rkt" module that might exist locally at run time.
+ So, you end up with two unrelated parameters when "c.rkt" and "b.rkt"
+ are loaded from source. The simplest solution to that problem is to
+ make the module reference collection-relative (i.e., install "b.rkt"
+ through a package or in a collection); since collection-relative module
+ paths are independent of the filesystem, they are preserved in an
+ executable.
+ 
+ In summary, the results you see are as intended. Runtime evaluation
+ from source (as implied by `dynamic-require`) is complicated, and `raco
+ exe` provides facilities for dealing with those complications.
+ Unfortunately, though, it can't hide the complexities completely
+ without trading the goal of making an executable stand-alone.
+ 
+ A launcher is not meant to be stand-alone. It's the same as running the
+ original module from source at its original location, and it relies on
+ the full Racket installation, so launchers are more straightforward in
+ many ways.
+ 
+ At Mon, 28 Mar 2016 17:56:02 -0400, jpf@primfilat.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15278
+ > 
+ > Reported by Josep Portella Florit for release: 6.4
+ > 
+ > *** Description:
+ > `dynamic-require` and parameters work as expected with a launcher, but
+ > different with a executable.
+ > 
+ > *** How to repeat:
+ > Create 3 files:
+ > -----------------------------
+ > a.rkt
+ > -----------------------------
+ > #lang racket
+ > (require "b.rkt")
+ > (dynamic-require "c.rkt" #f)
+ > (printf "~a~%" (x))
+ > -----------------------------
+ > b.rkt
+ > -----------------------------
+ > #lang racket
+ > (define x (make-parameter 1))
+ > (provide x)
+ > -----------------------------
+ > c.rkt
+ > -----------------------------
+ > #lang racket
+ > (require "b.rkt")
+ > (x 2)
+ > -----------------------------
+ > 
+ > First difference between launcher and executable:
+ > 
+ > $ raco exe -l a.rkt; ./a
+ > 2
+ > $ raco exe a.rkt; ./a
+ > standard-module-name-resolver: collection not found
+ >   for module path: racket/lang/reader
+ >   collection: "racket/lang"
+ >   in collection directories:
+ >   context...:
+ >    show-collection-err
+ >    standard-module-name-resolver
+ >    standard-module-name-resolver
+ >    #%mzc:a: [running body]
+ > 
+ > 
+ > Second difference, after adding '(require racket/lang/reader)' to
+ > 'a.rkt':
+ > 
+ > $ raco exe -l a.rkt; ./a
+ > 2
+ > $ raco exe a.rkt; ./a
+ > 1
+ > 
+ > *** Environment:
+ > Linux, Windows, Mac OS X
+From: Josep Portella Florit <jpf@primfilat.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15278: difference between launcher and
+ executable: dynamic-require and parameters
+Date: Tue, 29 Mar 2016 15:13:18 +0200
+
+ Thanks Matthew for the quick and detailed reply.  Now the weird behavior
+ of the parameter makes complete sense to me.  As far as I'm concerned
+ you can close the bug report.
+ 
+ 
+ El 29/03/16 a les 01:51, Matthew Flatt ha escrit:
+ > When you create a non-launcher executable, the result is intended to be
+ > stand-alone --- ultimately movable to a different machine (although
+ > that requires `raco distribute` to finalize) and disconnected from
+ > source modules.
+ > 
+ > One consequence is that the executable keeps only the modules its needs
+ > for run time. For "a.rkt", that set of modules doesn't include
+ > `racket/lang/reader`, which is needed to read a source that starts
+ > `#lang racket`. As you observed, you can add that module as a
+ > dependency of "a.rkt", or you can provide `++lib racket/lang/reader` to
+ > `raco exe`. Another possibility is to use `define-runtime-module-path`
+ > to make "c.rkt" pulled along with the executable.
+ > 
+ > A second consequence of making a stand-alone executable is that the
+ > "b.rkt" module embedded in the executable becomes disconnected and
+ > unrelated to any "b.rkt" module that might exist locally at run time.
+ > So, you end up with two unrelated parameters when "c.rkt" and "b.rkt"
+ > are loaded from source. The simplest solution to that problem is to
+ > make the module reference collection-relative (i.e., install "b.rkt"
+ > through a package or in a collection); since collection-relative module
+ > paths are independent of the filesystem, they are preserved in an
+ > executable.
+ > 
+ > In summary, the results you see are as intended. Runtime evaluation
+ > from source (as implied by `dynamic-require`) is complicated, and `raco
+ > exe` provides facilities for dealing with those complications.
+ > Unfortunately, though, it can't hide the complexities completely
+ > without trading the goal of making an executable stand-alone.
+ > 
+ > A launcher is not meant to be stand-alone. It's the same as running the
+ > original module from source at its original location, and it relies on
+ > the full Racket installation, so launchers are more straightforward in
+ > many ways.
+ > 
+ > At Mon, 28 Mar 2016 17:56:02 -0400, jpf@primfilat.com wrote:
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=15278
+ >>
+ >> Reported by Josep Portella Florit for release: 6.4
+ >>
+ >> *** Description:
+ >> `dynamic-require` and parameters work as expected with a launcher, but
+ >> different with a executable.
+ >>
+ >> *** How to repeat:
+ >> Create 3 files:
+ >> -----------------------------
+ >> a.rkt
+ >> -----------------------------
+ >> #lang racket
+ >> (require "b.rkt")
+ >> (dynamic-require "c.rkt" #f)
+ >> (printf "~a~%" (x))
+ >> -----------------------------
+ >> b.rkt
+ >> -----------------------------
+ >> #lang racket
+ >> (define x (make-parameter 1))
+ >> (provide x)
+ >> -----------------------------
+ >> c.rkt
+ >> -----------------------------
+ >> #lang racket
+ >> (require "b.rkt")
+ >> (x 2)
+ >> -----------------------------
+ >>
+ >> First difference between launcher and executable:
+ >>
+ >> $ raco exe -l a.rkt; ./a
+ >> 2
+ >> $ raco exe a.rkt; ./a
+ >> standard-module-name-resolver: collection not found
+ >>   for module path: racket/lang/reader
+ >>   collection: "racket/lang"
+ >>   in collection directories:
+ >>   context...:
+ >>    show-collection-err
+ >>    standard-module-name-resolver
+ >>    standard-module-name-resolver
+ >>    #%mzc:a: [running body]
+ >>
+ >>
+ >> Second difference, after adding '(require racket/lang/reader)' to
+ >> 'a.rkt':
+ >>
+ >> $ raco exe -l a.rkt; ./a
+ >> 2
+ >> $ raco exe a.rkt; ./a
+ >> 1
+ >>
+ >> *** Environment:
+ >> Linux, Windows, Mac OS X

@@ -1,0 +1,259 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Mar 21 17:01:45 2014
+Received: from mail-ob0-f182.google.com (mail-ob0-f182.google.com [209.85.214.182])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s2LL1de9015228
+	for <bugs@bugs.plt-scheme.org>; Fri, 21 Mar 2014 17:01:40 -0400
+Message-Id: <201403212101.s2LL1bb1015221@winooski.ccs.neu.edu>
+Date: Fri, 21 Mar 2014 17:01:37 -0400
+From: pnguyen@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: Typed Racket eliminates live code
+
+>Number:         14415
+>Category:       all
+>Synopsis:       Typed Racket eliminates live code
+>Class:          sw-bug
+>Responsible:    endobson
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Mar 21 17:04:02 -0400 2014
+>Closed-Date:    Tue Mar 25 21:58:05 -0400 2014
+>Last-Modified:  Tue Mar 25 21:58:05 -0400 2014
+>Originator:     Phil Nguyen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.0.5--2014-03-20(9055681/a)
+>Environment:
+unix "Linux ubulap 3.11.0-19-generic #33-Ubuntu SMP Tue Mar 11 18:48:34 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 1023987584
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    820e85aeae454e9aaa7090e53100c639fc7aac6f    (catalog main-distribution)
+ racket-lib           608ac021457cb073a0101f8ed01b7aed11756550    (catalog racket-lib)
+ [174 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ [none]
+
+
+
+Collections:
+("/home/phil/.racket/snapshot/collects"
+ (non-existent-path))
+("/home/phil/Apps/Racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+A strange combination of match-let and set! causes TR to optimize away reachable code.
+>How-To-Repeat:
+The following code type-checks by ignoring (add1 ""):
+
+(match-let ([n 42])
+  (set! n 43)
+  (when #t
+    (add1 "")))
+
+At run-time it only produces (void). But if I switch to #lang typed/racket/no-check and run, it raises an error.
+
+I didn't have this problem with 6.0.0.2
+
+If I do any of the following, TR stops ignoring the error:
+* change "match-let" to "let"
+* remove (set! n 43)
+* change (when #t (add1 "")) to just (add1 "")
+
+Changing from (when #t (add1 "")) to (if #t (add1 "") (add1 "")) also raises an internal typechecker error.
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: pnguyen@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14415: Typed Racket eliminates live code
+Date: Sat, 22 Mar 2014 10:12:12 -0400
+
+ On 2014-03-21 17:04:02 -0400, pnguyen@ccs.neu.edu wrote:
+ > *** How to repeat:
+ > The following code type-checks by ignoring (add1 ""):
+ >
+ > (match-let ([n 42])
+ >   (set! n 43)
+ >   (when #t
+ >     (add1 "")))
+ >
+ > At run-time it only produces (void). But if I switch to #lang typed/racket/no-check and run, it raises an error.
+ >
+ > I didn't have this problem with 6.0.0.2
+ 
+ According to a bisect, this appears to be introduced by commit
+ 9e2787c0cf6eb3e45256ad31075978d3955ef34c.
+ 
+ Commenting out the match clause for Top in the diff for that commit
+ gives the expected type error, but I haven't looked into an actual fix
+ (and can't right now).
+ 
+ Cheers,
+ Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: Phil Nguyen <pnguyen@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14415: Typed Racket eliminates live code
+Date: Sat, 22 Mar 2014 11:15:16 -0400
+
+ On Sat, Mar 22, 2014 at 10:12 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2014-03-21 17:04:02 -0400, pnguyen@ccs.neu.edu wrote:
+ >> *** How to repeat:
+ >> The following code type-checks by ignoring (add1 ""):
+ >>
+ >> (match-let ([n 42])
+ >>   (set! n 43)
+ >>   (when #t
+ >>     (add1 "")))
+ >>
+ >> At run-time it only produces (void). But if I switch to #lang typed/racket/no-check and run, it raises an error.
+ >>
+ >> I didn't have this problem with 6.0.0.2
+ >
+ > According to a bisect, this appears to be introduced by commit
+ > 9e2787c0cf6eb3e45256ad31075978d3955ef34c.
+ >
+ > Commenting out the match clause for Top in the diff for that commit
+ > gives the expected type error, but I haven't looked into an actual fix
+ > (and can't right now).
+ 
+ 
+ That clause looks obviously correct, so I think the problem is somewhere else.
+ 
+ Sam
+From: Phil Nguyen <pnguyen@ccs.neu.edu>
+To: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/14415: Typed Racket eliminates live code
+Date: Sat, 22 Mar 2014 12:33:43 -0400 (EDT)
+
+ I realize my previous description of "optimizing away reachable code" was slightly misleading. Maybe you've all figured this out by now, but a more general description seems to be that "the typed version always takes the else branch in a conditional". The following program goes to 2 if typechecked, and 1 as expected with checking disabled:
+ 
+ (match-let ([n 42])
+   (set! n 43)
+   (if #t 1 2))
+ 
+ Just in case this helps figuring out where the problem is from.
+ 
+ ----- Original Message -----
+ From: "Sam Tobin-Hochstadt" <samth@cs.indiana.edu>
+ To: "Asumu Takikawa" <asumu@ccs.neu.edu>
+ Cc: "Phil Nguyen" <pnguyen@ccs.neu.edu>, "bugs" <bugs@racket-lang.org>, "nobody" <nobody@racket-lang.org>, "bug-notification" <bug-notification@racket-lang.org>
+ Sent: Saturday, March 22, 2014 11:15:16 AM GMT -05:00 US/Canada Eastern
+ Subject: Re: [racket-bug] all/14415: Typed Racket eliminates live code
+ 
+ On Sat, Mar 22, 2014 at 10:12 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2014-03-21 17:04:02 -0400, pnguyen@ccs.neu.edu wrote:
+ >> *** How to repeat:
+ >> The following code type-checks by ignoring (add1 ""):
+ >>
+ >> (match-let ([n 42])
+ >>   (set! n 43)
+ >>   (when #t
+ >>     (add1 "")))
+ >>
+ >> At run-time it only produces (void). But if I switch to #lang typed/racket/no-check and run, it raises an error.
+ >>
+ >> I didn't have this problem with 6.0.0.2
+ >
+ > According to a bisect, this appears to be introduced by commit
+ > 9e2787c0cf6eb3e45256ad31075978d3955ef34c.
+ >
+ > Commenting out the match clause for Top in the diff for that commit
+ > gives the expected type error, but I haven't looked into an actual fix
+ > (and can't right now).
+ 
+ 
+ That clause looks obviously correct, so I think the problem is somewhere else.
+ 
+ Sam
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Phil Nguyen <pnguyen@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14415: Typed Racket eliminates live code
+Date: Mon, 24 Mar 2014 21:38:16 -0700
+
+ Reduced it to this:
+ 
+ #lang typed/racket
+ 
+ (let* ([x 42]
+        [n x])
+   (set! n 43)
+   (if #t
+       (add1 "")
+       (void)))
+ 
+ The bug is here:
+ 
+ https://github.com/plt/racket/blob/master/pkgs/typed-racket-pkgs/typed-racket-lib/typed-racket/typecheck/tc-let-unit.rkt#L48
+ 
+ We are making implication filters but if the variable is mutated then
+ we don't correctly account that the filters smart constructors return
+ -top instead of -bot. One possible solution is to supply a
+ polarity/which side argument.
+ 
+ On Sat, Mar 22, 2014 at 9:33 AM, Phil Nguyen <pnguyen@ccs.neu.edu> wrote:
+ > I realize my previous description of "optimizing away reachable code" was slightly misleading. Maybe you've all figured this out by now, but a more general description seems to be that "the typed version always takes the else branch in a conditional". The following program goes to 2 if typechecked, and 1 as expected with checking disabled:
+ >
+ > (match-let ([n 42])
+ >   (set! n 43)
+ >   (if #t 1 2))
+ >
+ > Just in case this helps figuring out where the problem is from.
+ >
+ > ----- Original Message -----
+ > From: "Sam Tobin-Hochstadt" <samth@cs.indiana.edu>
+ > To: "Asumu Takikawa" <asumu@ccs.neu.edu>
+ > Cc: "Phil Nguyen" <pnguyen@ccs.neu.edu>, "bugs" <bugs@racket-lang.org>, "nobody" <nobody@racket-lang.org>, "bug-notification" <bug-notification@racket-lang.org>
+ > Sent: Saturday, March 22, 2014 11:15:16 AM GMT -05:00 US/Canada Eastern
+ > Subject: Re: [racket-bug] all/14415: Typed Racket eliminates live code
+ >
+ > On Sat, Mar 22, 2014 at 10:12 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >> On 2014-03-21 17:04:02 -0400, pnguyen@ccs.neu.edu wrote:
+ >>> *** How to repeat:
+ >>> The following code type-checks by ignoring (add1 ""):
+ >>>
+ >>> (match-let ([n 42])
+ >>>   (set! n 43)
+ >>>   (when #t
+ >>>     (add1 "")))
+ >>>
+ >>> At run-time it only produces (void). But if I switch to #lang typed/racket/no-check and run, it raises an error.
+ >>>
+ >>> I didn't have this problem with 6.0.0.2
+ >>
+ >> According to a bisect, this appears to be introduced by commit
+ >> 9e2787c0cf6eb3e45256ad31075978d3955ef34c.
+ >>
+ >> Commenting out the match clause for Top in the diff for that commit
+ >> gives the expected type error, but I haven't looked into an actual fix
+ >> (and can't right now).
+ >
+ >
+ > That clause looks obviously correct, so I think the problem is somewhere else.
+ >
+ > Sam
+ 
+Responsible changed from "nobody" to "endobson" by endobson@racket-lang.org at Tue, 25 Mar 2014 21:58:05 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/b09ced6a0c
+State changed from "open" to "closed" by endobson@racket-lang.org at Tue, 25 Mar 2014 21:58:05 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/b09ced6a0c
+  | Fix tc-let for mutable variables.
+  | 
+  | Closes PR 14415.
+

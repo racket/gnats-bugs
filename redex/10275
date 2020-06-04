@@ -1,0 +1,925 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun May 31 13:28:36 2009
+Received: from mail-qy0-f180.google.com (mail-qy0-f180.google.com [209.85.221.180])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n4VHSP4J002513
+	for <bugs@bugs.plt-scheme.org>; Sun, 31 May 2009 13:28:25 -0400
+Message-Id: <200905311728.n4VHS6xn002502@champlain.ccs.neu.edu>
+Date: Sun, 31 May 2009 13:28:06 -0400
+From: jos.koot@telefonica.net
+To: bugs@plt-scheme.org
+Subject: redex supposes syntax location info to be present.
+
+>Number:         10275
+>Category:       redex
+>Synopsis:       redex supposes syntax location info to be present.
+>Class:          support
+>Responsible:    robby
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun May 31 13:32:01 -0400 2009
+>Closed-Date:    Sat Jun 06 21:21:42 -0400 2009
+>Last-Modified:  Mon Jun 08 10:24:01 -0400 2009
+>Originator:     Jos Koot
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.0.2-svn27may2009
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 417023740
+
+Collections:
+(("C:\\Documents and Settings\\HP_Eigenaar\\Application Data\\PLT Scheme\\4.2.0.2\\collects" "cookbookcoroutines.bak" "cookbookcoroutines.scm" "Kopie van lzy" "lc-with-redex" "loop" "lzy" "my-scheme" "Nieuwe map" "old vago") ("C:\\Program Files\\PLT-FULL-4.2.0.2\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srf!
+ i" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+>Description:
+With the files shown in Steps to reproduce:
+. . ..\..\..\..\..\..\..\Program Files\PLT-FULL-4.2.0.2\collects\redex\private\loc-wrapper.ss:145:2: +: expects type <number> as 1st argument, given: #f; other arguments were: 1
+redex-check: C:\Documents and Settings\HP_Eigenaar\Application Data\PLT Scheme\4.2.0.2\collects\lc-with-redex\test-curried-lc-grammar.ss:4
+checking λλ raises an exception
+. . ..\..\..\..\..\..\..\Program Files\PLT-FULL-4.2.0.2\collects\redex\private\rg.ss:814:2: reference to an identifier before its definition: Var?21.13
+
+May be my own fault. Making file curried-lc-grammar.ss include file define-language-with-predicates.ss (without the #lang line of course) works ok. There are many places in the source code of redex where syntax location info is presuppossed to be present. I have tried to change my own define-language-with-metapredicates to provide more location info, but my attempts have failed.
+(the stuff did work in (at least one of the) previous prereleased SVNs)
+Help please, Jos 
+>How-To-Repeat:
+#lang scheme ; File define-language-with-metapredicate.ss
+(require redex)
+(provide define-language-with-metapredicates)
+
+(define-syntax (define-language-with-metapredicates stx)
+ (syntax-case stx ()
+  ((define-language-with-metapredicates language clause ...)
+   (letrec
+    ((extract-language-clauses
+      (λ (clauses)
+       (map extract-language-clause (syntax->list clauses))))
+     (extract-language-clause
+      (λ (clause)
+       (syntax-case clause ()
+        ((id pattern ... #:pred pred) #'(id pattern ...))
+        ((id pattern ...) #'(id pattern ...)))))
+     (extract-predicates
+      (λ (clauses)
+       (filter (λ (x) x) (map extract-predicate (syntax->list clauses)))))
+     (extract-predicate
+      (λ (clause)
+       (syntax-case clause ()
+        ((id pattern ... #:pred pred) #'(pred id))
+        ((id pattern ...) #f)))))
+    (with-syntax
+     (((clause ...) (extract-language-clauses #'(clause ...)))
+      (((predicate id) ...) (extract-predicates #'(clause ...))))
+  #'(begin
+     (define-language language clause ...)
+     (define-metafunction language predicate : any -> any
+      ((predicate id) #t) ((predicate any) #f)) ...))))))
+;-------------------------------------------------------------------
+#lang scheme ; File curried-lc-grammar.ss
+(require redex)
+(require "define-language-with-metapredicates.ss")
+(provide curried-lc-grammar Term? Abstr? Appl? Var? Varlist? Env? Binding?)
+
+(define-language-with-metapredicates curried-lc-grammar
+ (‹term›    ‹var› ‹abstr› ‹appl› #:pred Term?   )
+ (‹abstr›   (λ (‹var›) ‹term›)   #:pred Abstr?  )
+ (‹appl›    (‹term› ‹term›)      #:pred Appl?   )
+ (‹var›     (variable-except λ)  #:pred Var?    )
+ (‹varlist› (‹var› ...)          #:pred Varlist?)
+ (‹env›     (‹binding› ...)      #:pred Env?    )
+ (‹binding› (‹var› number)       #:pred Binding?)
+ (‹bool›    #f #t                               )
+ (‹subterm› (λ (‹var›) ‹subterm›) (‹subterm› ‹term›) (‹term› ‹subterm›) hole))
+
+;---------------------------------------------------------------------------
+#lang scheme ; File test-curried-lc-grammar.ss
+(require redex "curried-lc-grammar.ss" "tools.ss")
+
+(redex-check curried-lc-grammar ‹term›
+ (or
+  (term (Var?   ‹term›))
+  (term (Abstr? ‹term›))
+  (term (Appl?  ‹term›)))
+ #:attempts 10000 #:retries 100)
+
+(test-false (term (Term?  123)))
+(test-false (term (Var?   123)))
+(test-false (term (Abstr? 123)))
+(test-false (term (Appl?  123)))
+(test-true  (term (Term?  x)))
+(test-true  (term (Var?   x)))
+(test-false (term (Abstr? x)))
+(test-false (term (Appl?  x)))
+(test-true  (term (Term?  (x y))))
+(test-false (term (Var?   (x y))))
+(test-false (term (Abstr? (x y))))
+(test-true  (term (Appl?  (x y))))
+(test-true  (term (Term?  (λ (x) y))))
+(test-false (term (Var?   (λ (x) y))))
+(test-true  (term (Abstr? (λ (x) y))))
+(test-false (term (Appl?  (λ (x) y))))
+(test-false (term (Term?  λ)))
+(test-false (term (Term?  (λ (x y) z))))
+(test-false (term (Term?  (λ (x)))))
+(test-false (term (Term?  (x y z))))
+(test-results)
+>Fix:
+The code that processed the lw structs to add line-span and column-span information did not work when .zo files were compiled; for some reason compiling to .zo files removes source locations. So, I've just made that code more conservative (meaning that typesetting will not work sometimes, tho)
+>Release-Note:
+This was a contract violation.
+
+This would not have been a type error, since it likely would have been the wrong arm of an option type (src information or not).
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: jos.koot@telefonica.net, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sat, 6 Jun 2009 20:12:58 -0500
+
+ Sorry for the long delay in replying, Jos.
+ 
+ If you delete the .zo files for the files, then you won't get that
+ error (altho you will get strange results if you try to typeset
+ anything since the line & column numbers will confuse Redex's layout
+ algorithms).
+ 
+ I'll look into avoiding the crash when there are no .zo files.
+ 
+ Robby
+ 
+ On Sun, May 31, 2009 at 12:32 PM, <jos.koot@telefonica.net> wrote:
+ > A new problem report is waiting at
+ > =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10275
+ >
+ > Reported by Jos Koot for release: 4.2.0.2-svn27may2009
+ >
+ > *** Description:
+ > With the files shown in Steps to reproduce:
+ > . . ..\..\..\..\..\..\..\Program Files\PLT-FULL-4.2.0.2\collects\redex\pr=
+ ivate\loc-wrapper.ss:145:2: +: expects type <number> as 1st argument, given=
+ : #f; other arguments were: 1
+ > redex-check: C:\Documents and Settings\HP_Eigenaar\Application Data\PLT S=
+ cheme\4.2.0.2\collects\lc-with-redex\test-curried-lc-grammar.ss:4
+ > checking =CE=BB=CE=BB raises an exception
+ > . . ..\..\..\..\..\..\..\Program Files\PLT-FULL-4.2.0.2\collects\redex\pr=
+ ivate\rg.ss:814:2: reference to an identifier before its definition: Var?21=
+ .13
+ >
+ > May be my own fault. Making file curried-lc-grammar.ss include file defin=
+ e-language-with-predicates.ss (without the #lang line of course) works ok. =
+ There are many places in the source code of redex where syntax location inf=
+ o is presuppossed to be present. I have tried to change my own define-langu=
+ age-with-metapredicates to provide more location info, but my attempts have=
+  failed.
+ > (the stuff did work in (at least one of the) previous prereleased SVNs)
+ > Help please, Jos
+ >
+ > *** How to repeat:
+ > #lang scheme ; File define-language-with-metapredicate.ss
+ > (require redex)
+ > (provide define-language-with-metapredicates)
+ >
+ > (define-syntax (define-language-with-metapredicates stx)
+ > =C2=A0(syntax-case stx ()
+ > =C2=A0((define-language-with-metapredicates language clause ...)
+ > =C2=A0 (letrec
+ > =C2=A0 =C2=A0((extract-language-clauses
+ > =C2=A0 =C2=A0 =C2=A0(=CE=BB (clauses)
+ > =C2=A0 =C2=A0 =C2=A0 (map extract-language-clause (syntax->list clauses))=
+ ))
+ > =C2=A0 =C2=A0 (extract-language-clause
+ > =C2=A0 =C2=A0 =C2=A0(=CE=BB (clause)
+ > =C2=A0 =C2=A0 =C2=A0 (syntax-case clause ()
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0((id pattern ... #:pred pred) #'(id pattern ..=
+ .))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0((id pattern ...) #'(id pattern ...)))))
+ > =C2=A0 =C2=A0 (extract-predicates
+ > =C2=A0 =C2=A0 =C2=A0(=CE=BB (clauses)
+ > =C2=A0 =C2=A0 =C2=A0 (filter (=CE=BB (x) x) (map extract-predicate (synta=
+ x->list clauses)))))
+ > =C2=A0 =C2=A0 (extract-predicate
+ > =C2=A0 =C2=A0 =C2=A0(=CE=BB (clause)
+ > =C2=A0 =C2=A0 =C2=A0 (syntax-case clause ()
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0((id pattern ... #:pred pred) #'(pred id))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0((id pattern ...) #f)))))
+ > =C2=A0 =C2=A0(with-syntax
+ > =C2=A0 =C2=A0 (((clause ...) (extract-language-clauses #'(clause ...)))
+ > =C2=A0 =C2=A0 =C2=A0(((predicate id) ...) (extract-predicates #'(clause .=
+ ..))))
+ > =C2=A0#'(begin
+ > =C2=A0 =C2=A0 (define-language language clause ...)
+ > =C2=A0 =C2=A0 (define-metafunction language predicate : any -> any
+ > =C2=A0 =C2=A0 =C2=A0((predicate id) #t) ((predicate any) #f)) ...))))))
+ > ;-------------------------------------------------------------------
+ > #lang scheme ; File curried-lc-grammar.ss
+ > (require redex)
+ > (require "define-language-with-metapredicates.ss")
+ > (provide curried-lc-grammar Term? Abstr? Appl? Var? Varlist? Env? Binding=
+ ?)
+ >
+ > (define-language-with-metapredicates curried-lc-grammar
+ > =C2=A0(=E2=80=B9term=E2=80=BA =C2=A0 =C2=A0=E2=80=B9var=E2=80=BA =E2=80=
+ =B9abstr=E2=80=BA =E2=80=B9appl=E2=80=BA #:pred Term? =C2=A0 )
+ > =C2=A0(=E2=80=B9abstr=E2=80=BA =C2=A0 (=CE=BB (=E2=80=B9var=E2=80=BA) =E2=
+ =80=B9term=E2=80=BA) =C2=A0 #:pred Abstr? =C2=A0)
+ > =C2=A0(=E2=80=B9appl=E2=80=BA =C2=A0 =C2=A0(=E2=80=B9term=E2=80=BA =E2=80=
+ =B9term=E2=80=BA) =C2=A0 =C2=A0 =C2=A0#:pred Appl? =C2=A0 )
+ > =C2=A0(=E2=80=B9var=E2=80=BA =C2=A0 =C2=A0 (variable-except =CE=BB) =C2=
+ =A0#:pred Var? =C2=A0 =C2=A0)
+ > =C2=A0(=E2=80=B9varlist=E2=80=BA (=E2=80=B9var=E2=80=BA ...) =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0#:pred Varlist?)
+ > =C2=A0(=E2=80=B9env=E2=80=BA =C2=A0 =C2=A0 (=E2=80=B9binding=E2=80=BA ...=
+ ) =C2=A0 =C2=A0 =C2=A0#:pred Env? =C2=A0 =C2=A0)
+ > =C2=A0(=E2=80=B9binding=E2=80=BA (=E2=80=B9var=E2=80=BA number) =C2=A0 =
+ =C2=A0 =C2=A0 #:pred Binding?)
+ > =C2=A0(=E2=80=B9bool=E2=80=BA =C2=A0 =C2=A0#f #t =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 )
+ > =C2=A0(=E2=80=B9subterm=E2=80=BA (=CE=BB (=E2=80=B9var=E2=80=BA) =E2=80=
+ =B9subterm=E2=80=BA) (=E2=80=B9subterm=E2=80=BA =E2=80=B9term=E2=80=BA) (=
+ =E2=80=B9term=E2=80=BA =E2=80=B9subterm=E2=80=BA) hole))
+ >
+ > ;------------------------------------------------------------------------=
+ ---
+ > #lang scheme ; File test-curried-lc-grammar.ss
+ > (require redex "curried-lc-grammar.ss" "tools.ss")
+ >
+ > (redex-check curried-lc-grammar =E2=80=B9term=E2=80=BA
+ > =C2=A0(or
+ > =C2=A0(term (Var? =C2=A0 =E2=80=B9term=E2=80=BA))
+ > =C2=A0(term (Abstr? =E2=80=B9term=E2=80=BA))
+ > =C2=A0(term (Appl? =C2=A0=E2=80=B9term=E2=80=BA)))
+ > =C2=A0#:attempts 10000 #:retries 100)
+ >
+ > (test-false (term (Term? =C2=A0123)))
+ > (test-false (term (Var? =C2=A0 123)))
+ > (test-false (term (Abstr? 123)))
+ > (test-false (term (Appl? =C2=A0123)))
+ > (test-true =C2=A0(term (Term? =C2=A0x)))
+ > (test-true =C2=A0(term (Var? =C2=A0 x)))
+ > (test-false (term (Abstr? x)))
+ > (test-false (term (Appl? =C2=A0x)))
+ > (test-true =C2=A0(term (Term? =C2=A0(x y))))
+ > (test-false (term (Var? =C2=A0 (x y))))
+ > (test-false (term (Abstr? (x y))))
+ > (test-true =C2=A0(term (Appl? =C2=A0(x y))))
+ > (test-true =C2=A0(term (Term? =C2=A0(=CE=BB (x) y))))
+ > (test-false (term (Var? =C2=A0 (=CE=BB (x) y))))
+ > (test-true =C2=A0(term (Abstr? (=CE=BB (x) y))))
+ > (test-false (term (Appl? =C2=A0(=CE=BB (x) y))))
+ > (test-false (term (Term? =C2=A0=CE=BB)))
+ > (test-false (term (Term? =C2=A0(=CE=BB (x y) z))))
+ > (test-false (term (Term? =C2=A0(=CE=BB (x)))))
+ > (test-false (term (Term? =C2=A0(x y z))))
+ > (test-results)
+ >
+ > *** Environment:
+ > windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get=
+ -display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 417023740
+ >
+ > Collections:
+ > (("C:\\Documents and Settings\\HP_Eigenaar\\Application Data\\PLT Scheme\=
+ \4.2.0.2\\collects" "cookbookcoroutines.bak" "cookbookcoroutines.scm" "Kopi=
+ e van lzy" "lc-with-redex" "loop" "lzy" "my-scheme" "Nieuwe map" "old vago"=
+ ) ("C:\\Program Files\\PLT-FULL-4.2.0.2\\collects" "2htdp" "afm" "algol60" =
+ "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "dein=
+ programm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "fil=
+ e" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "han=
+ din-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" =
+ "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mre=
+ d" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-too=
+ ls" "planet" "plot" "preprocessor" "profile" "profj" "profjWizard" "r5rs" "=
+ r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scheme=
+ unit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" =
+ "slideshow" "srf!
+ > =C2=A0i" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "s=
+ yntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests"=
+  "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "waterworld"=
+  "web-server" "wxme" "xml"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (=
+ default) #() "#lang scheme\n" #t))
+ >
+ >
+
+Responsible changed from "nobody" to "robby" by robby at Sat, 06 Jun 2009 21:21:42 -0400
+Reason>>> rbf
+
+State changed from "open" to "closed" by robby at Sat, 06 Jun 2009 21:21:42 -0400
+Reason>>> fixed and released to SVN.
+
+Thanks for the report! Sorry for the delay in getting back
+to you.
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: bugs@plt-scheme.org, Matthew Flatt <mflatt@cs.utah.edu>
+Cc: 
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sat, 6 Jun 2009 20:22:59 -0500
+
+ There is one unresolved issue wrt to this PR
+ (http://bugs.plt-scheme.org/query/?cmd=view&pr=10275), namely that I
+ don't know why (or have forgotten why) the source location information
+ is not present when .zo files are compiled.
+ 
+ Is that something you know about, or should I be trying to make a
+ small example to understand the issue better?
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sat, 6 Jun 2009 19:32:08 -0600
+
+ At Sat, 6 Jun 2009 20:22:59 -0500, Robby Findler wrote:
+ > There is one unresolved issue wrt to this PR
+ > (http://bugs.plt-scheme.org/query/?cmd=view&pr=10275), namely that I
+ > don't know why (or have forgotten why) the source location information
+ > is not present when .zo files are compiled.
+ > 
+ > Is that something you know about, or should I be trying to make a
+ > small example to understand the issue better?
+ 
+ Source locations on syntax objects are treated like properties; they
+ are not preserved on quoted syntax objects in bytecode.
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sat, 6 Jun 2009 21:11:50 -0500
+
+ On Sat, Jun 6, 2009 at 8:32 PM, Matthew Flatt<mflatt@cs.utah.edu> wrote:
+ > At Sat, 6 Jun 2009 20:22:59 -0500, Robby Findler wrote:
+ >> There is one unresolved issue wrt to this PR
+ >> (http://bugs.plt-scheme.org/query/?cmd=view&pr=10275), namely that I
+ >> don't know why (or have forgotten why) the source location information
+ >> is not present when .zo files are compiled.
+ >>
+ >> Is that something you know about, or should I be trying to make a
+ >> small example to understand the issue better?
+ >
+ > Source locations on syntax objects are treated like properties; they
+ > are not preserved on quoted syntax objects in bytecode.
+ 
+ Okay. I was under the impression that I was not leaving any syntax
+ objects in the compiled bytecode, here's hoping that there's a nice
+ performance bug to unearth in this! :)
+ 
+ Robby
+From: "Jos Koot" <jos.koot@telefonica.net>
+To: "Robby Findler" <robby@eecs.northwestern.edu>, <bugs@plt-scheme.org>
+Cc: 
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be present.
+Date: Sun, 7 Jun 2009 10:26:51 +0200
+
+ Thanks. I'll try that out tomorrow. Today is for my friends.
+ Jos
+ 
+ ----- Original Message ----- 
+ From: "Robby Findler" <robby@eecs.northwestern.edu>
+ To: <jos.koot@telefonica.net>; <bugs@plt-scheme.org>
+ Sent: Sunday, June 07, 2009 3:12 AM
+ Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be present.
+ 
+ 
+ Sorry for the long delay in replying, Jos.
+ 
+ If you delete the .zo files for the files, then you won't get that
+ error (altho you will get strange results if you try to typeset
+ anything since the line & column numbers will confuse Redex's layout
+ algorithms).
+ 
+ I'll look into avoiding the crash when there are no .zo files.
+ 
+ Robby
+ 
+ On Sun, May 31, 2009 at 12:32 PM, <jos.koot@telefonica.net> wrote:
+ > A new problem report is waiting at
+ > http://bugs.plt-scheme.org/query/?cmd=view&pr=10275
+ >
+ > Reported by Jos Koot for release: 4.2.0.2-svn27may2009
+ >
+ > *** Description:
+ > With the files shown in Steps to reproduce:
+ > . . ..\..\..\..\..\..\..\Program Files\PLT-FULL-4.2.0.2\collects\redex\private\loc-wrapper.ss:145:2: +: expects type <number> as 
+ > 1st argument, given: #f; other arguments were: 1
+ > redex-check: C:\Documents and Settings\HP_Eigenaar\Application Data\PLT 
+ > Scheme\4.2.0.2\collects\lc-with-redex\test-curried-lc-grammar.ss:4
+ > checking λλ raises an exception
+ > . . ..\..\..\..\..\..\..\Program Files\PLT-FULL-4.2.0.2\collects\redex\private\rg.ss:814:2: reference to an identifier before its 
+ > definition: Var?21.13
+ >
+ > May be my own fault. Making file curried-lc-grammar.ss include file define-language-with-predicates.ss (without the #lang line of 
+ > course) works ok. There are many places in the source code of redex where syntax location info is presuppossed to be present. I 
+ > have tried to change my own define-language-with-metapredicates to provide more location info, but my attempts have failed.
+ > (the stuff did work in (at least one of the) previous prereleased SVNs)
+ > Help please, Jos
+ >
+ > *** How to repeat:
+ > #lang scheme ; File define-language-with-metapredicate.ss
+ > (require redex)
+ > (provide define-language-with-metapredicates)
+ >
+ > (define-syntax (define-language-with-metapredicates stx)
+ > (syntax-case stx ()
+ > ((define-language-with-metapredicates language clause ...)
+ > (letrec
+ > ((extract-language-clauses
+ > (λ (clauses)
+ > (map extract-language-clause (syntax->list clauses))))
+ > (extract-language-clause
+ > (λ (clause)
+ > (syntax-case clause ()
+ > ((id pattern ... #:pred pred) #'(id pattern ...))
+ > ((id pattern ...) #'(id pattern ...)))))
+ > (extract-predicates
+ > (λ (clauses)
+ > (filter (λ (x) x) (map extract-predicate (syntax->list clauses)))))
+ > (extract-predicate
+ > (λ (clause)
+ > (syntax-case clause ()
+ > ((id pattern ... #:pred pred) #'(pred id))
+ > ((id pattern ...) #f)))))
+ > (with-syntax
+ > (((clause ...) (extract-language-clauses #'(clause ...)))
+ > (((predicate id) ...) (extract-predicates #'(clause ...))))
+ > #'(begin
+ > (define-language language clause ...)
+ > (define-metafunction language predicate : any -> any
+ > ((predicate id) #t) ((predicate any) #f)) ...))))))
+ > ;-------------------------------------------------------------------
+ > #lang scheme ; File curried-lc-grammar.ss
+ > (require redex)
+ > (require "define-language-with-metapredicates.ss")
+ > (provide curried-lc-grammar Term? Abstr? Appl? Var? Varlist? Env? Binding?)
+ >
+ > (define-language-with-metapredicates curried-lc-grammar
+ > (‹term› ‹var› ‹abstr› ‹appl› #:pred Term? )
+ > (‹abstr› (λ (‹var›) ‹term›) #:pred Abstr? )
+ > (‹appl› (‹term› ‹term›) #:pred Appl? )
+ > (‹var› (variable-except λ) #:pred Var? )
+ > (‹varlist› (‹var› ...) #:pred Varlist?)
+ > (‹env› (‹binding› ...) #:pred Env? )
+ > (‹binding› (‹var› number) #:pred Binding?)
+ > (‹bool› #f #t )
+ > (‹subterm› (λ (‹var›) ‹subterm›) (‹subterm› ‹term›) (‹term› ‹subterm›) hole))
+ >
+ > ;---------------------------------------------------------------------------
+ > #lang scheme ; File test-curried-lc-grammar.ss
+ > (require redex "curried-lc-grammar.ss" "tools.ss")
+ >
+ > (redex-check curried-lc-grammar ‹term›
+ > (or
+ > (term (Var? ‹term›))
+ > (term (Abstr? ‹term›))
+ > (term (Appl? ‹term›)))
+ > #:attempts 10000 #:retries 100)
+ >
+ > (test-false (term (Term? 123)))
+ > (test-false (term (Var? 123)))
+ > (test-false (term (Abstr? 123)))
+ > (test-false (term (Appl? 123)))
+ > (test-true (term (Term? x)))
+ > (test-true (term (Var? x)))
+ > (test-false (term (Abstr? x)))
+ > (test-false (term (Appl? x)))
+ > (test-true (term (Term? (x y))))
+ > (test-false (term (Var? (x y))))
+ > (test-false (term (Abstr? (x y))))
+ > (test-true (term (Appl? (x y))))
+ > (test-true (term (Term? (λ (x) y))))
+ > (test-false (term (Var? (λ (x) y))))
+ > (test-true (term (Abstr? (λ (x) y))))
+ > (test-false (term (Appl? (λ (x) y))))
+ > (test-false (term (Term? λ)))
+ > (test-false (term (Term? (λ (x y) z))))
+ > (test-false (term (Term? (λ (x)))))
+ > (test-false (term (Term? (x y z))))
+ > (test-results)
+ >
+ > *** Environment:
+ > windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 417023740
+ >
+ > Collections:
+ > (("C:\\Documents and Settings\\HP_Eigenaar\\Application Data\\PLT Scheme\\4.2.0.2\\collects" "cookbookcoroutines.bak" 
+ > "cookbookcoroutines.scm" "Kopie van lzy" "lc-with-redex" "loop" "lzy" "my-scheme" "Nieuwe map" "old vago") ("C:\\Program 
+ > Files\\PLT-FULL-4.2.0.2\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" 
+ > "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" 
+ > "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" 
+ > "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" 
+ > "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" 
+ > "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srf!
+ > i" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" 
+ > "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "waterworld" "web-server" "wxme" "xml"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+ >
+ >
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sun, 7 Jun 2009 07:37:29 -0500
+
+ Oh, of course. The example had a macro that expands into redex stuff
+ (as does the test suite).
+ 
+ This makes me realize that I didn't fully appreciate the ramifications
+ of this change!
+ 
+ It seems like there will be few uses of 'lambda' out there that are
+ the core lambda. Many more uses that expand into it. Does this mean
+ that such expanders have to be careful to propagate source locations
+ explicitly?
+ 
+ Robby
+ 
+ On Sat, Jun 6, 2009 at 9:11 PM, Robby
+ Findler<robby@eecs.northwestern.edu> wrote:
+ > On Sat, Jun 6, 2009 at 8:32 PM, Matthew Flatt<mflatt@cs.utah.edu> wrote:
+ >> At Sat, 6 Jun 2009 20:22:59 -0500, Robby Findler wrote:
+ >>> There is one unresolved issue wrt to this PR
+ >>> (http://bugs.plt-scheme.org/query/?cmd=view&pr=10275), namely that I
+ >>> don't know why (or have forgotten why) the source location information
+ >>> is not present when .zo files are compiled.
+ >>>
+ >>> Is that something you know about, or should I be trying to make a
+ >>> small example to understand the issue better?
+ >>
+ >> Source locations on syntax objects are treated like properties; they
+ >> are not preserved on quoted syntax objects in bytecode.
+ >
+ > Okay. I was under the impression that I was not leaving any syntax
+ > objects in the compiled bytecode, here's hoping that there's a nice
+ > performance bug to unearth in this! :)
+ >
+ > Robby
+ >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sun, 7 Jun 2009 07:05:38 -0600
+
+ At Sun, 7 Jun 2009 07:37:29 -0500, Robby Findler wrote:
+ > Oh, of course. The example had a macro that expands into redex stuff
+ > (as does the test suite).
+ > 
+ > This makes me realize that I didn't fully appreciate the ramifications
+ > of this change!
+ > 
+ > It seems like there will be few uses of 'lambda' out there that are
+ > the core lambda. Many more uses that expand into it. Does this mean
+ > that such expanders have to be careful to propagate source locations
+ > explicitly?
+ 
+ I'm not sure what you mean.
+ 
+ When `lambda' expands to `plain-lambda', it propagates source-location
+ information. The compilation of `plain-lambda' record the source in the
+ closure record for stack-tracing purposes.
+ 
+ If another macro expands into `lambda', then it needs to propagate
+ source-location information in the same way that it would for expanding
+ to `plain-lambda'; there's no difference from the outside of `lambda'
+ and `plain-lambda'.
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sun, 7 Jun 2009 08:55:27 -0500
+
+ On Sun, Jun 7, 2009 at 8:05 AM, Matthew Flatt<mflatt@cs.utah.edu> wrote:
+ > At Sun, 7 Jun 2009 07:37:29 -0500, Robby Findler wrote:
+ >> Oh, of course. The example had a macro that expands into redex stuff
+ >> (as does the test suite).
+ >>
+ >> This makes me realize that I didn't fully appreciate the ramifications
+ >> of this change!
+ >>
+ >> It seems like there will be few uses of 'lambda' out there that are
+ >> the core lambda. Many more uses that expand into it. Does this mean
+ >> that such expanders have to be careful to propagate source locations
+ >> explicitly?
+ >
+ > I'm not sure what you mean.
+ >
+ > When `lambda' expands to `plain-lambda', it propagates source-location
+ > information. The compilation of `plain-lambda' record the source in the
+ > closure record for stack-tracing purposes.
+ >
+ > If another macro expands into `lambda', then it needs to propagate
+ > source-location information in the same way that it would for expanding
+ > to `plain-lambda'; there's no difference from the outside of `lambda'
+ > and `plain-lambda'.
+ 
+ Yes, that's exactly what I meant.
+ 
+ This sounds a lot like the kinds of things one does to maintain
+ hygiene in an unhygenic macro system. Not that I've programmed in such
+ a system, of course. Would you expect it to be worse?
+ 
+ Did we make a mistake with this optimization?
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sun, 7 Jun 2009 08:28:36 -0600
+
+ At Sun, 7 Jun 2009 08:55:27 -0500, Robby Findler wrote:
+ > On Sun, Jun 7, 2009 at 8:05 AM, Matthew Flatt<mflatt@cs.utah.edu> wrote:
+ > > At Sun, 7 Jun 2009 07:37:29 -0500, Robby Findler wrote:
+ > >> Oh, of course. The example had a macro that expands into redex stuff
+ > >> (as does the test suite).
+ > >>
+ > >> This makes me realize that I didn't fully appreciate the ramifications
+ > >> of this change!
+ > >>
+ > >> It seems like there will be few uses of 'lambda' out there that are
+ > >> the core lambda. Many more uses that expand into it. Does this mean
+ > >> that such expanders have to be careful to propagate source locations
+ > >> explicitly?
+ > >
+ > > I'm not sure what you mean.
+ > >
+ > > When `lambda' expands to `plain-lambda', it propagates source-location
+ > > information. The compilation of `plain-lambda' record the source in the
+ > > closure record for stack-tracing purposes.
+ > >
+ > > If another macro expands into `lambda', then it needs to propagate
+ > > source-location information in the same way that it would for expanding
+ > > to `plain-lambda'; there's no difference from the outside of `lambda'
+ > > and `plain-lambda'.
+ > 
+ > Yes, that's exactly what I meant.
+ > 
+ > This sounds a lot like the kinds of things one does to maintain
+ > hygiene in an unhygenic macro system. Not that I've programmed in such
+ > a system, of course. Would you expect it to be worse?
+ > 
+ > Did we make a mistake with this optimization?
+ 
+ I may still misunderstand, but I think you're confusing the occasional
+ need to keep source locations on quoted syntax with the occasional need
+ to explicitly propagate source location.
+ 
+ For example, if you have
+ 
+  (define-syntax (identity stx)
+    #'(lambda (x) x))
+ 
+ then when you use it as
+ 
+  (identity)
+ 
+ you get a procedure that either has no source location (if the macro is
+ compiled) or the location of the quoted `lamda' expression (if the
+ macro is not compiled). But you probably wanted a third possibility,
+ which is the location of the use of `identity'.
+ 
+ An implementation that propagates the source location is
+ 
+  (define-syntax (identity stx)
+    (syntax/loc stx (lambda (x) x)))
+ 
+ Of course, a better implementation is
+ 
+  (define-syntax-rule (identity) (lambda (x) x))
+ 
+ which produces the right source location, since `define-syntax-rule'
+ uses `syntax/loc'.
+ 
+ It's rare that you actually want the source location of the quoted
+ `lambda' form, which is why dropping source locations in marshaled
+ bytecode is normally fine.
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Sun, 7 Jun 2009 09:32:14 -0500
+
+ I do undestand that point.
+ 
+ Consider the use of source locations for typesetting in Rdex tho.
+ Either it is hopeless when macro is involved or you want the source
+ locations of subexpressions of the template.
+ 
+ Robby
+ 
+ On Sunday, June 7, 2009, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > At Sun, 7 Jun 2009 08:55:27 -0500, Robby Findler wrote:
+ >> On Sun, Jun 7, 2009 at 8:05 AM, Matthew Flatt<mflatt@cs.utah.edu> wrote:
+ >> > At Sun, 7 Jun 2009 07:37:29 -0500, Robby Findler wrote:
+ >> >> Oh, of course. The example had a macro that expands into redex stuff
+ >> >> (as does the test suite).
+ >> >>
+ >> >> This makes me realize that I didn't fully appreciate the ramification=
+ s
+ >> >> of this change!
+ >> >>
+ >> >> It seems like there will be few uses of 'lambda' out there that are
+ >> >> the core lambda. Many more uses that expand into it. Does this mean
+ >> >> that such expanders have to be careful to propagate source locations
+ >> >> explicitly?
+ >> >
+ >> > I'm not sure what you mean.
+ >> >
+ >> > When `lambda' expands to `plain-lambda', it propagates source-location
+ >> > information. The compilation of `plain-lambda' record the source in th=
+ e
+ >> > closure record for stack-tracing purposes.
+ >> >
+ >> > If another macro expands into `lambda', then it needs to propagate
+ >> > source-location information in the same way that it would for expandin=
+ g
+ >> > to `plain-lambda'; there's no difference from the outside of `lambda'
+ >> > and `plain-lambda'.
+ >>
+ >> Yes, that's exactly what I meant.
+ >>
+ >> This sounds a lot like the kinds of things one does to maintain
+ >> hygiene in an unhygenic macro system. Not that I've programmed in such
+ >> a system, of course. Would you expect it to be worse?
+ >>
+ >> Did we make a mistake with this optimization?
+ >
+ > I may still misunderstand, but I think you're confusing the occasional
+ > need to keep source locations on quoted syntax with the occasional need
+ > to explicitly propagate source location.
+ >
+ > For example, if you have
+ >
+ > =C2=A0(define-syntax (identity stx)
+ >  =C2=A0 #'(lambda (x) x))
+ >
+ > then when you use it as
+ >
+ > =C2=A0(identity)
+ >
+ > you get a procedure that either has no source location (if the macro is
+ > compiled) or the location of the quoted `lamda' expression (if the
+ > macro is not compiled). But you probably wanted a third possibility,
+ > which is the location of the use of `identity'.
+ >
+ > An implementation that propagates the source location is
+ >
+ > =C2=A0(define-syntax (identity stx)
+ >  =C2=A0 (syntax/loc stx (lambda (x) x)))
+ >
+ > Of course, a better implementation is
+ >
+ > =C2=A0(define-syntax-rule (identity) (lambda (x) x))
+ >
+ > which produces the right source location, since `define-syntax-rule'
+ > uses `syntax/loc'.
+ >
+ > It's rare that you actually want the source location of the quoted
+ > `lambda' form, which is why dropping source locations in marshaled
+ > bytecode is normally fine.
+ >
+ >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Mon, 8 Jun 2009 06:49:26 -0600
+
+ At Sun, 7 Jun 2009 09:32:14 -0500, Robby Findler wrote:
+ > I do undestand that point.
+ >=20
+ > Consider the use of source locations for typesetting in Rdex tho.
+ > Either it is hopeless when macro is involved or you want the source
+ > locations of subexpressions of the template.
+ 
+ I think I see what you mean there, and a variant of `syntax' that
+ preserves locations would probably be handy for such cases.
+ 
+ But what does that have to do with expanding to `lambda'?
+ 
+ 
+ > On Sunday, June 7, 2009, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > > At Sun, 7 Jun 2009 08:55:27 -0500, Robby Findler wrote:
+ > >> On Sun, Jun 7, 2009 at 8:05 AM, Matthew Flatt<mflatt@cs.utah.edu> wrot=
+ e:
+ > >> > At Sun, 7 Jun 2009 07:37:29 -0500, Robby Findler wrote:
+ > >> >> Oh, of course. The example had a macro that expands into redex stuf=
+ f
+ > >> >> (as does the test suite).
+ > >> >>
+ > >> >> This makes me realize that I didn't fully appreciate the ramificati=
+ ons
+ > >> >> of this change!
+ > >> >>
+ > >> >> It seems like there will be few uses of 'lambda' out there that are=
+ 
+ > >> >> the core lambda. Many more uses that expand into it. Does this mean=
+ 
+ > >> >> that such expanders have to be careful to propagate source location=
+ s
+ > >> >> explicitly?
+ > >> >
+ > >> > I'm not sure what you mean.
+ > >> >
+ > >> > When `lambda' expands to `plain-lambda', it propagates source-locati=
+ on
+ > >> > information. The compilation of `plain-lambda' record the source in =
+ the
+ > >> > closure record for stack-tracing purposes.
+ > >> >
+ > >> > If another macro expands into `lambda', then it needs to propagate
+ > >> > source-location information in the same way that it would for expand=
+ ing
+ > >> > to `plain-lambda'; there's no difference from the outside of `lambda=
+ '
+ > >> > and `plain-lambda'.
+ > >>
+ > >> Yes, that's exactly what I meant.
+ > >>
+ > >> This sounds a lot like the kinds of things one does to maintain
+ > >> hygiene in an unhygenic macro system. Not that I've programmed in such=
+ 
+ > >> a system, of course. Would you expect it to be worse?
+ > >>
+ > >> Did we make a mistake with this optimization?
+ > >
+ > > I may still misunderstand, but I think you're confusing the occasional
+ > > need to keep source locations on quoted syntax with the occasional need=
+ 
+ > > to explicitly propagate source location.
+ > >
+ > > For example, if you have
+ > >
+ > > =C2=A0(define-syntax (identity stx)
+ > >  =C2=A0 #'(lambda (x) x))
+ > >
+ > > then when you use it as
+ > >
+ > > =C2=A0(identity)
+ > >
+ > > you get a procedure that either has no source location (if the macro is=
+ 
+ > > compiled) or the location of the quoted `lamda' expression (if the
+ > > macro is not compiled). But you probably wanted a third possibility,
+ > > which is the location of the use of `identity'.
+ > >
+ > > An implementation that propagates the source location is
+ > >
+ > > =C2=A0(define-syntax (identity stx)
+ > >  =C2=A0 (syntax/loc stx (lambda (x) x)))
+ > >
+ > > Of course, a better implementation is
+ > >
+ > > =C2=A0(define-syntax-rule (identity) (lambda (x) x))
+ > >
+ > > which produces the right source location, since `define-syntax-rule'
+ > > uses `syntax/loc'.
+ > >
+ > > It's rare that you actually want the source location of the quoted
+ > > `lambda' form, which is why dropping source locations in marshaled
+ > > bytecode is normally fine.
+ > >
+ > >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10275: redex supposes syntax location info to be 
+	present.
+Date: Mon, 8 Jun 2009 09:22:13 -0500
+
+ On Mon, Jun 8, 2009 at 7:49 AM, Matthew Flatt<mflatt@cs.utah.edu> wrote:
+ > At Sun, 7 Jun 2009 09:32:14 -0500, Robby Findler wrote:
+ >> I do undestand that point.
+ >>
+ >> Consider the use of source locations for typesetting in Rdex tho.
+ >> Either it is hopeless when macro is involved or you want the source
+ >> locations of subexpressions of the template.
+ >
+ > I think I see what you mean there, and a variant of `syntax' that
+ > preserves locations would probably be handy for such cases.
+ >
+ > But what does that have to do with expanding to `lambda'?
+ 
+ Nothing. I had moved on (to the case that got me thinking about
+ lambda). Sorry for being unclear.
+ 
+ Robby

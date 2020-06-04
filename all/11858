@@ -1,0 +1,149 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Apr 18 09:17:40 2011
+Received: from mail-yw0-f44.google.com (mail-yw0-f44.google.com [209.85.213.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p3IDHblC018417
+	for <bugs@bugs.plt-scheme.org>; Mon, 18 Apr 2011 09:17:37 -0400
+Message-Id: <201104181317.p3IDHYqx018412@champlain.ccs.neu.edu>
+Date: Mon, 18 Apr 2011 09:17:34 -0400
+From: jewillco@osl.iu.edu
+To: bugs@racket-lang.org
+Subject: Alpha-equivalent recursive types sometimes fail to match properly
+
+>Number:         11858
+>Category:       all
+>Synopsis:       Alpha-equivalent recursive types sometimes fail to match properly
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Apr 18 09:20:01 -0400 2011
+>Closed-Date:    Mon Apr 18 09:34:51 -0400 2011
+>Last-Modified:  Mon Feb 18 23:29:21 -0500 2013
+>Originator:     Jeremiah Willcock
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.1
+>Environment:
+macosx "Darwin Jeremiah-Willcocks-MacBook-Pro.local 10.7.0 Darwin Kernel Version 10.7.0: Sat Jan 29 15:17:16 PST 2011; root:xnu-1504.9.37~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 166557136
+
+Collections:
+("/Users/jewillco/Library/Racket/5.1/collects"
+ (non-existent-path))
+("/Applications/Racket v5.1/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml"))
+
+Computer Language: (("Determine language from source") (#(#t quasiquote mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t))
+>Description:
+Type checking the attached program produces the error:
+
+Type Checker: Polymorphic function cons could not be applied to arguments:
+Types: a (Listof a) -> (Listof a)
+       a b -> (Pairof a b)
+Arguments: u (Rec s (Promise (U Null (Pairof t s))))
+Expected result: (Pairof u (Rec g5339 (Promise (U Null (Pairof u g5339)))))
+ in: (cons (f (car s)) (cdr s))
+
+Note that the arguments exactly match the second expected pattern for cons and that the result of cons is alpha-equivalent to the type reported in "Expected result".  As a related issue, removing the "ann" in that program produces an even more complicated error:
+
+Type Checker: Polymorphic function delay could not be applied to arguments:
+Argument 1:
+  Expected: (-> a)
+  Given:    (-> (U Null (Pairof u (Rec s (Promise (U Null (Pairof t s)))))))
+
+Result type:     (Promise a)
+Expected result: (Rec g6133 (Promise (U Null (Pairof u g6133))))
+ in: (delay (let ((s (force s))) (cond ((null? s) (quote ())) (else (cons (f (car s)) (cdr s))))))
+
+I do not know how to work around that without the "ann" since delay is a macro, not a function.
+>How-To-Repeat:
+Attempt to check the following:
+
+#lang typed/racket
+(define-type (Stream t) (Rec s (Promise (U Null (Pair t s)))))
+(: stream-map (All (t u) ((t -> u) (Stream t) -> (Stream u))))
+(define (stream-map f s)
+  (delay
+    (let ((s (force s)))
+      (cond
+        ((null? s) '())
+        (else (ann (cons (f (car s)) (cdr s)) (Pair u (Stream u))))))))
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by samth at Mon, 18 Apr 2011 09:34:51 -0400
+Reason>>> not a bug - recursive data definitions need recursive
+programs.  :)
+
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: jewillco@osl.iu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11858: Alpha-equivalent recursive types
+ sometimes fail to match properly
+Date: Mon, 18 Apr 2011 09:33:47 -0400
+
+ On Mon, Apr 18, 2011 at 9:20 AM,  <jewillco@osl.iu.edu> wrote:
+ >
+ > *** How to repeat:
+ > Attempt to check the following:
+ >
+ > #lang typed/racket
+ > (define-type (Stream t) (Rec s (Promise (U Null (Pair t s)))))
+ > (: stream-map (All (t u) ((t -> u) (Stream t) -> (Stream u))))
+ > (define (stream-map f s)
+ >  (delay
+ >    (let ((s (force s)))
+ >      (cond
+ >        ((null? s) '())
+ >        (else (ann (cons (f (car s)) (cdr s)) (Pair u (Stream u))))))))
+ 
+ You need to apply `stream-map' recursively to (cdr s).
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Jeremiah Willcock <jewillco@osl.iu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11858: Alpha-equivalent recursive types sometimes
+ fail to match properly
+Date: Mon, 18 Apr 2011 09:35:54 -0400 (EDT)
+
+   This message is in MIME format.  The first part should be readable text,
+   while the remaining parts are likely unreadable without MIME-aware tools.
+ 
+ --1333878774-644676209-1303133755=:10357
+ Content-Type: TEXT/PLAIN; charset=ISO-8859-1; format=flowed
+ Content-Transfer-Encoding: 8BIT
+ 
+ On Mon, 18 Apr 2011, Sam Tobin-Hochstadt wrote:
+ 
+ > On Mon, Apr 18, 2011 at 9:20 AM,  <jewillco@osl.iu.edu> wrote:
+ >>
+ >> *** How to repeat:
+ >> Attempt to check the following:
+ >>
+ >> #lang typed/racket
+ >> (define-type (Stream t) (Rec s (Promise (U Null (Pair t s)))))
+ >> (: stream-map (All (t u) ((t -> u) (Stream t) -> (Stream u))))
+ >> (define (stream-map f s)
+ >>  (delay
+ >>    (let ((s (force s)))
+ >>      (cond
+ >>        ((null? s) '())
+ >>        (else (ann (cons (f (car s)) (cdr s)) (Pair u (Stream u))))))))
+ >
+ > You need to apply `stream-map' recursively to (cdr s).
+ 
+ Oops.  Sorry about that.  It does work with that fix, even without "ann".
+ 
+ -- Jeremiah Willcock
+ --1333878774-644676209-1303133755=:10357--
+
+Responsible changed from "nobody" to "samth" by eli at Mon, 18 Feb 2013 23:29:21 -0500
+Reason>>> samth closed
+

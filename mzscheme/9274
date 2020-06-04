@@ -1,0 +1,119 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Mar 28 23:45:25 2008
+Received: from wa-out-1112.google.com (wa-out-1112.google.com [209.85.146.177])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id m2T3jPPW000518
+	for <bugs@bugs.plt-scheme.org>; Fri, 28 Mar 2008 23:45:25 -0400
+Message-Id: <200803290344.m2T3iipk000505@champlain.ccs.neu.edu>
+Date: Fri, 28 Mar 2008 23:44:44 -0400
+From: areilly@bigpond.net.au
+To: bugs@plt-scheme.org
+Subject: SVN trunk build failed just now in xform
+
+>Number:         9274
+>Category:       mzscheme
+>Synopsis:       SVN trunk build failed just now in xform
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Mar 28 23:50:01 -0400 2008
+>Closed-Date:    Thu Apr 03 11:13:47 -0400 2008
+>Last-Modified:  Thu Apr 03 11:13:47 -0400 2008
+>Originator:     Andrew Reilly
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        trunk
+>Environment:
+FreeBSD amd64 / Mozilla/5.0 (X11; U; FreeBSD amd64; en; rv:1.8.1.12) Gecko/20080302 Epiphany/2.22 Firefox/2.0.0.12
+>Description:
+I've just svn co'd trunk, and run a build thusly:
+cd plt/src/build
+PREFIX=$HOME/bin/plt
+X11BASE=$PREFIX
+CFLAGS="-O2 -pipe -g" #-Werror-implicit-function-declaration 
+LDFLAGS=-L/usr/local/lib
+CPPFLAGS="-I/usr/local/include -DLONG64"
+LIBTOOL=/usr/local/bin/libtool
+
+../configure --prefix=${PREFIX} --enable-shared --enable-xft --enable-gl \
+            --enable-xrender --enable-cairo --with-x --enable-pthread \
+            --enable-lt=${LIBTOOL} \
+            --x-includes=${X11BASE}/include --x-libraries=${X11BASE}/lib \
+            CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" \
+            CPPFLAGS="${CPPFLAGS}" \
+            --mandir=$PREFIX amd64-portbld-freebsd7.0
+
+Unfortunately, it stopped here:
+
+env XFORM_USE_PRECOMP=xsrc/precomp.h ../mzschemecgc -cqu ../../../mzscheme/gc2/xform.ss --setup . --cpp "gcc -E -I/usr/local/include -DLONG64 -D_THREAD_SAFE   -DNEWGC_BTC_ACCOUNT -DNO_GC_SIGNALS  -DASSUME_FIXED_STACK_SIZE -DFIXED_STACK_SIZE=1048576 -DDONT_ITIMER -DMZ_USES_SHARED_LIB -I./.. -I../../../mzscheme/gc2/../include" -o xsrc/number.c ../../../mzscheme/gc2/../src/number.c
+Error [GCING] 780 in ../../../mzscheme/gc2/../src/number.c: Function scheme_is_integer declared __xform_nongcing__, but includes a function call.
+xform: Errors converting
+gmake[4]: *** [xsrc/number.c] Error 1
+gmake[4]: Leaving directory `/usr/home/andrew/plt-svn/plt/src/build/mzscheme/gc2'
+
+I don't know enough about xform to know what it's looking for.  I had a look at number.c, and if the things that look like macros (all caps) are macros, then that leaves the call to floor() as the problem.  Is it a problem?
+
+Cheers,
+>How-To-Repeat:
+see build steps, above.
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: areilly@bigpond.net.au, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9274: SVN trunk build failed just now in xform
+Date: Sat, 29 Mar 2008 06:06:09 -0600
+
+ At Fri, 28 Mar 2008 23:50:04 -0400, areilly@bigpond.net.au wrote:
+ > A new problem report is waiting at
+ > Unfortunately, it stopped here:
+ > 
+ > env XFORM_USE_PRECOMP=xsrc/precomp.h ../mzschemecgc -cqu 
+ > ../../../mzscheme/gc2/xform.ss --setup . --cpp "gcc -E -I/usr/local/include -
+ > DLONG64 -D_THREAD_SAFE   -DNEWGC_BTC_ACCOUNT -DNO_GC_SIGNALS  -
+ > DASSUME_FIXED_STACK_SIZE -DFIXED_STACK_SIZE=1048576 -DDONT_ITIMER -
+ > DMZ_USES_SHARED_LIB -I./.. -I../../../mzscheme/gc2/../include" -o 
+ > xsrc/number.c ../../../mzscheme/gc2/../src/number.c
+ > Error [GCING] 780 in ../../../mzscheme/gc2/../src/number.c: Function 
+ > scheme_is_integer declared __xform_nongcing__, but includes a function call.
+ > xform: Errors converting
+ > gmake[4]: *** [xsrc/number.c] Error 1
+ > gmake[4]: Leaving directory `/usr/home/andrew/plt-
+ > svn/plt/src/build/mzscheme/gc2'
+ > 
+ > I don't know enough about xform to know what it's looking for.  I had a look 
+ > at number.c, and if the things that look like macros (all caps) are macros, 
+ > then that leaves the call to floor() as the problem.  Is it a problem?
+ 
+ My guess is that something that's usually a function turns out to be a
+ macro on your system, and xform doesn't recognize something in the
+ expansion of the macro.
+ 
+ Can you send me the preprocessed version of "number.c"? The "gcc -E
+ ..." fragment above has all the command-line flags you need to get it
+ manually.
+ 
+ Thanks,
+ Matthew
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: areilly@bigpond.net.au, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9274: SVN trunk build failed just now in xform
+Date: Sat, 29 Mar 2008 06:51:01 -0600
+
+ I've added __isinfl() as a recognized non-GCing primitive. (Yes, it
+ would be better if these things were not hard-wired into the 3m xform.)
+ I think that will fix the build problem.
+ 
+ To continue with your existing check-out and build, manually delete
+ "<builddir>/mzscheme/gc2/xform-collects".
+ 
+ Matthew
+ 
+
+State changed from "open" to "closed" by mflatt at Thu, 03 Apr 2008 11:13:47 -0400
+Reason>>> fixed
+

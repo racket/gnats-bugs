@@ -1,0 +1,178 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Nov 20 16:47:39 2014
+Received: from mail-ie0-f175.google.com (mail-ie0-f175.google.com [209.85.223.175])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id sAKLlZJF008627
+	for <bugs@bugs.plt-scheme.org>; Thu, 20 Nov 2014 16:47:35 -0500
+Message-Id: <201411202147.sAKLlXsm008620@winooski.ccs.neu.edu>
+Date: Thu, 20 Nov 2014 16:47:33 -0500
+From: tonyg@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: File/Package Manager/Update Package List is far too slow, heavily disk-bound
+
+>Number:         14848
+>Category:       mzscheme
+>Synopsis:       File/Package Manager/Update Package List is far too slow, heavily disk-bound
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          analyzed
+>Confidential:   no
+>Arrival-Date:   Thu Nov 20 16:48:02 -0500 2014
+>Closed-Date:    
+>Last-Modified:  Mon Dec 01 16:28:02 -0500 2014
+>Originator:     Tony Garnock-Jones
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.4--2014-11-05(7c9b16b5/d)
+>Environment:
+unix "Linux stockholm.ccs.neu.edu 3.16.0-4-amd64 #1 SMP Debian 3.16.7-2 (2014-11-06) x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 287043592
+raco pkg (show):
+/home/tonyg/src/racket/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [223 auto-installed packages not shown]
+Installation-wide:
+ Package        Checksum    Source
+ bitsyntax      #f          (link ../../../../racket-bitsyntax)
+ logbook        #f          (link ../../../../racket-logbook)
+ marketplace    #f          (link ../../../../marketplace)
+ minimart       #f          (link ../../../../minimart)
+ reloadable     #f          (link ../../../../racket-reloadable)
+ rfc6455        #f          (link ../../../../racket-rfc6455)
+ zzzsploit      #f          (link ../../../../zzzsploit)
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/tonyg/.racket/development/collects"
+ (non-existent-path))
+("/home/tonyg/src/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+When updating the package list in DrRacket via File/Package Manager/Available from Catalog/Update Package List, DrRacket spends many minutes diskbound [1], writing approx. 200k-400k per second on my machine, and not using significant CPU.
+
+The cause seems to be excessive reopening and reinitialization of the catalog sqlite database. For most packages in the main official catalog, the code repeats the following steps three times:
+
+ - open the database
+ - ~CREATE IF NOT EXISTS three tables
+ - start a transaction
+ - delete a single row
+ - insert a single row
+ - commit the transaction
+ - close the database
+
+One solution might be to lift out the DB open/table-setup/close steps to a parameter, so that an existing open DB handle could be used if one exists. It might be even better to put *all* the deletes/inserts into one large transaction, though then the absence of transaction retry logic might be a problem.
+
+[1] about 3.5 mins on my machine; about 5 mins on Asumu's machine
+>How-To-Repeat:
+Update the package list using the package manager GUI in DrRacket.
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: tonyg@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14848: File/Package Manager/Update Package List is far too slow, heavily disk-bound
+Date: Thu, 20 Nov 2014 21:46:50 -0500
+
+ Sounds like a good example for optimization coaching! 
+ 
+ 
+ On Nov 20, 2014, at 4:48 PM, tonyg@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=14848
+ > 
+ > Reported by Tony Garnock-Jones for release: 6.1.1.4--2014-11-05(7c9b16b5/d)
+ > 
+ > *** Description:
+ > When updating the package list in DrRacket via File/Package Manager/Available from Catalog/Update Package List, DrRacket spends many minutes diskbound [1], writing approx. 200k-400k per second on my machine, and not using significant CPU.
+ > 
+ > The cause seems to be excessive reopening and reinitialization of the catalog sqlite database. For most packages in the main official catalog, the code repeats the following steps three times:
+ > 
+ > - open the database
+ > - ~CREATE IF NOT EXISTS three tables
+ > - start a transaction
+ > - delete a single row
+ > - insert a single row
+ > - commit the transaction
+ > - close the database
+ > 
+ > One solution might be to lift out the DB open/table-setup/close steps to a parameter, so that an existing open DB handle could be used if one exists. It might be even better to put *all* the deletes/inserts into one large transaction, though then the absence of transaction retry logic might be a problem.
+ > 
+ > [1] about 3.5 mins on my machine; about 5 mins on Asumu's machine
+ > 
+ > *** How to repeat:
+ > Update the package list using the package manager GUI in DrRacket.
+ > 
+ > *** Environment:
+ > unix "Linux stockholm.ccs.neu.edu 3.16.0-4-amd64 #1 SMP Debian 3.16.7-2 (2014-11-06) x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 287043592
+ > raco pkg (show):
+ > /home/tonyg/src/racket/racket/share/devel-pkgs:
+ > Package              Checksum    Source
+ > main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ > plt-services         #f          (static-link ../../../pkgs/plt-services)
+ > racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ > [223 auto-installed packages not shown]
+ > Installation-wide:
+ > Package        Checksum    Source
+ > bitsyntax      #f          (link ../../../../racket-bitsyntax)
+ > logbook        #f          (link ../../../../racket-logbook)
+ > marketplace    #f          (link ../../../../marketplace)
+ > minimart       #f          (link ../../../../minimart)
+ > reloadable     #f          (link ../../../../racket-reloadable)
+ > rfc6455        #f          (link ../../../../racket-rfc6455)
+ > zzzsploit      #f          (link ../../../../zzzsploit)
+ > User-specific for installation "development":
+ > [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/home/tonyg/.racket/development/collects"
+ > (non-existent-path))
+ > ("/home/tonyg/src/racket/racket/collects"
+ > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+ > 
+ 
+ 
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Wed, 26 Nov 2014 09:13:00 -0500
+Reason>>> A commit by mflatt@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/dd02cf8952
+  | pkg catalog-update: install updates as a single transaction
+  | 
+  | Relevant to PR 14848
+
+
+State changed from "open" to "analyzed" by mflatt at Wed, 26 Nov 2014 09:15:28 -0500
+Reason>>> My machines don't have the minutes-long behavior, but I've pushed changes 
+along the suggested lines, and it cut the DB time on my machine from 2 seconds 
+to 1 second. Let me know whether the change improves performance on your 
+machine.
+
+From: Tony Garnock-Jones <tonyg@ccs.neu.edu>
+To: bugs@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] mzscheme/14848: File/Package Manager/Update
+ Package List is far too slow, heavily disk-bound
+Date: Mon, 01 Dec 2014 16:28:16 -0500
+
+ Thank you Matthew -- that fixes the problem. Now updating the catalog
+ completes in a handful of seconds.
+ 
+ Regards,
+   Tony

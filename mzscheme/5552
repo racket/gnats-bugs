@@ -1,0 +1,150 @@
+From matthias@ccs.neu.edu  Thu Jun 27 17:03:20 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id RAA19686
+	for <bugs>; Thu, 27 Jun 2002 17:03:19 -0400
+Message-Id: <200206272103.RAA19686@champlain.ccs.neu.edu>
+Date: Thu, 27 Jun 2002 17:03:19 -0400
+From: matthias <matthias@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Subject: renames in module/teachpack exports produce confusing error messages
+
+>Number:         5552
+>Category:       mzscheme
+>Synopsis:       renames in module/teachpack exports produce confusing error messages
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    matthias
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Jun 27 17:10:00 EDT 2002
+>Closed-Date:    Wed Jul 03 10:44:57 EDT 2002
+>Last-Modified:  Wed Jul 03 10:44:57 EDT 2002
+>Originator:     matthias
+>Release:        200-cvs27jun2002
+>Organization:
+titan
+>Environment:
+unix "SunOS sualocin.ccs.neu.edu 5.8 Generic_108528-14 sun4u sparc SUNW,Sun-Blade-100" (sparc-solaris) (get-display-depth) = 24
+Docs Installed:
+("help" "beginning" "beginning-abbr" "advanced" "icons" "intermediate" "drscheme" "teachpack" "r5rs" "mzscheme" "mzlib" "mred" "framework" "misclib" "mrspidey" "mzc" "insidemz" "tools" "t-y-scheme" "intermediate-lambda" "recipes" "tex2page" "tour")
+Collections: 
+(("/home/matthias/collects/" ("web" "date" "finance" "utils")) ("/proj/scheme/plt/collects" ("CVS" "browser" "compiler" "debug" "defaults" "drjava" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "readline" "setup" "slatex" "srpersist" "stepper" "string-constants" "syntax" "tests" "texpict" "parser-tools" "xml" "doc" "mrflow" "sirmail" "slibinit" "afm" "version" "typeset" "eopl" "web-server" "algol60" "cvs-time-stamp" "waterworld" "tex2page")))
+Human Language: english
+>Description:
+[this could be a feature request.]
+
+if you rename a constructor as you export it from a module
+and the structure is involved in an error in a module where
+it is imported, the error message uses the original name 
+not the name to which it was renamed. 
+
+if the exporting module is a teachpack or something else to
+which you don't have the source, this becomes quite confusing
+because the "signature" of the module is not described with 
+internal names in the usual docs. [i consider that a faux pas.]
+>How-To-Repeat:
+here is a distilled example: 
+
+(module foo mzscheme
+  (provide (rename make-bar make-moo))
+  (define-struct bar ()))
+
+(module goo mzscheme
+  (require foo)
+  (define-struct argh (a))
+  
+  (argh-a (make-moo)))
+ 
+repl: 
+
+(require goo) and see how the error message involves bar
+rather than moo. 
+
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: matthias <matthias@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5552: renames in module/teachpack exports produce confusing error messages
+Date: Mon, 1 Jul 2002 19:44:44 -0600 (MDT)
+
+ At Thu, 27 Jun 2002 17:03:19 -0400, matthias wrote:
+ > if you rename a constructor as you export it from a module
+ > and the structure is involved in an error in a module where
+ > it is imported, the error message uses the original name 
+ > not the name to which it was renamed. 
+ 
+ This kind of problem shows up often, but I don't have a good solution.
+ Mostly, we solve it by creating wrapper functions or (in the case of
+ functions) replacing <proc-expr> with `(let ([intended-name
+ <proc-expr>]) intended-name)'.
+ 
+ I could imagine making the name inferencer sensitive to exports, but
+ there are problems. For example, what happends when a variable is
+ exported with two names? A more significant (and common) problem
+ involves re-exporting, where the desired name is not even a part of the
+ source module for the function.
+ 
+ The case of a structure constructor is even more tricky. The name is
+ ultimately supplied as an argument to `make-struct-type' in the
+ expansion of `define-struct'. Making that expansion sensitive to the
+ export list would be tricky, to say the least.
+ 
+ Matthew
+ 
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5552: renames in module/teachpack exports produce confusing error messages
+Date: Wed,  3 Jul 2002 10:39:42 -0400 (EDT)
+
+ Okay. I have written a macro that does all the work. That solves my
+ problem for now. I'll close the bug report. -- Matthias
+ 
+ 
+ 
+ At Mon, 1 Jul 2002 19:44:44 -0600 (MDT), Matthew Flatt wrote:
+ > At Thu, 27 Jun 2002 17:03:19 -0400, matthias wrote:
+ > > if you rename a constructor as you export it from a module
+ > > and the structure is involved in an error in a module where
+ > > it is imported, the error message uses the original name 
+ > > not the name to which it was renamed. 
+ > 
+ > This kind of problem shows up often, but I don't have a good solution.
+ > Mostly, we solve it by creating wrapper functions or (in the case of
+ > functions) replacing <proc-expr> with `(let ([intended-name
+ > <proc-expr>]) intended-name)'.
+ > 
+ > I could imagine making the name inferencer sensitive to exports, but
+ > there are problems. For example, what happends when a variable is
+ > exported with two names? A more significant (and common) problem
+ > involves re-exporting, where the desired name is not even a part of the
+ > source module for the function.
+ > 
+ > The case of a structure constructor is even more tricky. The name is
+ > ultimately supplied as an argument to `make-struct-type' in the
+ > expansion of `define-struct'. Making that expansion sensitive to the
+ > export list would be tricky, to say the least.
+ > 
+ > Matthew
+ 
+Responsible-Changed-From-To: steck->matthias
+Responsible-Changed-By: matthias
+Responsible-Changed-When: Wed Jul  3 10:44:57 2002
+Responsible-Changed-Why:
+    see below
+State-Changed-From-To: open->closed
+State-Changed-By: matthias
+State-Changed-When: Wed Jul  3 10:44:57 2002
+State-Changed-Why:
+    see email
+>Unformatted:
+

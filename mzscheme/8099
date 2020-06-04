@@ -1,0 +1,258 @@
+From apache@plt-scheme.org Thu Jun  8 11:27:17 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k58FRA3X002633
+	for <bugs@plt-scheme.org>; Thu, 8 Jun 2006 11:27:10 -0400
+Message-Id: <200606081527.k58FRAPh002631@champlain.ccs.neu.edu>
+Date: Thu, 8 Jun 2006 11:27:10 -0400
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: eval and namespace-attach-module raise error with define-values
+
+>Number:         8099
+>Category:       mzscheme
+>Synopsis:       eval and namespace-attach-module raise error with define-values
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jun 08 11:30:00 -0400 2006
+>Last-Modified:  Thu Jun 08 12:15:00 -0400 2006
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301.15
+>Environment:
+linux-other
+>Description:
+I'm using eval and namespace-attach-module to drive some test case code.  But the following code raises a very bad error message in mzscheme 301.15 from nightly svn:
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(module test-broken-eval mzscheme
+  (require (lib "etc.ss"))
+
+  (define (make-evaluation-namespace)
+    (define module-paths (list '(lib "list.ss")))
+    (define module-names 
+      (map (lambda (path)
+             ((current-module-name-resolver) path #f #f))
+           module-paths))
+    (let ([original-ns (current-namespace)]
+          [new-ns (make-namespace)])
+      (for-each (lambda (module-name)
+                  (namespace-attach-module original-ns 
+                                           module-name
+                                           new-ns))
+                module-names)
+      new-ns))
+  
+  (define (evaluate stx)
+    (syntax-case stx ()
+      [(module module-name language body-expr ...)
+       (parameterize ([current-namespace 
+                       (make-evaluation-namespace)])
+         (eval-syntax stx)
+         (eval-syntax #'(require module-name)))]))
+  
+  
+  (define (test)
+    (evaluate #'(module foo mzscheme 
+                  (require (lib "list.ss"))
+                  (printf "hi~n"))))
+
+  (test))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+The error message I see is:
+
+###############################################################
+metcalfe ~/work/dungeon-inject/tests $ mzscheme -u test-eval.ss
+define-values: cannot change identifier that is instantiated as a module constant: use-default in module: |,/pro/plt/plt/Linux/nightly/plt/collects/setup/configtab|
+
+ === context ===
+standard-module-name-resolver
+standard-module-name-resolver
+standard-module-name-resolver
+standard-module-name-resolver
+standard-module-name-resolver
+###############################################################
+
+
+This bug does not appear to affect 301 stable:
+
+################################################################
+metcalfe ~/work/dungeon-inject/tests $ /pro/plt/bin/mzscheme -v      
+Welcome to MzScheme version 301, Copyright (c) 2004-2005 PLT Scheme Inc.
+metcalfe ~/work/dungeon-inject/tests $ /pro/plt/bin/mzscheme -u test-broken-eval.ss
+hi
+################################################################
+
+
+Any help with this would be greatly appreciated.  Thanks!
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: dyoo@hkn.eecs.berkeley.edu, gnats@brinckerhoff.org,
+        Matthias Felleisen <matthias@ccs.neu.edu>,
+        Jay McCarthy <jay@kenyamountain.com>, dskippy@ccs.neu.edu,
+        kathyg@cs.utah.edu, dalev@ccs.neu.edu, meunier@ccs.neu.edu,
+        goldberg@cs.utah.edu, Eli Barzilay <eli@barzilay.org>,
+        bugs@plt-scheme.org, jacobm@cs.uchicago.edu, sowens@cs.utah.edu,
+        awick@cs.utah.edu, robby@cs.uchicago.edu, cce@ccs.neu.edu,
+        Matthew Flatt <mflatt@cs.utah.edu>,
+        Shriram Krishnamurthi <sk@cs.brown.edu>, nobody@plt-scheme.org
+Cc: Guillaume Marceau <gmarceau@cs.brown.edu>, Josh Gan <josh.gan@gmail.com>
+Subject: Re: all/8099: eval and namespace-attach-module raise error with
+ define-values
+Date: Thu, 8 Jun 2006 08:53:00 -0700 (PDT)
+
+   This message is in MIME format.  The first part should be readable text,
+   while the remaining parts are likely unreadable without MIME-aware tools.
+ 
+ --545311344-1772615019-1149781980=:14242
+ Content-Type: TEXT/PLAIN; charset=US-ASCII; format=flowed
+ 
+ 
+ Correction: the error message I'm getting is actually:
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ metcalfe ~/work/dungeon-inject/tests $ mzscheme -u test-broken-eval.ss
+ define-values: cannot change identifier that is instantiated as a module 
+ constant: merge-sorted-lists! in module: 
+ |,/pro/plt/plt/Linux/nightly/plt/collects/mzlib/list|
+ 
+   === context ===
+ standard-module-name-resolver
+ /home/dyoo/work/dungeon-inject/tests/test-broken-eval.ss:15:2: evaluate
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ 
+ My apologies for the inaccurate error report; I had been experimenting to 
+ see if it had anything intrinsically to do with (lib "list.ss"), and my 
+ older test-eval.ss code had been doing essentially the same test against 
+ (lib "etc.ss").
+ 
+ 
+ This feels like it does have something to do with my .mzschemerc.  My 
+ current .mzschemerc is:
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ (require (lib "rep.ss" "readline"))
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ 
+ 
+ If I disable my .mzschemerc, then the error message from 
+ test-broken-eval.ss changes:
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ namespace-attach-module: module not instantiated (in the source 
+ namespace): |,/pro/plt/plt/Linux/nightly/plt/collects/mzlib/list|
+ 
+   === context ===
+ /home/dyoo/work/dungeon-inject/tests/test-broken-eval.ss:3:2: 
+ make-evaluation-namespace
+ /home/dyoo/work/dungeon-inject/tests/test-broken-eval.ss:15:2: evaluate
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ 
+ 
+ There is something very strange happening here.  I hope this helps!
+ --545311344-1772615019-1149781980=:14242
+ Content-Type: TEXT/PLAIN; charset=US-ASCII; name=test-broken-eval.ss
+ Content-Transfer-Encoding: BASE64
+ Content-ID: <Pine.LNX.4.64.0606080853000.14242@hkn.eecs.berkeley.edu>
+ Content-Description: 
+ Content-Disposition: attachment; filename=test-broken-eval.ss
+ 
+ KG1vZHVsZSB0ZXN0LWJyb2tlbi1ldmFsIG16c2NoZW1lDQoNCiAgKGRlZmlu
+ ZSAobWFrZS1ldmFsdWF0aW9uLW5hbWVzcGFjZSkNCiAgICAoZGVmaW5lIG1v
+ ZHVsZS1wYXRocyAobGlzdCAnKGxpYiAibGlzdC5zcyIpKSkNCiAgICAoZGVm
+ aW5lIG1vZHVsZS1uYW1lcyAobWFwIChsYW1iZGEgKHBhdGgpDQogICAgICAg
+ ICAgICAgICAgICAgICAgICAgICAgICAgKChjdXJyZW50LW1vZHVsZS1uYW1l
+ LXJlc29sdmVyKSBwYXRoICNmICNmKSkNCiAgICAgICAgICAgICAgICAgICAg
+ ICAgICAgICAgbW9kdWxlLXBhdGhzKSkNCiAgICAobGV0IChbb3JpZ2luYWwt
+ bnMgKGN1cnJlbnQtbmFtZXNwYWNlKV0NCiAgICAgICAgICBbbmV3LW5zICht
+ YWtlLW5hbWVzcGFjZSldKQ0KICAgICAgKGZvci1lYWNoIChsYW1iZGEgKG1v
+ ZHVsZS1uYW1lKQ0KICAgICAgICAgICAgICAgICAgKG5hbWVzcGFjZS1hdHRh
+ Y2gtbW9kdWxlIG9yaWdpbmFsLW5zIG1vZHVsZS1uYW1lIG5ldy1ucykpDQog
+ ICAgICAgICAgICAgICAgbW9kdWxlLW5hbWVzKQ0KICAgICAgbmV3LW5zKSkN
+ CiAgDQogIChkZWZpbmUgKGV2YWx1YXRlIHN0eCkNCiAgICAoc3ludGF4LWNh
+ c2Ugc3R4ICgpDQogICAgICBbKG1vZHVsZSBtb2R1bGUtbmFtZSBsYW5ndWFn
+ ZSBib2R5LWV4cHIgLi4uKQ0KICAgICAgIChwYXJhbWV0ZXJpemUgKFtjdXJy
+ ZW50LW5hbWVzcGFjZSAobWFrZS1ldmFsdWF0aW9uLW5hbWVzcGFjZSldKQ0K
+ ICAgICAgICAgKGV2YWwtc3ludGF4IHN0eCkNCiAgICAgICAgIChldmFsLXN5
+ bnRheCAjJyhyZXF1aXJlIG1vZHVsZS1uYW1lKSkpXSkpDQogIA0KICANCiAg
+ KGRlZmluZSAodGVzdCkNCiAgICAoZXZhbHVhdGUgIycobW9kdWxlIGZvbyBt
+ enNjaGVtZSANCiAgICAgICAgICAgICAgICAgIChyZXF1aXJlIChsaWIgImxp
+ c3Quc3MiKSkNCiAgICAgICAgICAgICAgICAgIChwcmludGYgImhpfm4iKSkp
+ KQ0KDQogICh0ZXN0KQ0KICApDQo=
+ 
+ --545311344-1772615019-1149781980=:14242--
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: dyoo@hkn.eecs.berkeley.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8099: eval and namespace-attach-module raise error with define-values
+Date: Thu, 8 Jun 2006 09:55:59 -0600
+
+ Your program should work if you use
+ 
+  (parameterize ([current-namespace new-ns])
+    (namespace-attach-module original-ns module-name))
+ 
+ instead of
+ 
+  (namespace-attach-module original-ns module-name new-ns)
+ 
+ For some reason, in the second form, `namespace-attach-module' doesn't
+ notify the current module-name resolver that it has attached a module.
+ That behavior puzzles me, and it doesn't seemed to be documented, so
+ I'll investigate further.
+ 
+ Matthew
+ 
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8099: eval and namespace-attach-module raise error with
+ define-values
+Date: Thu, 8 Jun 2006 09:58:11 -0600
+
+ At Thu, 8 Jun 2006 08:53:00 -0700 (PDT), Danny Yoo wrote:
+ > Correction:
+ 
+ I figured this much out. When you use -q, you need to require `(lib
+ "list.ss")' somehow before trying to attach it.
+ 
+ I hope the `namespace-attach-module' workaround lets you make progress.
+ 
+ Matthew
+ 
+
+State changed from "open" to "closed" by mflatt at Thu, 08 Jun 2006 12:06:23 -0400
+Reason>>> I've fixed the bug, but since there's an easy work-around,
+and since the strange behavior might have been
+deliberate, I won't release the fix until version 350.1.
+
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, Guillaume Marceau <gmarceau@cs.brown.edu>,
+        Josh Gan <josh.gan@gmail.com>
+Subject: Re: all/8099: eval and namespace-attach-module raise error with
+ define-values
+Date: Thu, 8 Jun 2006 09:10:14 -0700 (PDT)
+
+ On Thu, 8 Jun 2006, Matthew Flatt wrote:
+ 
+ > At Thu, 8 Jun 2006 08:53:00 -0700 (PDT), Danny Yoo wrote:
+ >> Correction:
+ >
+ > I figured this much out. When you use -q, you need to require `(lib
+ > "list.ss")' somehow before trying to attach it.
+ >
+ > I hope the `namespace-attach-module' workaround lets you make progress.
+ 
+ Yes, the workaround works perfectly so far.  Thank you!
+ 

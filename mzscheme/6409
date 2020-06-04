@@ -1,0 +1,162 @@
+From robby@cs.uchicago.edu  Fri Aug 15 15:11:38 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id PAA05526
+	for <bugs>; Fri, 15 Aug 2003 15:11:38 -0400
+Message-Id: <200308151911.PAA05526@champlain.ccs.neu.edu>
+Date: Fri, 15 Aug 2003 15:11:38 -0400
+From: Robby Findler <robby@cs.uchicago.edu>
+To: bugs@plt-scheme.org
+Subject: yield on async channel can starve event handling
+
+>Number:         6409
+>Category:       mzscheme
+>Synopsis:       yield on async channel can starve event handling
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 15 15:15:00 -0400 2003
+>Closed-Date:    Fri Aug 15 15:52:32 -0400 2003
+>Last-Modified:  Mon May 05 16:09:46 -0400 2008
+>Originator:     Robby Findler
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        205-cvs1aug2003
+>Environment:
+macosx "Darwin taitung.cs.uchicago.edu 6.6 Darwin Kernel Version 6.6: Thu May  1 21:48:54 PDT 2003; root:xnu/xnu-344.34.obj~1/RELEASE_PPC  Power Macintosh powerpc" (ppc-macosx) (get-display-depth) = 32
+Docs Installed:
+("advanced" "beginning" "beginning-abbr" "drscheme" "framework" "help" "insidemz" "intermediate" "intermediate-lambda" "misclib" "mred" "mzc" "mzlib" "mzscheme" "r5rs" "t-y-scheme" "tex2page" "tools" "tour")
+Collections: 
+(("/Users/robby/Library/PLT Scheme/205/collects" ("magic")) ("/Users/robby/cvs/exp/plt/collects/mzlib/../../MrEd.app/Contents/MacOS/../../../collects" (".DS_Store" "afm" "algol60" "browser" "compiler" "CVS" "cvs-time-stamp" "defaults" "doc" "dromedary" "drscheme" "dynext" "eopl" "errortrace" "finish-install" "framework" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mrdemo" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "profj" "readline" "reduction-semantics" "setup" "sgl" "sirmail" "slatex" "slibinit" "srfi" "srpersist" "stepper" "string-constants" "syntax" "syntax-color" "test-suite" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xelda" "xml")))
+ 
+Human Language: english
+ 
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Graphical (MrEd, includes MzScheme)") #6(#f write mixed-fraction-e #f #t debug))
+>Description:
+When running the code below and clicking on 
+the button or resizing the frame, nothing
+happens.
+
+But, remove the ; in front of the call to
+and suddenly the GUI is responsive.
+
+This seems to be a bug in yield -- yield should
+sometimes handle events, but if there is lots
+of stuff coming out of the waitable, it
+doesn't seem to handle any events.
+>How-To-Repeat:
+(require (lib "async-channel.ss"))
+
+(define c (make-async-channel 100))
+
+(define f (new frame% (label "")))
+(define b (new button% 
+               (label "button")
+               (parent f)
+               (callback (lambda (x y) (async-channel-put c 'done)))))
+(thread
+ (lambda ()
+   (let loop ()
+     (async-channel-put c 'cont)
+     ;(sleep 0.01)
+     (loop))))
+
+(send f show #t)
+
+(let loop ()
+  (let ([v (yield c)])
+    (case v
+      [(cont) (loop)]
+      [(done) (void)])))
+
+(send f show #f)
+
+
+               
+             
+>Fix:
+>Release-Note:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6409: yield on async channel can starve event handling
+Date: Fri, 15 Aug 2003 13:44:43 -0700
+
+ At Fri, 15 Aug 2003 15:11:38 -0400, Robby Findler wrote:
+ > When running the code below and clicking on 
+ > the button or resizing the frame, nothing
+ > happens.
+ > 
+ > But, remove the ; in front of the call to
+ > and suddenly the GUI is responsive.
+ > 
+ > This seems to be a bug in yield
+ 
+ No, it's a feature. `yield' is not supposed to handle any events if its
+ waitable is ready. As you may recall, DrScheme relies on this property
+ of `yield' in a case where the (internal) waitable is "dialog is
+ closed".
+ 
+ If you want to be sure to sometimes handle an event, throw a `(yield)'
+ into the loop.
+ 
+ Matthew
+ 
+State-Changed-From-To: open->closed
+State-Changed-By: robby
+State-Changed-When: Fri Aug 15 15:52:32 2003
+State-Changed-Why:
+    not a bug. i didn't understand yield properly.
+
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6409: yield on async channel can starve event handling
+Date: Fri, 15 Aug 2003 14:50:08 -0500
+
+ At Fri, 15 Aug 2003 13:44:43 -0700, Matthew Flatt wrote:
+ > At Fri, 15 Aug 2003 15:11:38 -0400, Robby Findler wrote:
+ > > When running the code below and clicking on 
+ > > the button or resizing the frame, nothing
+ > > happens.
+ > > 
+ > > But, remove the ; in front of the call to
+ > > and suddenly the GUI is responsive.
+ > > 
+ > > This seems to be a bug in yield
+ > 
+ > No, it's a feature. `yield' is not supposed to handle any events if its
+ > waitable is ready. As you may recall, DrScheme relies on this property
+ > of `yield' in a case where the (internal) waitable is "dialog is
+ > closed".
+ 
+ Oh, of course. Thanks.
+ 
+ > If you want to be sure to sometimes handle an event, throw a `(yield)'
+ > into the loop.
+ 
+ I didn't see a guarantee in the manual, but if there are 1 or more
+ eventa waiting does yield handle at least one of those?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6409: yield on async channel can starve event handling
+Date: Fri, 15 Aug 2003 13:52:20 -0700
+
+ At Fri, 15 Aug 2003 14:50:08 -0500, Robby Findler wrote:
+ > I didn't see a guarantee in the manual, but if there are 1 or more
+ > eventa waiting does yield handle at least one of those?
+ 
+ Yes. I'll add that guarantee.
+ 
+ Matthew
+ 
+>Unformatted:

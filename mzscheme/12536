@@ -1,0 +1,158 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Feb  3 16:05:52 2012
+Received: from mail-vw0-f44.google.com (mail-vw0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q13L5nOI005943
+	for <bugs@bugs.plt-scheme.org>; Fri, 3 Feb 2012 16:05:49 -0500
+Message-Id: <201202032105.q13L5l3A005932@champlain.ccs.neu.edu>
+Date: Fri, 3 Feb 2012 16:05:47 -0500
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Type errors in `parameterize'
+
+>Number:         12536
+>Category:       mzscheme
+>Synopsis:       Type errors in `parameterize'
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Feb 03 16:08:01 -0500 2012
+>Closed-Date:    Sat Feb 04 07:35:16 -0500 2012
+>Last-Modified:  Sat Feb 04 07:35:16 -0500 2012
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+...or type
+>Description:
+> (parameterize ([1 2]) 3)
+parameterize: expects type <parameter> as 2nd argument, given: 1; ...
+
+It's weird that the error is thrown as a type error...  (Which is coming
+from extend_parameterization() in C.)  But since it does make some sense
+(for most people who wouldn't recognize the error as implying that it's a
+function), it would be better to make the error a little better.  For
+example:
+
+-> (define p1 (make-parameter 0))
+-> (define p2 (make-parameter 0))
+-> (parameterize ([p1 1] [p2 2] [3 4]) 5)
+; parameterize: expects type <parameter> as 6th argument, given: 3; other
+;   arguments were: #<parameterization> #<procedure:parameter-procedure> 1
+;   #<procedure:parameter-procedure> 2 4
+
+I think that it would be better to change the number shown and drop the parameterization, so that would come out as:
+
+; parameterize: expects type <parameter> as 5th argument, given: 3; other
+;   arguments were: #<procedure:parameter-procedure> 1
+;   #<procedure:parameter-procedure> 2 4
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: bugs@racket-lang.org
+Cc: Matthew Flatt <mflatt@cs.utah.edu>
+Subject: Re: [racket-bug] all/12536: Type errors in `parameterize'
+Date: Fri, 3 Feb 2012 16:28:47 -0500
+
+ 20 minutes ago, eli@barzilay.org wrote:
+ > 
+ > I think that it would be better to change the number shown and drop
+ > the parameterization, [...]
+ 
+ Here's a patch that does that, is it OK to commit?  (It's only used
+ in two places, one is `parameterize' and the other is irrelevant since
+ it has no parameters.)
+ 
+ -------------------------------------------------------------------------------
+ diff --git a/src/racket/src/thread.c b/src/racket/src/thread.c
+ index 78a919c..3c91d41 100644
+ --- a/src/racket/src/thread.c
+ +++ b/src/racket/src/thread.c
+ @@ -6889,7 +6889,7 @@ static Scheme_Object *extend_parameterization(int argc, Scheme_Object *argv[])
+        param = argv[i];
+        if (!SCHEME_PARAMETERP(param)
+            && !(SCHEME_CHAPERONEP(param) && SCHEME_PARAMETERP(SCHEME_CHAPERONE_VAL(param)))) {
+ -	scheme_wrong_type("parameterize", "parameter", i, argc, argv);
+ +	scheme_wrong_type("parameterize", "parameter", i-1, argc-1, argv XFORM_OK_PLUS 1);
+  	return NULL;
+        }
+        key = argv[i + 1];
+ -------------------------------------------------------------------------------
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12536: Type errors in `parameterize'
+Date: Fri, 3 Feb 2012 19:51:39 -0700
+
+ No --- I'm pretty sure that pointer arithmetic isn't ok for 3m.
+ 
+ I think the error message gets the terminology wrong (because functions
+ have "arguments", while syntactic forms have sub-expression results),
+ so I'll fix the message in a different way.
+ 
+ At Fri, 3 Feb 2012 16:28:47 -0500, Eli Barzilay wrote:
+ > 20 minutes ago, eli@barzilay.org wrote:
+ > > 
+ > > I think that it would be better to change the number shown and drop
+ > > the parameterization, [...]
+ > 
+ > Here's a patch that does that, is it OK to commit?  (It's only used
+ > in two places, one is `parameterize' and the other is irrelevant since
+ > it has no parameters.)
+ > 
+ > -------------------------------------------------------------------------------
+ > diff --git a/src/racket/src/thread.c b/src/racket/src/thread.c
+ > index 78a919c..3c91d41 100644
+ > --- a/src/racket/src/thread.c
+ > +++ b/src/racket/src/thread.c
+ > @@ -6889,7 +6889,7 @@ static Scheme_Object *extend_parameterization(int argc, 
+ > Scheme_Object *argv[])
+ >        param = argv[i];
+ >        if (!SCHEME_PARAMETERP(param)
+ >            && !(SCHEME_CHAPERONEP(param) && 
+ > SCHEME_PARAMETERP(SCHEME_CHAPERONE_VAL(param)))) {
+ > -	scheme_wrong_type("parameterize", "parameter", i, argc, argv);
+ > +	scheme_wrong_type("parameterize", "parameter", i-1, argc-1, argv 
+ > XFORM_OK_PLUS 1);
+ >  	return NULL;
+ >        }
+ >        key = argv[i + 1];
+ > -------------------------------------------------------------------------------
+ > 
+ > -- 
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                     http://barzilay.org/                   Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12536: Type errors in `parameterize'
+Date: Sat, 4 Feb 2012 02:58:00 -0500
+
+ 5 hours ago, Matthew Flatt wrote:
+ > No --- I'm pretty sure that pointer arithmetic isn't ok for 3m.
+ 
+ That would be easy to fix,
+ 
+ > I think the error message gets the terminology wrong (because
+ > functions have "arguments", while syntactic forms have
+ > sub-expression results), so I'll fix the message in a different way.
+ 
+ but that's obviously better.  (Which is what I was trying to say in
+ the PR.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+
+State changed from "open" to "closed" by mflatt at Sat, 04 Feb 2012 07:35:16 -0500
+Reason>>> fixed in commit 8cf49df
+

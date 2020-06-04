@@ -1,0 +1,635 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Sep 20 00:29:07 2013
+Received: from mail-wi0-f176.google.com (mail-wi0-f176.google.com [209.85.212.176])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id r8K4T4Vb014668
+	for <bugs@bugs.plt-scheme.org>; Fri, 20 Sep 2013 00:29:05 -0400
+Message-Id: <201309200429.r8K4T129014661@winooski.ccs.neu.edu>
+Date: Fri, 20 Sep 2013 00:29:01 -0400
+From: william.cushing@gmail.com
+To: bugs@racket-lang.org
+Subject: Performance Issue with static compilation
+
+>Number:         14037
+>Category:       all
+>Synopsis:       Performance Issue with static compilation
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Sep 20 00:32:01 -0400 2013
+>Closed-Date:    Mon Oct 21 09:58:55 -0400 2013
+>Last-Modified:  Mon Oct 21 09:58:55 -0400 2013
+>Originator:     William Cushing
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+unix "Linux ubuntu 3.5.0-34-generic #55-Ubuntu SMP Thu Jun 6 20:18:19 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 286988760
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/wyriel/.racket/5.2.1/collects"
+ (non-existent-path))
+("/usr/share/racket/collects"
+ ("macro-debugger" "texpict" "typed-scheme" "mzcom" "schemeunit" "mzlib" "db" "mrlib" "mred" "profile" "info-domain" "lang" "xrepl" "setup" "mzscheme" "tex2page" "data" "picturing-programs" "scribblings" "trace" "2htdp" "scribble" "teachpack" "net" "stepper" "r6rs" "readline" "lazy" "plot" "slideshow" "syntax" "web-server" "eopl" "plai" "algol60" "icons" "string-constants" "reader" "s-exp" "htdp" "file" "swindle" "test-engine" "graphics" "datalog" "html" "redex" "framework" "unstable" "typed-racket" "parser-tools" "raco" "frtime" "errortrace" "rnrs" "wxme" "compiler" "openssl" "mysterx" "srfi" "rackunit" "racket" "preprocessor" "dynext" "racklog" "launcher" "games" "combinator-parser" "browser" "at-exp" "sgl" "planet" "deinprogramm" "scriblib" "xml" "embedded-gui" "syntax-color" "typed" "r5rs" "config" "help" "defaults" "version" "hierlist" "drracket" "test-box-recovery" "ffi" "drscheme" "scheme" "make" "slatex" "gui-debugger" "images"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+Trivial closures created at "compile-time" can be slower than "the same" trivial closures produced at "run-time".
+I.e.: 
+ (define l (lambda (x) (+ x x)) 
+can produce a slightly slower procedure than:
+ (define lqe (eval '(lambda (x) (+ x x)) (make-base-namespace))
+ 
+I observed this in this version of racket, as well as for a more recent windows version of racket.
+
+It is, of course, rather counterintuitive that (eval (quote ...)) could produce a faster call sequence than a module-top definition...isn't much of the point of modules so that racket can statically determine that mostly static things are indeed static enough to enable emiting better code?
+
+I.e., it is a performance issue if I'm tempted to define:
+(define-syntax-rule 
+  (define-procedure (f x ...) b ...) 
+  (define f (eval (quote (lambda (x ...) b ...) )))) 
+
+----
+
+The purpose of the even/odd test is to make sure that variable references between procedures within the same module are being linked correctly. 
+>How-To-Repeat:
+Invoke (test), or perhaps (demonstrate 5), after loading:
+
+#lang racket
+
+;; Sets current namespace to what should, intuitively speaking, be the current namespace.
+;; Namely, the namespace of this module, which is what the core form (#%variable-reference) achieves.
+;; This can also be achieved by define-namespace-anchor and namespace-anchor->namespace.
+(current-namespace (variable-reference->namespace (#%variable-reference)))
+;; The point of the magic spell is to make (eval x) behave the same in the REPL and in a module.
+
+(define-syntax-rule 
+  (define-procedure (f x ...) b ...)
+  (define f 
+    (eval 
+     (quote (lambda (x ...) b ...)) 
+     ;; using either current-namespace (by commenting out both of the following)
+     ;; or (#%variable-reference), which is as-is, 
+     ;; produces better code than explicitly passing the name of the function
+     ;; as in (#%variable-reference f)  
+     (variable-reference->namespace (#%variable-reference))
+     #;(variable-reference->namespace (#%variable-reference f))
+     )))
+
+;; This version, which changes quote to syntax, produces much slower procedures
+#;(define-syntax-rule 
+  (define-procedure (f x ...) b ...)
+  (define f 
+    (eval 
+     (syntax (lambda (x ...) b ...)) 
+     (variable-reference->namespace (#%variable-reference))
+     )))
+
+
+;; The macro allows us to define procedures using our choice of compiler:
+(define           (l/lamb x) (+ x x))
+(define-procedure (l/proc x) (+ x x))
+;; That is, the second version is roughly equivalent to: 
+;;   (define l/proc (eval (quote (lambda (x) (+ x x)) )))
+;; Which ought to have the effect of defeating many aspects of compile-time compilation of l/proc.
+
+(define-procedure (fib/proc n)
+  (if (< n 2)
+      n
+      (+ (fib/proc (- n 1)) (fib/proc (- n 2)))))
+(define (fib/lamb n)
+  (if (< n 2)
+      n
+      (+ (fib/lamb (- n 1)) (fib/lamb (- n 2)))))
+
+(define (even?/lamb x) 
+  (cond 
+    [(eq? x 0) #t]
+    [(eq? x 1) #f]
+    [(< x 0) (even?/lamb (- x))]
+    [else (odd?/lamb (- x 1))]
+    ))
+(define (odd?/lamb x) 
+  (even?/lamb (- x 1)))
+
+(define-procedure (even?/proc x) 
+  (cond 
+    [(eq? x 0) #t]
+    [(eq? x 1) #f]
+    [(< x 0) (even?/proc (- x))]
+    [else (odd?/proc (- x 1))]
+    ))
+(define-procedure (odd?/proc x) 
+  (even?/proc (- x 1)))
+
+
+(define-syntax 
+  repeat 
+  (syntax-rules ()
+    [(_ v n exp) (do ((v 1 (+ 1 v))) ((> v n)) exp)]
+    [(_ n exp) (do ((v 1 (+ 1 v))) ((> v n)) exp)]))
+
+(define (test-+)
+  (displayln "10 million applications of +/2:")
+  (displayln "via eval:")
+  (time (repeat 10000000 (l/proc 2)))
+  (displayln "via lambda:")
+  (time (repeat 10000000 (l/lamb 2)))
+  (newline)
+  )
+
+(define (test-fib)
+  (displayln "The 35th fibonacci number by recursion:")
+  (displayln "via eval:")
+  (time (fib/proc 35))
+  (displayln "via lambda:")
+  (time (fib/lamb 35))
+  (newline)
+  )
+
+(define (test-even)
+  (displayln "Testing parity of 10 million by a silly (i.e., linear-time) algorithm:")
+  (displayln "via eval:")
+  (time (even?/proc 10000000))
+  (displayln "via lambda:")
+  (time (even?/lamb 10000000))
+  (newline)
+  )
+
+(define (demonstrate k)
+  (repeat k (test-+))
+  (repeat k (test-even))
+  (repeat k (test-fib))
+  )
+
+(define (test) (demonstrate 1))
+
+;(demonstrate 5)
+;(test)
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: william.cushing@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14037: Performance Issue with static compilation
+Date: Fri, 20 Sep 2013 07:13:14 -0500
+
+ At Fri, 20 Sep 2013 00:32:02 -0400, william.cushing@gmail.com wrote:
+ > Trivial closures created at "compile-time" can be slower than "the same" 
+ > trivial closures produced at "run-time".
+ 
+ Did you run the program in DrRacket?
+ 
+ Adding `(test)` to the end and running in plain `racket` at the command
+ line, I get
+ 
+  10 million applications of +/2:
+  via eval:
+  cpu time: 119 real time: 118 gc time: 0
+  via lambda:
+  cpu time: 30 real time: 30 gc time: 0
+ 
+ In DrRacket's default mode:
+ 
+  10 million applications of +/2:
+  via eval:
+  cpu time: 890 real time: 892 gc time: 0
+  via lambda:
+  cpu time: 964 real time: 964 gc time: 0
+ 
+ In DrRacket after selecting "No debugging or profiling" in the "Choose
+ Language" dialog:
+ 
+  10 million applications of +/2:
+  via eval:
+  cpu time: 133 real time: 139 gc time: 0
+  via lambda:
+  cpu time: 107 real time: 107 gc time: 0
+ 
+ In DrRacket after further unchecking "Preserve stacktrace":
+ 
+  10 million applications of +/2:
+  via eval:
+  cpu time: 123 real time: 123 gc time: 0
+  via lambda:
+  cpu time: 32 real time: 36 gc time: 0
+ 
+ So, my guess is that you're running your tests within DrRacket. If
+ that's right, you're seeing that DrRacket's debugging instrumentation
+ mostly applies to the static program, while program fragments via
+ `eval` have less instrumentation and therefore less overhead.
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: william.cushing@gmail.com, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14037: Performance Issue with static compilation
+Date: Fri, 20 Sep 2013 09:39:16 -0500
+
+ --e89a8ff1c99e8c5c9804e6d1a270
+ Content-Type: text/plain; charset=UTF-8
+ 
+ There is a little bit of background on performance & DrRacket here, just in
+ case that helps:
+ 
+   http://docs.racket-lang.org/guide/performance.html
+ 
+ Robby
+ 
+ 
+ On Fri, Sep 20, 2013 at 7:13 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > At Fri, 20 Sep 2013 00:32:02 -0400, william.cushing@gmail.com wrote:
+ > > Trivial closures created at "compile-time" can be slower than "the same"
+ > > trivial closures produced at "run-time".
+ >
+ > Did you run the program in DrRacket?
+ >
+ > Adding `(test)` to the end and running in plain `racket` at the command
+ > line, I get
+ >
+ >  10 million applications of +/2:
+ >  via eval:
+ >  cpu time: 119 real time: 118 gc time: 0
+ >  via lambda:
+ >  cpu time: 30 real time: 30 gc time: 0
+ >
+ > In DrRacket's default mode:
+ >
+ >  10 million applications of +/2:
+ >  via eval:
+ >  cpu time: 890 real time: 892 gc time: 0
+ >  via lambda:
+ >  cpu time: 964 real time: 964 gc time: 0
+ >
+ > In DrRacket after selecting "No debugging or profiling" in the "Choose
+ > Language" dialog:
+ >
+ >  10 million applications of +/2:
+ >  via eval:
+ >  cpu time: 133 real time: 139 gc time: 0
+ >  via lambda:
+ >  cpu time: 107 real time: 107 gc time: 0
+ >
+ > In DrRacket after further unchecking "Preserve stacktrace":
+ >
+ >  10 million applications of +/2:
+ >  via eval:
+ >  cpu time: 123 real time: 123 gc time: 0
+ >  via lambda:
+ >  cpu time: 32 real time: 36 gc time: 0
+ >
+ > So, my guess is that you're running your tests within DrRacket. If
+ > that's right, you're seeing that DrRacket's debugging instrumentation
+ > mostly applies to the static program, while program fragments via
+ > `eval` have less instrumentation and therefore less overhead.
+ >
+ 
+ --e89a8ff1c99e8c5c9804e6d1a270
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">There is a little bit of background on performance &amp; D=
+ rRacket here, just in case that helps:<div><br></div><div>=C2=A0=C2=A0<a hr=
+ ef=3D"http://docs.racket-lang.org/guide/performance.html">http://docs.racke=
+ t-lang.org/guide/performance.html</a></div>
+ <div><br></div><div>Robby</div></div><div class=3D"gmail_extra"><br><br><di=
+ v class=3D"gmail_quote">On Fri, Sep 20, 2013 at 7:13 AM, Matthew Flatt <spa=
+ n dir=3D"ltr">&lt;<a href=3D"mailto:mflatt@cs.utah.edu" target=3D"_blank">m=
+ flatt@cs.utah.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div class=3D"im">At Fri, 20 Sep 2013 00:32:=
+ 02 -0400, <a href=3D"mailto:william.cushing@gmail.com">william.cushing@gmai=
+ l.com</a> wrote:<br>
+ 
+ &gt; Trivial closures created at &quot;compile-time&quot; can be slower tha=
+ n &quot;the same&quot;<br>
+ &gt; trivial closures produced at &quot;run-time&quot;.<br>
+ <br>
+ </div>Did you run the program in DrRacket?<br>
+ <br>
+ Adding `(test)` to the end and running in plain `racket` at the command<br>
+ line, I get<br>
+ <div class=3D"im"><br>
+ =C2=A010 million applications of +/2:<br>
+ </div>=C2=A0via eval:<br>
+ =C2=A0cpu time: 119 real time: 118 gc time: 0<br>
+ =C2=A0via lambda:<br>
+ =C2=A0cpu time: 30 real time: 30 gc time: 0<br>
+ <br>
+ In DrRacket&#39;s default mode:<br>
+ <div class=3D"im"><br>
+ =C2=A010 million applications of +/2:<br>
+ </div>=C2=A0via eval:<br>
+ =C2=A0cpu time: 890 real time: 892 gc time: 0<br>
+ =C2=A0via lambda:<br>
+ =C2=A0cpu time: 964 real time: 964 gc time: 0<br>
+ <br>
+ In DrRacket after selecting &quot;No debugging or profiling&quot; in the &q=
+ uot;Choose<br>
+ Language&quot; dialog:<br>
+ <div class=3D"im"><br>
+ =C2=A010 million applications of +/2:<br>
+ </div>=C2=A0via eval:<br>
+ =C2=A0cpu time: 133 real time: 139 gc time: 0<br>
+ =C2=A0via lambda:<br>
+ =C2=A0cpu time: 107 real time: 107 gc time: 0<br>
+ <br>
+ In DrRacket after further unchecking &quot;Preserve stacktrace&quot;:<br>
+ <div class=3D"im"><br>
+ =C2=A010 million applications of +/2:<br>
+ </div>=C2=A0via eval:<br>
+ =C2=A0cpu time: 123 real time: 123 gc time: 0<br>
+ =C2=A0via lambda:<br>
+ =C2=A0cpu time: 32 real time: 36 gc time: 0<br>
+ <br>
+ So, my guess is that you&#39;re running your tests within DrRacket. If<br>
+ that&#39;s right, you&#39;re seeing that DrRacket&#39;s debugging instrumen=
+ tation<br>
+ mostly applies to the static program, while program fragments via<br>
+ `eval` have less instrumentation and therefore less overhead.<br>
+ </blockquote></div><br></div>
+ 
+ --e89a8ff1c99e8c5c9804e6d1a270--
+From: William Cushing <william.cushing@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14037: Performance Issue with static compilation
+Date: Sat, 21 Sep 2013 00:25:21 -0700
+
+ --001a11c381228f2f5d04e6dfb0e4
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Yes, I didn't think to mention that I was running in DrRacket (I assumed
+ that would be obvious because I submitted the report through DrRacket).
+ 
+ Any chance you could flip those two options to be the default for hitting
+ "run"?  There is already a "debug" button, for when debugging+stacktraces
+ is what I want...
+ 
+ (Alternatively, you could add a third button, but I suspect you are trying
+ to avoid an Eclipse-level cornucopia of options...)
+ 
+ Every implementation of every programming language has its own (typically)
+ arcane ways of saying "go as fast as you are willing to go".  In testing
+ out less mainstream languages, one of the important considerations is "how
+ much work does it take to make this go as fast as it is willing?", and the
+ related question "what is the performance barrier that cannot be overcome
+ except by calling out to the ffi?".  I think you'd get a little more pull
+ (than you already do) if the two buttons for "compile and go" in DrRacket
+ are, respectively, "compile and go (as helpful as possible)" and "compile
+ and go (as fast as warranted)".  (Not that I'm suggesting you use those
+ names literally, i.e., they should just be called "Debug" and "Run", of
+ course.)
+ 
+ I'm especially interested in the ability to do lightweight runtime code
+ generation, which is why I was testing (eval (quote ...)) in the first
+ place.  I rather expected it to go slower; I wanted to measure what the
+ penalty is.  Hence my astonishment at it going faster...
+ 
+ Good to see that a properly configured production-mode compilation does
+ indeed demonstrate that (eval (quote ...)) is slower.
+ 
+ Also good to know that switching DrRacket to "production mode" would have
+ been fairly easy to achieve had I been paying closer attention to the
+ Choose Language... dialog the first time it appeared.
+ By my way of thinking, the same options should appear in Edit->Preferences
+ (i.e., there should be a tab there that just embeds Choose Language ...).
+ 
+ Further good to know that the command-line defaults to "production-mode".
+ 
+ However, using the command-line is a bit antithetical to the spirit of
+ rapid-development aided by a REPL...I suspect serious racket users actually
+ just use Emacs/slime (or similar) as the IDE, wrapped around the
+ command-line racket?
+ 
+ I use windows and linux interchangeably, and on the windows side, invoking
+ command line tools just doesn't work nearly as well as in a proper unix
+ environment.  One can fake it to a point with cygwin, but the absence of
+ fork() means that a great many cool things just simply aren't available, or
+ "work" ... but too much impaired.  Similarly windows doesn't play too nice
+ with emacs's desire to own every key-chord...
+ 
+ --
+ 
+ Anyways long gripe to a close: I think it would help a little (in the
+ spirit of "batteries included") to make sure DrRacket has a blindingly
+ obvious "production-mode" option for code in the definitions window.
+ 
+ I suppose an alternative would be to rewrite (time ...) so that anyone
+ trying to micro-benchmark will see racket's best foot forward.
+ Surely it shouldn't be hard to write (time ...) such that its body is
+ compiled with all relevant junk suppressed?
+ 
+ Thanks!
+ 
+ -Will
+ 
+ 
+ 
+ 
+ On Fri, Sep 20, 2013 at 7:39 AM, Robby Findler
+ <robby@eecs.northwestern.edu>wrote:
+ 
+ > There is a little bit of background on performance & DrRacket here, just
+ > in case that helps:
+ >
+ >   http://docs.racket-lang.org/guide/performance.html
+ >
+ > Robby
+ >
+ >
+ > On Fri, Sep 20, 2013 at 7:13 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >
+ >> At Fri, 20 Sep 2013 00:32:02 -0400, william.cushing@gmail.com wrote:
+ >> > Trivial closures created at "compile-time" can be slower than "the same"
+ >> > trivial closures produced at "run-time".
+ >>
+ >> Did you run the program in DrRacket?
+ >>
+ >> Adding `(test)` to the end and running in plain `racket` at the command
+ >> line, I get
+ >>
+ >>  10 million applications of +/2:
+ >>  via eval:
+ >>  cpu time: 119 real time: 118 gc time: 0
+ >>  via lambda:
+ >>  cpu time: 30 real time: 30 gc time: 0
+ >>
+ >> In DrRacket's default mode:
+ >>
+ >>  10 million applications of +/2:
+ >>  via eval:
+ >>  cpu time: 890 real time: 892 gc time: 0
+ >>  via lambda:
+ >>  cpu time: 964 real time: 964 gc time: 0
+ >>
+ >> In DrRacket after selecting "No debugging or profiling" in the "Choose
+ >> Language" dialog:
+ >>
+ >>  10 million applications of +/2:
+ >>  via eval:
+ >>  cpu time: 133 real time: 139 gc time: 0
+ >>  via lambda:
+ >>  cpu time: 107 real time: 107 gc time: 0
+ >>
+ >> In DrRacket after further unchecking "Preserve stacktrace":
+ >>
+ >>  10 million applications of +/2:
+ >>  via eval:
+ >>  cpu time: 123 real time: 123 gc time: 0
+ >>  via lambda:
+ >>  cpu time: 32 real time: 36 gc time: 0
+ >>
+ >> So, my guess is that you're running your tests within DrRacket. If
+ >> that's right, you're seeing that DrRacket's debugging instrumentation
+ >> mostly applies to the static program, while program fragments via
+ >> `eval` have less instrumentation and therefore less overhead.
+ >>
+ >
+ >
+ 
+ --001a11c381228f2f5d04e6dfb0e4
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><div><div><div>Yes, I didn&#39;t think to mention that I w=
+ as running in DrRacket (I assumed that would be obvious because I submitted=
+  the report through DrRacket).=A0 <br><br>Any chance you could flip those t=
+ wo options to be the default for hitting &quot;run&quot;?=A0 There is alrea=
+ dy a &quot;debug&quot; button, for when debugging+stacktraces is what I wan=
+ t...=A0 <br>
+ <br></div><div>(Alternatively, you could add a third button, but I suspect =
+ you are trying to avoid an Eclipse-level cornucopia of options...)<br><br><=
+ /div><div>Every implementation of every programming language has its own (t=
+ ypically) arcane ways of saying &quot;go as fast as you are willing to go&q=
+ uot;.=A0 In testing out less mainstream languages, one of the important con=
+ siderations is &quot;how much work does it take to make this go as fast as =
+ it is willing?&quot;, and the related question &quot;what is the performanc=
+ e barrier that cannot be overcome except by calling out to the ffi?&quot;.=
+ =A0 I think you&#39;d get a little more pull (than you already do) if the t=
+ wo buttons for &quot;compile and go&quot; in DrRacket are, respectively, &q=
+ uot;compile and go (as helpful as possible)&quot; and &quot;compile and go =
+ (as fast as warranted)&quot;.=A0 (Not that I&#39;m suggesting you use those=
+  names literally, i.e., they should just be called &quot;Debug&quot; and &q=
+ uot;Run&quot;, of course.)<br>
+ <br></div>I&#39;m especially interested in the ability to do lightweight ru=
+ ntime code generation, which is why I was testing (eval (quote ...)) in the=
+  first place.=A0 I rather expected it to go slower; I wanted to measure wha=
+ t the penalty is.=A0 Hence my astonishment at it going faster...<br>
+ <br></div>Good to see that a properly configured production-mode compilatio=
+ n does indeed demonstrate that (eval (quote ...)) is slower.=A0 <br><br><di=
+ v>Also good to know that switching DrRacket to &quot;production mode&quot;=
+ =20
+ would have been fairly easy to achieve had I been paying closer=20
+ attention to the Choose Language... dialog the first time it appeared.=A0 <=
+ br>By
+  my way of thinking, the same options should appear in=20
+ Edit-&gt;Preferences (i.e., there should be a tab there that just embeds
+  Choose Language ...).<br></div><br>Further good to know that the command-l=
+ ine defaults to &quot;production-mode&quot;.=A0 <br><br></div><div>However,=
+  using the command-line is a bit antithetical to the spirit of rapid-develo=
+ pment aided by a REPL...I suspect serious racket users actually just use Em=
+ acs/slime (or similar) as the IDE, wrapped around the command-line racket?<=
+ br>
+ <br></div><div>I use windows and linux interchangeably, and on the windows =
+ side, invoking command line tools just doesn&#39;t work nearly as well as i=
+ n a proper unix environment.=A0 One can fake it to a point with cygwin, but=
+  the absence of fork() means that a great many cool things just simply aren=
+ &#39;t available, or &quot;work&quot; ... but too much impaired.=A0 Similar=
+ ly windows doesn&#39;t play too nice with emacs&#39;s desire to own every k=
+ ey-chord...<br>
+ <br>--<br><br></div><div>Anyways long gripe to a close: I think it would he=
+ lp a little (in the spirit of &quot;batteries included&quot;) to make sure =
+ DrRacket has a blindingly obvious &quot;production-mode&quot; option for co=
+ de in the definitions window.<br>
+ </div><div><br>I suppose an alternative would be to rewrite (time ...) so t=
+ hat anyone trying to micro-benchmark will see racket&#39;s best foot forwar=
+ d.=A0 <br>Surely it shouldn&#39;t be hard to write (time ...) such that its=
+  body is compiled with all relevant junk suppressed?<br>
+ <br>Thanks!<br><br></div>-Will<br><div><div><div><br><br></div></div></div>=
+ </div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Fri,=
+  Sep 20, 2013 at 7:39 AM, Robby Findler <span dir=3D"ltr">&lt;<a href=3D"ma=
+ ilto:robby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.northwestern=
+ .edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">There is a little bit of ba=
+ ckground on performance &amp; DrRacket here, just in case that helps:<div><=
+ br>
+ </div><div>=A0=A0<a href=3D"http://docs.racket-lang.org/guide/performance.h=
+ tml" target=3D"_blank">http://docs.racket-lang.org/guide/performance.html</=
+ a></div><span class=3D"HOEnZb"><font color=3D"#888888">
+ <div><br></div><div>Robby</div></font></span></div><div class=3D"HOEnZb"><d=
+ iv class=3D"h5"><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quot=
+ e">On Fri, Sep 20, 2013 at 7:13 AM, Matthew Flatt <span dir=3D"ltr">&lt;<a =
+ href=3D"mailto:mflatt@cs.utah.edu" target=3D"_blank">mflatt@cs.utah.edu</a>=
+ &gt;</span> wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div>At Fri, 20 Sep 2013 00:32:02 -0400, <a =
+ href=3D"mailto:william.cushing@gmail.com" target=3D"_blank">william.cushing=
+ @gmail.com</a> wrote:<br>
+ 
+ 
+ &gt; Trivial closures created at &quot;compile-time&quot; can be slower tha=
+ n &quot;the same&quot;<br>
+ &gt; trivial closures produced at &quot;run-time&quot;.<br>
+ <br>
+ </div>Did you run the program in DrRacket?<br>
+ <br>
+ Adding `(test)` to the end and running in plain `racket` at the command<br>
+ line, I get<br>
+ <div><br>
+ =A010 million applications of +/2:<br>
+ </div>=A0via eval:<br>
+ =A0cpu time: 119 real time: 118 gc time: 0<br>
+ =A0via lambda:<br>
+ =A0cpu time: 30 real time: 30 gc time: 0<br>
+ <br>
+ In DrRacket&#39;s default mode:<br>
+ <div><br>
+ =A010 million applications of +/2:<br>
+ </div>=A0via eval:<br>
+ =A0cpu time: 890 real time: 892 gc time: 0<br>
+ =A0via lambda:<br>
+ =A0cpu time: 964 real time: 964 gc time: 0<br>
+ <br>
+ In DrRacket after selecting &quot;No debugging or profiling&quot; in the &q=
+ uot;Choose<br>
+ Language&quot; dialog:<br>
+ <div><br>
+ =A010 million applications of +/2:<br>
+ </div>=A0via eval:<br>
+ =A0cpu time: 133 real time: 139 gc time: 0<br>
+ =A0via lambda:<br>
+ =A0cpu time: 107 real time: 107 gc time: 0<br>
+ <br>
+ In DrRacket after further unchecking &quot;Preserve stacktrace&quot;:<br>
+ <div><br>
+ =A010 million applications of +/2:<br>
+ </div>=A0via eval:<br>
+ =A0cpu time: 123 real time: 123 gc time: 0<br>
+ =A0via lambda:<br>
+ =A0cpu time: 32 real time: 36 gc time: 0<br>
+ <br>
+ So, my guess is that you&#39;re running your tests within DrRacket. If<br>
+ that&#39;s right, you&#39;re seeing that DrRacket&#39;s debugging instrumen=
+ tation<br>
+ mostly applies to the static program, while program fragments via<br>
+ `eval` have less instrumentation and therefore less overhead.<br>
+ </blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a11c381228f2f5d04e6dfb0e4--
+
+State changed from "open" to "closed" by samth at Mon, 21 Oct 2013 09:58:55 -0400
+Reason>>> Not a bug, but an issue with timing in DrRacket.
+

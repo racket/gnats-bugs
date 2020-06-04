@@ -1,0 +1,137 @@
+From robby@cs.rice.edu  Tue Dec  8 10:51:07 1998
+Received: from australia.cs.rice.edu (australia.cs.rice.edu [128.42.1.176])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id KAA11696
+	for <plt-gnats@cs.rice.edu>; Tue, 8 Dec 1998 10:51:07 -0600 (CST)
+Message-Id: <199812081651.KAA28086@australia.cs.rice.edu>
+Date: Tue, 8 Dec 1998 10:51:06 -0600 (CST)
+From: Robert Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: graphical-read-eval-print-loop file|quit doesn't work, in some situations
+X-Send-Pr-Version: 3.101
+
+>Number:         852
+>Category:       mred
+>Synopsis:       graphical-read-eval-print-loop file|quit doesn't work, in some situations
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Dec 08 12:00:01 -0500 1998
+>Last-Modified:  Sun Mar 28 02:37:54 -0500 2004
+>Originator:     Robert Findler
+>Release:        unknown
+>Organization:
+titan
+>Environment:
+	
+>Description:
+
+file|quit doesn't always work when messing with the parameterization.
+
+>How-To-Repeat:
+
+1) put the following code in a file, tmp.ss
+2) type "mred -f tmp.ss" on the command line
+3) type alt-q and mred locks up.
+
+  (define top-parameterization (current-parameterization))
+  (define system-parameterization (make-parameterization top-parameterization))
+  (define eval-thread-parameterization
+    (make-parameterization-with-sharing 
+     system-parameterization
+     system-parameterization
+     (list current-exception-handler)
+     (lambda (x) #f)))
+  (define system-custodian (current-custodian))
+
+  (current-parameterization system-parameterization)
+
+  (parameterization-branch-handler
+   (lambda ()
+     (make-parameterization-with-sharing 
+      system-parameterization
+      system-parameterization
+      (list current-exception-handler)
+      (lambda (x) #f))))
+
+  (define system-eventspace (make-eventspace))
+  (current-eventspace system-eventspace)
+
+>Fix:
+	
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/852: graphical-read-eval-print-loop file|quit doesn't work, in some situations
+Date: Tue, 8 Dec 1998 11:16:31 -0600 (CST)
+
+ The problem is that grepl creates an eventspace for the user, and lets
+ the current branch handler define tha parameterization. The example
+ code sets the branch handler so that the grepl's eventspace for the
+ grepl is changed to the user's eventspace (because the eventspace
+ parameter is shared). Deadlock occurs because the interaction between
+ threads is not what graphical-read-eval-print-loop expects.
+ 
+ Here's a slightly smaller program that illustrates the problem:
+ 
+   (parameterization-branch-handler
+    (lambda ()
+      (make-parameterization-with-sharing
+       (current-parameterization)
+       (current-parameterization)
+       null void)))
+ 
+ Loading this with -f causes MrEd to hang without even refreshing the
+ grepl frame.
+ 
+ The solution is probably better documentation and/or giving the grepl
+ caller more control over how the user eventspace is created.
+ 
+ Matthew
+ 
+
+From: Robby Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/852: graphical-read-eval-print-loop file|quit doesn't work, in 
+ some situations
+Date: Tue, 08 Dec 1998 11:41:07 -0600
+
+ Matthew wrote:
+ > The problem is that grepl creates an eventspace for the user, and lets
+ > the current branch handler define tha parameterization.
+ 
+ Why is this useful?
+ 
+ Why doesn't the grepl protect against everything, just like the
+ drscheme repl does? It seems like we can protect the grepl's window
+ against everything except a non-tail-recursive infinite loop. 
+ 
+ As the developer of drscheme who will probably be forced to use the
+ grepl to examine drscheme itself, I would like strong guarantees that
+ the grepl will survive whatever mistakes I make, so I have a chance of
+ understanding what has happened.
+ 
+ Robby
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Dec 11 15:41:40 1998
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Dec 11 15:42:01 1998
+State-Changed-Why:
+
+Dcoumentation improved.
+
+>Unformatted:

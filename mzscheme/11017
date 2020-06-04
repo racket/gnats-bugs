@@ -1,0 +1,162 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jul  7 06:55:13 2010
+Received: from mail-gy0-f172.google.com (mail-gy0-f172.google.com [209.85.160.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o67AtBQY019154
+	for <bugs@bugs.plt-scheme.org>; Wed, 7 Jul 2010 06:55:11 -0400
+Message-Id: <201007071055.o67At8Sp019146@champlain.ccs.neu.edu>
+Date: Wed, 7 Jul 2010 06:55:08 -0400
+From: laurent.orseau@gmail.com
+To: bugs@racket-lang.org
+Subject: DrRacket "string<?" error with compilation libraries
+
+>Number:         11017
+>Category:       mzscheme
+>Synopsis:       DrRacket "string<?" error with compilation libraries
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Jul 07 06:56:01 -0400 2010
+>Last-Modified:  Tue May 10 19:37:02 -0400 2011
+>Originator:     Laurent Orseau
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.0.7--2010-07-06(c4cb424/a)
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: french
+(current-memory-use) 250011340
+
+Collections:
+(("M:\\Documents and Settings\\Laurent\\Application Data\\Racket\\5.0.0.7\\collects" non-existent-path) ("M:\\Program Files\\Racket-5.0.0.7\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "!
+ typed" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Déterminer le langage à partir du code source") (#(#t print mixed-fraction-e #f #t none) (default "E:\\Projets\\Scheme-svn") #() "#lang racket\n" #t))
+>Description:
+Hi,
+DrRacket sometimes makes an error on "Execute"  when using the compiler libraries:
+
+M:\Program Files\Racket-5.0.0.7\collects\racket\private\sort.rkt:85:19: string<?: expects type <string> as 1st argument, given: #f; other arguments were: "0d6d765661f6239a4f5061c0baa5de3be7018c51f7a351d002188513ea599a768c855d4f7dce50e6"
+
+(((
+I believe it has some connection to a bug that was fixed recently (I don't have the ticket #, sorry, but Matthew knows about it):
+
+M:\Program Files\Racket\collects\racket\private\promise.rkt:103:10:
+> procedure get-compiled-file-sha1: expects 1 argument, given 2:
+> #<path:common_ss.zo> #<path:compiled\drracket>
+)))
+
+Here is the trace :
+
+string<?: expects type <string> as 1st argument, given: #f; other arguments were: "0d6d765661f6239a4f5061c0baa5de3be7018c51f7a351d002188513ea599a768c855d4f7dce50e6"
+
+M:\Program Files\Racket-5.0.0.7\collects\racket\private\sort.rkt: 85:19 
+                     (let jloop ([j (i+ Blo i)])
+                     (let ([ref-j-1 (ref (i- j 1))])
+                       (if (and (i< Blo j) (<? ref-i ref-j-1))
+                         (begin (set! j ref-j-1) (jloop (i- j 1)))
+                         (begin (set! j ref-i) (iloop (i+ i 1)))))))))))
+
+M:\Program Files\Racket-5.0.0.7\collects\racket\private\sort.rkt: 213:0 
+  (case-lambda
+  [(lst <?) (sort-body lst <? #f #f #f)]
+  [(lst <? getkey)
+   (if (and getkey (not (eq? values getkey)))
+     (sort lst <? getkey #f) (sort lst <?))]
+  [(lst <? getkey cache-keys?)
+   (if (and getkey (not (eq? values getkey)))
+     (sort-body lst <? #t getkey cache-keys?) (sort lst <?))])
+
+M:\Program Files\Racket-5.0.0.7\collects\compiler\cm.rkt: 182:0 
+  (define (get-dep-sha1s deps up-to-date mode must-exist?)
+  (let ([l (for/fold ([l null]) ([dep (in-list deps)])
+             (and l
+                  ;; (cons 'ext rel-path) => a non-module file, check source
+                  ;; rel-path => a module file name, check cache
+                  (let* ([ext? (and (pair? dep) (eq? 'ext (car dep)))]
+                         [p (main-collects-relative->path (if ext? (cdr dep) dep))])
+                    (cond
+                     [ext? (let ([v (get-source-sha1 p)])
+                             (cond
+                              [v (cons (cons (delay v) dep) l)]
+                              [must-exist? (error 'cm "cannot find external-dependency file: ~v" p)]
+                              [else #f]))]
+                     [(check-cache mode p up-to-date (lambda x #f))
+                      => (lambda (sh)
+                           (cons (cons (cdr sh) dep) l))]
+                     [must-exist?
+                      ;; apparently, we're forced to use the source of the module,
+                      ;; so compute a sha1 from it instead of the bytecode
+                      (cons (cons (get-source-sha1 p) dep) l)]
+                     [else #f]))))])
+    (and l
+         (let ([p (open-output-string)]
+               [l (map (lambda (v) (cons (force (car v)) (cdr v))) l)])
+           ;; sort by sha1s so that order doesn't matter
+           (write (sort l string<? #:key car) p)
+           ;; compute one hash from all hashes
+           (sha1 (open-input-bytes (get-output-bytes p)))))))
+
+M:\Program Files\Racket-5.0.0.7\collects\compiler\cm.rkt: 450:14 
+                (define (check-sha1-equivalence deps)
+                 (let* ([zo-name (path-add-suffix (get-compilation-path mode path) #".zo")]
+                        [zo-exists? (file-exists? zo-name)])
+                   (define (touch-update-cache msg)
+                     (define spacing (build-string (depth) (λ (x) (if (= 2 (modulo x 3)) #\| #\space))))
+                     (log-info (format "cm: ~a~a ~a" spacing msg zo-name))
+                     (touch zo-name)
+                     (update-cache-with-zo-time))
+                   (define (zo-is-trusted?) (and zo-exists? (trust-existing-zos)))
+                   (define (get-valid-src-sha1) (and zo-exists? deps (cadr deps) (get-source-sha1 path)))
+                   (define (sha1-equivalent? src-sha1)
+                      (and zo-exists?
+                           src-sha1
+                           (equal? src-sha1 (caadr deps))
+                           (equal? (get-dep-sha1s (cddr deps) up-to-date mode #f) (cdadr deps))))
+                   (if (zo-is-trusted?)
+                       (touch-update-cache "trusting-existing-zo")
+                       (let ([src-sha1 (get-valid-src-sha1)])
+                         (if (sha1-equivalent? src-sha1) 
+                             (touch-update-cache"hash-equivalent src and deps")
+                             (compile-thunk deps path zo-name src-sha1 update-cache-with-zo-time zo-exists?))))))
+
+M:\Program Files\Racket-5.0.0.7\collects\compiler\cm.rkt: 526:4 
+      (define (compilation-manager-load-handler path mod-name)
+      (cond [(not mod-name)
+             (trace-printf "skipping:  ~a mod-name ~s" path mod-name)]
+            [(not (or (file-exists? path)
+                      (let ([p2 (rkt->ss path)])
+                        (and (not (eq? path p2))
+                             (file-exists? p2)))))
+             (trace-printf "skipping:  ~a file does not exist" path)]
+            [(or (null? (use-compiled-file-paths))
+                 (not (equal? (car modes)
+                              (car (use-compiled-file-paths)))))
+             (trace-printf "skipping:  ~a compiled-paths's first element changed; current value ~s, first element was ~s"
+                           path 
+                           (use-compiled-file-paths)
+                           (car modes))]
+            [(not (eq? compilation-manager-load-handler
+                       (current-load/use-compiled)))
+             (trace-printf "skipping:  ~a current-load/use-compiled changed ~s"
+                           path (current-load/use-compiled))]
+            [(not (eq? orig-eval (current-eval)))
+             (trace-printf "skipping:  ~a orig-eval ~s current-eval ~s"
+                           path orig-eval (current-eval))]
+            [(not (eq? orig-load (current-load)))
+             (trace-printf "skipping:  ~a orig-load ~s current-load ~s"
+                           path orig-load (current-load))]
+            [(not (eq? orig-registry
+                       (namespace-module-registry (current-namespace))))
+             (trace-printf "skipping:  ~a orig-registry ~s current-registry ~s"
+                           path orig-registry
+                           (namespace-module-registry (current-namespace)))]
+            [else
+             (trace-printf "processing: ~a" path)
+             (compile-root (car modes) path cache read-syntax)
+             (trace-printf "done: ~a" path)])
+      (default-handler path mod-name))
+>How-To-Repeat:
+I'm not relly sure how to reproduce it with a minimal setting...
+>Fix:

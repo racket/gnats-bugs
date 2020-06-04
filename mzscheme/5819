@@ -1,0 +1,124 @@
+From tlilja@twilight.cs.hut.fi  Fri Sep 13 09:17:27 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id JAA00957
+	for <bugs>; Fri, 13 Sep 2002 09:17:26 -0400
+Message-Id: <200209131317.JAA00957@champlain.ccs.neu.edu>
+Date: Fri, 13 Sep 2002 09:17:26 -0400
+From: Timo Lilja <tlilja@twilight.cs.hut.fi>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: SIGPROF when trying to re-exec mzscheme via shellscript
+
+>Number:         5819
+>Category:       mzscheme
+>Synopsis:       SIGPROF when trying to re-exec mzscheme via shellscript
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          analyzed
+>Class:          change-request
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Sep 13 09:20:00 EDT 2002
+>Closed-Date:    
+>Last-Modified:  Mon Apr 28 13:15:30 EDT 2003
+>Originator:     Timo Lilja
+>Release:        202
+>Organization:
+plt
+>Environment:
+unix "Linux frog 2.4.19 #1 Mon Sep 2 17:37:30 EEST 2002 i686 unknown" (i386-linux)
+
+Docs Installed:
+("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack" "misclib" "framework" "mred" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "tex2page" "tools" "tour" "t-y-scheme" "index.html")
+
+Collections:
+(("/usr/local/lib/plt/collects" ("browser" "compiler" "defaults" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper" "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm" "version" "eopl" "web-server" "tex2page" "doc")))
+
+Human Language: english
+>Description:
+I tried to write a routine that restarts scheme
+by calling execl(2) with c-lambda. If execl() tries to execute  a script that runs MzScheme occasionally (i.e., not all the time!) the mzscheme crashes with SIGPROF (Profiling timer expired).
+
+Please note, that this "bug" seems to appear somewhat non-deterministically!
+
+
+My system is Debian GNU/Linux 3.0 (libc6 2.2.5, 
+linux kernel 2.4.19). I tried this with SUN Solaris
+(SunOS XXX 5.8 Generic_108528-12 sun4u sparc SUNW,Sun-Blade-1000) and SGI Irix (IRIX XXX 6.5 04101931 IP32), too. And they give the same result (SIGPROF). So I guess the bug should be somewhere inside MzScheme/mzc.
+
+When trying to exec mzscheme directly (without the start.sh script) I didn't notice any problems, though.
+
+
+
+>How-To-Repeat:
+--- beginning of problem.scm:
+(c-declare "#include <unistd.h>")
+
+(define (restart!)
+  (let ((exec (c-lambda (char-string char-string char-string) int "execl")))
+    (exec "./start.sh" "start.sh" #f)))
+--- end of problem.scm
+
+--- beginning of start.sh:
+#!/bin/sh
+exec mzscheme "$@"
+--- end of start.sh
+
+First, compile problem.scm:
+$  mzc problem.scm
+
+And start mzscheme with the script 'start.sh':
+
+$ ./start.sh -e '(load-extension "problem.so")' -e '(restart!)'
+
+And you should get (at least sometimes):
+Welcome to MzScheme version 202, Copyright (c) 1995-2002 PLT
+Welcome to MzScheme version 202, Copyright (c) 1995-2002 PLT
+Profiling timer expired
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Timo Lilja <tlilja@twilight.cs.hut.fi>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5819: SIGPROF when trying to re-exec mzscheme via shellscript
+Date: Fri, 13 Sep 2002 07:54:14 -0600 (MDT)
+
+ At Fri, 13 Sep 2002 09:17:26 -0400, Timo Lilja wrote:
+ > (c-declare "#include <unistd.h>")
+ > 
+ > (define (restart!)
+ >   (let ((exec (c-lambda (char-string char-string char-string) int "execl")))
+ >     (exec "./start.sh" "start.sh" #f)))
+ 
+ The problem is that `execl' isn't enough. To start a program in a
+ normal environment, you have to modify the current environment in many
+ ways, including turning off the prifiling timer that MzScheme has
+ started.
+ 
+ See plt/src/port.c for more inforation; grep for "Execute: Unix" to
+ find the relevant part of the source.
+ 
+ Probably MzScheme should provide an `execute' function. I had
+ previously advised doing what you did (i.e., create an extension that
+ calls exec()), but I forgot about all the complications of exec.
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Apr 28 13:15:30 2003
+Responsible-Changed-Why:
+    mz
+State-Changed-From-To: open->analyzed
+State-Changed-By: mflatt
+State-Changed-When: Mon Apr 28 13:15:30 2003
+State-Changed-Why:
+    Changed to change-request for an `exec' in MzScheme
+>Unformatted:
+

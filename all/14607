@@ -1,0 +1,260 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Jun 27 01:33:11 2014
+Received: from mail-oa0-f43.google.com (mail-oa0-f43.google.com [209.85.219.43])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s5R5X8Pp001851
+	for <bugs@bugs.plt-scheme.org>; Fri, 27 Jun 2014 01:33:08 -0400
+Message-Id: <201406270533.s5R5X4Qb001844@winooski.ccs.neu.edu>
+Date: Fri, 27 Jun 2014 01:33:04 -0400
+From: esurllink@hotmail.com
+To: bugs@racket-lang.org
+Subject: Having trouble with "reencode-input-port"
+
+>Number:         14607
+>Category:       all
+>Synopsis:       Having trouble with "reencode-input-port"
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Jun 27 01:36:01 -0400 2014
+>Closed-Date:    Fri Jun 27 03:05:30 -0400 2014
+>Last-Modified:  Fri Jun 27 03:08:01 -0400 2014
+>Originator:     Link
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1
+>Environment:
+windows "Windows NT 6.0 (Build 6002) Service Pack 2" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 291333868
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    b5541888d9afdeea2addc1986e17b0ca3b8533d7    (catalog main-distribution)
+ racket-lib           4e0ce39bb85789f0012f962eaf7027f0977b2b83    (catalog racket-lib)
+ [180 auto-installed packages not shown]
+User-specific for installation "6.0.1":
+ [none]
+
+
+
+Collections:
+("C:\\Users\\Link\\AppData\\Roaming\\Racket\\6.0.1\\collects"
+ (non-existent-path))
+("D:\\Program Files\\Racket\\collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+I tried to reencode a gbk input prot to utf-8 while I got an exception said "reencode-input-port: unable to make decoding progress" when I "regexp-match" it. 
+
+Latter, I looked into "reencode-input-port" and found that this happended when the second "bytes-convert" (after the first "byte-convert" returned "'continue") return "'abort" status (line 1575, Racket/collects/racket/port.rkt). This "'abourt" situation was not handled (while I think it should be) or was considered as an error situation (while I think it should not be because it's just "The input stopped part-way through an encoding sequence, and more input bytes are necessary to continue.").
+
+I'm not sure whether I got it right, but I believe this error should not had happended.
+
+And also I hope the funtions could provide more detail information about the exceptions rather than just say "error: fix it by yourself".
+>How-To-Repeat:
+#lang racket
+(require net/http-client)
+
+;------------------------------------------------------------------------------------------------------------------------------
+;The "convert-stream" is good in this case, but it's not able to handle the error bytes problem.
+;------------------------------------------------------------------------------------------------------------------------------
+#|
+(let-values ([(foo bar baz) 
+              (http-sendrecv "tieba.baidu.com" "http://tieba.baidu.com/f?kw=%B6%AF%C2%FE%B8%E8%C7%FA")])
+  (print 1)
+  (define-values (qux-in qux-out) (make-pipe))
+  (print 2)
+  (convert-stream "gbk" baz "utf-8" qux-out)
+  (print 3)
+  (close-output-port qux-out)
+  (print 4)
+  (regexp-match*
+   #px#"<a href=\"/p/[0-9]+\" title=\"[^\"]+\" target=\"_blank\" class=\"j_th_tit\">[^<>]+</a>"
+   qux-in)
+  )
+;|#
+
+;------------------------------------------------------------------------------------------------------------------------------
+;The "reencode-input-port" is good with "read-line" in this case, perhaps because a new line will not separate a gbk character.
+;------------------------------------------------------------------------------------------------------------------------------
+#|
+(let-values ([(foo bar baz) 
+  (http-sendrecv "tieba.baidu.com" "http://tieba.baidu.com/f?kw=%B6%AF%C2%FE%B8%E8%C7%FA")])
+  (define qux (reencode-input-port baz "gbk" #"?"))
+  (let rl ([l (read-line qux)])
+    (if (equal? l eof)
+      '()
+      (let ((ll (regexp-match 
+                #px#"<a href=\"/p/[0-9]+\" title=\"[^\"]+\" target=\"_blank\" class=\"j_th_tit\">[^<>]+</a>"
+                l)))
+           (append (if ll ll '()) (rl (read-line qux)))))))
+;|#
+
+;------------------------------------------------------------------------------------------------------------------------------
+;This is where the problem is.
+;------------------------------------------------------------------------------------------------------------------------------
+;#|
+(let-values ([(foo bar baz) 
+  (http-sendrecv "tieba.baidu.com" "http://tieba.baidu.com/f?kw=%B6%AF%C2%FE%B8%E8%C7%FA")])
+  (define qux (reencode-input-port baz "gbk" #"?"))
+  (regexp-match*
+          #px#"<a href=\"/p/[0-9]+\" title=\"[^\"]+\" target=\"_blank\" class=\"j_th_tit\">[^<>]+</a>"
+          qux))
+;|#
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 27 Jun 2014 03:05:30 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/356196d62b
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 27 Jun 2014 03:05:30 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/356196d62b
+  | racket/port: fix problem with `reencode-input-port`
+  | 
+  | For the case that a larger buffer is needed than provided for
+  | a read, decoding should make progress as long as some bytes are
+  | converted.
+  | 
+  | Closes PR 14607
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: esurllink@hotmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14607: Having trouble with "reencode-input-port"
+Date: Fri, 27 Jun 2014 08:07:30 +0100
+
+ Thanks for the report, example, and diagnosis! I've pushed a repair for
+ this bug to the Racket repo, which is to change
+ 
+   (memq status '(continues complete))
+ 
+ to
+ 
+   (positive? got-c)
+ 
+ 
+ At Fri, 27 Jun 2014 01:36:02 -0400, esurllink@hotmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14607
+ > 
+ > Reported by Link for release: 6.0.1
+ > 
+ > *** Description:
+ > I tried to reencode a gbk input prot to utf-8 while I got an exception said 
+ > "reencode-input-port: unable to make decoding progress" when I "regexp-match" 
+ > it. 
+ > 
+ > Latter, I looked into "reencode-input-port" and found that this happended when 
+ > the second "bytes-convert" (after the first "byte-convert" returned 
+ > "'continue") return "'abort" status (line 1575, 
+ > Racket/collects/racket/port.rkt). This "'abourt" situation was not handled 
+ > (while I think it should be) or was considered as an error situation (while I 
+ > think it should not be because it's just "The input stopped part-way through an 
+ > encoding sequence, and more input bytes are necessary to continue.").
+ > 
+ > I'm not sure whether I got it right, but I believe this error should not had 
+ > happended.
+ > 
+ > And also I hope the funtions could provide more detail information about the 
+ > exceptions rather than just say "error: fix it by yourself".
+ > 
+ > *** How to repeat:
+ > #lang racket
+ > (require net/http-client)
+ > 
+ > ;-------------------------------------------------------------------------------
+ > -----------------------------------------------
+ > ;The "convert-stream" is good in this case, but it's not able to handle the 
+ > error bytes problem.
+ > ;-------------------------------------------------------------------------------
+ > -----------------------------------------------
+ > #|
+ > (let-values ([(foo bar baz) 
+ >               (http-sendrecv "tieba.baidu.com" 
+ > "http://tieba.baidu.com/f?kw=%B6%AF%C2%FE%B8%E8%C7%FA")])
+ >   (print 1)
+ >   (define-values (qux-in qux-out) (make-pipe))
+ >   (print 2)
+ >   (convert-stream "gbk" baz "utf-8" qux-out)
+ >   (print 3)
+ >   (close-output-port qux-out)
+ >   (print 4)
+ >   (regexp-match*
+ >    #px#"<a href=\"/p/[0-9]+\" title=\"[^\"]+\" target=\"_blank\" 
+ > class=\"j_th_tit\">[^<>]+</a>"
+ >    qux-in)
+ >   )
+ > ;|#
+ > 
+ > ;-------------------------------------------------------------------------------
+ > -----------------------------------------------
+ > ;The "reencode-input-port" is good with "read-line" in this case, perhaps 
+ > because a new line will not separate a gbk character.
+ > ;-------------------------------------------------------------------------------
+ > -----------------------------------------------
+ > #|
+ > (let-values ([(foo bar baz) 
+ >   (http-sendrecv "tieba.baidu.com" 
+ > "http://tieba.baidu.com/f?kw=%B6%AF%C2%FE%B8%E8%C7%FA")])
+ >   (define qux (reencode-input-port baz "gbk" #"?"))
+ >   (let rl ([l (read-line qux)])
+ >     (if (equal? l eof)
+ >       '()
+ >       (let ((ll (regexp-match 
+ >                 #px#"<a href=\"/p/[0-9]+\" title=\"[^\"]+\" target=\"_blank\" 
+ > class=\"j_th_tit\">[^<>]+</a>"
+ >                 l)))
+ >            (append (if ll ll '()) (rl (read-line qux)))))))
+ > ;|#
+ > 
+ > ;-------------------------------------------------------------------------------
+ > -----------------------------------------------
+ > ;This is where the problem is.
+ > ;-------------------------------------------------------------------------------
+ > -----------------------------------------------
+ > ;#|
+ > (let-values ([(foo bar baz) 
+ >   (http-sendrecv "tieba.baidu.com" 
+ > "http://tieba.baidu.com/f?kw=%B6%AF%C2%FE%B8%E8%C7%FA")])
+ >   (define qux (reencode-input-port baz "gbk" #"?"))
+ >   (regexp-match*
+ >           #px#"<a href=\"/p/[0-9]+\" title=\"[^\"]+\" target=\"_blank\" 
+ > class=\"j_th_tit\">[^<>]+</a>"
+ >           qux))
+ > ;|#
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.0 (Build 6002) Service Pack 2" (win32\i386\3m) 
+ > (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 291333868
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package              Checksum                                    Source
+ >  main-distribution    b5541888d9afdeea2addc1986e17b0ca3b8533d7    (catalog 
+ > main-distribution)
+ >  racket-lib           4e0ce39bb85789f0012f962eaf7027f0977b2b83    (catalog 
+ > racket-lib)
+ >  [180 auto-installed packages not shown]
+ > User-specific for installation "6.0.1":
+ >  [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("C:\\Users\\Link\\AppData\\Roaming\\Racket\\6.0.1\\collects"
+ >  (non-existent-path))
+ > ("D:\\Program Files\\Racket\\collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" 
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" 
+ > "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) 
+ > (main)) #t))

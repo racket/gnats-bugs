@@ -1,0 +1,234 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Feb 17 08:15:26 2007
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.184])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l1HDFP1n025496
+	for <bugs@bugs.plt-scheme.org>; Sat, 17 Feb 2007 08:15:25 -0500
+Message-Id: <200702171315.l1HDFMQ9025491@champlain.ccs.neu.edu>
+Date: Sat, 17 Feb 2007 08:15:22 -0500
+From: derick.eddington@gmail.com
+To: bugs@plt-scheme.org
+Subject: (lib "foreign.ss") _fun syntax problem using input-type label in output-expr
+
+>Number:         8531
+>Category:       misc
+>Synopsis:       (lib "foreign.ss") _fun syntax problem using input-type label in output-expr
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Feb 17 08:20:01 -0500 2007
+>Closed-Date:    Sat Feb 17 15:58:59 -0500 2007
+>Last-Modified:  Mon Feb 19 02:50:02 -0500 2007
+>Originator:     Derick Eddington
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.8-svn16feb2007
+>Environment:
+unix "Linux eep 2.6.17-11-generic #2 SMP Thu Feb 1 19:52:28 UTC 2007 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/home/d/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 64499116
+
+Collections:
+(("/home/d/.plt-scheme/369.8/collects" non-existent-path) ("/home/d/plt/collects" "afm" "ffi" "net" "sgl" "xml" "eopl" "help" "htdp" "html" "lang" "lazy" "make" "r5rs" "r6rs" "mred" "plot" "srfi" "wxme" "framework" "teachpack" "handin-client" "mzscheme" "games" "icons" "htdch" "mrlib" "mzcom" "mzlib" "graphics" "profj" "setup" "tests" "trace" "xelda" "waterworld" "preprocessor" "sirmail" "skipper" "handin-server" "tex2page" "texpict" "profjWizard" "stepper" "scribble" "web-server" "config" "compiler" "swindle" "dynext" "hierlist" "macro-debugger" "frtime" "defaults" "guibuilder" "drscheme" "syntax-color" "mrflow" "srpersist" "mztake" "planet" "mysterx" "errortrace" "slatex" "syntax" "version" "algol60" "honu-module" "parser-tools" "openssl" "embedded-gui" "slideshow" "repos-time-stamp" "info-domain" "readline" "launcher" "string-constants" "browser"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+In the example code below, in the output-expr for hmm_func, the value for `strings' has become #<bad-value> when it should be (I think) the same value it was before the foreign function callout.  If a cvector is used for `strings' instead of malloc, the same error happens, but the output-expr printf shows the value of `strings' to be as expected but the error still happens.  (I was trying to work out how to pass pre-allocated arrays and process the values filled in, sorry I couldn't make a simplified reproduction).
+>How-To-Repeat:
+#| ffi-hmm1.c -- compiled to ffi-hmm1.so
+
+#define MAX_SIZE 8
+
+void
+hmm_func (char strings[][MAX_SIZE], int strings_size)
+{
+  int i;
+  char c;
+  
+  for (i = 0 ; i < strings_size; i++) {
+    for (c = 0; c < MAX_SIZE - 1; c++) {
+      strings[i][c] = 'a' + i + c;
+    }
+    strings[i][c] = '\0';
+  }
+}
+|#
+
+(module ffi-hmm1 mzscheme
+  
+  (require (lib "foreign.ss")) (unsafe!)
+  
+  (define ffi-hmm1.so (ffi-lib "ffi-hmm1.so"))
+  
+  (define MAX_SIZE 8)
+  
+  
+  (define strlen
+    (get-ffi-obj 'strlen #f (_fun _bytes -> _int)))
+  
+  (define (c-string->string/utf-8 c-str)
+    (bytes->string/utf-8 (subbytes c-str 0 (strlen c-str))))
+  
+
+  (define hmm_func (get-ffi-obj 'hmm_func ffi-hmm1.so
+                                (_fun (strings_size) ::
+                                      ;; How I wish the pre-allocation could be done:
+                                      ;(strings : (_list o (_bytes o MAX_SIZE) strings_size))
+                                      (strings : _pointer #;_cvector = 
+                                               (let ([ss (malloc _pointer strings_size) 
+                                                         #;(make-cvector _pointer strings_size)])
+                                                 (printf "strings_size = ~s  ss = ~s~n" strings_size ss)
+                                                 (do ([i 0 (add1 i)]) 
+                                                   [(= i strings_size) ss]
+                                                   (ptr-set! ss _pointer i (malloc MAX_SIZE))
+                                                   #;(cvector-set! ss i (malloc MAX_SIZE)))))
+                                      (_? = (printf "_? strings = ~s~n" strings))
+                                      (strings_size : _int)
+                                      -> _void
+                                      -> (begin (printf "strings = ~s~n" strings)
+                                           (map (λ (p) (c-string->string/utf-8 (make-sized-byte-string p MAX_SIZE)))
+                                                (cblock->list strings _pointer strings_size)
+                                                #;(cvector->list strings))))))
+  (provide hmm_func)
+)
+
+(require ffi-hmm1)
+(hmm_func 2)
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: derick.eddington@gmail.com, bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org
+Subject: Re: [plt-bug] all/8531: (lib "foreign.ss") _fun syntax problem using input-type label in output-expr
+Date: Sat, 17 Feb 2007 10:59:24 -0500
+
+ On Feb 17, derick.eddington@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8531
+ > 
+ > Reported by Derick Eddington for release: 369.8-svn16feb2007
+ > 
+ > *** Description:
+ > In the example code below, in the output-expr for hmm_func, the
+ > value for `strings' has become #<bad-value> when it should be (I
+ > think) the same value it was before the foreign function callout.
+ > If a cvector is used for `strings' instead of malloc, the same error
+ > happens, but the output-expr printf shows the value of `strings' to
+ > be as expected but the error still happens.  (I was trying to work
+ > out how to pass pre-allocated arrays and process the values filled
+ > in, sorry I couldn't make a simplified reproduction).
+ 
+ Looks like the problem is here:
+ 
+ > hmm_func (char strings[][MAX_SIZE], int strings_size)
+ 
+ IIRC, this makes C try to pass the vector by value (maybe depending on
+ its size?), and I'm pretty sure that libffi cannot handle that -- but
+ that's irrelevant because it looks like you don't want that.  If I
+ change it to:
+ 
+   char *strings[MAX_SIZE]
+ 
+ then I don't get a crash.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+Responsible changed from "nobody" to "eli" by eli at Sat, 17 Feb 2007 15:58:59 -0500
+Reason>>> foreign
+
+State changed from "open" to "closed" by eli at Sat, 17 Feb 2007 15:58:59 -0500
+Reason>>> See discussion
+
+From: Eli Barzilay <eli@barzilay.org>
+To: "D.E." <derick.eddington@gmail.com>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8531: (lib "foreign.ss") _fun syntax problem
+	using input-type label in output-expr
+Date: Sat, 17 Feb 2007 15:58:11 -0500
+
+ On Feb 17, D.E. wrote:
+ > I'm making an interface to the Spread Toolkit, and a number of its
+ > functions use the char strings[][MAX_SIZE] form.
+ 
+ That's a bad habit in general.
+ 
+ 
+ > Guess I'll make a thin C wrapper.  I'll see how it goes.
+ 
+ OK, I'll close the bug.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Derick Eddington <derick.eddington@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8531: (lib "foreign.ss") _fun syntax problem
+	using input-type label in output-expr
+Date: Sun, 18 Feb 2007 16:44:25 -0800
+
+ Just to mention it, after updating to 369.8-svn18feb2007, (lib
+ "foreign.ss") is now successfully directly working with the 
+ char strings[][MAX_SIZE] form (no thin C wrapper).
+ 
+ On Sat, 2007-02-17 at 15:58 -0500, Eli Barzilay wrote:
+ > On Feb 17, D.E. wrote:
+ > > I'm making an interface to the Spread Toolkit, and a number of its
+ > > functions use the char strings[][MAX_SIZE] form.
+ > 
+ > That's a bad habit in general.
+ > 
+ > 
+ > > Guess I'll make a thin C wrapper.  I'll see how it goes.
+ > 
+ > OK, I'll close the bug.
+ > 
+ -- 
+ : Derick
+ ----------------------------------------------------------------
+ 
+From: Derick Eddington <derick.eddington@gmail.com>
+To: bugs@plt-scheme.org
+Cc: Eli Barzilay <eli@barzilay.org>
+Subject: Re: [plt-bug] all/8531: (lib "foreign.ss") _fun syntax problem
+	using input-type label in output-expr
+Date: Sun, 18 Feb 2007 20:19:03 -0800
+
+ Apparently that was a bizarre fluke because of something gcc did, or
+ probably I just confused myself.  Interfacing directly with the char
+ strings[][MAX_SIZE] form is not working for me, as would be expected.
+ 
+ On Sun, 2007-02-18 at 16:44 -0800, Derick Eddington wrote: 
+ > Just to mention it, after updating to 369.8-svn18feb2007, (lib
+ > "foreign.ss") is now successfully directly working with the 
+ > char strings[][MAX_SIZE] form (no thin C wrapper).
+ > 
+ 
+ -- 
+ : Derick
+ ----------------------------------------------------------------
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Derick Eddington <derick.eddington@gmail.com>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8531: (lib "foreign.ss") _fun syntax problem
+	using input-type label in output-expr
+Date: Mon, 19 Feb 2007 02:47:16 -0500
+
+ On Feb 18, Derick Eddington wrote:
+ > Just to mention it, after updating to 369.8-svn18feb2007, (lib
+ > "foreign.ss") is now successfully directly working with the 
+ > char strings[][MAX_SIZE] form (no thin C wrapper).
+ 
+ Interesting.  Still, I wouldn't rely on C's by-value passing of array
+ arguments.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!

@@ -1,0 +1,862 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Aug  5 15:04:35 2010
+Received: from mail-yx0-f172.google.com (mail-yx0-f172.google.com [209.85.213.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o75J4X8o030783
+	for <bugs@bugs.plt-scheme.org>; Thu, 5 Aug 2010 15:04:33 -0400
+Message-Id: <201008051904.o75J4U0v030775@champlain.ccs.neu.edu>
+Date: Thu, 5 Aug 2010 15:04:30 -0400
+From: Kshitij_Lauria@brown.edu
+To: bugs@racket-lang.org
+Subject: strange error in typed racket; interacts with (provide ...)
+
+>Number:         11085
+>Category:       all
+>Synopsis:       strange error in typed racket; interacts with (provide ...)
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Aug 05 15:08:01 -0400 2010
+>Closed-Date:    Fri Aug 13 14:26:35 -0400 2010
+>Last-Modified:  Fri Aug 13 14:26:35 -0400 2010
+>Originator:     Kshitij Lauria
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US) AppleWebKit/532.5 (KHTML, like Gecko) Chrome/4.0.249.43 Safari/532.5
+>Description:
+I ran into a weird DrRacket issue after a system-wide upgrade of DrRacket on the Brown department machines. First, a file consisting of a bunch of struct and type definitions was making DrRacket eat up all my virtual memory and then crash. Running it in the debugger freezes the computer for several minutes, then gives me an error: 
+
+"../../../../../local/projects/racket/5.0/collects/racket/contract/private/guts.rkt:82:0: box/c: expected a flat contract or a value that can be coerced into one, got #<|->|>"
+
+Running it in the terminal racket does the same thing.
+
+I managed to isolate it to this bit. It's strange that this was code that worked before; no changes were made; only the new version has this issue.
+
+The error message disappears, and everything works out, if I comment out the "provide" statement OR remove the GenObj definition. Unfortunately neither is a viable workaround for my situation.
+
+#lang typed/racket
+(provide (all-defined-out))
+
+(define-type PyValue (Rec V (U Number GenObj)))
+(define-struct: GenObj ((continuation : (Boxof (PyValue -> Any))) ; continuation in a box
+                        (callback : (Boxof (PyValue -> Any)))
+                        (sentval : PyValue)))
+
+(define-struct: Env ((table  : (HashTable Symbol (Boxof PyValue)))
+                     (parent : (Option Env))))
+
+
+(define global (Env (ann (make-hash) (HashTable Symbol (Boxof PyValue)))
+                    #f))
+>How-To-Repeat:
+1. Paste above code in DrRacket.
+2. Hit F5.
+3. Observe random error message from the depths of the implementation of DrRacket -- it's even from a file called "guts.rkt"!
+4. Comment out the (provide ...) directive, hit F5, error goes away.
+5. Uncomment the (provide ...), remove the definition of GenObj and put something else in the PyValue type definition ("String", "Boolean", anything works). Hit F5, no error message.
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Kshitij_Lauria@brown.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts 
+	with (provide ...)
+Date: Thu, 5 Aug 2010 15:31:50 -0400
+
+ On Thu, Aug 5, 2010 at 3:08 PM,  <Kshitij_Lauria@brown.edu> wrote:
+ > A new problem report is waiting at
+ > =A0http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11085
+ >
+ > Reported by Kshitij Lauria for release: 5.0.1
+ >
+ > *** Description:
+ > I ran into a weird DrRacket issue after a system-wide upgrade of DrRacket=
+  on the Brown department machines. First, a file consisting of a bunch of s=
+ truct and type definitions was making DrRacket eat up all my virtual memory=
+  and then crash. Running it in the debugger freezes the computer for severa=
+ l minutes, then gives me an error:
+ >
+ > "../../../../../local/projects/racket/5.0/collects/racket/contract/privat=
+ e/guts.rkt:82:0: box/c: expected a flat contract or a value that can be coe=
+ rced into one, got #<|->|>"
+ >
+ > Running it in the terminal racket does the same thing.
+ >
+ > I managed to isolate it to this bit. It's strange that this was code that=
+  worked before; no changes were made; only the new version has this issue.
+ >
+ > The error message disappears, and everything works out, if I comment out =
+ the "provide" statement OR remove the GenObj definition. Unfortunately neit=
+ her is a viable workaround for my situation.
+ 
+ Two issues here:
+ 
+ 1. The reason that the error message refers to "guts.rkt" is that's
+ where the error is raised.  Racket's stacktrace facility doesn't know
+ which is your code and which is internal, so the stacktrace includes
+ all of it.
+ 2. The reason that your code doesn't work is that the contract system
+ can't handle higher-order contracts inside contracts on mutable data.
+ Fortunately, we have a plan for fixing this problem in the reasonably
+ near future.
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Kshitij_Lauria@brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts  with (provide ...)
+Date: Thu, 5 Aug 2010 16:10:33 -0400
+
+ Sam, I don't understand two things:=20
+ 
+ 1. Why does such an error 'freeze' a computer?=20
+ 
+ 2. Why does the type system not catch and report this error, if as you =
+ say it can't deal with such types in a provide (to presumably untyped =
+ contexts only, because it should work across typed-typed boundaries)?=20
+ 
+ BTW, this sounds like a neat little challenge for the macro system.=20
+ 
+ 
+ On Aug 5, 2010, at 3:31 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Thu, Aug 5, 2010 at 3:08 PM,  <Kshitij_Lauria@brown.edu> wrote:
+ >> A new problem report is waiting at
+ >>  http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11085
+ >>=20
+ >> Reported by Kshitij Lauria for release: 5.0.1
+ >>=20
+ >> *** Description:
+ >> I ran into a weird DrRacket issue after a system-wide upgrade of =
+ DrRacket on the Brown department machines. First, a file consisting of a =
+ bunch of struct and type definitions was making DrRacket eat up all my =
+ virtual memory and then crash. Running it in the debugger freezes the =
+ computer for several minutes, then gives me an error:
+ >>=20
+ >> =
+ "../../../../../local/projects/racket/5.0/collects/racket/contract/private=
+ /guts.rkt:82:0: box/c: expected a flat contract or a value that can be =
+ coerced into one, got #<|->|>"
+ >>=20
+ >> Running it in the terminal racket does the same thing.
+ >>=20
+ >> I managed to isolate it to this bit. It's strange that this was code =
+ that worked before; no changes were made; only the new version has this =
+ issue.
+ >>=20
+ >> The error message disappears, and everything works out, if I comment =
+ out the "provide" statement OR remove the GenObj definition. =
+ Unfortunately neither is a viable workaround for my situation.
+ >=20
+ > Two issues here:
+ >=20
+ > 1. The reason that the error message refers to "guts.rkt" is that's
+ > where the error is raised.  Racket's stacktrace facility doesn't know
+ > which is your code and which is internal, so the stacktrace includes
+ > all of it.
+ > 2. The reason that your code doesn't work is that the contract system
+ > can't handle higher-order contracts inside contracts on mutable data.
+ > Fortunately, we have a plan for fixing this problem in the reasonably
+ > near future.
+ > --=20
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Kshitij_Lauria@brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts 
+	with (provide ...)
+Date: Thu, 5 Aug 2010 16:12:30 -0400
+
+ On Thu, Aug 5, 2010 at 4:10 PM, Matthias Felleisen <matthias@ccs.neu.edu> w=
+ rote:
+ >
+ > Sam, I don't understand two things:
+ >
+ > 1. Why does such an error 'freeze' a computer?
+ 
+ I believe that this was just compilation taking a long time.
+ 
+ > 2. Why does the type system not catch and report this error, if as you sa=
+ y it can't deal with such types in a provide (to presumably untyped context=
+ s only, because it should work across typed-typed boundaries)?
+ 
+ I'm surprised that it doesn't.  I'm checking into this.
+ 
+ > BTW, this sounds like a neat little challenge for the macro system.
+ 
+ How so?
+ 
+ >
+ > On Aug 5, 2010, at 3:31 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> On Thu, Aug 5, 2010 at 3:08 PM, =A0<Kshitij_Lauria@brown.edu> wrote:
+ >>> A new problem report is waiting at
+ >>> =A0http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11085
+ >>>
+ >>> Reported by Kshitij Lauria for release: 5.0.1
+ >>>
+ >>> *** Description:
+ >>> I ran into a weird DrRacket issue after a system-wide upgrade of DrRack=
+ et on the Brown department machines. First, a file consisting of a bunch of=
+  struct and type definitions was making DrRacket eat up all my virtual memo=
+ ry and then crash. Running it in the debugger freezes the computer for seve=
+ ral minutes, then gives me an error:
+ >>>
+ >>> "../../../../../local/projects/racket/5.0/collects/racket/contract/priv=
+ ate/guts.rkt:82:0: box/c: expected a flat contract or a value that can be c=
+ oerced into one, got #<|->|>"
+ >>>
+ >>> Running it in the terminal racket does the same thing.
+ >>>
+ >>> I managed to isolate it to this bit. It's strange that this was code th=
+ at worked before; no changes were made; only the new version has this issue=
+ .
+ >>>
+ >>> The error message disappears, and everything works out, if I comment ou=
+ t the "provide" statement OR remove the GenObj definition. Unfortunately ne=
+ ither is a viable workaround for my situation.
+ >>
+ >> Two issues here:
+ >>
+ >> 1. The reason that the error message refers to "guts.rkt" is that's
+ >> where the error is raised. =A0Racket's stacktrace facility doesn't know
+ >> which is your code and which is internal, so the stacktrace includes
+ >> all of it.
+ >> 2. The reason that your code doesn't work is that the contract system
+ >> can't handle higher-order contracts inside contracts on mutable data.
+ >> Fortunately, we have a plan for fixing this problem in the reasonably
+ >> near future.
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ >
+ >
+ 
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Kshitij_Lauria@brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts  with (provide ...)
+Date: Thu, 5 Aug 2010 16:23:30 -0400
+
+ On Aug 5, 2010, at 4:12 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Thu, Aug 5, 2010 at 4:10 PM, Matthias Felleisen =
+ <matthias@ccs.neu.edu> wrote:
+ >=20
+ >> BTW, this sounds like a neat little challenge for the macro system.
+ >=20
+ > How so?
+ 
+ Sorry, I didn't spell out my thoughts.=20
+ 
+ In a sense, the type is fine for a typed-typed boundary. It just so =
+ happens that we can't enforce its soundness for typed-untyped =
+ boundaries. SO, one could consider it a challenge to allow this kind of =
+ specification and to signal an error only when this kind of module is =
+ required in an UNTYPED module. I do think it would be bad if the error =
+ were only signaled if such a value were used; that's too late.=20
+ 
+ Given that your export from a typed module is somewhat of a brittle =
+ 'technique' because it accommodates both typed (un-contracted) and =
+ untyped (contracted) clients I thought this flexible semantics might be =
+ a challenge.=20=
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Kshitij_Lauria@brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts 
+	with (provide ...)
+Date: Thu, 5 Aug 2010 16:31:03 -0400
+
+ On Thu, Aug 5, 2010 at 4:23 PM, Matthias Felleisen <matthias@ccs.neu.edu> w=
+ rote:
+ >
+ > On Aug 5, 2010, at 4:12 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> On Thu, Aug 5, 2010 at 4:10 PM, Matthias Felleisen <matthias@ccs.neu.edu=
+ > wrote:
+ >>
+ >>> BTW, this sounds like a neat little challenge for the macro system.
+ >>
+ >> How so?
+ >
+ > Sorry, I didn't spell out my thoughts.
+ >
+ > In a sense, the type is fine for a typed-typed boundary. It just so happe=
+ ns that we can't enforce its soundness for typed-untyped boundaries. SO, on=
+ e could consider it a challenge to allow this kind of specification and to =
+ signal an error only when this kind of module is required in an UNTYPED mod=
+ ule. I do think it would be bad if the error were only signaled if such a v=
+ alue were used; that's too late.
+ >
+ > Given that your export from a typed module is somewhat of a brittle 'tech=
+ nique' because it accommodates both typed (un-contracted) and untyped (cont=
+ racted) clients I thought this flexible semantics might be a challenge.
+ 
+ I don't think it would be that hard to implement.  Right now, this
+ program *should* make the identifier into a macro that fails at
+ expansion time, something like this:
+ 
+ (lambda (stx) (raise-sytax-error "value can't be used in untyped code"))
+ 
+ Instead, the code could be
+ 
+ (raise-syntax-error "value can't be used in untyped code")
+ 
+ and it would have the behavior you want.  I don't think it's the right
+ behavior, though - it means that programs that don't use values with
+ such problematic types would be needlessly rejected.
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Kshitij_Lauria@brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts  with (provide ...)
+Date: Thu, 5 Aug 2010 16:35:09 -0400
+
+ On Aug 5, 2010, at 4:31 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > I don't think it would be that hard to implement.  Right now, this
+ > program *should* make the identifier into a macro that fails at
+ > expansion time, something like this:
+ > 
+ > (lambda (stx) (raise-sytax-error "value can't be used in untyped code"))
+ > 
+ > Instead, the code could be
+ > 
+ > (raise-syntax-error "value can't be used in untyped code")
+ > 
+ > and it would have the behavior you want.  I don't think it's the right
+ > behavior, though - it means that programs that don't use values with
+ > such problematic types would be needlessly rejected.
+ 
+ 
+ I think you completely misunderstood what I requested, 
+ because the kind of change you propose can't possibly 
+ implement what I requested. 
+ 
+ Could you please re-read my message? 
+ 
+ ;; --- 
+ 
+ My request is based on the conjecture that Kshitij Lauria 
+ programs ONLY in Typed Racket (for whatever reasons) and 
+ can't understand why a failure to protect exports to 
+ untyped modules can interfere with a completely typed program. 
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Kshitij_Lauria@brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts  with (provide ...)
+Date: Thu, 5 Aug 2010 16:42:56 -0400
+
+ You're right. This is what I requested.=20
+ 
+ 
+ On Aug 5, 2010, at 4:41 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Thu, Aug 5, 2010 at 4:35 PM, Matthias Felleisen =
+ <matthias@ccs.neu.edu> wrote:
+ >>=20
+ >> On Aug 5, 2010, at 4:31 PM, Sam Tobin-Hochstadt wrote:
+ >>=20
+ >>> I don't think it would be that hard to implement.  Right now, this
+ >>> program *should* make the identifier into a macro that fails at
+ >>> expansion time, something like this:
+ >>>=20
+ >>> (lambda (stx) (raise-sytax-error "value can't be used in untyped =
+ code"))
+ >>>=20
+ >>> Instead, the code could be
+ >>>=20
+ >>> (raise-syntax-error "value can't be used in untyped code")
+ >>>=20
+ >>> and it would have the behavior you want.  I don't think it's the =
+ right
+ >>> behavior, though - it means that programs that don't use values with
+ >>> such problematic types would be needlessly rejected.
+ >>=20
+ >>=20
+ >> I think you completely misunderstood what I requested,
+ >> because the kind of change you propose can't possibly
+ >> implement what I requested.
+ >=20
+ > I think I was unclear about the context that code would go in.  Right
+ > now, the `provide' is transformed into something like this:
+ >=20
+ > (define-syntax external-id
+ >  (if typed-context?
+ >      (lambda (stx) #'internal-id)
+ >      (lambda (stx) (raise-syntax-error ...))))
+ > (provide (rename-out [external-id internal-id]))
+ >=20
+ > This raises an error only when the identifier is *used* in an untyped
+ > module.  Of course, the original bug report demonstrates a case where
+ > a wrong thing happens, and the generated code is something else.  But
+ > I plan to fix that.
+ >=20
+ > I think you're suggesting changing the above code to this instead:
+ >=20
+ > (define-syntax external-id
+ >  (if typed-context?
+ >      (lambda (stx) #'internal-id)
+ >      (raise-syntax-error ...)))
+ > (provide (rename-out [external-id internal-id]))
+ >=20
+ > This would error if the module is ever required by an untyped module,
+ > regardless of what identifier are used, which is I think what you were
+ > suggesting.  In neither case should there be errors when the program
+ > is entirely typed.  If that's the case in the original bug report's
+ > case, it should be alleviated by a simple bug fix.
+ > --=20
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Kshitij_Lauria@brown.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts 
+	with (provide ...)
+Date: Thu, 5 Aug 2010 16:41:01 -0400
+
+ On Thu, Aug 5, 2010 at 4:35 PM, Matthias Felleisen <matthias@ccs.neu.edu> w=
+ rote:
+ >
+ > On Aug 5, 2010, at 4:31 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> I don't think it would be that hard to implement. =A0Right now, this
+ >> program *should* make the identifier into a macro that fails at
+ >> expansion time, something like this:
+ >>
+ >> (lambda (stx) (raise-sytax-error "value can't be used in untyped code"))
+ >>
+ >> Instead, the code could be
+ >>
+ >> (raise-syntax-error "value can't be used in untyped code")
+ >>
+ >> and it would have the behavior you want. =A0I don't think it's the right
+ >> behavior, though - it means that programs that don't use values with
+ >> such problematic types would be needlessly rejected.
+ >
+ >
+ > I think you completely misunderstood what I requested,
+ > because the kind of change you propose can't possibly
+ > implement what I requested.
+ 
+ I think I was unclear about the context that code would go in.  Right
+ now, the `provide' is transformed into something like this:
+ 
+ (define-syntax external-id
+   (if typed-context?
+       (lambda (stx) #'internal-id)
+       (lambda (stx) (raise-syntax-error ...))))
+ (provide (rename-out [external-id internal-id]))
+ 
+ This raises an error only when the identifier is *used* in an untyped
+ module.  Of course, the original bug report demonstrates a case where
+ a wrong thing happens, and the generated code is something else.  But
+ I plan to fix that.
+ 
+ I think you're suggesting changing the above code to this instead:
+ 
+ (define-syntax external-id
+   (if typed-context?
+       (lambda (stx) #'internal-id)
+       (raise-syntax-error ...)))
+ (provide (rename-out [external-id internal-id]))
+ 
+ This would error if the module is ever required by an untyped module,
+ regardless of what identifier are used, which is I think what you were
+ suggesting.  In neither case should there be errors when the program
+ is entirely typed.  If that's the case in the original bug report's
+ case, it should be alleviated by a simple bug fix.
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Kshitij <kslauria@gmail.com>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts 
+	with (provide ...)
+Date: Thu, 5 Aug 2010 17:26:01 -0400
+
+ --001485f039b26f95d7048d1a32f3
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Maybe I'm wrong, but since function calls that are across a typed-untyped
+ boundary seem to be more complex than those that are not, an abstraction
+ like (provide ...) that hides this seems leaky, at least until the seams are
+ invisible
+ 
+ On Thu, Aug 5, 2010 at 4:42 PM, Matthias Felleisen <matthias@ccs.neu.edu>wrote:
+ 
+ >
+ > You're right. This is what I requested.
+ >
+ >
+ > On Aug 5, 2010, at 4:41 PM, Sam Tobin-Hochstadt wrote:
+ >
+ > > On Thu, Aug 5, 2010 at 4:35 PM, Matthias Felleisen <matthias@ccs.neu.edu>
+ > wrote:
+ > >>
+ > >> On Aug 5, 2010, at 4:31 PM, Sam Tobin-Hochstadt wrote:
+ > >>
+ > >>> I don't think it would be that hard to implement.  Right now, this
+ > >>> program *should* make the identifier into a macro that fails at
+ > >>> expansion time, something like this:
+ > >>>
+ > >>> (lambda (stx) (raise-sytax-error "value can't be used in untyped
+ > code"))
+ > >>>
+ > >>> Instead, the code could be
+ > >>>
+ > >>> (raise-syntax-error "value can't be used in untyped code")
+ > >>>
+ > >>> and it would have the behavior you want.  I don't think it's the right
+ > >>> behavior, though - it means that programs that don't use values with
+ > >>> such problematic types would be needlessly rejected.
+ > >>
+ > >>
+ > >> I think you completely misunderstood what I requested,
+ > >> because the kind of change you propose can't possibly
+ > >> implement what I requested.
+ > >
+ > > I think I was unclear about the context that code would go in.  Right
+ > > now, the `provide' is transformed into something like this:
+ > >
+ > > (define-syntax external-id
+ > >  (if typed-context?
+ > >      (lambda (stx) #'internal-id)
+ > >      (lambda (stx) (raise-syntax-error ...))))
+ > > (provide (rename-out [external-id internal-id]))
+ > >
+ > > This raises an error only when the identifier is *used* in an untyped
+ > > module.  Of course, the original bug report demonstrates a case where
+ > > a wrong thing happens, and the generated code is something else.  But
+ > > I plan to fix that.
+ > >
+ > > I think you're suggesting changing the above code to this instead:
+ > >
+ > > (define-syntax external-id
+ > >  (if typed-context?
+ > >      (lambda (stx) #'internal-id)
+ > >      (raise-syntax-error ...)))
+ > > (provide (rename-out [external-id internal-id]))
+ > >
+ > > This would error if the module is ever required by an untyped module,
+ > > regardless of what identifier are used, which is I think what you were
+ > > suggesting.  In neither case should there be errors when the program
+ > > is entirely typed.  If that's the case in the original bug report's
+ > > case, it should be alleviated by a simple bug fix.
+ > > --
+ > > sam th
+ > > samth@ccs.neu.edu
+ >
+ >
+ 
+ --001485f039b26f95d7048d1a32f3
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Maybe I&#39;m wrong, but since function calls that are across a typed-untyp=
+ ed boundary seem to be more complex than those that are not, an abstraction=
+  like (provide ...) that hides this seems leaky, at least until the seams a=
+ re invisible<br>
+ <br><div class=3D"gmail_quote">On Thu, Aug 5, 2010 at 4:42 PM, Matthias Fel=
+ leisen <span dir=3D"ltr">&lt;<a href=3D"mailto:matthias@ccs.neu.edu">matthi=
+ as@ccs.neu.edu</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" s=
+ tyle=3D"margin: 0pt 0pt 0pt 0.8ex; border-left: 1px solid rgb(204, 204, 204=
+ ); padding-left: 1ex;">
+ <br>
+ You&#39;re right. This is what I requested.<br>
+ <div><div></div><div class=3D"h5"><br>
+ <br>
+ On Aug 5, 2010, at 4:41 PM, Sam Tobin-Hochstadt wrote:<br>
+ <br>
+ &gt; On Thu, Aug 5, 2010 at 4:35 PM, Matthias Felleisen &lt;<a href=3D"mail=
+ to:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Aug 5, 2010, at 4:31 PM, Sam Tobin-Hochstadt wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt;&gt; I don&#39;t think it would be that hard to implement. =A0Right=
+  now, this<br>
+ &gt;&gt;&gt; program *should* make the identifier into a macro that fails a=
+ t<br>
+ &gt;&gt;&gt; expansion time, something like this:<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (lambda (stx) (raise-sytax-error &quot;value can&#39;t be used=
+  in untyped code&quot;))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; Instead, the code could be<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (raise-syntax-error &quot;value can&#39;t be used in untyped c=
+ ode&quot;)<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; and it would have the behavior you want. =A0I don&#39;t think =
+ it&#39;s the right<br>
+ &gt;&gt;&gt; behavior, though - it means that programs that don&#39;t use v=
+ alues with<br>
+ &gt;&gt;&gt; such problematic types would be needlessly rejected.<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; I think you completely misunderstood what I requested,<br>
+ &gt;&gt; because the kind of change you propose can&#39;t possibly<br>
+ &gt;&gt; implement what I requested.<br>
+ &gt;<br>
+ &gt; I think I was unclear about the context that code would go in. =A0Righ=
+ t<br>
+ &gt; now, the `provide&#39; is transformed into something like this:<br>
+ &gt;<br>
+ &gt; (define-syntax external-id<br>
+ &gt; =A0(if typed-context?<br>
+ &gt; =A0 =A0 =A0(lambda (stx) #&#39;internal-id)<br>
+ &gt; =A0 =A0 =A0(lambda (stx) (raise-syntax-error ...))))<br>
+ &gt; (provide (rename-out [external-id internal-id]))<br>
+ &gt;<br>
+ &gt; This raises an error only when the identifier is *used* in an untyped<=
+ br>
+ &gt; module. =A0Of course, the original bug report demonstrates a case wher=
+ e<br>
+ &gt; a wrong thing happens, and the generated code is something else. =A0Bu=
+ t<br>
+ &gt; I plan to fix that.<br>
+ &gt;<br>
+ &gt; I think you&#39;re suggesting changing the above code to this instead:=
+ <br>
+ &gt;<br>
+ &gt; (define-syntax external-id<br>
+ &gt; =A0(if typed-context?<br>
+ &gt; =A0 =A0 =A0(lambda (stx) #&#39;internal-id)<br>
+ &gt; =A0 =A0 =A0(raise-syntax-error ...)))<br>
+ &gt; (provide (rename-out [external-id internal-id]))<br>
+ &gt;<br>
+ &gt; This would error if the module is ever required by an untyped module,<=
+ br>
+ &gt; regardless of what identifier are used, which is I think what you were=
+ <br>
+ &gt; suggesting. =A0In neither case should there be errors when the program=
+ <br>
+ &gt; is entirely typed. =A0If that&#39;s the case in the original bug repor=
+ t&#39;s<br>
+ &gt; case, it should be alleviated by a simple bug fix.<br>
+ &gt; --<br>
+ &gt; sam th<br>
+ &gt; <a href=3D"mailto:samth@ccs.neu.edu">samth@ccs.neu.edu</a><br>
+ <br>
+ </div></div></blockquote></div><br>
+ 
+ --001485f039b26f95d7048d1a32f3--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Kshitij <kslauria@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts  with (provide ...)
+Date: Thu, 5 Aug 2010 22:29:13 -0400
+
+ --Apple-Mail-9--40640768
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ 
+ No, try to read some of Sam's paper.=20
+ 
+ 
+ On Aug 5, 2010, at 5:26 PM, Kshitij wrote:
+ 
+ > Maybe I'm wrong, but since function calls that are across a =
+ typed-untyped boundary seem to be more complex than those that are not, =
+ an abstraction like (provide ...) that hides this seems leaky, at least =
+ until the seams are invisible
+ >=20
+ > On Thu, Aug 5, 2010 at 4:42 PM, Matthias Felleisen =
+ <matthias@ccs.neu.edu> wrote:
+ >=20
+ > You're right. This is what I requested.
+ >=20
+ >=20
+ > On Aug 5, 2010, at 4:41 PM, Sam Tobin-Hochstadt wrote:
+ >=20
+ > > On Thu, Aug 5, 2010 at 4:35 PM, Matthias Felleisen =
+ <matthias@ccs.neu.edu> wrote:
+ > >>
+ > >> On Aug 5, 2010, at 4:31 PM, Sam Tobin-Hochstadt wrote:
+ > >>
+ > >>> I don't think it would be that hard to implement.  Right now, this
+ > >>> program *should* make the identifier into a macro that fails at
+ > >>> expansion time, something like this:
+ > >>>
+ > >>> (lambda (stx) (raise-sytax-error "value can't be used in untyped =
+ code"))
+ > >>>
+ > >>> Instead, the code could be
+ > >>>
+ > >>> (raise-syntax-error "value can't be used in untyped code")
+ > >>>
+ > >>> and it would have the behavior you want.  I don't think it's the =
+ right
+ > >>> behavior, though - it means that programs that don't use values =
+ with
+ > >>> such problematic types would be needlessly rejected.
+ > >>
+ > >>
+ > >> I think you completely misunderstood what I requested,
+ > >> because the kind of change you propose can't possibly
+ > >> implement what I requested.
+ > >
+ > > I think I was unclear about the context that code would go in.  =
+ Right
+ > > now, the `provide' is transformed into something like this:
+ > >
+ > > (define-syntax external-id
+ > >  (if typed-context?
+ > >      (lambda (stx) #'internal-id)
+ > >      (lambda (stx) (raise-syntax-error ...))))
+ > > (provide (rename-out [external-id internal-id]))
+ > >
+ > > This raises an error only when the identifier is *used* in an =
+ untyped
+ > > module.  Of course, the original bug report demonstrates a case =
+ where
+ > > a wrong thing happens, and the generated code is something else.  =
+ But
+ > > I plan to fix that.
+ > >
+ > > I think you're suggesting changing the above code to this instead:
+ > >
+ > > (define-syntax external-id
+ > >  (if typed-context?
+ > >      (lambda (stx) #'internal-id)
+ > >      (raise-syntax-error ...)))
+ > > (provide (rename-out [external-id internal-id]))
+ > >
+ > > This would error if the module is ever required by an untyped =
+ module,
+ > > regardless of what identifier are used, which is I think what you =
+ were
+ > > suggesting.  In neither case should there be errors when the program
+ > > is entirely typed.  If that's the case in the original bug report's
+ > > case, it should be alleviated by a simple bug fix.
+ > > --
+ > > sam th
+ > > samth@ccs.neu.edu
+ >=20
+ >=20
+ 
+ 
+ --Apple-Mail-9--40640768
+ Content-Transfer-Encoding: 7bit
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head></head><body style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; "><div><br></div><div>No, try to read some of Sam's paper.&nbsp;</div><div><br></div><br><div><div>On Aug 5, 2010, at 5:26 PM, Kshitij wrote:</div><br class="Apple-interchange-newline"><blockquote type="cite">Maybe I'm wrong, but since function calls that are across a typed-untyped boundary seem to be more complex than those that are not, an abstraction like (provide ...) that hides this seems leaky, at least until the seams are invisible<br>
+ <br><div class="gmail_quote">On Thu, Aug 5, 2010 at 4:42 PM, Matthias Felleisen <span dir="ltr">&lt;<a href="mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a>&gt;</span> wrote:<br><blockquote class="gmail_quote" style="margin: 0pt 0pt 0pt 0.8ex; border-left: 1px solid rgb(204, 204, 204); padding-left: 1ex;">
+ <br>
+ You're right. This is what I requested.<br>
+ <div><div></div><div class="h5"><br>
+ <br>
+ On Aug 5, 2010, at 4:41 PM, Sam Tobin-Hochstadt wrote:<br>
+ <br>
+ &gt; On Thu, Aug 5, 2010 at 4:35 PM, Matthias Felleisen &lt;<a href="mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Aug 5, 2010, at 4:31 PM, Sam Tobin-Hochstadt wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt;&gt; I don't think it would be that hard to implement. &nbsp;Right now, this<br>
+ &gt;&gt;&gt; program *should* make the identifier into a macro that fails at<br>
+ &gt;&gt;&gt; expansion time, something like this:<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (lambda (stx) (raise-sytax-error "value can't be used in untyped code"))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; Instead, the code could be<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (raise-syntax-error "value can't be used in untyped code")<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; and it would have the behavior you want. &nbsp;I don't think it's the right<br>
+ &gt;&gt;&gt; behavior, though - it means that programs that don't use values with<br>
+ &gt;&gt;&gt; such problematic types would be needlessly rejected.<br>
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; I think you completely misunderstood what I requested,<br>
+ &gt;&gt; because the kind of change you propose can't possibly<br>
+ &gt;&gt; implement what I requested.<br>
+ &gt;<br>
+ &gt; I think I was unclear about the context that code would go in. &nbsp;Right<br>
+ &gt; now, the `provide' is transformed into something like this:<br>
+ &gt;<br>
+ &gt; (define-syntax external-id<br>
+ &gt; &nbsp;(if typed-context?<br>
+ &gt; &nbsp; &nbsp; &nbsp;(lambda (stx) #'internal-id)<br>
+ &gt; &nbsp; &nbsp; &nbsp;(lambda (stx) (raise-syntax-error ...))))<br>
+ &gt; (provide (rename-out [external-id internal-id]))<br>
+ &gt;<br>
+ &gt; This raises an error only when the identifier is *used* in an untyped<br>
+ &gt; module. &nbsp;Of course, the original bug report demonstrates a case where<br>
+ &gt; a wrong thing happens, and the generated code is something else. &nbsp;But<br>
+ &gt; I plan to fix that.<br>
+ &gt;<br>
+ &gt; I think you're suggesting changing the above code to this instead:<br>
+ &gt;<br>
+ &gt; (define-syntax external-id<br>
+ &gt; &nbsp;(if typed-context?<br>
+ &gt; &nbsp; &nbsp; &nbsp;(lambda (stx) #'internal-id)<br>
+ &gt; &nbsp; &nbsp; &nbsp;(raise-syntax-error ...)))<br>
+ &gt; (provide (rename-out [external-id internal-id]))<br>
+ &gt;<br>
+ &gt; This would error if the module is ever required by an untyped module,<br>
+ &gt; regardless of what identifier are used, which is I think what you were<br>
+ &gt; suggesting. &nbsp;In neither case should there be errors when the program<br>
+ &gt; is entirely typed. &nbsp;If that's the case in the original bug report's<br>
+ &gt; case, it should be alleviated by a simple bug fix.<br>
+ &gt; --<br>
+ &gt; sam th<br>
+ &gt; <a href="mailto:samth@ccs.neu.edu">samth@ccs.neu.edu</a><br>
+ <br>
+ </div></div></blockquote></div><br>
+ </blockquote></div><br></body></html>
+ --Apple-Mail-9--40640768--
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Kshitij <kslauria@gmail.com>, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11085: strange error in typed racket; interacts 
+	with (provide ...)
+Date: Fri, 6 Aug 2010 00:12:45 -0400
+
+ On Thu, Aug 5, 2010 at 10:29 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > No, try to read some of Sam's paper.
+ 
+ The paper he's referring to is:
+ 
+ Interlanguage Migration: From Scripts to Programs, available here:
+ http://www.ccs.neu.edu/scheme/pubs/#dsl06-tf
+ -- 
+ sam th
+ samth@ccs.neu.edu
+Responsible changed from "nobody" to "samth" by samth@racket-lang.org at Fri, 13 Aug 2010 14:26:35 -0400
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0c1dfd3c5e
+State changed from "open" to "closed" by samth@racket-lang.org at Fri, 13 Aug 2010 14:26:35 -0400
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0c1dfd3c5e

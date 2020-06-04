@@ -1,0 +1,555 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Sep 16 10:42:03 2013
+Return-Path: <apache@racket-lang.org>
+Received: by 10.180.80.71 with SMTP id p7csp25543wix;
+        Thu, 12 Sep 2013 09:34:45 -0700 (PDT)
+Message-Id: <201309121634.r8CGYhjo027957@winooski.ccs.neu.edu>
+Date: Thu, 12 Sep 2013 12:34:43 -0400
+From: laurent.orseau@gmail.com
+To: bugs@racket-lang.org
+Subject: list-box% triggers undesired events
+
+>Number:         14023
+>Category:       mred
+>Synopsis:       list-box% triggers undesired events
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Sep 16 10:44:43 -0400 2013
+>Last-Modified:  Mon Oct 21 10:03:49 -0400 2013
+>Originator:     Laurent Orseau
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.90.0.9--2013-09-11(8b987a8f/d)
+>Environment:
+unix "Linux UX31A 3.8.0-30-generic #44-Ubuntu SMP Thu Aug 22 20:52:24 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: french
+(current-memory-use) 752297308
+Links: (links) = (); (links #:user? #f) = ("towers-server" "towers" "towers-lib" "script-plugin" "bazaar" "test-color-prefs"); (links #:root? #t) = (); (links #:user? #f #:root? #t) = (#<path:/home/orseau/Unison/Prog/Racket/mred-designer>)
+raco pkg (show):
+/home/orseau/build/racket/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [165 auto-installed packages not shown]
+Installation-wide:
+ Package             Checksum    Source
+ bazaar              #f          (link ../../../../../Unison/Prog/Racket/bazaar)
+ mred-designer       #f          (link ../../../../../Unison/Prog/Racket/mred-designer)
+ script-plugin       #f          (link ../../../../../Unison/Prog/Racket/script-plugin)
+ test-color-prefs    #f          (link ../../../../../Unison/Prog/Racket/test-color-prefs)
+ towers              #f          (link ../../../../../Unison/Prog/Racket/towers/towers)
+ towers-lib          #f          (link ../../../../../Unison/Prog/Racket/towers/towers-lib)
+ towers-server       #f          (link ../../../../../Unison/Prog/Racket/towers/towers-server)
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/orseau/.racket/development/collects"
+ (non-existent-path))
+("/home/orseau/build/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Déterminer le langage à partir du code source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test)) #t))
+>Description:
+Hi,
+
+When calling `clear' and then `set' from within the `list-box%' callback, it triggers another undesired 'list-box event (possibly looping).
+
+In the following code, once the frame is shown, click on "b", the second item.
+This triggers a first 'list-box event, but the `clear' and `set' calls trigger another one, and so on:
+
+#lang racket/gui
+
+(define my-frame (new frame% [label "my-frame"] 
+                      [min-width 200] [min-height 200]))
+
+(define lb (new list-box%
+                [parent my-frame]
+                [label "values"]
+                [choices '("a" "b")]
+                [callback (?(lb ev) 
+                            (displayln (send ev get-event-type))
+                            (send lb clear)
+                            (send lb set '("b"))
+                            )]))
+
+(send my-frame show #t)
+
+; Click on "b", this will trigger infinite events
+
+With clickable-headers, clicking the column header will have the same behavior.
+
+
+On a side note, although I'm very happy to have a multi-column list box%, it looks half-baked:
+- For example there is no `get' and `append-row' methods, and the initial `choices' is useless for multi-column
+- I had to make a complicated and quite inefficient wrapper with a lot of data duplication to be able to sort the columns when clicking on them:
+https://github.com/Metaxal/bazaar/blob/master/gui/list-box-sort.rkt
+
+I took a look at the list-box% code, but couldn't really find my way around, as methods are dispatched in several places.
+
+In case this is too complicated to resolve, could you at least tell me so, so that I can build work arounds? 
+(this is slightly blocking me right now actually)
+
+Thank you,
+Laurent
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Laurent <laurent.orseau@gmail.com>
+To: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/14023: list-box% triggers undesired events
+Date: Mon, 16 Sep 2013 18:11:02 +0200
+
+ --001a11c3846290b8d504e68274ce
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ As mentioned on the mailing list, the simple solution is to avoid using
+ `(clear)' and `(set ...)' in the callback at the same time.
+ Since the it is not possible (it seems) to use `set' to empty the choices,
+ one has to use a condition:
+ (if (empty? new-choices)
+     (clear)
+     (set new-choices))
+ 
+ Maybe it's just sufficient to add a warning in the docs then.
+ 
+ Laurent
+ 
+ 
+ 
+ On Mon, Sep 16, 2013 at 4:44 PM, <bugs@racket-lang.org> wrote:
+ 
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/14023'.
+ > You can check on the status of your problem report at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14023
+ >
+ > If you wish to provide further information regarding this problem
+ > you can do so as a reply to this message.  (But please make sure
+ > that your mailer replies to both "bugs" and "bug-notification".)
+ >
+ >
+ 
+ --001a11c3846290b8d504e68274ce
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><div><div><div><div><div>As mentioned on the mailing list,=
+  the simple solution is to avoid using `(clear)&#39; and `(set ...)&#39; in=
+  the callback at the same time.<br></div>Since the it is not possible (it s=
+ eems) to use `set&#39; to empty the choices, one has to use a condition:<br=
+ >
+ 
+ </div>(if (empty? new-choices)<br></div>=A0=A0=A0 (clear)<br></div>=A0=A0=
+ =A0 (set new-choices))<br><br></div><div>Maybe it&#39;s just sufficient to =
+ add a warning in the docs then.<br></div><div><br></div>Laurent<br><div><di=
+ v><br></div>
+ 
+ </div></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">O=
+ n Mon, Sep 16, 2013 at 4:44 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:bu=
+ gs@racket-lang.org" target=3D"_blank">bugs@racket-lang.org</a>&gt;</span> w=
+ rote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">Thank you very much for your problem report.=
+ <br>
+ It has the internal identification `all/14023&#39;.<br>
+ You can check on the status of your problem report at<br>
+ =A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14023=
+ " target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D=
+ 14023</a><br>
+ <br>
+ If you wish to provide further information regarding this problem<br>
+ you can do so as a reply to this message. =A0(But please make sure<br>
+ that your mailer replies to both &quot;bugs&quot; and &quot;bug-notificatio=
+ n&quot;.)<br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --001a11c3846290b8d504e68274ce--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Laurent <laurent.orseau@gmail.com>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14023: list-box% triggers undesired events
+Date: Mon, 16 Sep 2013 11:16:41 -0500
+
+ --089e0115e84a92f53204e682871e
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I'm still a bit surprised that this would go into a loop, as invoking the
+ methods directly generally does not invoke the callbacks.
+ 
+ (But I'm not 100% clear on this.)
+ 
+ Robby
+ 
+ 
+ On Mon, Sep 16, 2013 at 11:11 AM, Laurent <laurent.orseau@gmail.com> wrote:
+ 
+ > As mentioned on the mailing list, the simple solution is to avoid using
+ > `(clear)' and `(set ...)' in the callback at the same time.
+ > Since the it is not possible (it seems) to use `set' to empty the choices,
+ > one has to use a condition:
+ > (if (empty? new-choices)
+ >     (clear)
+ >     (set new-choices))
+ >
+ > Maybe it's just sufficient to add a warning in the docs then.
+ >
+ > Laurent
+ >
+ >
+ >
+ > On Mon, Sep 16, 2013 at 4:44 PM, <bugs@racket-lang.org> wrote:
+ >
+ >> Thank you very much for your problem report.
+ >> It has the internal identification `all/14023'.
+ >> You can check on the status of your problem report at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=14023
+ >>
+ >> If you wish to provide further information regarding this problem
+ >> you can do so as a reply to this message.  (But please make sure
+ >> that your mailer replies to both "bugs" and "bug-notification".)
+ >>
+ >>
+ >
+ 
+ --089e0115e84a92f53204e682871e
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I&#39;m still a bit surprised that this would go into a lo=
+ op, as invoking the methods directly generally does not invoke the callback=
+ s.<div><br></div><div>(But I&#39;m not 100% clear on this.)<br><div><br></d=
+ iv>
+ <div>Robby</div></div></div><div class=3D"gmail_extra"><br><br><div class=
+ =3D"gmail_quote">On Mon, Sep 16, 2013 at 11:11 AM, Laurent <span dir=3D"ltr=
+ ">&lt;<a href=3D"mailto:laurent.orseau@gmail.com" target=3D"_blank">laurent=
+ .orseau@gmail.com</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr"><div><div><div><div><div>As=
+  mentioned on the mailing list, the simple solution is to avoid using `(cle=
+ ar)&#39; and `(set ...)&#39; in the callback at the same time.<br>
+ </div>Since the it is not possible (it seems) to use `set&#39; to empty the=
+  choices, one has to use a condition:<br>
+ 
+ </div>(if (empty? new-choices)<br></div>=C2=A0=C2=A0=C2=A0 (clear)<br></div=
+ >=C2=A0=C2=A0=C2=A0 (set new-choices))<br><br></div><div>Maybe it&#39;s jus=
+ t sufficient to add a warning in the docs then.<br></div><div><br></div>Lau=
+ rent<br><div><div><br></div>
+ 
+ 
+ </div></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">O=
+ n Mon, Sep 16, 2013 at 4:44 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:bu=
+ gs@racket-lang.org" target=3D"_blank">bugs@racket-lang.org</a>&gt;</span> w=
+ rote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">Thank you very much for your problem report.=
+ <br>
+ It has the internal identification `all/14023&#39;.<br>
+ You can check on the status of your problem report at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14=
+ 023" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14023</a><br>
+ <br>
+ If you wish to provide further information regarding this problem<br>
+ you can do so as a reply to this message. =C2=A0(But please make sure<br>
+ that your mailer replies to both &quot;bugs&quot; and &quot;bug-notificatio=
+ n&quot;.)<br>
+ <br>
+ </blockquote></div><br></div>
+ </blockquote></div><br></div>
+ 
+ --089e0115e84a92f53204e682871e--
+From: Laurent <laurent.orseau@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14023: list-box% triggers undesired events
+Date: Mon, 16 Sep 2013 18:21:30 +0200
+
+ --047d7b873a10ffb28104e6829917
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Yes, it's surprising (tracking it down was punctuated by some "What the
+ hell is going on?!" ;) ).
+ Do you see this behavior on non-gtk platforms?
+ 
+ 
+ On Mon, Sep 16, 2013 at 6:16 PM, Robby Findler
+ <robby@eecs.northwestern.edu>wrote:
+ 
+ > I'm still a bit surprised that this would go into a loop, as invoking the
+ > methods directly generally does not invoke the callbacks.
+ >
+ > (But I'm not 100% clear on this.)
+ >
+ > Robby
+ >
+ >
+ > On Mon, Sep 16, 2013 at 11:11 AM, Laurent <laurent.orseau@gmail.com>wrote:
+ >
+ >> As mentioned on the mailing list, the simple solution is to avoid using
+ >> `(clear)' and `(set ...)' in the callback at the same time.
+ >> Since the it is not possible (it seems) to use `set' to empty the
+ >> choices, one has to use a condition:
+ >> (if (empty? new-choices)
+ >>     (clear)
+ >>     (set new-choices))
+ >>
+ >> Maybe it's just sufficient to add a warning in the docs then.
+ >>
+ >> Laurent
+ >>
+ >>
+ >>
+ >> On Mon, Sep 16, 2013 at 4:44 PM, <bugs@racket-lang.org> wrote:
+ >>
+ >>> Thank you very much for your problem report.
+ >>> It has the internal identification `all/14023'.
+ >>> You can check on the status of your problem report at
+ >>>   http://bugs.racket-lang.org/query/?cmd=view&pr=14023
+ >>>
+ >>> If you wish to provide further information regarding this problem
+ >>> you can do so as a reply to this message.  (But please make sure
+ >>> that your mailer replies to both "bugs" and "bug-notification".)
+ >>>
+ >>>
+ >>
+ >
+ 
+ --047d7b873a10ffb28104e6829917
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Yes, it&#39;s surprising (tracking it down was punctuated =
+ by some &quot;What the hell is going on?!&quot; ;) ).<br>Do you see this be=
+ havior on non-gtk platforms?<br></div><div class=3D"gmail_extra"><br><br><d=
+ iv class=3D"gmail_quote">
+ 
+ On Mon, Sep 16, 2013 at 6:16 PM, Robby Findler <span dir=3D"ltr">&lt;<a hre=
+ f=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.north=
+ western.edu</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" styl=
+ e=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ 
+ <div dir=3D"ltr">I&#39;m still a bit surprised that this would go into a lo=
+ op, as invoking the methods directly generally does not invoke the callback=
+ s.<div><br></div><div>(But I&#39;m not 100% clear on this.)<span class=3D"H=
+ OEnZb"><font color=3D"#888888"><br>
+ 
+ <div><br></div>
+ <div>Robby</div></font></span></div></div><div class=3D"HOEnZb"><div class=
+ =3D"h5"><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Mo=
+ n, Sep 16, 2013 at 11:11 AM, Laurent <span dir=3D"ltr">&lt;<a href=3D"mailt=
+ o:laurent.orseau@gmail.com" target=3D"_blank">laurent.orseau@gmail.com</a>&=
+ gt;</span> wrote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr"><div><div><div><div><div>As=
+  mentioned on the mailing list, the simple solution is to avoid using `(cle=
+ ar)&#39; and `(set ...)&#39; in the callback at the same time.<br>
+ 
+ 
+ </div>Since the it is not possible (it seems) to use `set&#39; to empty the=
+  choices, one has to use a condition:<br>
+ 
+ </div>(if (empty? new-choices)<br></div>=A0=A0=A0 (clear)<br></div>=A0=A0=
+ =A0 (set new-choices))<br><br></div><div>Maybe it&#39;s just sufficient to =
+ add a warning in the docs then.<br></div><div><br></div>Laurent<br><div><di=
+ v><br></div>
+ 
+ 
+ 
+ 
+ </div></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">O=
+ n Mon, Sep 16, 2013 at 4:44 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:bu=
+ gs@racket-lang.org" target=3D"_blank">bugs@racket-lang.org</a>&gt;</span> w=
+ rote:<br>
+ 
+ 
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">Thank you very much for your problem report.=
+ <br>
+ It has the internal identification `all/14023&#39;.<br>
+ You can check on the status of your problem report at<br>
+ =A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14023=
+ " target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D=
+ 14023</a><br>
+ <br>
+ If you wish to provide further information regarding this problem<br>
+ you can do so as a reply to this message. =A0(But please make sure<br>
+ that your mailer replies to both &quot;bugs&quot; and &quot;bug-notificatio=
+ n&quot;.)<br>
+ <br>
+ </blockquote></div><br></div>
+ </blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --047d7b873a10ffb28104e6829917--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Laurent <laurent.orseau@gmail.com>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14023: list-box% triggers undesired events
+Date: Mon, 16 Sep 2013 11:36:24 -0500
+
+ --001a1133073a1cf70304e682ce73
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Not on the mac, at least.
+ 
+ Robby
+ 
+ 
+ On Mon, Sep 16, 2013 at 11:21 AM, Laurent <laurent.orseau@gmail.com> wrote:
+ 
+ > Yes, it's surprising (tracking it down was punctuated by some "What the
+ > hell is going on?!" ;) ).
+ > Do you see this behavior on non-gtk platforms?
+ >
+ >
+ > On Mon, Sep 16, 2013 at 6:16 PM, Robby Findler <
+ > robby@eecs.northwestern.edu> wrote:
+ >
+ >> I'm still a bit surprised that this would go into a loop, as invoking the
+ >> methods directly generally does not invoke the callbacks.
+ >>
+ >> (But I'm not 100% clear on this.)
+ >>
+ >> Robby
+ >>
+ >>
+ >> On Mon, Sep 16, 2013 at 11:11 AM, Laurent <laurent.orseau@gmail.com>wrote:
+ >>
+ >>> As mentioned on the mailing list, the simple solution is to avoid using
+ >>> `(clear)' and `(set ...)' in the callback at the same time.
+ >>> Since the it is not possible (it seems) to use `set' to empty the
+ >>> choices, one has to use a condition:
+ >>> (if (empty? new-choices)
+ >>>     (clear)
+ >>>     (set new-choices))
+ >>>
+ >>> Maybe it's just sufficient to add a warning in the docs then.
+ >>>
+ >>> Laurent
+ >>>
+ >>>
+ >>>
+ >>> On Mon, Sep 16, 2013 at 4:44 PM, <bugs@racket-lang.org> wrote:
+ >>>
+ >>>> Thank you very much for your problem report.
+ >>>> It has the internal identification `all/14023'.
+ >>>> You can check on the status of your problem report at
+ >>>>   http://bugs.racket-lang.org/query/?cmd=view&pr=14023
+ >>>>
+ >>>> If you wish to provide further information regarding this problem
+ >>>> you can do so as a reply to this message.  (But please make sure
+ >>>> that your mailer replies to both "bugs" and "bug-notification".)
+ >>>>
+ >>>>
+ >>>
+ >>
+ >
+ 
+ --001a1133073a1cf70304e682ce73
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Not on the mac, at least.<div><br></div><div>Robby</div></=
+ div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Mon, S=
+ ep 16, 2013 at 11:21 AM, Laurent <span dir=3D"ltr">&lt;<a href=3D"mailto:la=
+ urent.orseau@gmail.com" target=3D"_blank">laurent.orseau@gmail.com</a>&gt;<=
+ /span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Yes, it&#39;s surprising (t=
+ racking it down was punctuated by some &quot;What the hell is going on?!&qu=
+ ot; ;) ).<br>
+ Do you see this behavior on non-gtk platforms?<br></div><div class=3D"HOEnZ=
+ b"><div class=3D"h5"><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">
+ 
+ On Mon, Sep 16, 2013 at 6:16 PM, Robby Findler <span dir=3D"ltr">&lt;<a hre=
+ f=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.north=
+ western.edu</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" styl=
+ e=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ 
+ 
+ <div dir=3D"ltr">I&#39;m still a bit surprised that this would go into a lo=
+ op, as invoking the methods directly generally does not invoke the callback=
+ s.<div><br></div><div>(But I&#39;m not 100% clear on this.)<span><font colo=
+ r=3D"#888888"><br>
+ 
+ 
+ <div><br></div>
+ <div>Robby</div></font></span></div></div><div><div><div class=3D"gmail_ext=
+ ra"><br><br><div class=3D"gmail_quote">On Mon, Sep 16, 2013 at 11:11 AM, La=
+ urent <span dir=3D"ltr">&lt;<a href=3D"mailto:laurent.orseau@gmail.com" tar=
+ get=3D"_blank">laurent.orseau@gmail.com</a>&gt;</span> wrote:<br>
+ 
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr"><div><div><div><div><div>As=
+  mentioned on the mailing list, the simple solution is to avoid using `(cle=
+ ar)&#39; and `(set ...)&#39; in the callback at the same time.<br>
+ 
+ 
+ 
+ </div>Since the it is not possible (it seems) to use `set&#39; to empty the=
+  choices, one has to use a condition:<br>
+ 
+ </div>(if (empty? new-choices)<br></div>=C2=A0=C2=A0=C2=A0 (clear)<br></div=
+ >=C2=A0=C2=A0=C2=A0 (set new-choices))<br><br></div><div>Maybe it&#39;s jus=
+ t sufficient to add a warning in the docs then.<br></div><div><br></div>Lau=
+ rent<br><div><div><br></div>
+ 
+ 
+ 
+ 
+ 
+ </div></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">O=
+ n Mon, Sep 16, 2013 at 4:44 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:bu=
+ gs@racket-lang.org" target=3D"_blank">bugs@racket-lang.org</a>&gt;</span> w=
+ rote:<br>
+ 
+ 
+ 
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">Thank you very much for your problem report.=
+ <br>
+ It has the internal identification `all/14023&#39;.<br>
+ You can check on the status of your problem report at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14=
+ 023" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14023</a><br>
+ <br>
+ If you wish to provide further information regarding this problem<br>
+ you can do so as a reply to this message. =C2=A0(But please make sure<br>
+ that your mailer replies to both &quot;bugs&quot; and &quot;bug-notificatio=
+ n&quot;.)<br>
+ <br>
+ </blockquote></div><br></div>
+ </blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a1133073a1cf70304e682ce73--
+

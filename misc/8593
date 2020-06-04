@@ -1,0 +1,341 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Mar 31 17:44:18 2007
+Received: from an-out-0708.google.com (an-out-0708.google.com [209.85.132.242])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l2VLiH5e006998
+	for <bugs@bugs.plt-scheme.org>; Sat, 31 Mar 2007 17:44:17 -0400
+Message-Id: <200703312144.l2VLiFg2006993@champlain.ccs.neu.edu>
+Date: Sat, 31 Mar 2007 17:44:15 -0400
+From: farr@mit.edu
+To: bugs@plt-scheme.org
+Subject: Swindle does not handle applicable structs properly with struct-type->class
+
+>Number:         8593
+>Category:       misc
+>Synopsis:       Swindle does not handle applicable structs properly with struct-type->class
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Mar 31 17:45:01 -0400 2007
+>Closed-Date:    Sat Apr 14 02:37:08 -0400 2007
+>Last-Modified:  Sat Apr 14 02:37:08 -0400 2007
+>Originator:     Will M. Farr
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.8-svn14mar2007
+>Environment:
+macosx "Darwin eAmu.local 8.9.0 Darwin Kernel Version 8.9.0: Thu Feb 22 20:54:07 PST 2007; root:xnu-792.17.14~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Applications/PLT Scheme Full v369.8/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 250622424
+
+Collections:
+(("/Users/farr/Library/PLT Scheme/369.8/collects" non-existent-path) ("/Applications/PLT Scheme Full v369.8/collects" ".DS_Store" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+The class object returned by struct-type->class when the given struct is applicable (i.e. has the prop:procedure property) does not allow to register generic functions which specialize properly on this object.  Instead of finding the appropriate method, the error "no applicable primary methods for arguments... of types (#<procedure-class:procedure> ...)" is generated.
+>How-To-Repeat:
+#| Evaluate the following module to see the bug. |#
+
+(module test (lib "swindle.ss" "swindle")
+  
+  (define-values (struct:test make-test test? test-ref test-set!)
+    (make-struct-type 'test #f 1 0 #f '() #f (lambda (this msg) (printf "Hello, I am ~a~%The message is ~a~%" this msg)) '(0) #f))
+  
+  (define <test> (struct-type->class struct:test))
+  
+  (defgeneric (apply-obj obj arg))
+  (defmethod (apply-obj (obj <test>) arg) (obj arg))
+  
+  (apply-obj (make-test 'nothing) "the message"))
+>Fix:
+>Audit-Trail:
+From: Will M Farr <farr@mit.edu>
+To: bugs@plt-scheme.org, Will Farr <farr@mit.edu>
+Cc: 
+Subject: Re: all/8593: Swindle does not handle applicable structs properly with struct-type->class
+Date: Sat, 31 Mar 2007 12:38:56 -1000
+
+ --Apple-Mail-2--494958945
+ Content-Transfer-Encoding: 7bit
+ Content-Type: text/plain;
+ 	charset=US-ASCII;
+ 	delsp=yes;
+ 	format=flowed
+ 
+ Attached is a patch against collects/swindle/tiny-clos.ss from 369.8- 
+ svn14mar2007 which fixes the problem (hack-tiny-clos.patch), but is a  
+ terrible hack.  In the remainder of this mail, I'll explain why I  
+ don't think it's possible to do better (a hypothetical patch *which  
+ does not work* is attached as ideal-tiny-clos.patch), and suggest  
+ some changes (which, unfortunately, I don't think I'm qualified to  
+ make) to MzScheme which would enable me to construct this better  
+ solution.
+ 
+ First, the ideal solution (hypothetically represented in the ideal- 
+ tiny-clos.patch attachment):
+ 
+ 1. A new primitive class, <procedure-struct> (or <applicable-struct>,  
+ or whatever name Eli likes).  This class is the class of structs  
+ which are also procedures.  It should be a sub-class of <struct> and  
+ <procedure>.
+ 
+ 2. A test, in struct-type->class, for the prop:procedure property of  
+ the type descriptor.  If a struct has this property, then we ensure  
+ that it is a sub-class of <procedure-struct>, either because it  
+ inherits from another struct which is already a <procedure-struct>,  
+ or by making it inherit directly from <procedure-struct> in addition  
+ to its nominal parent.  *Note that this is the only place where the  
+ ideal solution is hypothetical: it uses the non-existent struct-type- 
+ has-property? predicate to determine whether the struct has the  
+ prop:procedure property set.*
+ 
+ 3. In class-of, if we encounter an object which answers #t to both  
+ procedure? and struct?, we look for it in the struct-to-class-table  
+ to resolve its class.  If we cannot find the type (perhaps because  
+ the inspector has been changed?), then we assign it the <procedure- 
+ struct> class, so it is-a <procedure> and it is-a <struct>.
+ 
+ The ideal-tiny-clos.patch is untested (of course), so I apologize if  
+ it contains any bugs.
+ 
+ I think it would be nice if someone (not me---I have no idea how to  
+ do this) could expose a struct-type-has-property? predicate (or point  
+ me to the one I have missed in the manual).  Failing that, perhaps  
+ someone could export the predicate associated with the prop:procedure  
+ property, or point me to where I have missed it.  In the meantime,  
+ the attach hack-tiny-clos.patch fixes my problem.
+ 
+ The attached patch simply moves the test for structs ahead of the  
+ tests for procedures in class-of.  This means that an applicable  
+ struct will have its class looked up from the class-to-struct-table  
+ instead of being assigned to <procedure> arbitrarily.  Unfortunately,  
+ it does not allow to capture in the class of the object that it is  
+ *both* a struct *and* a procedure.  This is the sense in which it is  
+ a hack.
+ 
+ Please let me know if you have any questions about these patches.
+ 
+ Thanks very much,
+ Will
+ 
+ 
+ --Apple-Mail-2--494958945
+ Content-Transfer-Encoding: 7bit
+ Content-Type: application/octet-stream;
+ 	x-unix-mode=0644;
+ 	name=hack-tiny-clos.patch
+ Content-Disposition: attachment;
+ 	filename=hack-tiny-clos.patch
+ 
+ --- /tmp/tiny-clos-old.ss	2007-03-30 20:32:21.000000000 -1000
+ +++ tiny-clos.ss	2007-03-30 21:49:28.000000000 -1000
+ @@ -2111,6 +2111,10 @@
+          ;; matter?
+          ;; ELI: changed the order so it fits better the expected results.
+          (cond [(instance?    x) (instance-class x)]
+ +              ;; Struct must go before procedure, or else procedure structs won't be recognized properly.
+ +              [(struct? x)
+ +               (let-values ([(type _) (struct-info x)])
+ +                 (if type (struct-type->class type) <opaque-struct>))]
+                [(procedure?   x) (cond [(parameter? x) <parameter>]
+                                        [(primitive? x) <primitive-procedure>]
+                                        [else <procedure>])]
+ @@ -2146,9 +2150,6 @@
+                [(output-port? x)
+                 (if (file-stream-port? x) <output-stream-port> <output-port>)]
+                ;; MzScheme stuff
+ -              [(struct? x)
+ -               (let-values ([(type _) (struct-info x)])
+ -                 (if type (struct-type->class type) <opaque-struct>))]
+                [(void?           x) <void>]
+                [(box?            x) <box>]
+                [(weak-box?       x) <weak-box>]
+ 
+ --Apple-Mail-2--494958945
+ Content-Transfer-Encoding: 7bit
+ Content-Type: application/octet-stream;
+ 	x-unix-mode=0644;
+ 	name=ideal-tiny-clos.patch
+ Content-Disposition: attachment;
+ 	filename=ideal-tiny-clos.patch
+ 
+ --- /tmp/tiny-clos-old.ss	2007-03-30 20:32:21.000000000 -1000
+ +++ ./tiny-clos.ss	2007-03-31 12:26:44.000000000 -1000
+ @@ -499,12 +499,16 @@
+     (thunk (let-values ([(name init-field-k auto-field-k accessor mutator
+                           immutable-k-list super skipped?)
+                          (struct-type-info stype)])
+ -            (let* ([super (cond [super (struct-type->class super)]
+ +            (let* ([proc? (struct-type-has-property? prop:procedure stype)]
+ +                   [super (cond [super (struct-type->class super)]
+ +                                [proc? <procedure-struct>]  
+                                  [skipped? <opaque-struct>]
+                                  [else <struct>])]
+                     [this (parameterize ([*default-object-class* #f])
+                             (make <primitive-class>
+ -                                 :name name :direct-supers (list super)))])
+ +                                 :name name :direct-supers (if (instance-of? <procedure-struct> super)
+ +                                                               (list super)
+ +                                                               (list super <procedure-struct>))))])
+                (hash-table-put! struct-to-class-table stype this)
+                this)))))
+  
+ @@ -2102,6 +2106,14 @@
+          :name          '<primitive-procedure>
+          :direct-supers (list <procedure>)
+          :direct-slots  '()))
+ +  
+ +;;>> <procedure-struct>
+ +;;>   The class of all applicable structures.
+ +(define* <procedure-struct>
+ +  (make <procedure-class>
+ +        :name '<procedure-struct>
+ +        :direct-supers (list <procedure> <struct>)
+ +        :direct-slots '()))
+  
+  (*default-object-class* <object>) ; turn auto-superclass back on
+  
+ @@ -2113,6 +2125,8 @@
+          (cond [(instance?    x) (instance-class x)]
+                [(procedure?   x) (cond [(parameter? x) <parameter>]
+                                        [(primitive? x) <primitive-procedure>]
+ +                                      [(struct? x)    (let-values ([(type _) (struct-info x)])
+ +                                                        (if type (struct-type->class type) <procedure-struct>))]
+                                        [else <procedure>])]
+                [(string?      x) (if (immutable? x) <immutable-string> <string>)]
+                [(pair?        x)
+ 
+ --Apple-Mail-2--494958945--
+From: Eli Barzilay <eli@barzilay.org>
+To: Will M Farr <farr@mit.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8593: Swindle does not handle applicable structs properly with struct-type->class
+Date: Sat, 31 Mar 2007 23:22:40 -0400
+
+ On Mar 31, Will M Farr wrote:
+ >  [...]
+ >  I think it would be nice if someone (not me---I have no idea how to
+ >  do this) could expose a struct-type-has-property? predicate (or
+ >  point me to the one I have missed in the manual).  Failing that,
+ >  perhaps someone could export the predicate associated with the
+ >  prop:procedure property, or point me to where I have missed it.  In
+ >  the meantime, the attach hack-tiny-clos.patch fixes my problem.
+ 
+ Yes, there is no way to get an arbitrary property value -- you have to
+ have access to the accessor of the property which would come from the
+ same place that defined that property.  I think that Matthew's
+ intention was that you can make structs that behave as completely
+ opaque values.
+ 
+ In this case, I *thought* that this ideal solution would be doable,
+ and it is doable in some sense: when you have the value that you need
+ a class for, you can simply check if it's a `procedure?'.  If so, you
+ pass another argument to `struct-type->class' which tells it to create
+ the other kind of struct class.  The problem is that this requires
+ having the value itself to check -- the struct type descriptor is not
+ sufficient, and that can lead to obvious errors.
+ 
+ I'll do the quick fix now, and ask Matthew for some
+ `procedure-struct-type?' thing.
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Will M Farr <farr@mit.edu>, bugs@plt-scheme.org
+Subject: Re: all/8593: Swindle does not handle applicable structs properly with struct-type->class
+Date: Sat, 31 Mar 2007 23:25:47 -0400
+
+ On Mar 31, Will M Farr wrote:
+ >  [...]
+ >  2. A test, in struct-type->class, for the prop:procedure property of  
+ >  [...]
+ 
+ Matthew -- the main issue with this PR now is that it looks like there
+ is no way to tell whether a struct type is applicable or not.  It is
+ possible to know if a value is a `procedure?', but what's missing is
+ something similar at the struct-type.  Is there a way to get that
+ information?  If not, can you add one?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Will M Farr <farr@MIT.EDU>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: nobody@plt-scheme.org, bugs@plt-scheme.org
+Subject: Re: all/8593: Swindle does not handle applicable structs properly with struct-type->class
+Date: Sat, 31 Mar 2007 17:27:43 -1000
+
+ On Mar 31, 2007, at 5:22 PM, Eli Barzilay wrote:
+ 
+ > The problem is that this requires
+ > having the value itself to check -- the struct type descriptor is not
+ > sufficient, and that can lead to obvious errors.
+ 
+ Exactly---it's easy to do it with the values, but presumably you also  
+ want struct-type->class to get it right without having to have a  
+ value of the struct on hand.
+ 
+ Thanks for the quick response!
+ 
+ Will
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Will M Farr <farr@mit.edu>, bugs@plt-scheme.org
+Subject: Re: all/8593: Swindle does not handle applicable structs properly with struct-type->class
+Date: Sun, 1 Apr 2007 13:21:42 +0800
+
+ At Sat, 31 Mar 2007 23:25:47 -0400, Eli Barzilay wrote:
+ > On Mar 31, Will M Farr wrote:
+ > >  [...]
+ > >  2. A test, in struct-type->class, for the prop:procedure property of  
+ > >  [...]
+ > 
+ > Matthew -- the main issue with this PR now is that it looks like there
+ > is no way to tell whether a struct type is applicable or not.  It is
+ > possible to know if a value is a `procedure?', but what's missing is
+ > something similar at the struct-type.  Is there a way to get that
+ > information?  If not, can you add one?
+ 
+ I don't understand the question. I would think that `procedure?' is the
+ predicate you're looking for.
+ 
+ Matthew
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Will M Farr <farr@mit.edu>, bugs@plt-scheme.org
+Subject: Re: all/8593: Swindle does not handle applicable structs properly with struct-type->class
+Date: Sun, 1 Apr 2007 13:31:05 +0800
+
+ At Sat, 31 Mar 2007 19:31:13 -1000, Will M Farr wrote:
+ > Matthew,
+ > 
+ > On Mar 31, 2007, at 7:21 PM, Matthew Flatt wrote:
+ > 
+ > > I don't understand the question. I would think that `procedure?' is  
+ > > the
+ > > predicate you're looking for.
+ > 
+ > We're looking for a predicate that we can apply to *struct-types* to  
+ > determine whether the structs they represent will answer #t to  
+ > procedure?.
+ 
+ Ah, I get it.
+ 
+ I'll add something.
+ 
+ Matthew
+ 
+
+Responsible changed from "nobody" to "eli" by eli at Sat, 14 Apr 2007 02:37:08 -0400
+Reason>>> swindle
+
+State changed from "open" to "closed" by eli at Sat, 14 Apr 2007 02:37:08 -0400
+Reason>>> Fixed in svn, using the new `procedure-struct-type?'
+

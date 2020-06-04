@@ -1,0 +1,418 @@
+From apache@plt-scheme.org Mon Jul 17 23:03:52 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.13.6/8.13.6) with ESMTP id k6I33qZ7026664
+	for <bugs@plt-scheme.org>; Mon, 17 Jul 2006 23:03:52 -0400
+Message-Id: <200607180303.k6I33qJs026663@champlain.ccs.neu.edu>
+Date: Mon, 17 Jul 2006 23:03:52 -0400
+From: kim.burchett@gmail.com
+To: bugs@plt-scheme.org
+Subject: interaction between local-expand, macros that refer to other macros, and define
+
+>Number:         8171
+>Category:       mzscheme
+>Synopsis:       interaction between local-expand, macros that refer to other macros, and define
+>Class:          sw-bug
+>Responsible:    mflatt
+>Notify-List:    robby@cs.uchicago.edu
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Jul 17 23:05:01 -0400 2006
+>Last-Modified:  Mon Jul 24 20:00:01 -0400 2006
+>Originator:     Kimberley Burchett
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        350
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Program Files\\PLT\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Collections:
+(("C:\\Documents and Settings\\Haley\\Application Data\\PLT Scheme\\350\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tex2page" "texpict" "trace" "version" "web-server" "xml"))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Pretty Big (includes MrEd and Advanced Student)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+I believe the following code should work, but instead it prints an error on the very last line, saying "expand: unbound variable in module in: foo"
+
+(module funtime mzscheme
+  (define-syntax (optimize stx)
+    (syntax-case stx ()
+      [(_ EXPR)
+       (local-expand #'EXPR 'top-level ())]))
+  (define-syntax fun-module-begin
+    (syntax-rules ()
+      [(_ EXPR ...)
+       (#%module-begin 
+          (optimize (begin EXPR ...)))]))
+  (provide (rename fun-module-begin #%module-begin))
+  (provide #%top define))
+(module sandbox funtime
+  (define (foo)
+    foo))
+
+If I inline the call to optimize, then I get no error:
+
+  (define-syntax (fun-module-begin stx)
+    (syntax-case stx ()
+      [(_ EXPR ...)
+       #`(#%module-begin 
+          #,(local-expand #'(begin EXPR ...) 'top-level ()))]))
+
+Similarly, if I replace local-expand with expand then I get no error.  Unfortunately in my real program I get other errors if I use expand instead of local-expand (IIRC, I get "error in compiled code" or somesuch).
+
+Working around this is a bit tricky for me because fun-module-begin and optimize are defined in different modules, and if I change optimize to use define-for-syntax instead of define-syntax, then I can no longer export it from the module it's in.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: kim.burchett@gmail.com, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8171: interaction between local-expand, macros that refer to other macros, and define
+Date: Mon, 17 Jul 2006 20:34:16 -0700
+
+ At Mon, 17 Jul 2006 23:05:02 -0400, kim.burchett@gmail.com wrote:
+ > (module funtime mzscheme
+ >   (define-syntax (optimize stx)
+ >     (syntax-case stx ()
+ >       [(_ EXPR)
+ >        (local-expand #'EXPR 'top-level ())]))
+                               ^^^^^^^^^^
+ 
+ It's not a top-level expression. That should be 'module.
+ 
+ If you expand with 'module, then you'll get an error about a bad
+ context for `define-values'. That's because a module body is always
+ expanded with `define-values' in the stop list.
+ 
+ Meanwhile, using 'top-level causes the `foo' reference to be expanded
+ as `(#%top . foo)', which means "the `foo' outside of any module".
+ 
+ Simply adding #'define-values to the stop list will let you make some
+ progress:
+ 
+  (module funtime mzscheme
+    (define-syntax (optimize stx)
+      (syntax-case stx ()
+        [(_ EXPR)
+         (local-expand #'EXPR 'top-level (list #'define-values))]))
+ 
+ This is unlikely to be enough in the long run, though. 
+ 
+ 
+ Take a look at
+ 
+     plt/collects/lang/private/contracts/contracts-module-begin.ss
+ 
+ to see a general strategy for inspecting the expansion of a module
+ body. Each `module-begin' macro shifts into `module-continue' mode,
+ which bounces back and forth between the primitive macro expander and
+ `module-continue'. The `module-continue' part expands far enough to
+ detect definitions --- especially syntax definitions and requires ---
+ and bounce those back to the primitive module expander.
+ 
+ If you can optimize locally, you can just wrap each discovered
+ expression as
+ 
+  (begin0 (optimize-expr <expr>))
+ 
+ The `begin0' let's the primitive module expander know that it's an
+ expression, and it won't try to expand further until all definitions
+ are available. Then, `optimize-expr' can local-expand its body in an
+ expression context.
+ 
+ If you need to see all definitions before optimizing, that's even
+ trickier. The general strategy is to move all run-time expressions to
+ the end (so that all imports are available, etc.), and then you can
+ expand each expressions in an expression context. But module top-level
+ definitions will be tricky; you'll need to let the primitive module
+ expander see all top-level definitions before expanding expressions (so
+ the macro expander knows what module-level bindings are available), but
+ you don't want to give up control of the definition's right-hand side
+ until you've optimized it. You may have to introduce explicit
+ indirections for the RHS of definitions.
+ 
+ Matthew
+ 
+
+From: "Kimberley Burchett" <kim.burchett@gmail.com>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, sk@cs.brown.edu, greg@cs.brown.edu
+Subject: Re: all/8171: interaction between local-expand, macros that refer to other macros, and define
+Date: Sat, 22 Jul 2006 12:24:10 -0400
+
+ Matthew,
+ 
+ Thank you *very* much for your response.  It has taken me a while to
+ digest your suggestions.
+ 
+ On 7/17/06, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > Simply adding #'define-values to the stop list will let you make some
+ > progress... This is unlikely to be enough in the long run, though.
+ 
+ Indeed, I didn't get very far at all with that approach, since I also
+ need to traverse expressions, not just top-level bindings.  :)
+ 
+ > Take a look at
+ >     plt/collects/lang/private/contracts/contracts-module-begin.ss
+ > to see a general strategy for inspecting the expansion of a module
+ > body.
+ 
+ This was very helpful.  After looking it over for a couple hours, I
+ came to the conclusion that the approach it uses is (I hope) more
+ involved than what I need, mainly because the contract code introduces
+ new top-level syntax which needs to be rewritten before the module can
+ be properly expanded.  In contrast, what I'm doing is pure
+ optimization, and introduces no new syntax at all.  In the worst case,
+ I can just throw up my hands and return the original code, unmodified.
+ 
+ After trying a few more dead ends, I've come up with a relatively
+ simple approach that I'd like your opinion on.  My module-begin macro
+ hands its syntax off to a function which does a depth-first traversal
+ over the AST.  Previously I had tried to do a local-expand on that AST
+ before handing it off for traversal.  My new approach simply modifies
+ the traversal so that the first thing it checks for is whether the
+ syntax has an associated syntax transformer.  If so, it applies the
+ syntax transformer and repeats.  Code snippet:
+ 
+   (define (optimize-expr stx)
+     (syntax-case stx ()
+       [(macro . _)
+        (syntax-local-value #'macro (lambda () #f))
+        (let ([expanded-stx ((syntax-local-value #'macro) stx)])
+          (optimize-expr ctx expanded-stx allow-lambda))]
+       ...))
+ 
+ This seems to work reasonably well, as long as I manage to avoid
+ errors about using identifiers in an uncertified context.  (The
+ "uncertified context" error unfortunately seems to be inherent in my
+ approach, since optimization basically consists of destructuring and
+ restructuring expressions -- I'm hoping that figuring out module
+ expansion won't turn out to be a pyrrhic victory).  Currently this
+ only processes definitions in left-to-right order, but once I get that
+ reasonably solid, I will revisit to support definitions in any order.
+ 
+ Does this seem like a reasonable approach?  Am I missing something
+ subtle (or not so subtle)?  I'm aware of rename transformers, btw.
+ 
+ > If you can optimize locally, you can just wrap each discovered
+ > expression as (begin0 (optimize-expr <expr>))
+ 
+ I may eventually be forced to explore this alternative, but it seems
+ like it would require some cleverness to get each top-level definition
+ to be aware of the optimized version of other top-level definitions.
+ I expect I would need to bind dummy indentifiers to expand-time
+ values, along the lines of what define-struct does with struct names.
+ I'm hoping I won't have to change my approach quite so drastically.
+ 
+ -- 
+ Kimberley Burchett
+ http://www.kimbly.com/
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Kimberley Burchett" <kim.burchett@gmail.com>
+Cc: bugs@plt-scheme.org, sk@cs.brown.edu, greg@cs.brown.edu
+Subject: Re: all/8171: interaction between local-expand, macros that refer to other macros, and define
+Date: Sun, 23 Jul 2006 07:00:51 -0600
+
+ At Sat, 22 Jul 2006 12:24:10 -0400, "Kimberley Burchett" wrote:
+ > My new approach simply modifies
+ > the traversal so that the first thing it checks for is whether the
+ > syntax has an associated syntax transformer.  If so, it applies the
+ > syntax transformer and repeats.  Code snippet:
+ > 
+ >   (define (optimize-expr stx)
+ >     (syntax-case stx ()
+ >       [(macro . _)
+ >        (syntax-local-value #'macro (lambda () #f))
+ >        (let ([expanded-stx ((syntax-local-value #'macro) stx)])
+ >          (optimize-expr ctx expanded-stx allow-lambda))]
+ >       ...))
+ 
+ You need a bit more to make this work.
+ 
+ The problem is that you're taking over the role of the built-in macro
+ expander, so you need to do all the things that the built-in macro
+ expander does, including:
+ 
+  * Apply a fresh mark to both the input and output (where the marks
+    cancel, so only introduced syntax stays marked):
+ 
+      (let ([m (syntax-local-introducer)])
+        (m ((syntax-local-value #'macro) (m stx))))
+ 
+    This is important for maintaining hygiene.
+ 
+  * Introduce and propagate certificates. Unfortunately, you can't do
+    this without changing the implementation of transformers.
+ 
+    [In general, MzScheme gives you the tools to implement your own
+    macro expander, but only if you implement all parts. Allowing you to
+    implement only the outside half would be a security hole.]
+ 
+  * Add to the 'origin property to track the expansion history. This
+    step can be skipped if you don't care about things like Check Syntax
+    arrows.
+ 
+ So, certificates are the big problem, as you noticed already.
+ 
+ Instead of having to do all of this, probably MzScheme should supply an
+ operation for performing a single expansion in the way that you want.
+ The operations exists internally, so it should be easy to add. I can
+ add it right after v351 is released.
+ 
+ > Does this seem like a reasonable approach?  Am I missing something
+ > subtle (or not so subtle)?
+ 
+ I see that this approach lets you stop traversing an expression if you
+ reach a not-yet-defined identifiers. For example, in
+ 
+   (define (g) (f 10))
+   (define-syntax f (syntax-rules () [(_ x) x]))
+ 
+ expansion of `(f 10)' can't work until the definition of macro `f' is
+ seen. By controlling the exploration of the expression, you can just
+ give up when you reach `f'. Maybe that's the key.
+ 
+ And "giving up" might mean inserting a `continue-optimize' macro where
+ you pick up later --- essentially making the optimization exploration
+ lazy. That's pretty cool.
+ 
+ (In fact, I can imagine converting a top-level `define-values' into a
+ pair of `define-syntaxes' and `define-values', where the syntax half
+ propagates the information discovered from a partial traversal of the
+ definition. In other words, you could use syntax bindings to propagate
+ optimization information from definitions to uses. That technique might
+ be interesting if you eventually consider cross-module optimization.)
+ 
+ 
+ I still think you'll still need to use the "contracts-module-begin.ss"
+ trick to feed expressions to your optimizer, though. That way, you at
+ least get common cases like
+ 
+   (define-syntax f (syntax-rules () [(_ x) x]))
+   (define (g) (f 10))
+ 
+ since bounding the `define-syntax' back to the module expander makes
+ the macro visible for `g'.
+ 
+ Matthew
+ 
+From: "Kimberley Burchett" <kim.burchett@gmail.com>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, sk@cs.brown.edu, greg@cs.brown.edu
+Subject: Re: all/8171: interaction between local-expand, macros that refer to other macros, and define
+Date: Sun, 23 Jul 2006 19:30:56 -0400
+
+ On 7/23/06, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >  * Introduce and propagate certificates. Unfortunately, you can't do
+ >    this without changing the implementation of transformers.
+ 
+ Hmm... Sounds like a dead-end without the helper function you mention :(
+ 
+ > Instead of having to do all of this, probably MzScheme should supply an
+ > operation for performing a single expansion in the way that you want.
+ > The operations exists internally, so it should be easy to add. I can
+ > add it right after v351 is released.
+ 
+ What would be the contract for this function?  It sounds like it would
+ take a syntax object and applying any syntax transformer, while
+ properly handling marks, certificates and 'origin.  That would be
+ helpful if I stick with this approach.  At a minimum, such a thing
+ would help with debugging macros (expand-once seems to be
+ distressingly big-step).
+ 
+ When is the target for 351?
+ 
+ > (In fact, I can imagine converting a top-level `define-values' into a
+ > pair of `define-syntaxes' and `define-values', where the syntax half
+ > propagates the information discovered from a partial traversal of the
+ > definition. In other words, you could use syntax bindings to propagate
+ > optimization information from definitions to uses. That technique might
+ > be interesting if you eventually consider cross-module optimization.)
+ 
+ That's pretty much what I've been planning.  I haven't actually gotten
+ far enough to try it yet, though :)  Still stuck on simple
+ definitions.
+ 
+ > I still think you'll still need to use the "contracts-module-begin.ss"
+ > trick to feed expressions to your optimizer, though.
+ 
+ You're right.  I modified my code to use this approach and it's a very
+ clean way of handling top-level definitions and syntax extensions.
+ Thanks again for the pointer.
+ 
+ -- 
+ Kimberley Burchett
+ http://www.kimbly.com/
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Kimberley Burchett" <kim.burchett@gmail.com>
+Cc: bugs@plt-scheme.org, sk@cs.brown.edu, greg@cs.brown.edu
+Subject: Re: all/8171: interaction between local-expand, macros that refer to other macros, and define
+Date: Mon, 24 Jul 2006 06:59:05 -0600
+
+ At Sun, 23 Jul 2006 19:30:56 -0400, "Kimberley Burchett" wrote:
+ > On 7/23/06, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > > Instead of having to do all of this, probably MzScheme should supply an
+ > > operation for performing a single expansion in the way that you want.
+ > > The operations exists internally, so it should be easy to add. I can
+ > > add it right after v351 is released.
+ > 
+ > What would be the contract for this function?
+ 
+ Instead of adding a new function, I changed `local-expand' (and all its
+ variants) to accept #f in place of the stop list. A #f means "keep
+ expanding only as long as the outermost form is a macro use".
+ 
+ There's a bug that I will fix in the coming weeks. The `let', `let*',
+ and `let*-values' forms will not macro expand to `let-values'. They
+ don't expand because they're implemented as "primitive" macros in
+ MzScheme. I will fix this by making them regular macros (which I need
+ to do for other reasons). For now, though, I imagine you can easily
+ work around it.
+ 
+ Matthew
+ 
+
+From: "Kimberley Burchett" <kim.burchett@gmail.com>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, sk@cs.brown.edu, greg@cs.brown.edu
+Subject: Re: all/8171: interaction between local-expand, macros that refer to other macros, and define
+Date: Mon, 24 Jul 2006 19:53:31 -0400
+
+ On 7/24/06, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > Instead of adding a new function, I changed `local-expand' (and all its
+ > variants) to accept #f in place of the stop list. A #f means "keep
+ > expanding only as long as the outermost form is a macro use".
+ 
+ Is there a reason that you didn't just make it expand at most once,
+ rather than recursing on the top-level?  One of the neat tricks that
+ the approach lets me do is to intercept certain macros for special
+ handling (e.g. frtime's "if").  But if there was a macro that expanded
+ immediately to a different macro that I wanted to handle specially, I
+ wouldn't be able to intercept it in time.
+ 
+ -- 
+ Kimberley Burchett
+ http://www.kimbly.com/
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Kimberley Burchett" <kim.burchett@gmail.com>
+Cc: bugs@plt-scheme.org, sk@cs.brown.edu, greg@cs.brown.edu
+Subject: Re: all/8171: interaction between local-expand, macros that refer to other macros, and define
+Date: Mon, 24 Jul 2006 17:57:42 -0600
+
+ At Mon, 24 Jul 2006 19:53:31 -0400, "Kimberley Burchett" wrote:
+ > On 7/24/06, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > > Instead of adding a new function, I changed `local-expand' (and all its
+ > > variants) to accept #f in place of the stop list. A #f means "keep
+ > > expanding only as long as the outermost form is a macro use".
+ > 
+ > Is there a reason that you didn't just make it expand at most once,
+ > rather than recursing on the top-level? 
+ 
+ Only because that's what the existing internal function does. I can
+ certainly make it perform only one expansion.
+ 
+ Matthew
+ 

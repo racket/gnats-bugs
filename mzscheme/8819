@@ -1,0 +1,98 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jul 23 09:59:05 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.231])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l6NDx500009095
+	for <bugs@bugs.plt-scheme.org>; Mon, 23 Jul 2007 09:59:05 -0400
+Message-Id: <200707231359.l6NDx1DL009090@champlain.ccs.neu.edu>
+Date: Mon, 23 Jul 2007 09:59:01 -0400
+From: offby1@blarg.net
+To: bugs@plt-scheme.org
+Subject: I would like "command-line" to allow me to validate flag-specific arguments.
+
+>Number:         8819
+>Category:       mzscheme
+>Synopsis:       I would like "command-line" to allow me to validate flag-specific arguments.
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Jul 23 10:00:01 -0400 2007
+>Last-Modified:  Tue May 03 16:34:11 -0400 2011
+>Originator:     Eric Hanchrow
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        370.6
+>Environment:
+unix "Linux erich-laptop 2.6.20-16-generic #2 SMP Thu Jun 7 20:19:32 UTC 2007 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/usr/local/stow/plt-scheme/share/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "guide" "quick" "reference" "release-notes" "scribble" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced") (* "/home/erich/.plt-scheme/planet/300/370.6/cache/neil/htmlprag.plt/1/3/doc"))
+Human Language: english
+(current-memory-use) 61919816
+
+Collections:
+(("/home/erich/.plt-scheme/370.6/collects" non-existent-path) ("/usr/local/stow/plt-scheme/lib/plt/collects" "compiler" "xml" "syntax" "wxme" "r5rs" "html" "mysterx" "games" "string-constants" "plot" "combinator-parser" "profjWizard" "graphics" "skipper" "teachpack" "slatex" "xelda" "dynext" "honu-module" "launcher" "lazy" "trace" "afm" "sgl" "errortrace" "defaults" "framework" "profj" "preprocessor" "htdch" "mzscheme" "stepper" "big" "swindle" "texpict" "syntax-color" "version" "waterworld" "mred" "tests" "handin-client" "mztake" "macro-debugger" "embedded-gui" "net" "browser" "srfi" "slideshow" "icons" "handin-server" "openssl" "scribble" "tex2page" "parser-tools" "lang" "config" "mrlib" "drscheme" "web-server" "mzcom" "repos-time-stamp" "planet" "algol60" "scribblings" "info-domain" "mrflow" "frtime" "sirmail" "guibuilder" "help" "hierlist" "make" "ffi" "mzlib" "srpersist" "htdp" "readline" "eopl" "setup" "r6rs"))
+>Description:
+What do I mean by this?  Let's say my program has a global parameter "*haircut-interval*" that should be an integer, and I want to be able to set that value from the command line.  If I get the command line wrong, I would like an error message that says what I did wrong, along with the same output that I would have gotten if I had passed the "--help" flag, like this:
+
+        mzscheme -qr cmdline-suggestion.ss --haircut-interval never
+        --haircut-interval: Yo, I want an exact positive integer, not "never"
+        Allow me to show you the proper syntax:
+        yo [ <option> ... ]
+         where <option> is one of
+          --haircut-interval <secs> : Seconds to wait before getting a haircut
+          --help, -h : Show this help
+          -- : Do not treat any remaining argument as a switch (at this level)
+
+I can come pretty close to this with the attached program, but it has some flaws:
+
+* The error message that it emits refers to the name of the parameter, not the flag.  This is less useful for the user, who doesn't care about the names of internal objects inside the program
+
+* I had to go to some effort to raise an error, catch it, and then re-invoke the command-line parser with the "--help" option.
+
+It's that second bit that I wish command-line would do for me.  Specifically, it could evaluate the flag-specs "body-exprs" inside an exception handler; that handler would "pass through" all exceptions except for those of a particular type "exn:fail:user:cmdline".  But if it got an exception of that type, it would display the message to current-error-port, then display the "--help" message, then exit.
+
+That would allow me to eliminate the weird "with-handlers" form (and move the type checks from the parameter's guard procedure into the flag-spec's body-expr), and be confident that, if "cmdline-parser" returns, all the options' values were acceptable to me.
+>How-To-Repeat:
+;; pass "--haircut-interval never" and look at the error message
+
+(require  (lib "cmdline.ss"))
+
+(define *haircut-interval*
+  (make-parameter
+   20
+   (lambda (value)
+     (if (and (number? value)
+              (integer? value)
+              (exact? value)
+              (positive? value))
+         value
+       (raise-user-error
+        '*haircut-interval*
+        "Yo, I want an exact positive integer, not ~s"
+        value)))))
+
+(define (cmdline-parser argvector)
+  (command-line
+   "yo"
+   argvector
+   (once-each
+    (("--haircut-interval") secs "Seconds to wait before getting a haircut"
+     (*haircut-interval* secs))
+    )))
+
+(with-handlers
+    ((exn:fail:user?
+      (lambda (exn)
+        (display (exn-message exn)
+                 (current-error-port))
+        (newline (current-error-port))
+        (fprintf (current-error-port)
+                 "Allow me to show you the proper syntax:~%")
+        (cmdline-parser (vector "--help")))))
+  (cmdline-parser (current-command-line-arguments)))
+
+(printf "Everything is good: *haircut-interval* is ~s~%"
+        (*haircut-interval*))
+>Fix:

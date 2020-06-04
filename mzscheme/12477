@@ -1,0 +1,169 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jan 11 11:28:13 2012
+Received: from mail-vw0-f44.google.com (mail-vw0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q0BGSABp001301
+	for <bugs@bugs.plt-scheme.org>; Wed, 11 Jan 2012 11:28:10 -0500
+Message-Id: <201201111628.q0BGS67A001285@champlain.ccs.neu.edu>
+Date: Wed, 11 Jan 2012 11:28:06 -0500
+From: gustavo@oma.org.ar
+To: bugs@racket-lang.org
+Subject: DrRacket crashes displaying syntax
+
+>Number:         12477
+>Category:       mzscheme
+>Synopsis:       DrRacket crashes displaying syntax
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jan 11 11:32:01 -0500 2012
+>Closed-Date:    Thu Mar 21 16:29:45 -0400 2013
+>Last-Modified:  Thu Mar 21 16:29:45 -0400 2013
+>Originator:     Gustavo Massaccesi
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 101320352
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("C:\\Documents and Settings\\User\\Datos de programa\\Racket\\5.2\\collects"
+ (non-existent-path))
+("C:\\Archivos de programa\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Legacy Languages" "Pretty Big") #(#t trad-write mixed-fraction-e #f #t debug #t))
+>Description:
+DrRacket crashes trying to show the syntax obtained from the second value of syntax-local-value/immediate evaluated in a rename-transformer.
+>How-To-Repeat:
+Run the following program:
+;---
+
+#lang racket
+
+(define-syntax ++ (make-rename-transformer #'+))
+
+(define-syntax (displayln-syntax-local-value/immediate stx)
+  (syntax-case stx ()
+    [(_ id) 
+     (displayln 
+      (let-values ([(x y)
+                    (syntax-local-value/immediate #'id)])
+        y))])
+  #'(void))
+>Fix:
+>Audit-Trail:
+From: Gustavo Massaccesi <gustavo@oma.org.ar>
+To: Bugs Racket <bugs@racket-lang.org>,
+        Bug Notification Racket <bug-notification@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/12477: DrRacket crashes displaying syntax
+Date: Thu, 21 Mar 2013 17:11:40 -0300
+
+ More info about this old bug.
+ I simplified the program a lot. The new version is
+ ;---------------
+ #lang racket
+ #;(require (for-syntax racket/unsafe/ops))
+ 
+ (define-syntax (displayln-syntax-local-value/immediate stx)
+    (syntax-case stx ()
+      [(_ id)
+       (let-values ([(x y)
+                     (syntax-local-value/immediate #'id)])
+         (syntax-source y) ;==> ignored NULL pointer
+         (arithmetic-shift (syntax-source y) 0) ;==> [segfault]
+         #;(displayln (unsafe-fxlshift (syntax-source y) 0)) ;==>0
+         (void))])
+    #'(void))
+ (define-syntax ++ (make-rename-transformer #'+))
+ (displayln-syntax-local-value/immediate ++)
+ ;---------------
+ 
+ The problem was not in the display routines of DrRacket. They
+ indirectly called syntax-source.
+ 
+ In the program, the result of (syntax-source y) is a null pointer (aka
+ 0x0000), and Racket crashes trying to use it.
+ 
+ I don't know how to test for a null pointer in Racket, because they
+ supposedly don't exist, but (unsafe-fxlshift x 0) almost transforms
+ the pointer in a fixnum. (I think it only loose 2 bits.)
+ 
+ 
+ On Wed, Jan 11, 2012 at 1:32 PM,  <bugs@racket-lang.org> wrote:
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/12477'.
+ > You can check on the status of your problem report at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=12477
+ >
+ > If you wish to provide further information regarding this problem
+ > you can do so as a reply to this message.  (But please make sure
+ > that your mailer replies to both "bugs" and "bug-notification".)
+ >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Gustavo Massaccesi <gustavo@oma.org.ar>
+Cc: Bugs Racket <bugs@racket-lang.org>,
+        Bug Notification Racket <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12477: DrRacket crashes displaying syntax
+Date: Thu, 21 Mar 2013 14:25:31 -0600
+
+ Thanks!
+ 
+ At Thu, 21 Mar 2013 17:11:40 -0300, Gustavo Massaccesi wrote:
+ > More info about this old bug.
+ > I simplified the program a lot. The new version is
+ > ;---------------
+ > #lang racket
+ > #;(require (for-syntax racket/unsafe/ops))
+ > 
+ > (define-syntax (displayln-syntax-local-value/immediate stx)
+ >    (syntax-case stx ()
+ >      [(_ id)
+ >       (let-values ([(x y)
+ >                     (syntax-local-value/immediate #'id)])
+ >         (syntax-source y) ;==> ignored NULL pointer
+ >         (arithmetic-shift (syntax-source y) 0) ;==> [segfault]
+ >         #;(displayln (unsafe-fxlshift (syntax-source y) 0)) ;==>0
+ >         (void))])
+ >    #'(void))
+ > (define-syntax ++ (make-rename-transformer #'+))
+ > (displayln-syntax-local-value/immediate ++)
+ > ;---------------
+ > 
+ > The problem was not in the display routines of DrRacket. They
+ > indirectly called syntax-source.
+ > 
+ > In the program, the result of (syntax-source y) is a null pointer (aka
+ > 0x0000), and Racket crashes trying to use it.
+ > 
+ > I don't know how to test for a null pointer in Racket, because they
+ > supposedly don't exist, but (unsafe-fxlshift x 0) almost transforms
+ > the pointer in a fixnum. (I think it only loose 2 bits.)
+ > 
+ > 
+ > On Wed, Jan 11, 2012 at 1:32 PM,  <bugs@racket-lang.org> wrote:
+ > > Thank you very much for your problem report.
+ > > It has the internal identification `all/12477'.
+ > > You can check on the status of your problem report at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=12477
+ > >
+ > > If you wish to provide further information regarding this problem
+ > > you can do so as a reply to this message.  (But please make sure
+ > > that your mailer replies to both "bugs" and "bug-notification".)
+ > >
+State changed from "open" to "closed" by mflatt@racket-lang.org at Thu, 21 Mar 2013 16:29:45 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/3886b7702e
+  | fix for `syntax-local-value/immediate'
+  | 
+  | The source locaiton on the second result was mangled.
+  | 
+  | Closes PR 12477
+

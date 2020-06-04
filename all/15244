@@ -1,0 +1,144 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Feb 10 04:32:51 2016
+Received: from mail-io0-f178.google.com (mail-io0-f178.google.com [209.85.223.178])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id u1A9Wnv6002664
+	for <bugs@bugs.plt-scheme.org>; Wed, 10 Feb 2016 04:32:49 -0500
+Message-Id: <201602100932.u1A9WhO7002657@winooski.ccs.neu.edu>
+Date: Wed, 10 Feb 2016 04:32:43 -0500
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Using multiple values is more expensive than regular bindings
+
+>Number:         15244
+>Category:       all
+>Synopsis:       Using multiple values is more expensive than regular bindings
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Feb 10 04:36:01 -0500 2016
+>Last-Modified:  Wed Feb 10 10:48:01 -0500 2016
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2593.0 Safari/537.36
+>Description:
+I expect that using multiple values in the for:
+(let-values ([(a b c) (values expr-a expr-b expr-c)]) <body>)
+
+is just as expensive as
+
+(let-values ([(a) expr-a] [(b) expr-b] [(c) expr-c]) <body>)
+
+especially when it is very obvious that the exprs return single values. Other than the exprs not returning a single value and thus getting a possibly different error message, I don't see how these expressions are distinguishable.
+
+This is coming from a macro where it is easier to generate the first case.
+>How-To-Repeat:
+#lang racket/base
+
+
+
+(define f
+  (lambda (a b c)
+    (let-values ([(x y z) (values (+ a a) (+ b b) (+ c c))])
+      (+ x x y y z z))))
+
+(define g
+  (lambda (a b c)
+    (let-values ([(x) (+ a a)]
+                 [(y) (+ b b)]
+                 [(z) (+ c c)])
+      (+ x x y y z z))))
+
+
+(for ([j (in-range 3)])
+  (collect-garbage)
+  (collect-garbage)
+  (collect-garbage)
+  (time 
+    (for ([i (in-range 100000000)])
+      (when (odd? (f i (add1 i) (sub1 i)))
+        (displayln 'x))))
+  (collect-garbage)
+  (collect-garbage)
+  (collect-garbage)
+  
+  (time 
+    (for ([i (in-range 100000000)])
+      (when (odd? (g i (add1 i) (sub1 i)))
+        (displayln 'x)))))
+
+
+output:
+
+cpu time: 1432 real time: 1432 gc time: 0
+cpu time: 1101 real time: 1102 gc time: 0
+cpu time: 1429 real time: 1429 gc time: 0
+cpu time: 1102 real time: 1102 gc time: 0
+cpu time: 1446 real time: 1446 gc time: 0
+cpu time: 1105 real time: 1106 gc time: 0
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15244: Using multiple values is more expensive than regular bindings
+Date: Wed, 10 Feb 2016 10:37:38 -0500
+
+ On Feb 10, 2016, at 4:36 AM, eric.n.dobson@gmail.com wrote:
+ 
+ > I expect that using multiple values in the for:
+ > (let-values ([(a b c) (values expr-a expr-b expr-c)]) <body>)
+ > 
+ > is just as expensive as
+ > 
+ > (let-values ([(a) expr-a] [(b) expr-b] [(c) expr-c]) <body>)
+ > 
+ > especially when it is very obvious that the exprs return single values. Other than the exprs not returning a single value and thus getting a possibly different error message, I don't see how these expressions are distinguishable.
+ > 
+ > This is coming from a macro where it is easier to generate the first case.
+ 
+ 
+ I think this is the whole point of Dybvig's original paper about multiple values; all you get is different error messages. 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: eric.n.dobson@gmail.com, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15244: Using multiple values is more expensive than regular bindings
+Date: Wed, 10 Feb 2016 08:47:15 -0700
+
+ The optimizer's failure here is due to its atrociously bad intermediate
+ representation, where it's difficult for the optimizer to split that
+ `let-values` into `let` without reordering the expressions. Since the
+ optimizer can't reorder calls to `+` that might fail, it gives up on
+ splitting. (If you use `unsafe-fx+` in place of `+`, for example, then
+ you'll get the compilation that you expect, since the expressions can
+ be reordered.)
+ 
+ This is the sort of thing that a new compiler would get right, of
+ course.
+ 
+ At Wed, 10 Feb 2016 10:37:38 -0500, Matthias Felleisen wrote:
+ > 
+ > On Feb 10, 2016, at 4:36 AM, eric.n.dobson@gmail.com wrote:
+ > 
+ > > I expect that using multiple values in the for:
+ > > (let-values ([(a b c) (values expr-a expr-b expr-c)]) <body>)
+ > > 
+ > > is just as expensive as
+ > > 
+ > > (let-values ([(a) expr-a] [(b) expr-b] [(c) expr-c]) <body>)
+ > > 
+ > > especially when it is very obvious that the exprs return single values. 
+ > Other than the exprs not returning a single value and thus getting a possibly 
+ > different error message, I don't see how these expressions are distinguishable.
+ > > 
+ > > This is coming from a macro where it is easier to generate the first case.
+ > 
+ > 
+ > I think this is the whole point of Dybvig's original paper about multiple 
+ > values; all you get is different error messages. 

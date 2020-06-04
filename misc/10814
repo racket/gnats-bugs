@@ -1,0 +1,178 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Mar  5 17:04:38 2010
+Received: from mail-yw0-f197.google.com (mail-yw0-f197.google.com [209.85.211.197])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o25M4a2O002110
+	for <bugs@bugs.plt-scheme.org>; Fri, 5 Mar 2010 17:04:36 -0500
+Message-Id: <201003052204.o25M4YN7002087@champlain.ccs.neu.edu>
+Date: Fri, 5 Mar 2010 17:04:34 -0500
+From: newton@mit.edu
+To: bugs@plt-scheme.org
+Subject: Problem with 'include'd file macro-def, not in 4.1 appears in 4.2.2, 4.2.3.4, and 4.2.4 
+
+>Number:         10814
+>Category:       misc
+>Synopsis:       Problem with 'include'd file macro-def, not in 4.1 appears in 4.2.2, 4.2.3.4, and 4.2.4
+>Class:          sw-bug
+>Responsible:    ryanc
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Mar 05 17:08:02 -0500 2010
+>Closed-Date:    Tue May 03 18:40:43 -0400 2011
+>Last-Modified:  Mon Feb 18 23:53:34 -0500 2013
+>Originator:     Ryan Newton
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.4
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.6; en-US; rv:1.9.1.8) Gecko/20100202 Firefox/3.5.8
+>Description:
+I have an R6RS codebase which runs under ikarus, chez, and plt.  Recently, (plt >4.1) I started running into an odd compile problem.
+
+I happen to have a library which has part of its guts split out into another file (and pulled back in via include).  (I think it wasn't its own module because of recursive dependencies.)
+
+I also happen to have redefined "include" because I needed it to be relative to a particular absolute path.
+
+The combination of these things seems to result in a spurious "__ is undefined" error when the include-ee tries to access something defined in the include-er. 
+
+I've boiled the problem down to the attached three small files.  Triggering the problem does seem to require a combination of factors.  There are three files:
+
+  test.sls -- main module that does the "myinclude"
+  lib/test2.sls -- file that is "myinclude"d
+  lib/test3.sls -- file that defines "myinclude"
+
+One thing you will see is that if myinclude is defined in test.sls, NOT in test3.sls, then the problem doesn't occur.  (Likewise it doesn't occur when using the PLT builtin include directly.)
+
+Another oddity is that changing the name of the variable that is "undefined" changes the error message.  If you change it to "x" you will get "identifier used out of context in: x".
+
+Good luck!
+  -Ryan
+>How-To-Repeat:
+Note, I also posted a tarball, which is easier than dissecting what's below:
+   http://people.csail.mit.edu/newton/temp/possible_include_bug.tgz
+
+After copying the follow code listings to their corresponding files,
+they should be runnable with:
+  export THEDIR=`pwd`
+  export PLTCOLLECTS=:$THEDIR
+  mzscheme -t test.sls
+
+
+test.sls
+================================================================================
+#!r6rs
+(library  (test)
+  (export )
+  (import (rnrs (6))
+
+          ;; Why does this not work, just expand?
+	  ;(for (lib test3) expand)
+	  (for (lib test3) run expand)
+
+	  (for (only (scheme base) getenv file) run expand)
+	  (for (prefix (scheme include) plt:)   run expand)
+	  (for (rnrs eval (6))                  run expand)
+   )
+
+  ;; If I define my version of include here, it works!
+  ;; If I pull the definition of myinclude from (lib test3), it fails!
+#;
+ (define-syntax myinclude
+    (lambda (x)
+      (syntax-case x ()
+        [(_ fn)
+	 (let ([regd (getenv "THEDIR")])
+	   (let ((path (string-append regd "/" (syntax->datum #'fn))))
+	     (display "Include resolved to: ") (display path) (newline)
+	     #`(plt:include (file #,(datum->syntax #'_ path)))
+      	     ))])))
+
+
+  ;; Define something here and use it in the included file:
+  ;; ------------------------------------------------------------
+  ;; These get an unbound identifier error:
+  (define hatch 3) 
+  
+  ;; This gets a different error (identifier used out of context):
+  ;(define x 3) 
+
+
+  ;; Include the file:
+  ;; ------------------------------------------------------------
+  ;; A normal PLT include works, but my version doesn't:
+  ;(plt:include "test2.sls")
+  (myinclude "lib/test2.sls")
+)
+
+lib/test2.sls
+================================================================================
+
+;(define y (match 3 [3 4]))
+;(define y match)
+(define y hatch)
+
+;; 
+;(define y x)
+
+(display "Included file..\n")
+
+lib/test3.sls
+================================================================================
+#!r6rs
+(library (test3)
+  (export myinclude)
+  (import 
+          (rnrs (6))
+	  (for (rnrs eval (6)) run expand)
+	  (for (only (scheme base) getenv file) run expand)
+	  (prefix (only (scheme include) include) plt:)
+	  )
+ (define-syntax myinclude
+    (lambda (x)
+      (syntax-case x ()
+        [(_ fn)
+	 (let ([regd (getenv "THEDIR")])
+	   (let ((path (string-append regd "/" (syntax->datum #'fn))))
+	     (display "Include resolved to: ") (display path) (newline)
+	     #`(plt:include (file #,(datum->syntax #'_ path)))
+      	     ))])))
+)
+
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: newton@mit.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10814: Problem with 'include'd file macro-def, not in 4.1 appears in 4.2.2, 4.2.3.4, and 4.2.4
+Date: Fri, 5 Mar 2010 19:55:01 -0700
+
+ By default, the lexical context that `include' gives the code that it
+ reads is the context of the `(include ...)' form itself. If you put
+ `(plt:include ...)' in "test3.sls", then then included code gets the
+ context from "test3.sls" instead of "test.sls".
+ 
+ The simplest solution is to use `include-at/relative-to', which lets
+ you provide a form whose context is used for the included code:
+ 
+  #`(plt:include-at/relative-to fn fn (file #,(datum->syntax #'_ path)))
+ 
+ 
+ > Another oddity is that changing the name of the variable that is
+ > "undefined" changes the error message. If you change it to "x" you will
+ > get "identifier used out of context in: x".
+ 
+ I'm not following why that's odd. What did you expect?
+ 
+ 
+ Hope that helps,
+ Matthew
+ 
+
+State changed from "open" to "closed" by ryanc at Tue, 03 May 2011 18:40:43 -0400
+Reason>>> answered
+
+
+Responsible changed from "nobody" to "ryanc" by eli at Mon, 18 Feb 2013 23:53:34 -0500
+Reason>>> ryanc closed
+

@@ -1,0 +1,135 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jan 10 19:03:51 2013
+Received: from mail-oa0-f49.google.com (mail-oa0-f49.google.com [209.85.219.49])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r0B03mk3003693
+	for <bugs@bugs.plt-scheme.org>; Thu, 10 Jan 2013 19:03:48 -0500
+Message-Id: <201301110003.r0B03jaV003688@champlain.ccs.neu.edu>
+Date: Thu, 10 Jan 2013 19:03:45 -0500
+From: emina@eecs.berkeley.edu
+To: bugs@racket-lang.org
+Subject: macro expansion in the interactions window
+
+>Number:         13428
+>Category:       all
+>Synopsis:       macro expansion in the interactions window
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jan 10 19:04:01 -0500 2013
+>Closed-Date:    Thu Feb 14 09:13:10 -0500 2013
+>Last-Modified:  Thu Feb 14 09:13:10 -0500 2013
+>Originator:     Emina Torlak
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.1
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/536.26.14 (KHTML, like Gecko) Version/6.0.1 Safari/536.26.14
+>Description:
+The behavior of the macro expander is different in Dr. Racket 5.3.1. than in 5.2, causing the code in the module shown below to no longer work when invoked from the interactions window.
+
+To see the problem, compile the module, and type the following in the interactions window:
+
+> (define/protect (bar x) (+ x 3))
+> bar
+proc: undefined;
+ cannot reference an identifier before its definition
+
+But typing "foo", which is defined in the module itself, works as expected:
+
+> foo
+#<procedure:foo>
+
+Also, manually inlining the body of the define/protect macro in the interactions window works as expected:
+
+> (splicing-let ([proc (procedure-rename 
+                             (lambda (x) (printf "protected ~a\n" #'bar) (+ x 3))
+                             (syntax-e #'bar))])
+         (define-syntax bar
+           (syntax-id-rules (set!)  
+             [(set! bar e) (error 'set! "not allowed for ~s" #'bar)]
+             [(bar arg ...) (proc arg ...)]
+             [bar proc])))
+> bar
+#<procedure:bar>
+
+------------------module------------------
+
+#lang racket
+
+(require racket/syntax racket/splicing )
+
+(define-syntax (define/protect stx)
+  (syntax-case stx ()
+    [(_ (id param ...) body ...) 
+     #'(splicing-let ([proc (procedure-rename 
+                             (lambda (param ...) (printf "protected ~a\n" #'id) body ...)
+                             (syntax-e #'id))])
+         (define-syntax id
+           (syntax-id-rules (set!)  
+             [(set! id e) (error 'set! "not allowed for ~s" #'id)]
+             [(id arg (... ...)) (proc arg (... ...))]
+             [id proc])))]))
+
+(define/protect (foo x) (+ x 3))
+>How-To-Repeat:
+Please see the description of the problem.
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: emina@eecs.berkeley.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13428: macro expansion in the interactions
+ window
+Date: Wed, 13 Feb 2013 13:37:43 -0500
+
+ On 2013-01-10 19:04:01 -0500, emina@eecs.berkeley.edu wrote:
+ > *** Description:
+ > The behavior of the macro expander is different in Dr. Racket 5.3.1. than in 5.2, causing the code in the module shown below to no longer work when invoked from the interactions window.
+ 
+ Here's a simplified example that still shows the bug:
+ 
+ #lang racket
+ 
+ (require racket/splicing)
+ 
+ (define-syntax-rule (def id e ...)
+   (splicing-let ([x +])
+     (define-syntax-rule (id)
+       (x e ...))))
+ 
+ (def t 1 2)
+ 
+ ---
+ 
+  > (t)
+  3
+  > (def h 1 2)
+  > (h)
+  . . x: undefined;
+   cannot reference an identifier before its definition
+ 
+ Cheers,
+ Asumu
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Thu, 14 Feb 2013 09:13:10 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/294bed209e
+State changed from "open" to "closed" by mflatt@racket-lang.org at Thu, 14 Feb 2013 09:13:10 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/294bed209e
+  | macro expander fix
+  | 
+  | Repair 73e07f576b added an item to a list without incrementing a
+  | counter for the list length, which cause a different element of
+  | the list to be dropped, which could mess up binding resolution in
+  | arbitrarily bad ways.
+  | 
+  | (Ths bug falls into the "how did this not get exposed earlier?"  bin,
+  | although part of the answer is that it requires a combination of
+  | module re-expansion and simplification of syntax objects in the
+  | residual program.)
+  | 
+  | Closes PR 13428
+

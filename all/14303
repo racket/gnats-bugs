@@ -1,0 +1,174 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jan 19 12:09:57 2014
+Received: from mail-oa0-f41.google.com (mail-oa0-f41.google.com [209.85.219.41])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s0JH9u0C024803
+	for <bugs@bugs.plt-scheme.org>; Sun, 19 Jan 2014 12:09:57 -0500
+Message-Id: <201401191709.s0JH9sBs024795@winooski.ccs.neu.edu>
+Date: Sun, 19 Jan 2014 12:09:54 -0500
+From: ptr.wang@gmail.com
+To: bugs@racket-lang.org
+Subject: call/cc and begin in REPL doesn't give expected result.
+
+>Number:         14303
+>Category:       all
+>Synopsis:       call/cc and begin in REPL doesn't give expected result.
+>Class:          not-a-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jan 19 12:12:01 -0500 2014
+>Closed-Date:    Thu Jan 23 11:00:03 -0500 2014
+>Last-Modified:  Thu Jan 23 11:00:03 -0500 2014
+>Originator:     peterwang
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.0.1
+>Environment:
+mac-i386-osx
+>Description:
+Welcome to Racket v6.0.0.1.
+-> (version)
+"6.0.0.1"
+-> (define c #f)
+-> c
+#f
+-> (begin 1 (call/cc (lambda (k) (set! c k) 2)) 3)
+3
+-> c
+#<continuation>
+-> (c 100)
+100 ;;; <-- should return 3 instead of 100 (checked guile/chez, both return 3 in this case)
+-> (+ 100 (begin 1 (call/cc (lambda (k) (set! c k) 2)) 3))
+103
+-> (c 100)
+103
+->
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>
+To: ptr.wang@gmail.com, bugs <bugs@racket-lang.org>
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14303: call/cc and begin in REPL doesn't give
+ expected result.
+Date: Sun, 19 Jan 2014 18:25:17 +0100
+
+ If you run the program in a module:
+ 
+ #lang racket
+ (define c #f)
+ c
+ (begin 1 (call/cc (lambda (k) (set! c k) 2)) 3)
+ (+ 100 (begin 1 (call/cc (lambda (k) (set! c k) 2)) 3))
+ 
+ You get the expected output:
+ 
+ #f
+ 1
+ 2
+ 3
+ 103
+ 
+ The reason you see a difference in the REPL, is that the racket and
+ DrRacket REPL
+ wraps each evaluation with a continuation prompt.
+ 
+ See http://docs.racket-lang.org/reference/eval.html?q=repl&q=call/cc#%28tech._repl%29
+ and http://docs.racket-lang.org/reference/cont.html?q=repl&q=call/cc#(def._((quote._~23~25kernel)._call-with-current-continuation))
+ 
+ I wonder whether there should be an explicit note about this in the
+ documentation
+ on call/cc.
+ 
+ -- 
+ Jens Axel Søgaard
+ 
+ 
+ 2014/1/19  <ptr.wang@gmail.com>:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14303
+ >
+ > Reported by peterwang for release: 6.0.0.1
+ >
+ > *** Description:
+ > Welcome to Racket v6.0.0.1.
+ > -> (version)
+ > "6.0.0.1"
+ > -> (define c #f)
+ > -> c
+ > #f
+ > -> (begin 1 (call/cc (lambda (k) (set! c k) 2)) 3)
+ > 3
+ > -> c
+ > #<continuation>
+ > -> (c 100)
+ > 100 ;;; <-- should return 3 instead of 100 (checked guile/chez, both return 3 in this case)
+ > -> (+ 100 (begin 1 (call/cc (lambda (k) (set! c k) 2)) 3))
+ > 103
+ > -> (c 100)
+ > 103
+ > ->
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > mac-i386-osx
+ >
+ 
+ 
+ 
+ -- 
+ --
+ Jens Axel Søgaard
+ 
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: ptr.wang@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14303: call/cc and begin in REPL doesn't give
+ expected result.
+Date: Sun, 19 Jan 2014 12:30:06 -0500
+
+ On 2014-01-19 12:12:01 -0500, ptr.wang@gmail.com wrote:
+ > *** Description:
+ > Welcome to Racket v6.0.0.1.
+ > -> (version)
+ > "6.0.0.1"
+ > -> (define c #f)
+ > -> c
+ > #f
+ > -> (begin 1 (call/cc (lambda (k) (set! c k) 2)) 3)
+ > 3
+ > -> c
+ > #<continuation>
+ > -> (c 100)
+ > 100 ;;; <-- should return 3 instead of 100 (checked guile/chez, both return 3 in this case)
+ 
+ This should be the expected behavior for Racket programs. The `begin`
+ form at the top-level is different from the expression `begin` as noted
+ here in the Reference[1].
+ 
+ In particular, top-level `begin` is equivalent to splicing each
+ sub-expression into its context. This means each of these `begin`
+ sub-expressions are themselves top-level expressions.
+ 
+ Each top-level expression will be wrapped with a "continuation
+ prompt"[2] as noted in the docs for `read-eval-print-loop`[3], which
+ means that the continuation will only capture the rest of that top-level
+ evaluation (and not future evaluations like the expression `3`).
+ 
+ Cheers,
+ Asumu
+ 
+ [1]: see first paragraph http://www.cs.utah.edu/plt/snapshots/current/doc/reference/begin.html#%28form._%28%28quote._~23~25kernel%29._begin%29%29
+ [2]: http://www.cs.utah.edu/plt/snapshots/current/doc/reference/eval-model.html#(part._prompt-model)
+ [3]: http://www.cs.utah.edu/plt/snapshots/current/doc/reference/eval.html#%28def._%28%28lib._racket%2Fprivate%2Fmisc..rkt%29._read-eval-print-loop%29%29
+
+Class changed from "sw-bug" to "not-a-bug" by asumu at Thu, 23 Jan 2014 11:00:03 -0500
+Reason>>> Not a bug.
+
+State changed from "open" to "closed" by asumu at Thu, 23 Jan 2014 11:00:03 -0500
+Reason>>> Not a bug.
+

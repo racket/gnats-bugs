@@ -1,0 +1,524 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Mar  8 12:56:05 2013
+Received: from mail-ob0-f173.google.com (mail-ob0-f173.google.com [209.85.214.173])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r28Hu2Vb030080
+	for <bugs@bugs.plt-scheme.org>; Fri, 8 Mar 2013 12:56:02 -0500
+Message-Id: <201303081755.r28HtxuQ030070@champlain.ccs.neu.edu>
+Date: Fri, 8 Mar 2013 12:55:59 -0500
+From: asumu@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: Type variable names get clobbered in some cases
+
+>Number:         13586
+>Category:       typed-scheme
+>Synopsis:       Type variable names get clobbered in some cases
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Mar 08 13:00:01 -0500 2013
+>Last-Modified:  Sat May 25 16:01:07 -0400 2013
+>Originator:     Asumu Takikawa
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.3.7--2013-03-07(14b075d5/d)
+>Environment:
+unix "Linux porco 3.5.0-17-generic #28-Ubuntu SMP Tue Oct 9 19:31:23 UTC 2012 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 277740484
+Links: (links) = ("pict-utils" "x11-racket" "rwind" "drracket-vim-tool" "wffi"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+Planet2 (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.3.7):
+ [none]
+
+
+
+Collections:
+("/home/asumu/plt/racket-git/add-on/5.3.3.7/collects"
+ ("info-domain"))
+("/home/asumu/plt/racket-git/collects"
+ ("icons" "mzcom" "parser-tools" "images" "mred" "wxme" "picturing-programs" "stepper" "planet" "defaults" "r6rs" "scheme" "framework" "drracket" "rnrs" "lang" "xrepl" "unstable" "tests" "plot" "teachpack" "config" "help" "plai" "mzlib" "slatex" "graphics" "version" "profile" "handin-client" "errortrace" "browser" "repo-time-stamp" "embedded-gui" "html" "xml" "racket" "launcher" "games" "hierlist" "realm" "eopl" "typed-racket" "macro-debugger" "algol60" "slideshow" "drscheme" "rackunit" ".gitignore" "handin-server" "info-domain" "syntax-color" "file" "preprocessor" "datalog" "gui-debugger" "make" "r5rs" "deinprogramm" "sgl" "raco" "web-server" "at-exp" "net" "frtime" "test-engine" "trace" "scriblib" "htdp" "mrlib" "redex" "syntax" "future-visualizer" "mysterx" "typed-scheme" "swindle" "2htdp" "compatibility" "srfi" "scribble" "ffi" "string-constants" "planet2" "reader" "schemeunit" "db" "lazy" "texpict" "dynext" "mzscheme" "s-exp" "json" "openssl" "data" "setup" "compiler" "!
+ meta" "readline" "typed" "math" "honu" "scribblings" "racklog"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #t ((main) (test))))
+>Description:
+Consider the following interaction:
+
+$ racket -I typed/racket
+Welcome to Racket v5.3.3.7.
+-> (: h (All (a) (a -> a)))
+-> (define (h x) x)
+-> (: g (All (b) (b -> b)))
+-> h
+- : (All (b) (b -> b))
+#<procedure:h>
+
+The type annotation on `g`, which should have nothing
+to do with `h`, clobbers the type variable name of `h`.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>, bugs@racket-lang.org
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13586: Type variable names get clobbered in
+ some cases
+Date: Fri, 8 Mar 2013 15:28:46 -0500
+
+ On 2013-03-08 14:53:25 -0500, Matthias Felleisen wrote:
+ > I second this complaint about scoping.
+ >
+ > If a programmer needs alpha in the function body, he should have to
+ > use the define: form and there should be one for binding type
+ > parameters in the function body.
+ 
+ This problem is independent of whether the programmer used the top-level
+ annotation form or the define: form. Examples:
+ 
+ -> (define: (a) (f [x : a]) : a x)
+ -> (define: (b) (g [x : b]) : b x)
+ -> f
+ - : (All (b) (b -> b))
+ #<procedure:f>
+ -> g
+ - : (All (b) (b -> b))
+ #<procedure:g>
+ 
+ This one needs to be in a module:
+ 
+ -> (module tr typed/racket
+      (define: (a) (f [x : a]) : a
+        (define: y : a x)
+        y)
+      (define: (b) (g [x : b]) : b x))
+ ; readline-input:11:23: Type Checker: Unbound type name a
+ ;   in: a
+ ; [,bt for context]
+ ;
+ ; [... snip ...]
+ ;
+ ; Type Checker: Summary: 5 errors encountered [,bt for context]
+ 
+ Cheers,
+ Asumu
+ 
+ > On Mar 8, 2013, at 1:14 PM, Eric Dobson wrote:
+ > 
+ > > This is one of the reasons that I am not thrilled by the current logic
+ > > of how type-variable names are scoped. The type (All (a) (a -> a))
+ > > should be equivalent to the type (All (b) (b -> b)), just as (lambda
+ > > (x) x) is equivalent to (lambda (y) y). Currently the All's binding
+ > > extends over the body of f which strikes me as weird because a is
+ > > unbound during the expansion of f's body.
+ > > 
+ > > Like I said in the other bug, I think we need a much smaller model
+ > > (than all of TR) to understand what it is we want.
+ > > 
+ > > On Fri, Mar 8, 2013 at 10:03 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > >> On 2013-03-08 13:00:01 -0500, asumu@ccs.neu.edu wrote:
+ > >>> The type annotation on `g`, which should have nothing
+ > >>> to do with `h`, clobbers the type variable name of `h`.
+ > >> 
+ > >> I initially filed this as non-critical, but I just realized that this
+ > >> breaks type variable scoping.
+ > >> 
+ > >>  #lang typed/racket
+ > >> 
+ > >>  (: f (All (a) (a -> a)))
+ > >>  (define (f x)
+ > >>    (: y a)
+ > >>    (define y x)
+ > >>    y)
+ > >> 
+ > >>  (: h (All (b) (b -> b)))
+ > >>  (define (h x) x)
+ > >> 
+ > >> This fails to type-check. The issue is that because types are locally
+ > >> nameless, the hashtable that tracks the source names of these type
+ > >> variables is mapping both the type of `f` and `h` to the same entry in
+ > >> the table. Since lexically-scoped type variables rely on this table,
+ > >> they don't work correctly.
+ > >> 
+ > >> --Asumu
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs@racket-lang.org, Eric Dobson <eric.n.dobson@gmail.com>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13586: Type variable names get clobbered in some cases
+Date: Fri, 8 Mar 2013 15:40:25 -0500
+
+ I have no doubt that TR uses the same underlying mechanism to implement both. 
+ 
+ What I am saying is that it is highly unusual for Racket to have a scoping construct that is S-expression separated from the binding occurrence. Indeed, I can't think of any place where we have (scope introduction for x) .. (occurrences of x) where the parens indicate complete S expressions. Although I can imagine that we could get this scoping mechanism right, I argue that the convention-breaking idea is bad. 
+ 
+ 
+ 
+ 
+ 
+ On Mar 8, 2013, at 3:28 PM, Asumu Takikawa wrote:
+ 
+ > On 2013-03-08 14:53:25 -0500, Matthias Felleisen wrote:
+ >> I second this complaint about scoping.
+ >> 
+ >> If a programmer needs alpha in the function body, he should have to
+ >> use the define: form and there should be one for binding type
+ >> parameters in the function body.
+ > 
+ > This problem is independent of whether the programmer used the top-level
+ > annotation form or the define: form. Examples:
+ > 
+ > -> (define: (a) (f [x : a]) : a x)
+ > -> (define: (b) (g [x : b]) : b x)
+ > -> f
+ > - : (All (b) (b -> b))
+ > #<procedure:f>
+ > -> g
+ > - : (All (b) (b -> b))
+ > #<procedure:g>
+ > 
+ > This one needs to be in a module:
+ > 
+ > -> (module tr typed/racket
+ >     (define: (a) (f [x : a]) : a
+ >       (define: y : a x)
+ >       y)
+ >     (define: (b) (g [x : b]) : b x))
+ > ; readline-input:11:23: Type Checker: Unbound type name a
+ > ;   in: a
+ > ; [,bt for context]
+ > ;
+ > ; [... snip ...]
+ > ;
+ > ; Type Checker: Summary: 5 errors encountered [,bt for context]
+ > 
+ > Cheers,
+ > Asumu
+ > 
+ >> On Mar 8, 2013, at 1:14 PM, Eric Dobson wrote:
+ >> 
+ >>> This is one of the reasons that I am not thrilled by the current logic
+ >>> of how type-variable names are scoped. The type (All (a) (a -> a))
+ >>> should be equivalent to the type (All (b) (b -> b)), just as (lambda
+ >>> (x) x) is equivalent to (lambda (y) y). Currently the All's binding
+ >>> extends over the body of f which strikes me as weird because a is
+ >>> unbound during the expansion of f's body.
+ >>> 
+ >>> Like I said in the other bug, I think we need a much smaller model
+ >>> (than all of TR) to understand what it is we want.
+ >>> 
+ >>> On Fri, Mar 8, 2013 at 10:03 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >>>> On 2013-03-08 13:00:01 -0500, asumu@ccs.neu.edu wrote:
+ >>>>> The type annotation on `g`, which should have nothing
+ >>>>> to do with `h`, clobbers the type variable name of `h`.
+ >>>> 
+ >>>> I initially filed this as non-critical, but I just realized that this
+ >>>> breaks type variable scoping.
+ >>>> 
+ >>>> #lang typed/racket
+ >>>> 
+ >>>> (: f (All (a) (a -> a)))
+ >>>> (define (f x)
+ >>>>   (: y a)
+ >>>>   (define y x)
+ >>>>   y)
+ >>>> 
+ >>>> (: h (All (b) (b -> b)))
+ >>>> (define (h x) x)
+ >>>> 
+ >>>> This fails to type-check. The issue is that because types are locally
+ >>>> nameless, the hashtable that tracks the source names of these type
+ >>>> variables is mapping both the type of `f` and `h` to the same entry in
+ >>>> the table. Since lexically-scoped type variables rely on this table,
+ >>>> they don't work correctly.
+ >>>> 
+ >>>> --Asumu
+ 
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs@racket-lang.org,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [racket-bug] all/13586: Type variable names get clobbered in some cases
+Date: Fri, 8 Mar 2013 12:39:55 -0800
+
+ --20cf307d05687acc2e04d76fd340
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I agree that there is still an issue, but these are different than what was
+ originally reported.
+ 
+ Issues:
+ 1. For any type there is currently only one way of printing it.
+ 2. Annotating function definitions with polymorphic types can introduce
+ type variables. (Changing this will affect a lot of code.)
+ 3. Define: doesn't introduce type variables correctly.
+ On Mar 8, 2013 12:28 PM, "Asumu Takikawa" <asumu@ccs.neu.edu> wrote:
+ 
+ > On 2013-03-08 14:53:25 -0500, Matthias Felleisen wrote:
+ > > I second this complaint about scoping.
+ > >
+ > > If a programmer needs alpha in the function body, he should have to
+ > > use the define: form and there should be one for binding type
+ > > parameters in the function body.
+ >
+ > This problem is independent of whether the programmer used the top-level
+ > annotation form or the define: form. Examples:
+ >
+ > -> (define: (a) (f [x : a]) : a x)
+ > -> (define: (b) (g [x : b]) : b x)
+ > -> f
+ > - : (All (b) (b -> b))
+ > #<procedure:f>
+ > -> g
+ > - : (All (b) (b -> b))
+ > #<procedure:g>
+ >
+ > This one needs to be in a module:
+ >
+ > -> (module tr typed/racket
+ >      (define: (a) (f [x : a]) : a
+ >        (define: y : a x)
+ >        y)
+ >      (define: (b) (g [x : b]) : b x))
+ > ; readline-input:11:23: Type Checker: Unbound type name a
+ > ;   in: a
+ > ; [,bt for context]
+ > ;
+ > ; [... snip ...]
+ > ;
+ > ; Type Checker: Summary: 5 errors encountered [,bt for context]
+ >
+ > Cheers,
+ > Asumu
+ >
+ > > On Mar 8, 2013, at 1:14 PM, Eric Dobson wrote:
+ > >
+ > > > This is one of the reasons that I am not thrilled by the current logic
+ > > > of how type-variable names are scoped. The type (All (a) (a -> a))
+ > > > should be equivalent to the type (All (b) (b -> b)), just as (lambda
+ > > > (x) x) is equivalent to (lambda (y) y). Currently the All's binding
+ > > > extends over the body of f which strikes me as weird because a is
+ > > > unbound during the expansion of f's body.
+ > > >
+ > > > Like I said in the other bug, I think we need a much smaller model
+ > > > (than all of TR) to understand what it is we want.
+ > > >
+ > > > On Fri, Mar 8, 2013 at 10:03 AM, Asumu Takikawa <asumu@ccs.neu.edu>
+ > wrote:
+ > > >> On 2013-03-08 13:00:01 -0500, asumu@ccs.neu.edu wrote:
+ > > >>> The type annotation on `g`, which should have nothing
+ > > >>> to do with `h`, clobbers the type variable name of `h`.
+ > > >>
+ > > >> I initially filed this as non-critical, but I just realized that this
+ > > >> breaks type variable scoping.
+ > > >>
+ > > >>  #lang typed/racket
+ > > >>
+ > > >>  (: f (All (a) (a -> a)))
+ > > >>  (define (f x)
+ > > >>    (: y a)
+ > > >>    (define y x)
+ > > >>    y)
+ > > >>
+ > > >>  (: h (All (b) (b -> b)))
+ > > >>  (define (h x) x)
+ > > >>
+ > > >> This fails to type-check. The issue is that because types are locally
+ > > >> nameless, the hashtable that tracks the source names of these type
+ > > >> variables is mapping both the type of `f` and `h` to the same entry in
+ > > >> the table. Since lexically-scoped type variables rely on this table,
+ > > >> they don't work correctly.
+ > > >>
+ > > >> --Asumu
+ >
+ 
+ --20cf307d05687acc2e04d76fd340
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">I agree that there is still an issue, but these are differen=
+ t than what was originally reported.</p>
+ <p dir=3D"ltr">Issues:<br>
+ 1. For any type there is currently only one way of printing it.<br>
+ 2. Annotating function definitions with polymorphic types can introduce typ=
+ e variables. (Changing this will affect a lot of code.)<br>
+ 3. Define: doesn&#39;t introduce type variables correctly.</p>
+ <div class=3D"gmail_quote">On Mar 8, 2013 12:28 PM, &quot;Asumu Takikawa&qu=
+ ot; &lt;<a href=3D"mailto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrot=
+ e:<br type=3D"attribution"><blockquote class=3D"gmail_quote" style=3D"margi=
+ n:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ On 2013-03-08 14:53:25 -0500, Matthias Felleisen wrote:<br>
+ &gt; I second this complaint about scoping.<br>
+ &gt;<br>
+ &gt; If a programmer needs alpha in the function body, he should have to<br=
+ >
+ &gt; use the define: form and there should be one for binding type<br>
+ &gt; parameters in the function body.<br>
+ <br>
+ This problem is independent of whether the programmer used the top-level<br=
+ >
+ annotation form or the define: form. Examples:<br>
+ <br>
+ -&gt; (define: (a) (f [x : a]) : a x)<br>
+ -&gt; (define: (b) (g [x : b]) : b x)<br>
+ -&gt; f<br>
+ - : (All (b) (b -&gt; b))<br>
+ #&lt;procedure:f&gt;<br>
+ -&gt; g<br>
+ - : (All (b) (b -&gt; b))<br>
+ #&lt;procedure:g&gt;<br>
+ <br>
+ This one needs to be in a module:<br>
+ <br>
+ -&gt; (module tr typed/racket<br>
+ =C2=A0 =C2=A0 =C2=A0(define: (a) (f [x : a]) : a<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0(define: y : a x)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0y)<br>
+ =C2=A0 =C2=A0 =C2=A0(define: (b) (g [x : b]) : b x))<br>
+ ; readline-input:11:23: Type Checker: Unbound type name a<br>
+ ; =C2=A0 in: a<br>
+ ; [,bt for context]<br>
+ ;<br>
+ ; [... snip ...]<br>
+ ;<br>
+ ; Type Checker: Summary: 5 errors encountered [,bt for context]<br>
+ <br>
+ Cheers,<br>
+ Asumu<br>
+ <br>
+ &gt; On Mar 8, 2013, at 1:14 PM, Eric Dobson wrote:<br>
+ &gt;<br>
+ &gt; &gt; This is one of the reasons that I am not thrilled by the current =
+ logic<br>
+ &gt; &gt; of how type-variable names are scoped. The type (All (a) (a -&gt;=
+  a))<br>
+ &gt; &gt; should be equivalent to the type (All (b) (b -&gt; b)), just as (=
+ lambda<br>
+ &gt; &gt; (x) x) is equivalent to (lambda (y) y). Currently the All&#39;s b=
+ inding<br>
+ &gt; &gt; extends over the body of f which strikes me as weird because a is=
+ <br>
+ &gt; &gt; unbound during the expansion of f&#39;s body.<br>
+ &gt; &gt;<br>
+ &gt; &gt; Like I said in the other bug, I think we need a much smaller mode=
+ l<br>
+ &gt; &gt; (than all of TR) to understand what it is we want.<br>
+ &gt; &gt;<br>
+ &gt; &gt; On Fri, Mar 8, 2013 at 10:03 AM, Asumu Takikawa &lt;<a href=3D"ma=
+ ilto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt; &gt;&gt; On 2013-03-08 13:00:01 -0500, <a href=3D"mailto:asumu@ccs.neu=
+ .edu">asumu@ccs.neu.edu</a> wrote:<br>
+ &gt; &gt;&gt;&gt; The type annotation on `g`, which should have nothing<br>
+ &gt; &gt;&gt;&gt; to do with `h`, clobbers the type variable name of `h`.<b=
+ r>
+ &gt; &gt;&gt;<br>
+ &gt; &gt;&gt; I initially filed this as non-critical, but I just realized t=
+ hat this<br>
+ &gt; &gt;&gt; breaks type variable scoping.<br>
+ &gt; &gt;&gt;<br>
+ &gt; &gt;&gt; =C2=A0#lang typed/racket<br>
+ &gt; &gt;&gt;<br>
+ &gt; &gt;&gt; =C2=A0(: f (All (a) (a -&gt; a)))<br>
+ &gt; &gt;&gt; =C2=A0(define (f x)<br>
+ &gt; &gt;&gt; =C2=A0 =C2=A0(: y a)<br>
+ &gt; &gt;&gt; =C2=A0 =C2=A0(define y x)<br>
+ &gt; &gt;&gt; =C2=A0 =C2=A0y)<br>
+ &gt; &gt;&gt;<br>
+ &gt; &gt;&gt; =C2=A0(: h (All (b) (b -&gt; b)))<br>
+ &gt; &gt;&gt; =C2=A0(define (h x) x)<br>
+ &gt; &gt;&gt;<br>
+ &gt; &gt;&gt; This fails to type-check. The issue is that because types are=
+  locally<br>
+ &gt; &gt;&gt; nameless, the hashtable that tracks the source names of these=
+  type<br>
+ &gt; &gt;&gt; variables is mapping both the type of `f` and `h` to the same=
+  entry in<br>
+ &gt; &gt;&gt; the table. Since lexically-scoped type variables rely on this=
+  table,<br>
+ &gt; &gt;&gt; they don&#39;t work correctly.<br>
+ &gt; &gt;&gt;<br>
+ &gt; &gt;&gt; --Asumu<br>
+ </blockquote></div>
+ 
+ --20cf307d05687acc2e04d76fd340--
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>, bugs@racket-lang.org,
+        Eric Dobson <eric.n.dobson@gmail.com>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13586: Type variable names get clobbered in
+ some cases
+Date: Fri, 08 Mar 2013 16:57:38 -0500
+
+ On 03/08/2013 03:40 PM, Matthias Felleisen wrote:
+ >
+ > I have no doubt that TR uses the same underlying mechanism to
+ > implement both.
+ >
+ > What I am saying is that it is highly unusual for Racket to have a
+ > scoping construct that is S-expression separated from the binding
+ > occurrence. Indeed, I can't think of any place where we have (scope
+ > introduction for x) .. (occurrences of x) where the parens indicate
+ > complete S expressions.
+ 
+ Separating the declaration of names to be bound from the binding site 
+ isn't that uncommon. Unit signatures are one example. Provide and 
+ require act this way, with the module name acting as the signature. 
+ There are other things that contain signatures (in the sense of sets of 
+ names to be bound), like structs (for struct-out) and syntax classes 
+ (for nested attributes).
+ 
+ There seem to be two problems in TR. First, the signature is implicit; 
+ it has to be gleaned from the type declaration. That's not 
+ unprecedented: the names bound by a match pattern are determined by 
+ traversing the pattern.
+ 
+ Second, the signature import site is also implicit. I don't think 
+ there's anything to be done about that except make sure TR programmers 
+ know about it. That should also address Eric's earlier remark:
+ 
+ >>> On Mar 8, 2013, at 1:14 PM, Eric Dobson wrote:
+ >>>
+ >>>> This is one of the reasons that I am not thrilled by the
+ >>>> current logic of how type-variable names are scoped. The type
+ >>>> (All (a) (a -> a)) should be equivalent to the type (All (b) (b
+ >>>> -> b)), just as (lambda (x) x) is equivalent to (lambda (y) y).
+ >>>> Currently the All's binding extends over the body of f which
+ >>>> strikes me as weird because a is unbound during the expansion
+ >>>> of f's body.
+ >>>>
+ >>>> Like I said in the other bug, I think we need a much smaller
+ >>>> model (than all of TR) to understand what it is we want.
+ 
+ The types are equivalent. But the meaning of a type declaration consists 
+ of a type as well as a "signature" applied to the corresponding 
+ definition, and the signatures are not equivalent. (For comparison, 
+ consider the issue of alpha-renaming for OO languages. The Racket class 
+ system splits the notion of method name into internal and external 
+ names, although there's syntactic sugar for deriving the external name 
+ from the internal one.)
+ 
+ Ryan
+
+
+----------
+A commit by endobson@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/01a88f8db1
+  | Make scoped type vars work only for explict Alls and annotations.
+  | 
+  | Solves major issue disscussed on PR 13586.
+  | Closes PR 13622.
+  | Solves issue when typechecking lambdas with types like (All (a) Any).
+  | Closes PR 13596.
+  | Closes PR 13539.
+  | Closes PR 13703.
+

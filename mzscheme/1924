@@ -1,0 +1,192 @@
+From robby@cs.rice.edu  Sun Apr  8 19:16:13 2001
+Received: from sun.cs.rice.edu (sun.cs.rice.edu [128.42.1.42])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id TAA28416
+	for <plt-gnats@cs.rice.edu>; Sun, 8 Apr 2001 19:16:13 -0500 (CDT)
+Message-Id: <200104090016.TAA22770@sun.cs.rice.edu>
+Date: Sun, 8 Apr 2001 19:16:12 -0500 (CDT)
+From: Robert Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: namespace-attach-module bad error message
+X-Send-Pr-Version: 3.101
+
+>Number:         1924
+>Category:       mzscheme
+>Synopsis:       namespace-attach-module bad error message
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon Apr  9 00:30:04 GMT 2001
+>Last-Modified:  Fri Apr 20 17:18:29 CDT 2001
+>Originator:     Robert Findler
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+199.7, macos
+>Description:
+	
+>How-To-Repeat:
+
+;; this expression
+
+(let ([orig-namespace (current-namespace)])
+  (parameterize ([current-namespace (make-namespace)])
+    (namespace-attach-module
+     orig-namespace
+     ((current-module-name-resolver) '(lib "mred.ss" "mred") #f #f))))
+
+;; (in mred) complains that the module is already attached, but in
+;; reality it isn't boudn. I'm not sure what happens, but the
+;; module-name-resolver
+;; seems to depend on the current-namespace, because this does what
+;; you would expect:
+
+(let ([orig-namespace (current-namespace)]
+      [module-name ((current-module-name-resolver) '(lib "mred.ss" "mred") #f #f)])
+  (parameterize ([current-namespace (make-namespace)])
+    (namespace-attach-module
+     orig-namespace
+     module-name)))
+
+
+
+>Fix:
+	
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1924: namespace-attach-module bad error message
+Date: Mon, 9 Apr 2001 06:43:48 -0600 (MDT)
+
+ Quoting Robert Findler:
+ >    (namespace-attach-module
+ >     orig-namespace
+ >      ((current-module-name-resolver) '(lib "mred.ss" "mred") #f #f))))
+ > 
+ > ;; (in mred) complains that the module is already attached, but in
+ > ;; reality it isn't boudn.
+ 
+ Calling `current-module-name-resolver' in the new namespace loads the
+ mred module, so that's why `namespace-attach-module' reports that it's
+ already there.
+ 
+ That's why the other code works: the module name is resolved in the
+ original namespace, instead.
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1924: namespace-attach-module bad error message
+Date: Mon, 9 Apr 2001 08:16:46 -0500
+
+ At 6:43 AM -0600 4/9/01, Matthew Flatt wrote:
+ >
+ >Calling `current-module-name-resolver' in the new namespace loads the
+ >mred module, so that's why `namespace-attach-module' reports that it's
+ >already there.
+ 
+ Why does the name-resolver actually load the module? Can't the name 
+ be determined without loading any files?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1924: namespace-attach-module bad error message
+Date: Mon, 9 Apr 2001 09:29:38 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > At 6:43 AM -0600 4/9/01, Matthew Flatt wrote:
+ > >
+ > >Calling `current-module-name-resolver' in the new namespace loads the
+ > >mred module, so that's why `namespace-attach-module' reports that it's
+ > >already there.
+ > 
+ > Why does the name-resolver actually load the module? Can't the name 
+ > be determined without loading any files?
+ 
+ Yes. It's just that there's a single `module namespace resolver' at the
+ moment, and it performs both jobs.
+ 
+ It's not obvious to me that they should be separated, and I haven't
+ found a compelling reason to separate them so far (e.g., a use of
+ `namespace-attach-module' relies on the resolution being the same in
+ both namespaces, and on the module being loaded already in the source
+ namespace).
+ 
+ I do have the sense that the resolver is not quite right, yet, and this
+ is certainly an aspect to consder.
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: mflatt@cs.utah.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1924: namespace-attach-module bad error message
+Date: Tue, 10 Apr 2001 12:17:49 -0500
+
+ Earlier, I wrote that this:
+ 
+ (let ([orig-namespace (current-namespace)])
+    (parameterize ([current-namespace (make-namespace)])
+      (namespace-attach-module
+       orig-namespace
+       ((current-module-name-resolver) '(lib "mred.ss" "mred") #f #f))))
+ 
+ produces a bad error message -- it should not be saying that mred is 
+ already bound. You then said that this message was correct because 
+ the namespace-attach-module actually loads the module. Under that 
+ reasoning, this program:
+ 
+ (parameterize ([current-namespace (make-namespace)])
+    (eval '(require (lib "mred.ss" "mred"))))
+ 
+ should not produce an error (since the module name resolver was 
+ effectively doing that), but it does produce an error:
+ 
+    require: unknown module in: #%mred-kernel
+ 
+ Why isn't that message be the answer from the original program?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1924: namespace-attach-module bad error message
+Date: Tue, 10 Apr 2001 11:28:32 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ >    require: unknown module in: #%mred-kernel
+ > 
+ > Why isn't that message be the answer from the original program?
+ 
+ Because #%mred-kernel is actually referenced via `dynamic-require'.
+ I'll try to fix the error message.
+ 
+ So the "mred.ss" module loads ok in both cases. But an error occurs
+ when the module is invoked.
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Apr 20 17:18:22 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Apr 20 17:18:23 2001
+State-Changed-Why:
+Error message repaired.
+
+ 
+>Unformatted:

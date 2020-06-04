@@ -1,0 +1,209 @@
+From clements@brinckerhoff.org  Mon May  6 00:46:30 2002
+Received: from localhost (localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id AAA09319
+	for <plt-gnats>; Mon, 6 May 2002 00:46:27 -0400
+Message-Id: <200205060446.AAA09319@champlain.ccs.neu.edu>
+Date: Mon, 6 May 2002 00:46:27 -0400
+From: John Clements <clements@brinckerhoff.org>
+To: bugs@plt-scheme.org
+Subject: expand-program binds identifiers early
+
+>Number:         5377
+>Category:       drscheme
+>Synopsis:       expand-program binds identifiers early
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon May 06 00:50:01 EDT 2002
+>Closed-Date:    Mon May 06 11:11:34 EDT 2002
+>Last-Modified:  Mon May  6 11:20:01 EDT 2002
+>Originator:     John Clements
+>Release:        200alpha18
+>Organization:
+titan
+>Environment:
+macosx "10.13 <unknown machine>" (ppc-macosx) (get-display-depth) = 32
+Docs Installed:
+("advanced" "beginning" "beginning-abbr" "drscheme" "framework" "help" "icons" "insidemz" "intermediate" "intermediate-lambda" "misclib" "mred" "mzc" "mzlib" "mzscheme" "r5rs" "t-y-scheme" "teachpack" "tex2page" "tools")
+Collections: 
+(("/Users/clements/plt/bin/MrEd.app/Contents/MacOS/../../../../collects" ("afm" "algol60" "browser" "compiler" "CVS" "cvs-time-stamp" "debug" "defaults" "doc" "drjava" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mrflow" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "parser-tools" "readline" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "string-constants" "syntax" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xml")))
+Human Language: english
+>Description:
+It appears that expand-program causes identifiers occuring in 'define'
+expressions to be bound in the user eventspace before expand-program's
+'iter' procedure is called.  This causes trouble for the stepper, because
+subsequent evaluation of the expanded program fails in beginner mode when
+the check for prior definition is performed.
+
+The code given in "steps-to-reproduce" is the simplest code I could come 
+up with to demonstrate the problem.
+>How-To-Repeat:
+In a directory called plt/collects/test-tool/, create the two files
+info.ss and test-tool.ss.
+
+info.ss:
+(module info (lib "infotab.ss" "setup")
+  (define name "Test-tool")
+  (define tools '(("test-tool.ss"))))
+
+test-tool.ss:
+(module test-tool mzscheme
+  (require (lib "specs.ss" "framework")
+           (lib "tool.ss" "drscheme")
+           (lib "mred.ss" "mred")  
+           (prefix frame: (lib "framework.ss" "framework"))
+           (lib "unitsig.ss")
+           (lib "class.ss")
+           (lib "list.ss"))
+  
+  (provide tool@)
+  
+  (define tool@
+    (unit/sig drscheme:tool-exports^
+      (import drscheme:tool^)
+
+      (define (phase1) (void))
+      (define (phase2) (void))
+      
+      (drscheme:get/extend:extend-unit-frame
+       (lambda (super%)
+         (class super% 
+           
+           (inherit get-button-panel get-definitions-text)
+           
+           (super-instantiate ())
+
+           (define test-text%
+             (make-object text%))
+           (send test-text% insert "(define flippy-dippy 1234)")
+           
+           (define (program-expander)
+                (drscheme:eval:expand-program
+                 (drscheme:language:make-text/pos test-text%
+                                                  0 
+                                                  (send test-text% last-position))
+                 (frame:preferences:get (drscheme:language-configuration:get-settings-preferences-symbol
+))
+                 (lambda args
+                   (error-display-handler
+                    (lambda (string exn)
+                      (fprintf (current-error-port) string))))
+                 void ; kill
+                 (lambda args
+                   (fprintf (current-error-port) "flippy-dippy: ~e\n" (namespace-variable-value 'flippy-
+dippy)))))
+
+           
+           (define test-button 
+             (make-object button%
+               "test-button"
+               (get-button-panel)
+               (lambda (button evt)
+                 (program-expander))))
+           
+           (send (get-button-panel) change-children
+                 (lambda (l)
+                   (cons test-button (remq test-button l))))))))))
+
+
+To see the problem, start up drscheme and click on the test-tool
+button. This shows that flippy-dippy is bound to a value, before
+any evaluation on the part of the 'iter' procedure.
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: John Clements <clements@brinckerhoff.org>
+Cc: bugs@plt-scheme.org, plt-design@ccs.neu.edu
+Subject: Re: all/5377: expand-program binds identifiers early
+Date: Mon, 06 May 2002 06:33:16 -0700
+
+ Here is the small program that eliminates DrScheme from this:
+ 
+ (require (lib "toplevel.ss" "syntax"))
+ 
+ (parameterize ([current-namespace (make-namespace)])
+   (namespace-require '(lib "htdp-beginner.ss" "lang"))
+   (eval-compile-time-part-of-top-level (expand #'(define (flippy-dippy x) 1)))
+   (namespace-variable-value 'flippy-dippy))
+ 
+ It is the call to eval-compile-time-part-of-top-level that does the
+ defining in the namespace.
+ 
+ Robby
+ 
+
+From: John Clements <clements@brinckerhoff.org>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: bugs@plt-scheme.org, plt-design@ccs.neu.edu
+Subject: Re: all/5377: expand-program binds identifiers early
+Date: Mon, 6 May 2002 10:58:43 -0400
+
+ At 6:33 AM -0700 5/6/02, Robert Bruce Findler wrote:
+ >Here is the small program that eliminates DrScheme from this:
+ >
+ >(require (lib "toplevel.ss" "syntax"))
+ >
+ >(parameterize ([current-namespace (make-namespace)])
+ >   (namespace-require '(lib "htdp-beginner.ss" "lang"))
+ >   (eval-compile-time-part-of-top-level (expand #'(define (flippy-dippy x) 1)))
+ >   (namespace-variable-value 'flippy-dippy))
+ >
+ >It is the call to eval-compile-time-part-of-top-level that does the
+ >defining in the namespace.
+ 
+ Okay, well, what's the right thing to do? After reading the docs for 
+ eval-compile-time-part-of-top-level, this looks to me like a 
+ difference between tools like check-syntax and tools like the 
+ stepper.  In the former case, you want to perform this compile-time 
+ part of the expression, so that later expressions are expanded 
+ correctly.  In the latter case, though, it's not needed, because the 
+ stepper is going to evaluate this code anyway.  In fact, it messes 
+ the stepper up (just to recapitulate the text of the original PR) 
+ because the "already-defined" test returns #t after this compile-time 
+ evaluation.
+ 
+ So, I see several solutions:
+ 
+ 1) Make the eval-compile-time-part-of-top-level contingent on some 
+ flag which is passed to expand-program.
+ 
+ 2) Post-process the expanded code to remove all those already-defined 
+ checks, and then implement my own code to ensure that names are not 
+ redefined.
+ 
+ I'm a big fan of #1; it seems like less (collective) work (and 
+ certainly less work for me S)). Does anyone else have any suggestions 
+ or opinions?
+ 
+ john
+Responsible-Changed-From-To: steck->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Mon May  6 11:11:34 2002
+Responsible-Changed-Why:
+    rbf
+State-Changed-From-To: open->closed
+State-Changed-By: robby
+State-Changed-When: Mon May  6 11:11:34 2002
+State-Changed-Why:
+    removed call.
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: John Clements <clements@brinckerhoff.org>
+Cc: bugs@plt-scheme.org, plt-design@ccs.neu.edu
+Subject: Re: all/5377: expand-program binds identifiers early
+Date: Mon, 06 May 2002 08:11:46 -0700
+
+ I just removed the call to eval-compile-time-part-of-top-level. If you
+ tool needs that, it should call it itself (check syntax now does).
+ 
+ Robby
+>Unformatted:
+

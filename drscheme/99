@@ -1,0 +1,191 @@
+From mflatt@cs.rice.edu  Fri May 16 15:58:20 1997
+Received: from europa.cs.rice.edu (europa.cs.rice.edu [128.42.1.177]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id PAA29558 for <plt-gnats@cs.rice.edu>; Fri, 16 May 1997 15:58:20 -0500 (CDT)
+Message-Id: <199705162058.PAA06615@europa.cs.rice.edu>
+Date: Fri, 16 May 1997 15:58:18 -0500 (CDT)
+From: Matthew Flatt <mflatt@cs.rice.edu>
+Reply-To: mflatt@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: Default parameterization branch handler is wrong in DrScheme
+X-Send-Pr-Version: 3.101
+
+>Number:         99
+>Category:       drscheme
+>Synopsis:       Default parameterization branch handler is wrong in DrScheme
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri May 16 21:00:02 GMT 1997
+>Last-Modified:  Mon May 19 17:55:59 MST 1997
+>Originator:     Matthew Flatt
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	
+>Description:
+
+The following program shouldn't print anything to stdout or signal an
+error about an exception handler not escaping. But it does in
+DrScheme:
+
+ (define s (make-semaphore))
+ (thread (lambda ()
+	    (with-handlers ([void void])
+	      (semaphore-wait s)
+	      (car 0))))
+ (current-exception-handler display)
+ (semaphore-post s)
+
+The problem (and its cause) is more clearly illustrated by the
+following program, which should return #f instead of #t:
+
+  (define x 5)
+  (thread-wait (thread (lambda () (set! x (current-parameterization)))))
+  (eq? x (current-parameterization))
+
+DrScheme's default parameterization branch handler is returning the
+same parameterization each time. Instead, it should be applying
+make-parameterization to the parameterization it currently returns.
+
+>How-To-Repeat:
+	[see above]
+>Fix:
+	[see above]
+>Audit-Trail:
+
+Responsible-Changed-From-To: krentel->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Sat May 17 18:38:32 1997
+Responsible-Changed-Why:
+
+
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: plt-design@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: drscheme/99: Default parameterization branch handler is wrong in DrScheme
+Date: Sat, 17 May 1997 18:44:07 -0500 (CDT)
+
+ 	`Robert Bruce Findler' changed the responsibility to `robby'.
+ 
+ 
+ Responsible-Changed-From-To: krentel->robby
+ Responsible-Changed-By: robby
+ Responsible-Changed-When: Sat May 17 18:38:32 1997
+ Responsible-Changed-Why:
+ 
+ 
+ > DrScheme's default parameterization branch handler is returning the
+ > same parameterization each time. Instead, it should be applying
+ > make-parameterization to the parameterization it currently returns.
+ 
+ I follow the logic of why the two programs do what they do with the two
+ different branch parameterization handlers, however I don't know why one is
+ better than the other. I suppose mzschem doesone, so consistancy is good,
+ but I wonder why mzscheme does one an not the other.
+ 
+ Some time ago you said that the program:
+ 
+ (let loop (thread loop))
+ 
+ should behave in a certain way. It seems to be that under both setups, it
+ will loop forever, and depending on how thihngs are scheduled it might
+ allocate infinte memory under both schemes, too.
+ 
+ Anyways, what is the rationale for the default
+ branch-parameterization-handler?
+ > DrScheme's default parameterization branch handler is returning the
+ > same parameterization each time. Instead, it should be applying
+ > make-parameterization to the parameterization it currently returns.
+ 
+ I follow the logic of why the two programs do what they do with the two
+ different branch parameterization handlers, however I don't know why one is
+ better than the other. I suppose mzschem doesone, so consistancy is good,
+ but I wonder why mzscheme does one an not the other.
+ 
+ Some time ago you said that the program:
+ 
+ (let loop (thread loop))
+ 
+ should behave in a certain way. It seems to be that under both setups, it
+ will loop forever, and depending on how thihngs are scheduled it might
+ allocate infinte memory under both schemes, too.
+ 
+ Anyways, what is the rationale for the default
+ branch-parameterization-handler?
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-design@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: drscheme/99: Default parameterization branch handler is wrong in DrScheme
+Date: Sat, 17 May 1997 20:33:11 -0500 (CDT)
+
+ > I follow the logic of why the two programs do what they do with the two
+ > different branch parameterization handlers, however I don't know why one is
+ > better than the other. I suppose mzschem doesone, so consistancy is good,
+ > but I wonder why mzscheme does one an not the other.
+ > 
+ > Some time ago you said that the program:
+ > 
+ > (let loop (thread loop))
+ > 
+ > should behave in a certain way. It seems to be that under both setups, it
+ > will loop forever, and depending on how thihngs are scheduled it might
+ > allocate infinte memory under both schemes, too.
+ 
+ A programmer who is just using threads and does not know about
+ parameters will see no reason that
+ 
+   (let loop () (thread loop))
+ 
+ should run out of memory. With MzScheme's default parameterization
+ branch handler, (let loop () (thread loop)) will indeed loop forever.
+ 
+ With a branch handler that creates a new parameterization from the
+ current one, (let loop () (thread loop)) will run out of memory
+ (because the chain of parameterizations will keep growing in length).
+ 
+ With a branch handler that always returns the same parameterization
+ (as DrScheme currently does), `with-handlers' in two separate threads
+ will interfere with each other (because the current exception handler
+ is a parameter).
+ 
+ Matthew
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Mon May 19 17:54:35 1997
+State-Changed-Why:
+
+changed the parameterization branch handler to create a child
+parameterization of the main parameterization, and applied the same fix to
+the parameterization created for the implementation of drscheme which fixed
+the problem with the wierd `let-macro' bug that happened when you clicked
+on execute quickly.
+
+>Unformatted:
+
+> DrScheme's default parameterization branch handler is returning the
+> same parameterization each time. Instead, it should be applying
+> make-parameterization to the parameterization it currently returns.
+
+I follow the logic of why the two programs do what they do with the two
+different branch parameterization handlers, however I don't know why one is
+better than the other. I suppose mzschem doesone, so consistancy is good,
+but I wonder why mzscheme does one an not the other.
+
+Some time ago you said that the program:
+
+(let loop (thread loop))
+
+should behave in a certain way. It seems to be that under both setups, it
+will loop forever, and depending on how thihngs are scheduled it might
+allocate infinte memory under both schemes, too.
+
+Anyways, what is the rationale for the default
+branch-parameterization-handler?
+
+

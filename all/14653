@@ -1,0 +1,111 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jul 22 16:12:22 2014
+Received: from mail-oi0-f54.google.com (mail-oi0-f54.google.com [209.85.218.54])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s6MKCKSh017303
+	for <bugs@bugs.plt-scheme.org>; Tue, 22 Jul 2014 16:12:21 -0400
+Message-Id: <201407222012.s6MKCH0C017296@winooski.ccs.neu.edu>
+Date: Tue, 22 Jul 2014 16:12:17 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: bitmap%'s `get-argb-pixels` doesn't copy enough bytes
+
+>Number:         14653
+>Category:       all
+>Synopsis:       bitmap%'s `get-argb-pixels` doesn't copy enough bytes
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jul 22 16:16:01 -0400 2014
+>Closed-Date:    Wed Jul 23 03:44:34 -0400 2014
+>Last-Modified:  Wed Jul 23 03:44:34 -0400 2014
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.0.3--2014-07-22(45af9f8f/d)
+>Environment:
+unix "Linux woodstock 3.11.0-23-generic #40-Ubuntu SMP Wed Jun 4 21:05:23 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 419485984
+raco pkg (show):
+/home/neil/plt-fresh/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [213 auto-installed packages not shown]
+Installation-wide:
+ Package               Checksum                                    Source
+ disassemble           cf0ee3a5f8463e0867eba4c964d742a29325a996    (catalog disassemble)
+ nonplussed            f6c069990eb6b0b3356f872fcce82a3fb2fe805a    (url git://github.com/ntoronto/nonplussed)
+ optimization-coach    be5f7908939c31a68d5c7dc9202315ffa8863180    (catalog optimization-coach)
+ rsound                4f5d4d154eb7585b96b24298b79e3381bab8f1a5    (catalog rsound)
+ slideshow-latex       9275fecbaaac14c6168f42cae73ed4c0cb7b2037    (catalog slideshow-latex)
+ [1 auto-installed package not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/development/collects"
+ (non-existent-path))
+("/home/neil/plt-fresh/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #("-s" "1440" "1060") "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+When `just-alpha?` is #t, `unscaled?` is #t, and the bitmap has a non-1.0 backing scale, bitmap%'s `get-argb-pixels` method copies only the upper-left corner of the bitmap into the bytes argument.
+
+When `just-alpha?` is #f, it behaves as expected.
+>How-To-Repeat:
+#lang racket
+
+(require racket/draw)
+
+;; Extracts a bitmap's alpha channel using get-argb-pixels and
+;; set-argb-pixels, and returns the alpha channel as a bitmap
+(define (scaled-bitmap-alpha bm just-alpha?)
+  (define w (* 2 (send bm get-width)))
+  (define h (* 2 (send bm get-height)))
+  (define bs (make-bytes (* 4 w h)))
+  (send bm get-argb-pixels 0 0 w h bs just-alpha? #:unscaled? #t)
+  (for ([i  (in-range 0 (* 4 w h) 4)])
+    ;; Copy the alpha channel into the other channels
+    (define a (bytes-ref bs i))
+    (bytes-set! bs i 255)
+    (bytes-set! bs (+ i 1) a)
+    (bytes-set! bs (+ i 2) a)
+    (bytes-set! bs (+ i 3) a))
+  
+  (define alpha-bm (make-bitmap w h #f))
+  (send alpha-bm set-argb-pixels 0 0 w h bs #f)
+  alpha-bm)
+
+;; Test bitmap has a circular region with alpha values at 255
+(define bm (make-bitmap 100 100 #t #:backing-scale 2.0))
+(define dc (make-object bitmap-dc% bm))
+(send dc draw-ellipse 0 0 100 100)
+bm
+
+;; Incorrect:
+(scaled-bitmap-alpha bm #t)
+;; Correct:
+(scaled-bitmap-alpha bm #f)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Wed, 23 Jul 2014 03:44:34 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/295cb46c48
+State changed from "open" to "closed" by mflatt@racket-lang.org at Wed, 23 Jul 2014 03:44:34 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/295cb46c48
+  | racket/draw: fix `get-argb-pixels` for unscaled and just-alpha
+  | 
+  | Closes PR 14653
+  | 
+  | Merge to v6.1
+

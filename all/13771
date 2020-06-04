@@ -1,0 +1,80 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu May 23 09:27:34 2013
+Received: from mail-ob0-f182.google.com (mail-ob0-f182.google.com [209.85.214.182])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r4NDRVmY031346
+	for <bugs@bugs.plt-scheme.org>; Thu, 23 May 2013 09:27:31 -0400
+Message-Id: <201305231327.r4NDRTuI031339@champlain.ccs.neu.edu>
+Date: Thu, 23 May 2013 09:27:29 -0400
+From: cce@racket-lang.org
+To: bugs@racket-lang.org
+Subject: Problem with uninterned symbols, require transformers, and provide transformers
+
+>Number:         13771
+>Category:       all
+>Synopsis:       Problem with uninterned symbols, require transformers, and provide transformers
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu May 23 09:28:02 -0400 2013
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:21.0) Gecko/20100101 Firefox/21.0
+>Description:
+The below program gives this error message:
+
+#%require: no such provided variable
+  at: NAME
+  in: (#%require (just-meta 0 (rename (submod ".." provider) NAME NAME)) (just-meta 0 (rename (submod ".." provider) macro macro)) (only (submod ".." provider)))
+
+Changing string->unreadable-symbol to string->symbol fixes it.  The same error occurs with string->uninterned-symbol.
+>How-To-Repeat:
+#lang racket
+
+(module provider racket
+  (provide (all-defined-out))
+  (define-syntax (macro stx)
+    (with-syntax
+        {[name (datum->syntax stx (string->unreadable-symbol "NAME") stx)]}
+      #'(define-syntax name 'dummy)))
+  (macro))
+
+(module bad-client racket
+
+  (require
+    (for-syntax
+      racket/require-transform
+      racket/provide-transform))
+
+  (define-syntax box-require
+    (make-require-transformer
+      (lambda (stx)
+        (syntax-case stx {}
+          [(_ ibox spec)
+           (let-values ([(imports sources) (expand-import #'spec)])
+             (set-box! (syntax-local-value #'ibox) imports)
+             (values imports sources))]))))
+
+  (define-for-syntax (import->export i)
+    (make-export (import-local-id i)
+      (syntax-e (import-local-id i))
+      (import-mode i)
+      #f
+      (import-orig-stx i)))
+
+  (define-syntax box-provide
+    (make-provide-transformer
+      (lambda (stx modes)
+        (syntax-case stx {}
+          [(_ ibox)
+           (map import->export (unbox (syntax-local-value #'ibox)))]))))
+
+  (define-syntax imports (box #f))
+  (require (box-require imports (submod ".." provider)))
+  (provide (box-provide imports)))
+>Fix:

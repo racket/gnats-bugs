@@ -1,0 +1,503 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Apr 27 03:05:30 2013
+Received: from mail-oa0-f45.google.com (mail-oa0-f45.google.com [209.85.219.45])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r3R75QqV019521
+	for <bugs@bugs.plt-scheme.org>; Sat, 27 Apr 2013 03:05:27 -0400
+Message-Id: <201304270705.r3R75Owa019515@champlain.ccs.neu.edu>
+Date: Sat, 27 Apr 2013 03:05:24 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Problems with arrays from the math collection
+
+>Number:         13716
+>Category:       all
+>Synopsis:       Problems with arrays from the math collection
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Apr 27 03:08:02 -0400 2013
+>Last-Modified:  Wed May 01 23:36:05 -0400 2013
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Any
+>Description:
+1. Trying to mutate an immutable array throws some weird error:
+     contract violation, expected: struct-id [...]
+   This is especially bad since the default arrays are immutable,
+   which is surprising since most languages have mutable arrays and
+   people expect it more.
+
+2. Making a mutable array is overly hard.  IIUC, you can create a
+   mutable array with explicit contents, or create one from an
+   immutable one.  The first is often useless (it's a *mutable* array
+   so normally you create it with some blank values and then fill it),
+   and the second one is potentially a huge waste if you have a large
+   array.
+
+3. It looks like addressing or changing specific locations in an array
+   requires an array that hold the indexes??  I *really* hope that
+   it's a macro that does some magic to avoid allocations for each
+   reference... otherwise it's a runtime insanity.
+
+4. But more than that, after a long fight with it, I figured that I
+   need something like `#(,x ,y) which makes it also a syntactic
+   insanity.
+
+5. Yes, I've seen the disclaimer that "both of these activities are
+   discouraged in favor of functional, whole-array operations", and
+   whole-array operations are certainly useful.  But the above two
+   points essentially dump specific references since they are so
+   impractical.  And I think that there are certainly lots of use
+   cases for conventional referencing of arrays that they deserve to
+   get some better treatment.
+
+   Here's an example: I'm thinking that one of the obvious reasons for
+   specific element addressing would be to print an array.  Sure
+   enough, I see that this is baked into the library.  I think that
+   this is a symptom of the above problem: addressing specific
+   elements is bad, so you get whatever functionality you need to
+   avoid it -- and since there's a lot that you'd need, the library
+   will end up being huge.
+
+   What if I want arrays that represent images -- if I want to convert
+   them to bitmaps do I have to do that by making up a custom array
+   printer or suffer the huge cost and the code verbosity?
+
+   BTW, I still don't know whether I'm missing something or not, and
+   I hope that I do.
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: eli@barzilay.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13716: Problems with arrays from the math collection
+Date: Sat, 27 Apr 2013 15:24:53 -0600
+
+ On 04/27/2013 01:08 AM, eli@barzilay.org wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=13716
+ >
+ > Reported by Eli Barzilay for release: HEAD
+ >
+ > *** Description:
+ > 1. Trying to mutate an immutable array throws some weird error:
+ >       contract violation, expected: struct-id [...]
+ >     This is especially bad since the default arrays are immutable,
+ >     which is surprising since most languages have mutable arrays and
+ >     people expect it more.
+ 
+ I don't think I can do much with this one because it's a generated contract.
+ 
+ The error for this:
+ 
+    #lang racket
+    (require math/array)
+    (define arr (make-array #(4 4) #f))
+    (array-set! arr #(3 3) 5)
+ 
+ looks like this:
+ 
+    array-set!6: contract violation
+      expected: struct-id
+      given: ...
+ 
+ I would expect an error like this, though:
+ 
+    array-set!: contract violation
+      expected: Settable-Array
+      given: ...
+ 
+ (Note also the lack of "6".) Sam or Vincent?
+ 
+ > 2. Making a mutable array is overly hard.  IIUC, you can create a
+ >     mutable array with explicit contents, or create one from an
+ >     immutable one.  The first is often useless (it's a *mutable* array
+ >     so normally you create it with some blank values and then fill it),
+ 
+ If you were hoping for a constructor like `make-vector' that has a 
+ constant default value, Typed Racket won't allow it. (Or it would, but 0 
+ would be part of every array element type.)
+ 
+ >     and the second one is potentially a huge waste if you have a large
+ >     array.
+ 
+ It shouldn't be a waste. Here's what I think you might have been looking 
+ for:
+ 
+    (: make-mutable-array (All (A) (In-Indexes A -> (Mutable-Array A))))
+    (define (make-mutable-array ds v)
+      (array->mutable-array (make-array ds v)))
+ 
+    (make-mutable-array #(400 400) #f)
+ 
+ `make-array' is O(1) - it allocates no space to store elements - and 
+ `array->mutable-array' is quite fast. There's a slightly faster, longer 
+ way to write this function using `vector->array'.
+ 
+ In fact, I think I had written the latter once, but cut it to reduce the 
+ number of exports.
+ 
+ > 3. It looks like addressing or changing specific locations in an array
+ >     requires an array that hold the indexes??
+ 
+ You didn't find `array-set!'? You only need an array of indexes if you 
+ want to ref or set multiple locations at once.
+ 
+ >     I *really* hope that
+ >     it's a macro that does some magic to avoid allocations for each
+ >     reference... otherwise it's a runtime insanity.
+ 
+ Here's the main magic. Every time the array library is forced to loop 
+ over indexes (e.g. creating the vector that backs the result of 
+ `array->mutable-array'), it mutates a single vector to avoid allocating. 
+ Some array functions (like `array-axis-swap') create array procedures 
+ that mutate their vector arguments (and mutate them back before 
+ returning), and others mutate thread-local indexes. All of this makes 
+ whole-array operations significantly faster than if indexes were always 
+ allocated.
+ 
+ (The magic should be unobservable from the outside. There's probably a 
+ way to see it using continuations, though...)
+ 
+ It might be nice to have `array-ref' and `array-set!' do that as well. 
+ They'd have to be macros that recognize literal vector arguments and 
+ copy them into thread-local indexes.
+ 
+ > 4. But more than that, after a long fight with it, I figured that I
+ >     need something like `#(,x ,y) which makes it also a syntactic
+ >     insanity.
+ 
+ I use (vector x y), which takes two more characters and isn't insane.
+ 
+ If you were wanting (array-set! arr x y value), IIRC I had issues 
+ getting TR to type a function like that and its application sites. Then 
+ I decided that having types change position based on the number of 
+ arguments was ugly anyway.
+ 
+ I considered putting the indexes at the end, but I didn't want 
+ `array-set!' to differ from the typical argument order.
+ 
+ > 5. Yes, I've seen the disclaimer that "both of these activities are
+ >     discouraged in favor of functional, whole-array operations", and
+ >     whole-array operations are certainly useful.  But the above two
+ >     points essentially dump specific references since they are so
+ >     impractical.  And I think that there are certainly lots of use
+ >     cases for conventional referencing of arrays that they deserve to
+ >     get some better treatment.
+ 
+ I'm open to suggestions. This is the largest part of the math library 
+ that I don't use myself, so I'm not feeling the pain, as it were.
+ 
+ >     Here's an example: I'm thinking that one of the obvious reasons for
+ >     specific element addressing would be to print an array.  Sure
+ >     enough, I see that this is baked into the library.
+ 
+ Printing is baked in because arrays are higher-order values and because 
+ the indentation logic is a bit tricky.
+ 
+ >     I think that
+ >     this is a symptom of the above problem: addressing specific
+ >     elements is bad, so you get whatever functionality you need to
+ >     avoid it -- and since there's a lot that you'd need, the library
+ >     will end up being huge.
+ 
+ You might be surprised at how much you can do with whole-array 
+ operations. I was when I learned to use them in Python.
+ 
+ The learning curve is steep at first, though. It would be nice to have a 
+ bunch of HOWTO-style examples in the documentation.
+ 
+ >     What if I want arrays that represent images -- if I want to convert
+ >     them to bitmaps do I have to do that by making up a custom array
+ >     printer or suffer the huge cost and the code verbosity?
+ 
+ None of the above. I wrote the following to convert arrays to flomaps in 
+ the Mandelbrot array test. It's short and fast.
+ 
+    (: array->flomap ((Array Real) -> flomap))
+    (define (array->flomap arr)
+      (let ([arr  (array->flarray arr)])
+        (define ds (array-shape arr))
+        (match ds
+          [(vector h w)    (flomap (flarray-data arr) 1 w h)]
+          [(vector h w c)  (flomap (flarray-data arr) c w h)]
+          [_  (error 'array->flomap
+                     "expected 2 or 3 dimensions; given shape ~e"
+                     ds)])))
+ 
+ It depends on the data layout of flomaps being the same as in the input 
+ array, but if it's not, there's always `array-axis-swap'. (And if you 
+ make the axis-swapped array nonstrict, swapping axes before converting 
+ to an FlArray takes almost no space.)
+ 
+ It would be just as easy to convert directly to bitmaps if there were a 
+ ByteArray type.
+ 
+ >     BTW, I still don't know whether I'm missing something or not, and
+ >     I hope that I do.
+ 
+ Probably, but I appreciate the feedback all the same. :)
+ 
+ Neil ⊥
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13716: Problems with arrays from the math collection
+Date: Sat, 27 Apr 2013 19:00:48 -0400
+
+ First, why is this in the bug tracker?  If we're discussing design
+ decisions in the array library, then dev@ is the right place.
+ 
+ On Sat, Apr 27, 2013 at 5:24 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >
+ > The error for this:
+ >
+ >   #lang racket
+ >   (require math/array)
+ >   (define arr (make-array #(4 4) #f))
+ >   (array-set! arr #(3 3) 5)
+ >
+ > looks like this:
+ >
+ >   array-set!6: contract violation
+ >     expected: struct-id
+ >     given: ...
+ >
+ > I would expect an error like this, though:
+ >
+ >   array-set!: contract violation
+ >     expected: Settable-Array
+ >     given: ...
+ >
+ > (Note also the lack of "6".) Sam or Vincent?
+ 
+ This just looks like a bug.  The 6 might be harder to remove, but the
+ `struct-id` thing is just a dumb quoting bug somewhere.  I thought
+ something like that had been fixed recently, even.
+ 
+ >> 2. Making a mutable array is overly hard.  IIUC, you can create a
+ >>     mutable array with explicit contents, or create one from an
+ >>     immutable one.  The first is often useless (it's a *mutable* array
+ >>     so normally you create it with some blank values and then fill it),
+ >
+ >
+ > If you were hoping for a constructor like `make-vector' that has a constant
+ > default value, Typed Racket won't allow it. (Or it would, but 0 would be
+ > part of every array element type.)
+ 
+ TR would allow you to provide the default element for filling things
+ in.  Witness the type for `make-vector`.
+ 
+ Sam
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Neil Toronto <neil.toronto@gmail.com>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13716: Problems with arrays from the math collection
+Date: Sat, 27 Apr 2013 19:16:51 -0400
+
+ Two pre-questions before I actually reply:
+ 
+ Two hours ago, Neil Toronto wrote:
+ > 
+ > > 3. It looks like addressing or changing specific locations in an
+ > >    array requires an array that hold the indexes??
+ > 
+ > You didn't find `array-set!'? You only need an array of indexes if
+ > you want to ref or set multiple locations at once.
+ 
+ I'm confused.  I did find it, and in all of your examples (including
+ this email), I see that I need a *vector* of the xy coordinates -- and
+ that's what I'm talking about.  Maybe the missing clarification is
+ that in my post,
+ 
+    an array that hold the indexes
+ 
+ should have been
+ 
+    a vector that hold the coordinates
+ 
+ Is there something that I'm missing here and there is no need for such
+ a vector?
+ 
+ 
+ 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ > First, why is this in the bug tracker?  If we're discussing design
+ > decisions in the array library, then dev@ is the right place.
+ 
+ Mainly because I started it as a bug, and preferred to focus the whole
+ thing in one place, and worried that a design discussion may end up in
+ post-bikeshed bit heaven.
+ 
+ So, Neil: if you don't mind being quoted elsewhere, and if it won't
+ reduce the effectiveness of this discussion, I'll reply on dev.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13716: Problems with arrays from the math collection
+Date: Sat, 27 Apr 2013 19:01:14 -0600
+
+ On 04/27/2013 05:16 PM, Eli Barzilay wrote:
+ > Two pre-questions before I actually reply:
+ >
+ > Two hours ago, Neil Toronto wrote:
+ >>
+ >>> 3. It looks like addressing or changing specific locations in an
+ >>>     array requires an array that hold the indexes??
+ >>
+ >> You didn't find `array-set!'? You only need an array of indexes if
+ >> you want to ref or set multiple locations at once.
+ >
+ > I'm confused.  I did find it, and in all of your examples (including
+ > this email), I see that I need a *vector* of the xy coordinates -- and
+ > that's what I'm talking about.  Maybe the missing clarification is
+ > that in my post,
+ >
+ >     an array that hold the indexes
+ >
+ > should have been
+ >
+ >     a vector that hold the coordinates
+ >
+ > Is there something that I'm missing here and there is no need for such
+ > a vector?
+ 
+ Ah, okay, that's what confused me. Right, the vector is necessary, 
+ because an array is basically a function from a vector of indexes to a 
+ value. Even a Mutable-Array is a function, but it also has a setter 
+ function (because it's a Settable-Array) and happens to store its 
+ elements in row-major order in a vector.
+ 
+ Whole-array operations are done in a way that avoids allocating most 
+ index vectors. If `array-ref' and `array-set!' were macros, they could 
+ do something similar, as you suggested.
+ 
+ > 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ >> First, why is this in the bug tracker?  If we're discussing design
+ >> decisions in the array library, then dev@ is the right place.
+ >
+ > Mainly because I started it as a bug, and preferred to focus the whole
+ > thing in one place, and worried that a design discussion may end up in
+ > post-bikeshed bit heaven.
+ >
+ > So, Neil: if you don't mind being quoted elsewhere, and if it won't
+ > reduce the effectiveness of this discussion, I'll reply on dev.
+ 
+ Sounds good. For the bug, I think we should narrow its scope to the 
+ contract error and have one of the TR guys pick it up.
+ 
+ Neil ⊥
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13716: Problems with arrays from the math collection
+Date: Sat, 27 Apr 2013 18:18:28 -0700
+
+ The quoting error is in struct/c, still looking at figuring out where
+ the 6 in array-set!6 is coming from.
+ 
+ #lang racket
+ 
+ (struct foo (v))
+ (define/contract (f s)
+  (-> (struct/c foo number?) number?)
+  (foo-v s))
+ 
+ (f #f)
+ 
+ On Sat, Apr 27, 2013 at 6:01 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ > On 04/27/2013 05:16 PM, Eli Barzilay wrote:
+ >>
+ >> Two pre-questions before I actually reply:
+ >>
+ >> Two hours ago, Neil Toronto wrote:
+ >>>
+ >>>
+ >>>> 3. It looks like addressing or changing specific locations in an
+ >>>>     array requires an array that hold the indexes??
+ >>>
+ >>>
+ >>> You didn't find `array-set!'? You only need an array of indexes if
+ >>> you want to ref or set multiple locations at once.
+ >>
+ >>
+ >> I'm confused.  I did find it, and in all of your examples (including
+ >> this email), I see that I need a *vector* of the xy coordinates -- and
+ >> that's what I'm talking about.  Maybe the missing clarification is
+ >> that in my post,
+ >>
+ >>     an array that hold the indexes
+ >>
+ >> should have been
+ >>
+ >>     a vector that hold the coordinates
+ >>
+ >> Is there something that I'm missing here and there is no need for such
+ >> a vector?
+ >
+ >
+ > Ah, okay, that's what confused me. Right, the vector is necessary, because
+ > an array is basically a function from a vector of indexes to a value. Even a
+ > Mutable-Array is a function, but it also has a setter function (because it's
+ > a Settable-Array) and happens to store its elements in row-major order in a
+ > vector.
+ >
+ > Whole-array operations are done in a way that avoids allocating most index
+ > vectors. If `array-ref' and `array-set!' were macros, they could do
+ > something similar, as you suggested.
+ >
+ >
+ >> 10 minutes ago, Sam Tobin-Hochstadt wrote:
+ >>>
+ >>> First, why is this in the bug tracker?  If we're discussing design
+ >>> decisions in the array library, then dev@ is the right place.
+ >>
+ >>
+ >> Mainly because I started it as a bug, and preferred to focus the whole
+ >> thing in one place, and worried that a design discussion may end up in
+ >> post-bikeshed bit heaven.
+ >>
+ >> So, Neil: if you don't mind being quoted elsewhere, and if it won't
+ >> reduce the effectiveness of this discussion, I'll reply on dev.
+ >
+ >
+ > Sounds good. For the bug, I think we should narrow its scope to the contract
+ > error and have one of the TR guys pick it up.
+ >
+ > Neil ⊥
+ >
+ 
+Responsible changed from "nobody" to "robby" by robby@racket-lang.org at Sat, 27 Apr 2013 21:41:11 -0400
+Reason>>> A commit by robby@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/10ac122111
+  | fix a quoting error
+  | 
+  | related to PR 13716
+
+
+----------
+A commit by endobson@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/9c71dafb63
+  | Fix require/untyped-contract to generate better names in contracts.
+  | 
+  | Related to PR 13716.
+

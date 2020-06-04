@@ -1,0 +1,196 @@
+From apache@plt-scheme.org Wed Feb 23 02:24:02 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j1N7O2nN032133
+	for <bugs@plt-scheme.org>; Wed, 23 Feb 2005 02:24:02 -0500
+Message-Id: <200502230724.j1N7O20O032131@champlain.ccs.neu.edu>
+Date: Wed, 23 Feb 2005 02:24:02 -0500
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: unit/sig loses some syntax location information?
+
+>Number:         7254
+>Category:       mzscheme
+>Synopsis:       unit/sig loses some syntax location information?
+>Class:          sw-bug
+>Responsible:    mflatt
+>Notify-List:    robby@plt-scheme.org
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Feb 23 02:25:00 -0500 2005
+>Last-Modified:  Mon Mar 14 17:26:59 -0500 2005
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299
+>Environment:
+mac-ppc-osx
+>Description:
+I'm reading through the documentation on units with signatures, and      
+noticed that certain constructs with signed units don't provide as much
+syntax location information as I expected.
+
+
+For example, when I do:
+
+;;;
+> (unit (import a a b) (export))
+;;;
+
+DrScheme nicely informs me that the second 'a' here is a duplication, with
+beautiful highlighting.
+
+
+However, when I wrote an equivalent unit/sig expression:
+   
+;;;
+> (unit/sig () (import (a a b)))
+;;;
+
+I did get an syntax error, as expected, but I didn't see any nice syntax  
+highlighting.  I'm guessing that some information was lost during the
+syntax expansion.  I've been trying to read mzlib/unitsig.ss to figure out
+where the problem is, but I know I'm in a bit over my head.  *grin*
+>How-To-Repeat:
+;;;
+(require (lib "unitsig.ss"))
+(unit/sig () (import (a a b)))
+;;;
+
+Expected result: highlighting over the letter 'a', or at the very least, to have the entire unit/sig expression highlighted.
+
+
+Observed result in DrScheme: no highlighting, but with the error message
+
+;;;
+unit/sig: duplicate name in signature in: a
+;;;
+
+
+
+In mzscheme, the error message is more localized:
+
+;;;
+/Users/dyoo/foo.ss:2:0: unit/sig: duplicate name in signature at: a in: (unit/sig () (import (a a b)))
+;;;
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@cs.uchicago.edu>
+To: bugs@plt-scheme.org, mflatt@cs.utah.edu
+Cc: 
+Subject: Re: all/7254: unit/sig loses some syntax location information?
+Date: Wed, 23 Feb 2005 08:58:11 -0600
+
+ The program below seems to suggest a bug outside of drscheme.
+ 
+ Robby
+ 
+ (require (lib "unitsig.ss"))
+ 
+ (define t (new text%))
+ (send t insert (format "~s" '(unit/sig () (import (a a b)))))
+ 
+ (define stx
+   (car
+    (with-handlers ([exn? exn:fail:syntax-exprs])
+      (eval (read-syntax t (open-input-text-editor t))))))
+ 
+ (printf "src ~s position ~s span ~s\n" 
+         (syntax-source stx)
+         (syntax-position stx)
+         (syntax-span stx))
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7254: unit/sig loses some syntax location information?
+Date: Wed, 23 Feb 2005 08:00:39 -0700
+
+ At Wed, 23 Feb 2005 08:58:11 -0600, Robby Findler wrote:
+ > The program below seems to suggest a bug outside of drscheme.
+ 
+ Yes, `unit/sig' was never re-implemented. It still uses
+ `syntax-object->datum' and `datum->syntax-object' a lot.
+ 
+ Matthew
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7254: unit/sig loses some syntax location information?
+Date: Wed, 23 Feb 2005 09:14:14 -0600
+
+ At Wed, 23 Feb 2005 08:00:39 -0700, Matthew Flatt wrote:
+ > At Wed, 23 Feb 2005 08:58:11 -0600, Robby Findler wrote:
+ > > The program below seems to suggest a bug outside of drscheme.
+ > 
+ > Yes, `unit/sig' was never re-implemented. It still uses
+ > `syntax-object->datum' and `datum->syntax-object' a lot.
+ 
+ I didn't try it, but the PR seems to claim that it works well in
+ mzscheme?
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7254: unit/sig loses some syntax location information?
+Date: Wed, 23 Feb 2005 09:28:11 -0700
+
+ At Wed, 23 Feb 2005 09:14:14 -0600, Robby Findler wrote:
+ > I didn't try it, but the PR seems to claim that it works well in
+ > mzscheme?
+ 
+ Ok, I see.
+ 
+ `raise-syntax-error' takes a specific syntax object and an enclosing
+ syntax object. The latter is used in constructing the error message
+ (e.g., it supplies the form name), and the former is put into the
+ exception.
+ 
+ MzScheme also uses the enclosing object for its source location if the
+ specific one doesn't have a source. So that's why MzScheme's message is
+ slightly more informative; DrScheme gets only the specific object.
+ 
+ I'm not yet sure what to do about this.
+ 
+ Matthew
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7254: unit/sig loses some syntax location information?
+Date: Wed, 23 Feb 2005 13:06:21 -0600
+
+ At Wed, 23 Feb 2005 09:28:11 -0700, Matthew Flatt wrote:
+ > At Wed, 23 Feb 2005 09:14:14 -0600, Robby Findler wrote:
+ > > I didn't try it, but the PR seems to claim that it works well in
+ > > mzscheme?
+ > 
+ > Ok, I see.
+ > 
+ > `raise-syntax-error' takes a specific syntax object and an enclosing
+ > syntax object. The latter is used in constructing the error message
+ > (e.g., it supplies the form name), and the former is put into the
+ > exception.
+ > 
+ > MzScheme also uses the enclosing object for its source location if the
+ > specific one doesn't have a source. So that's why MzScheme's message is
+ > slightly more informative; DrScheme gets only the specific object.
+ > 
+ > I'm not yet sure what to do about this.
+ 
+ DrScheme doesn't even have a chance to do this, does it?
+ 
+ BTW, I'm happy with having a srcloc in the exception rather than a
+ syntax object. If that was ok with you, the logic that builds the src
+ loc could be in the thing that creates the exception record and both mz
+ and dr could use that same information.
+ 
+ Robby
+
+Responsible changed from "nobody" to "mflatt" by eli at Mon, 14 Mar 2005 17:26:59 -0500
+Reason>>> mzscheme
+(rooby on the notify list)
+

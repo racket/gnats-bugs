@@ -1,0 +1,299 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Feb 27 17:27:15 2007
+Received: from ug-out-1314.google.com (ug-out-1314.google.com [66.249.92.175])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l1RMRE2K005832
+	for <bugs@bugs.plt-scheme.org>; Tue, 27 Feb 2007 17:27:15 -0500
+Message-Id: <200702272226.l1RMQcUd005817@champlain.ccs.neu.edu>
+Date: Tue, 27 Feb 2007 17:26:38 -0500
+From: roshan.shariff+pltbugs@gmail.com
+To: bugs@plt-scheme.org
+Subject: DrScheme crashes with libx11 1.1
+
+>Number:         8547
+>Category:       mred
+>Synopsis:       DrScheme crashes with libx11 1.1
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Feb 27 17:30:02 -0500 2007
+>Closed-Date:    Mon Jan 17 17:48:33 -0500 2011
+>Last-Modified:  Mon Jan 17 17:48:33 -0500 2011
+>Originator:     Roshan Shariff
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352
+>Environment:
+linux-debian
+>Description:
+DrScheme crashes shortly after startup when using libx11 1.1. This is a known problem in Debian ([1], backtrace included) and Ubuntu [2] and has not been fixed in DrScheme 360. After starting DrScheme, clicking anywhere produces the following message and crashes the program:
+
+mred: xcb_xlib.c:41: xcb_xlib_lock: Assertion `!c->xlib.lock' failed.
+
+This is a known problem mentioned in [3] and indicates a bug in MrEd: XLockDisplay is being called on an already locked display. This bug has started causing problems with the release [4] of xlib 1.1, which uses XCB as a transport layer and triggers an assertion if a locked display is locked again (or an unlocked display is unlocked).
+
+Some time with GDB indicates that the bug exists in src/mred/mredx.cxx, functions CheckPred and MrEdGetNextEvent.
+
+The function MrEdGetNextEvent calls XCheckIfEvent with CheckPred as a predicate. "man XCheckIfEvent" says that
+"Your predicate procedure must decide if the event is useful without calling any Xlib functions". However CheckPred calls XGetGeometry, violating this rule.
+
+The assertion is triggered because XCheckIfEvent locks the display before calling CheckPred. CheckPred calls XGetGeometry, which attempts to lock the (already locked) display. The solution is to fix CheckPred to not call any Xlib functions.
+
+[1] http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=409197
+[2] https://bugs.launchpad.net/ubuntu/+source/drscheme/+bug/87789
+[3] http://people.debian.org/~terpstra/message/20061127.041128.8a08d75f.en.html
+[4] http://lists.freedesktop.org/archives/xorg-announce/2006-November/000183.html
+>How-To-Repeat:
+1. Start DrScheme (or MrEd) from a terminal.
+
+2. Click anywhere in the window.
+>Fix:
+>Audit-Trail:
+From: "Roshan Shariff" <roshan.shariff@gmail.com>
+To: "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Cc: 
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Wed, 28 Feb 2007 04:15:02 +0530
+
+ It appears that the Debian bug is a different problem, but caused by
+ the same assertion in Xlib/XCB. There may be more than one place in
+ the DrScheme code (or underlying libraries) where that assertion is
+ being triggered.
+ 
+ Regards
+ Roshan
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eli@barzilay.org
+Cc: roshan.shariff+pltbugs@gmail.com, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Tue, 27 Feb 2007 17:05:32 -0600
+
+ At Tue, 27 Feb 2007 17:30:02 -0500, roshan.shariff+pltbugs@gmail.com wrote:
+ > The assertion is triggered because XCheckIfEvent locks the display before 
+ > calling CheckPred. CheckPred calls XGetGeometry, which attempts to lock the 
+ > (already locked) display. The solution is to fix CheckPred to not call any 
+ > Xlib functions.
+ 
+ I think I have a fix for the next version.
+ 
+ However, I'm not very good at installing different variations of Linux
+ or its libraries. Any suggestions on how I can quickly arrive at a
+ suitably configured Linux installation for testing?
+ 
+ (I normally use Ubuntu Edgy in a Parallels VM.)
+ 
+ Thanks,
+ Matthew
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: roshan.shariff+pltbugs@gmail.com, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Tue, 27 Feb 2007 18:12:44 -0500
+
+ On Feb 27, Matthew Flatt wrote:
+ > At Tue, 27 Feb 2007 17:30:02 -0500, roshan.shariff+pltbugs@gmail.com wrote:
+ > > The assertion is triggered because XCheckIfEvent locks the display
+ > > before calling CheckPred. CheckPred calls XGetGeometry, which
+ > > attempts to lock the (already locked) display. The solution is to
+ > > fix CheckPred to not call any Xlib functions.
+ > 
+ > I think I have a fix for the next version.
+ > 
+ > However, I'm not very good at installing different variations of
+ > Linux or its libraries. Any suggestions on how I can quickly arrive
+ > at a suitably configured Linux installation for testing?
+ 
+ I can let you access all of the build machines (in most of them I have
+ a password that you know), but I don't know if any of them has a newer
+ libx.  (Is there an easy (distro-independent) way to find out?)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: roshan.shariff+pltbugs@gmail.com, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Tue, 27 Feb 2007 17:13:38 -0600
+
+ At Tue, 27 Feb 2007 18:12:44 -0500, Eli Barzilay wrote:
+ > I can let you access all of the build machines (in most of them I have
+ > a password that you know), but I don't know if any of them has a newer
+ > libx.  (Is there an easy (distro-independent) way to find out?)
+ 
+ Check whether clicking in MrEd crashes. :)
+ 
+ Matthew
+ 
+From: "Roshan Shariff" <roshan.shariff@gmail.com>
+To: "Eli Barzilay" <eli@barzilay.org>
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>, roshan.shariff+pltbugs@gmail.com,
+        bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Wed, 28 Feb 2007 05:02:03 +0530
+
+ > libx.  (Is there an easy (distro-independent) way to find out?)
+ 
+ Running "ldd /usr/lib/libX11.so" should show mention "xcb" somewhere
+ if it's a newer version.
+ 
+ Roshan
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>,
+        "Roshan Shariff" <roshan.shariff@gmail.com>
+Cc: roshan.shariff+pltbugs@gmail.com, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Tue, 27 Feb 2007 19:18:56 -0500
+
+ On Feb 27, Matthew Flatt wrote:
+ > At Tue, 27 Feb 2007 18:12:44 -0500, Eli Barzilay wrote:
+ > > I can let you access all of the build machines (in most of them I
+ > > have a password that you know), but I don't know if any of them
+ > > has a newer libx.  (Is there an easy (distro-independent) way to
+ > > find out?)
+ > 
+ > Check whether clicking in MrEd crashes. :)
+ 
+ The problem is setting up the X redirection, and doing it on my
+ office's screen instead of through VNC.
+ 
+ Actually -- is this a problem of the X server or the client?  If it's
+ the server, then all I have is my office machine (FC6) or Xvnc.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: "Roshan Shariff" <roshan.shariff@gmail.com>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: eli@barzilay.org, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Wed, 28 Feb 2007 14:15:10 +0530
+
+ I checked out the SVN trunk and I'm happy to say that the problem is
+ indeed fixed. However, there are more locking errors in the CheckPred
+ function. Now, MrEd starts up fine, but when you type something and
+ then try to move the mouse, it crashes the program with the same
+ assertion.
+ 
+ I believe this happens in the code fragment which unhides the cursor
+ on MotionNotify events:
+     if (e->xbutton.time > lastUnhideTime) {
+       lastUnhideTime = e->xbutton.time;
+       wxUnhideAllCursors();
+     }
+ wxUnhideAllCursors ends up calling XtVaSetValues which eventually
+ calls XDefineCursor, which tries to lock the screen. Here is the
+ relevant backtrace excerpt:
+ 
+ #2  0x00002ab526ba6436 in __assert_fail () from /lib/libc.so.6
+ #3  0x00002ab527504828 in xcb_xlib_lock () from /usr/lib/libxcb-xlib.so.0
+ #4  0x00002ab525d13e85 in _XCBLockDisplay (dpy=0x60d340) at
+ ../../src/xcb_lock.c:20
+ #5  0x00002ab525cebb5a in XDefineCursor (dpy=0x5679, w=71303739,
+ cursor=71303173) at ../../src/DefCursor.c:42
+ #6  0x00002ab523c69a8e in set_values (old=0x7fff872945a0,
+ request=<value optimized out>, self=<value optimized out>, args=<value
+ optimized out>, num_args=<value optimized out>) at
+ ./XWidgets/xwFrame.c:466
+ #7  0x00002ab524c283d3 in CallSetValues (class=0x2ab523f22640,
+ current=0x7fff872945a0, request=0x7fff87294280, new=0x145eb20,
+ args=0x17bfe10, num_args=1) at ../../src/SetValues.c:125
+ #8  0x00002ab524c28393 in CallSetValues (class=0x2ab523f21460,
+ current=0x7fff872945a0, request=0x7fff87294280, new=0x145eb20,
+ args=0x17bfe10, num_args=1) at ../../src/SetValues.c:118
+ #9  0x00002ab524c287a0 in XtSetValues (w=0x145eb20, args=0x17bfe10,
+ num_args=1) at ../../src/SetValues.c:261
+ #10 0x00002ab524c3a81b in XtVaSetValues (widget=0x145eb20) at
+ ../../src/VarCreate.c:233
+ #11 0x00002ab523b42024 in wxXSetBusyCursor (win=0x2ab5315753f0,
+ cursor=0x0) at xsrc/BusyCursor.cc:3514
+ #12 0x00002ab523b4221f in set_all_cursors (o=<value optimized out>,
+ cursor=0x0) at xsrc/BusyCursor.cc:3559
+ #13 0x00002ab523b42284 in wxUnhideCursorInFrame (o=0x5679, busy=0) at
+ xsrc/BusyCursor.cc:3664
+ #14 0x00002ab523c593a0 in wxUnhideAllCursors () at xsrc/mred.cc:8501
+ #15 0x00002ab523c5bb25 in CheckPred (display=0x60d340, e=0x5679,
+ args=0x7fff87295068 "") at xsrc/mredx.cc:7138
+ #16 0x00002ab525ce8587 in XCheckIfEvent (dpy=0x60d340,
+ event=0x7fff87295070, predicate=0x2ab523c5b970 <CheckPred>, arg=0x7fff
+ 87295068 "") at ../../src/ChkIfEv.c:61
+ #17 0x00002ab523c5b609 in MrEdGetNextEvent (check_only=<value
+ optimized out>, current_only=<value optimized out>, event=0x7ff
+ f87295070, which=0x7fff87295068) at xsrc/mredx.cc:7298
+ 
+ Regards
+ Roshan
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Roshan Shariff" <roshan.shariff@gmail.com>
+Cc: eli@barzilay.org, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Wed, 28 Feb 2007 06:01:36 -0600
+
+ At Wed, 28 Feb 2007 14:15:10 +0530, "Roshan Shariff" wrote:
+ > I believe this happens in the code fragment which unhides the cursor
+ > on MotionNotify events:
+ >     if (e->xbutton.time > lastUnhideTime) {
+ >       lastUnhideTime = e->xbutton.time;
+ >       wxUnhideAllCursors();
+ >     }
+ 
+ I should have caught that, and it should be fixed in SVN, now.
+ 
+ Thanks,
+ Matthew
+ 
+From: "Roshan Shariff" <roshan.shariff@gmail.com>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: eli@barzilay.org, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Wed, 28 Feb 2007 18:51:48 +0530
+
+ > I should have caught that, and it should be fixed in SVN, now.
+ 
+ Indeed, DrScheme is working very well now. I'll continue to use it and
+ watch for further XCB-related problems. I'm only concerned about the
+ backtrace on the Debian bug report
+ [http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=409197] which
+ doesn't match any of the backtraces I got. I'm not entirely sure how
+ that sequence of function calls can occur. Perhaps you could take a
+ look at it and see if it might present a problem.
+ 
+ Thanks for all your help
+ Roshan
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Roshan Shariff" <roshan.shariff@gmail.com>
+Cc: eli@barzilay.org, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8547: DrScheme crashes with libx11 1.1
+Date: Wed, 28 Feb 2007 07:46:57 -0600
+
+ At Wed, 28 Feb 2007 18:51:48 +0530, "Roshan Shariff" wrote:
+ > I'm only concerned about the
+ > backtrace on the Debian bug report
+ > [http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=409197] which
+ > doesn't match any of the backtraces I got. I'm not entirely sure how
+ > that sequence of function calls can occur.
+ 
+ That is puzzling. My best guess is that some compiler optimization has
+ caused MrEdCheckForBreak to be substituted for CheckPred in the
+ backtrace.
+ 
+ Matthew
+ 
+
+Responsible changed from "nobody" to "mflatt" by eli at Fri, 04 May 2007 03:32:20 -0400
+Reason>>> mred, probably the thing that was fixed not too long ago
+
+
+State changed from "open" to "closed" by eli at Mon, 17 Jan 2011 17:48:33 -0500
+Reason>>> closed as "obsolete" with respect to v5.0.99.6 and later; 
+either the bug
+is long-since fixed, the relevant code doesn't exist 
+anymore, the
+relevant platform hasn't been supported recently, or a new 
+bug report is
+needed if the problem really isn't fixed and someone 
+actually cares
+

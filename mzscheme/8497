@@ -1,0 +1,114 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jan 24 00:14:45 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.225])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l0O5EjxE028503
+	for <bugs@bugs.plt-scheme.org>; Wed, 24 Jan 2007 00:14:45 -0500
+Message-Id: <200701240514.l0O5EZwr028498@champlain.ccs.neu.edu>
+Date: Wed, 24 Jan 2007 00:14:35 -0500
+From: jepri@alphacomplex.org
+To: bugs@plt-scheme.org
+Subject: MzScheme/Mred crashes
+
+>Number:         8497
+>Category:       mzscheme
+>Synopsis:       MzScheme/Mred crashes
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jan 24 00:15:01 -0500 2007
+>Closed-Date:    Mon Jan 17 17:48:21 -0500 2011
+>Last-Modified:  Mon Jan 17 17:48:21 -0500 2011
+>Originator:     Jeremy Price
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        360
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Program Files\\PLT\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 68874240
+
+Collections:
+(("C:\\Documents and Settings\\aarrr\\Application Data\\PLT Scheme\\360\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "readline" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tex2page" "texpict" "trace" "version" "web-server" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+I have written a program that causes Mred to crash to the desktop on windows (not deliberately).  Unfortunately it takes three hours of run time before it crashes.
+
+Under 360 (release) it would cause MzScheme to exit silently, with no windows crash handler or other messages, except once where a window titled "gc" popped up with the message "Too many heap".
+
+Under 369 (Jan20) it does activate the usual windows crash handler.  However I don't know how to coax windows to give me a core dump and other useful information for you.
+
+If you could advise me on how to get you more useful information I would be happy to follow your instructions.
+
+I am using the FFI interface to call a small DLL I wrote (which hashes files), so that seems likely to be part of the problem, although it does function fine for literally 10,000s of calls.
+>How-To-Repeat:
+The program is rather hefty and requires a server (it uploads thousands of files).  I could send it to you if you like.
+>Fix:
+>Audit-Trail:
+From: Jepri <jepri@alphacomplex.org>
+To: bugs@plt-scheme.org, jepri@alphacomplex.org
+Cc: 
+Subject: Re: all/8497: MzScheme/Mred crashes
+Date: Mon, 19 Feb 2007 06:18:39 +1100
+
+ I've tracked this one down and it turns out to be a combination of two 
+ separate problems.  One is definitely a bug, and one is a design 
+ decision that I'd suggest is probably a bug.  I'll start with the 
+ definite bug, which is in jit.c:
+ 
+ if (gdata.max_depth > data->max_let_depth) {
+      scheme_console_printf("Bad max depth! Given %d, counted %d.\n", 
+ data->max_let_depth, gdata.max_depth);
+      abort();
+    }
+ 
+ On microsoft windows, the abort() will freeze the program before 
+ ms-windows can open the standard output window that MrEd uses to display 
+ text printed to console.  The error message is thus never displayed. 
+ With no error message, a novice could spend almost... say... a month 
+ tracking the problem down.
+ 
+ Even if the output window is open and on top, there is a good chance 
+ that the message will not display in time.  In 5 runs where I was 
+ watching with the window open, I only saw the message once.
+ 
+ Suggestions:  add a sleep() or similar delay, pop up a messagebox that 
+ blocks until the user confirms it, or write emergency messages to a 
+ file, possibly in the application directory.
+ 
+ Also the message doesn't say what the problem actually is, just that the 
+ "max depth" is "bad".  I guessed from the code that it was too many 
+ nested (let ...)s, but a novice scheme programmer (like many who use 
+ MzScheme) might not make that connection.  If indeed that is the problem.
+ 
+ The second issue is abort()ing the VM.  I'm not sure if this error 
+ condition can be seen approaching, but it would be great to throw a 
+ scheme exception before the VM needs to abort().  Perhaps check 
+ (gdata.max_depth > (data->max_let_depth - 100)) and then raise a 
+ exn:fail:recursion "Too many nested lets"?
+ 
+ Regardless of whether I should be able to cause the VM to exit due to 
+ bad code, I think it's important to find a way to reliably deliver 
+ errors on ms-windows.  Missing out on the error caused me literally 
+ weeks of frustration (naturally I didn't have a compiler/debugger on 
+ windows like I would have on linux).
+ 
+ Hope that helps,
+ Jeremy
+
+
+State changed from "open" to "closed" by eli at Mon, 17 Jan 2011 17:48:21 -0500
+Reason>>> closed as "obsolete" with respect to v5.0.99.6 and later; 
+either the bug
+is long-since fixed, the relevant code doesn't exist 
+anymore, the
+relevant platform hasn't been supported recently, or a new 
+bug report is
+needed if the problem really isn't fixed and someone 
+actually cares
+

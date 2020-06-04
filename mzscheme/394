@@ -1,0 +1,234 @@
+From nobody@cs.rice.edu  Fri Dec 12 16:35:31 1997
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id QAA11828 for <plt-gnats@cs.rice.edu>; Fri, 12 Dec 1997 16:35:31 -0600 (CST)
+Message-Id: <199712122235.QAA21615@web.cs.rice.edu>
+Date: Fri, 12 Dec 1997 16:35:30 -0600 (CST)
+From: shriram@cs.rice.edu
+Reply-To: shriram@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: MzScheme inconsistent about unit bindings 
+
+>Number:         394
+>Category:       mzscheme
+>Synopsis:       MzScheme inconsistent about unit bindings
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Dec 12 22:40:01 GMT 1997
+>Last-Modified:  Thu Feb 12 16:24:12 CST 1998
+>Originator:     Shriram Krishnamurthi
+>Organization:
+titan
+>Release:        -x
+>Environment:
+unknown
+>Description:
+MzScheme does not handle unit bindings consistently.  In
+
+(unit (import) (export x) (define lambda 3) (define x (+ lambda 2)))
+
+x is bound to 5.  However, this unit --
+
+(unit (import) (export x) (define define 3) (define x 5))
+
+-- does not flag x as unexported by the unit.  The documentation
+appears to be silent on this point, too.
+
+>How-To-Repeat:
+
+>Fix:
+
+>Audit-Trail:
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: plt-design@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/394: MzScheme inconsistent about unit bindings 
+Date: Fri, 12 Dec 1997 17:21:02 -0600 (CST)
+
+ Shriram and I talked about this and we came up with a proposal. We think
+ that there is a pretty large problem with redefining keywords/macros inside
+ units and the best solution is to reject certain units. We propose that a
+ unit should be rejected if any of its body expressions expand to something
+ of the form:
+ 
+ 			(define-values (x ...) ...)
+ 
+ where one of the x's is a macro in the "current expansion context"
+ (Assuming that define-values is the only post-expansion binding form). A
+ macro is in the "current expansion context" in mzscheme if it is bound in
+ the current namespace to a macro value.
+ 
+ Perhaps we can discuss this in our 19th meeting; I am sending this email
+ more to document Shriram and my conversation than to start a large email
+ discussion.
+ 
+ Robby
+
+Responsible-Changed-From-To: ptg->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Dec 12 19:24:01 1997
+Responsible-Changed-Why:
+
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: shriram@cs.rice.edu
+Cc: robby@cs.rice.edu, plt-design@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/394: MzScheme inconsistent about unit bindings 
+Date: Fri, 12 Dec 1997 19:23:48 -0600 (CST)
+
+ Said shriram@cs.rice.edu:
+ > MzScheme does not handle unit bindings consistently.  In
+ > 
+ > (unit (import) (export x) (define lambda 3) (define x (+ lambda 2)))
+ > 
+ > x is bound to 5.  However, this unit --
+ > 
+ > (unit (import) (export x) (define define 3) (define x 5))
+ > 
+ > -- does not flag x as unexported by the unit.  The documentation
+ > appears to be silent on this point, too.
+ 
+ I disagree that the documentation is silent. The unit section refers
+ (via a footnote) to the section on embedded `define' for details about
+ macro expansion, which predicts the behaviors found in these cases. I
+ also think that the documented solution is consistent, if not obvious.
+ 
+ I don't like the solution that rejects definitions when a macro in the
+ current evaluation context is being redefined. It makes code more
+ brittle. For example,
+ 
+  (unit
+   (import)
+   (export split)
+   (define (split x) (values (numerator x) (denominator x))))
+ 
+ would be legal in MrEd but illegal in DrScheme (which has `split' from
+ turtles). But any convention will have its trade-offs. Until the
+ 19th...
+ 
+ Matthew
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: shriram@cs.rice.edu, plt-design@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/394: MzScheme inconsistent about unit bindings 
+Date: Tue, 16 Dec 1997 11:10:43 -0600 (CST)
+
+ Matthew Flatt writes:
+ > I don't like the solution that rejects definitions when a macro in the
+ > current evaluation context is being redefined. It makes code more
+ > brittle. For example,
+ > 
+ >  (unit
+ >   (import)
+ >   (export split)
+ >   (define (split x) (values (numerator x) (denominator x))))
+ > 
+ > would be legal in MrEd but illegal in DrScheme (which has `split' from
+ > turtles). But any convention will have its trade-offs. Until the
+ > 19th...
+ 
+ Actually I think that expanding the convention to allow units that "shadow
+ macro bindings" only when they are in the export list (like above) is
+ probably okay. So, any brittleness problems this introduces would be local
+ to a particular atomic unit rather than requiring a global change.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: shriram@cs.rice.edu, matthias@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/394: MzScheme inconsistent about unit bindings 
+Date: Wed, 17 Dec 1997 09:09:56 -0600 (CST)
+
+ Said Robert Bruce Findler:
+ > Well, Shriram and I were just poking around with this and came across some
+ > strange behavior. We aren't sure if this is a bug in the unit spec or in
+ > the implementation, but in any case, it's one for the test suite :)
+ 
+ It's not a bug in either. It just shows that the current spec is
+ subtle in some ways.
+ 
+ > (define-macro mac
+ >   (lambda (body)
+ >     -100))
+ > [...]
+ > 	 (unit (import)
+ > 	       (export mac)
+ > 	       (define mac
+ > 		 (lambda (n)
+ > 		   (if (zero? n)
+ > 		       n
+ > 		       (mac (sub1 n)))))
+ > 	       
+ > 	       (mac 10)))
+ 
+ In this case, `mac' is a macro, so we have to expand it
+ to find out whether it expands to a defintion. It doesn't,
+ but the result is -100.
+ 
+ > 	 (unit (import)
+ > 	       (export mac)
+ > 	       (define mac
+ > 		 (lambda (n)
+ > 		   (if (zero? n)
+ > 		       n
+ > 		       (mac (sub1 n)))))
+ > 	       
+ > 	       (if #t (mac 10)))))
+ 
+ In this case, the last expression is clearly an `if', not a
+ definition, so the `mac' expression is not expanded.
+ 
+ [At the (true) top-level, the branches of an `if' expression can be
+ top-level definitions.  Obviously unit definitions can't be in the
+ branches of an `if'.]
+ 
+ Matthew
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: shriram@cs.rice.edu, matthias@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/394: MzScheme inconsistent about unit bindings 
+Date: Wed, 17 Dec 1997 09:54:29 -0600 (CST)
+
+ BTW, this *is* a bug:
+ 
+  (define-macro mac
+    (lambda (body)
+      -100))
+  (invoke-unit
+   (unit (import mac)
+         (export)
+         (mac 10))
+   add1)
+  => -100
+ 
+ I'll refrain from fixing it until we know the long-term solution.
+ 
+ Matthew
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Thu Feb 12 16:23:45 1998
+State-Changed-Why:
+
+The result was a syntax change:
+
+ Unit definitions and embedded definitions are not allowed
+ to shadow syntax or macro names; this restriction resolves
+ all potential ambiguity resulting from shadowing syntax.
+ When a variable is exported from a unit, the (internal) name
+ can be defined even if it would otherwise shadow syntax.
+
+This is implemented for MzScheme, but not Zodiac. For simplicity, I'll
+submit a new PR and refer to this one.
+
+
+>Unformatted:
+Robby and I have a proposal about this that we'd like to talk about in 
+person.  Maybe on the 19th, before or after our "book talk"?

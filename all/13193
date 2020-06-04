@@ -1,0 +1,162 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Oct 16 20:10:13 2012
+Received: from mail-ia0-f172.google.com (mail-ia0-f172.google.com [209.85.210.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q9H0A9rR032158
+	for <bugs@bugs.plt-scheme.org>; Tue, 16 Oct 2012 20:10:09 -0400
+Message-Id: <201210170010.q9H0A586032153@champlain.ccs.neu.edu>
+Date: Tue, 16 Oct 2012 20:10:06 -0400
+From: dyoo@hashcollision.org
+To: bugs@racket-lang.org
+Subject: tcp-listen fails under Mac OSX 10.8.2 when not connected to a network
+
+>Number:         13193
+>Category:       all
+>Synopsis:       tcp-listen fails under Mac OSX 10.8.2 when not connected to a network
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Oct 16 20:12:01 -0400 2012
+>Closed-Date:    Thu Mar 21 13:51:53 -0400 2013
+>Last-Modified:  Thu Mar 21 13:51:53 -0400 2013
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3
+>Environment:
+macosx "Darwin slab.local 12.2.0 Darwin Kernel Version 12.2.0: Sat Aug 25 00:48:52 PDT 2012; root:xnu-2050.18.24~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 383401576
+Links: (links) = ("curr"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/dyoo/Library/Racket/5.3/collects"
+ ("info-domain"))
+("/Applications/Racket v5.3/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+The following test program fails to run when executed on a Macbook laptop whose wireless connections are disabled:
+
+    #lang racket/base
+    (require racket/tcp)
+    (tcp-listen 8000 4 #t #f)
+
+The error message received is:
+
+    . . tcp-listen: listen failed
+      port number: 8000
+      system error: Address already in use; errno=48
+
+I can confirm that I get this error message regardless of what port number I use.  The error message is wrong: that port has not been bound.
+
+The error appears to relate to the use of the hostname parameter. If I change the program to:
+
+    #lang racket/base
+    (require racket/tcp)
+    (tcp-listen 8000 4 #t "127.0.0.1")
+
+then the tcp-listener port opens successfully.
+>How-To-Repeat:
+On a Macbook laptop, turn off the wireless network.  Then try executing the program:
+
+    #lang racket/base
+    (require racket/tcp)
+    (tcp-listen 8000 4 #t #f)
+
+You should see the reported error message.
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, dyoo@hashcollision.org
+Cc: 
+Subject: Re: all/13193: tcp-listen fails under Mac OSX 10.8.2 when not
+ connected to a network
+Date: Wed, 13 Feb 2013 12:51:51 -0700
+
+ More investigation.  Something is happening with
+ scheme_get_host_address when the network is not up.  I made a small
+ change to network.c on my local installation to watch what happens:
+ 
+ diff --git a/src/racket/src/network.c b/src/racket/src/network.c
+ index b64d8ca..c10d2a0 100644
+ --- a/src/racket/src/network.c
+ +++ b/src/racket/src/network.c
+ @@ -796,11 +796,17 @@ struct mz_addrinfo
+ *scheme_get_host_address(const char *ad
+    ok = MZ_GETADDRINFO(address, service, &hints, &r);
+    *err = ok;
+ -
+ -  if (!ok)
+ +
+ +  printf("%d %d %d %d\n",
+ +         r->ai_flags, r->ai_family,
+ +         r->ai_socktype, r->ai_protocol);
+ +
+ +  if (!ok) {
+      return r;
+ -  else
+ +  }
+ +  else {
+      return NULL;
+ +  }
+  }
+ 
+ 
+ I then ran the following test program:
+ 
+     #lang racket/base
+     (require racket/tcp)
+     (tcp-listen 8000 4 #t #f)
+ 
+ When the wireless network is up, I see the following output:
+ 
+     0 2 1 6
+     #<tcp-listener>
+ 
+ 
+ However, when the wireless network is down, I see a different value
+ for the ai_family:
+ 
+     0 30 1 6
+     tcp-listen: listen failed
+       port number: 8000
+       system error: Address already in use; errno=48
+       context...:
+        /Users/dyoo/test-tcp.rkt: [running body]
+ 
+ 
+ 
+ For some reason, it's choosing an entirely different family.  It's
+ been years since I looked at the TCP api, so I'm failing to remember
+ what's supposed to happen here.
+From: Danny Yoo <dyoo@hashcollision.org>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, dyoo@hashcollision.org
+Cc: 
+Subject: Re: all/13193: tcp-listen fails under Mac OSX 10.8.2 when not
+ connected to a network
+Date: Thu, 21 Mar 2013 08:45:34 -0600
+
+ Can anyone confirm that this is not happening on their systems, even
+ Ubuntu linux?  I just ran into a situation on my Ubuntu servers that
+ appears to mimic these exact conditions.  I want to make sure I'm not
+ chasing the same bug here.
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Thu, 21 Mar 2013 13:51:53 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/111799ec94
+State changed from "open" to "closed" by mflatt@racket-lang.org at Thu, 21 Mar 2013 13:51:53 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/111799ec94
+  | Mac OS X: use IPV6_V6ONLY
+  | 
+  | As of 10.8, Mac OS X seems to behave more like Linux in the way
+  | that IPv6 and IPv4 binding interact.
+  | 
+  | Closes PR 13193
+

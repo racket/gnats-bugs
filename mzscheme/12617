@@ -1,0 +1,81 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Mar  3 15:02:32 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q23K2S5a000866
+	for <bugs@bugs.plt-scheme.org>; Sat, 3 Mar 2012 15:02:28 -0500
+Message-Id: <201203032002.q23K2ORr000860@champlain.ccs.neu.edu>
+Date: Sat, 3 Mar 2012 15:02:24 -0500
+From: gustavo@oma.org.ar
+To: bugs@racket-lang.org
+Subject: Error with inferred-name of procedures
+
+>Number:         12617
+>Category:       mzscheme
+>Synopsis:       Error with inferred-name of procedures
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Mar 03 15:04:01 -0500 2012
+>Last-Modified:  Sat Mar 03 15:08:29 -0500 2012
+>Originator:     Gustavo Massaccesi
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 178902036
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("C:\\Documents and Settings\\User\\Datos de programa\\Racket\\5.2.1\\collects"
+ (non-existent-path))
+("C:\\Archivos de programa\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f))
+>Description:
+In some cases, the expansion of a syntax with an inferred-name syntax-property changes the property, and the final procedure doesn't get the correct name.
+
+For example, in a module context an isolated (lambda ...) is wrapped in a "printing-module-begin" that calls "local-expand". So it creates (#%expression (lambda ...)) with the same 'inferred-name syntax-property. Then the #%expression disappears, but the syntax-properties are merged. So in the new (lambda ...) the 'inferred-name property is something like ('name . 'name) instead of 'name and the procedure gets the wrong name. 
+
+(This is similar to the expansion of thunk1/l-e in the example.) 
+
+Another place where this happens is when an isolated (lambda ...) appears in an internal-definition context. The same kind of expansions of an #%expression produces the same problem. 
+>How-To-Repeat:
+#lang racket
+
+(define-syntax (thunk1 stx)
+  (syntax-property
+    #'(lambda () 1)
+   'inferred-name
+   'one))
+
+(thunk1) ;BAD ==> #<procedure:...xxx>
+
+(let ([tmp (thunk1)]) tmp) ;GOOD ==> #<procedure:one>
+
+(let () (thunk1)) ;BAD ==> #<procedure:...xxx>
+
+
+(newline)
+
+;expansion similar to the used in printing-module-begin
+(define-syntax (thunk1/l-e stx)
+  (local-expand (syntax-property
+                 #'(lambda () 1)
+                 'inferred-name
+                 'one)
+                'module
+                (list #'something)))
+
+(thunk1/l-e) ; ==> #<procedure:...xxx>
+
+(let ([tmp (thunk1/l-e)]) tmp) ; ==> #<procedure:tmp>
+
+(let () (thunk1/l-e)) ; ==> #<procedure:...xxx>
+>Fix:

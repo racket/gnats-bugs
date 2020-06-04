@@ -1,0 +1,301 @@
+From robby@cs.rice.edu  Wed Nov  3 21:10:57 1999
+Received: from localhost (swb15a-177-161.rice.edu [128.42.177.161])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id VAA28772
+	for <plt-gnats>; Wed, 3 Nov 1999 21:10:52 -0600 (CST)
+Message-Id: <199911040310.VAA28772@cs.rice.edu>
+Date: Wed, 3 Nov 1999 21:10:52 -0600 (CST)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: postscript printing and tight-text-fit
+
+>Number:         1256
+>Category:       mred
+>Synopsis:       postscript printing and tight-text-fit
+>Confidential:   no
+>Severity:       serious
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Nov 03 22:15:05 -0500 1999
+>Last-Modified:  Sun Mar 28 02:40:51 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        101
+>Organization:
+titan
+>Environment:
+windows (win32\i386)
+Tools: ("CVS" "analysis" "debug" "syncheck" "unit-bundle" "stepper")
+Docs Installed:
+("mzscheme" "teach" "r5rs" "mred" "misclib" "help" "drscheme" "framework" "mzc" "icons" "tools")
+Collections:
+(("d:/robby/collects" ("CVS" "account" "backgammon" "checkers" "doonesbury" "friendly" "mahjongg" "paper-utils" "pente" "pop-pop" "set-fonts" "test-image-map" "xmahjongg" "icfp-pc-99")) ("d:/robby/proj/papers" ("CVS" "c+u.save" "drafthead.sty" "dr" "dr-column" "geometric-control" "graphical-units" "senior-thesis" "signature-constraints" "type-safety" "typed-unit-calculus" "unit" "unit-semantics" ".log")) ("d:/robby/proj/talks" ("CVS" "icfp98" "lc" "lunch1" "unit-patterns" "unit-proposal" "util")) ("d:/mflatt/collects" ("CVS" "sirmail")) ("D:\\REL\\PLT\\collects" ("CVS" "afm" "browser" "cogen" "compiler" "countdwn" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "help" "hierarchy" "hierlist" "icons" "launcher" "make" "xml" "mred" "mrspidey" "mysterx" "mzlib" "mzscheme" "net" "quasiquote" "readline" "slatex" "slibinit" "tests" "texpict" "userspce" "zodiac" "doc" "drjava" "stepper" "release-notes" "htdp")))
+>Description:
+The tight-text-fit flag sometimes causes pixels
+not to be drawn in postscript. To see this, run the code
+below. It will ask you to save a file and open a frame.
+the contents of the frame and the postscript should
+match, but the postscript has a problem: the inner
+double-bracking's top few pixels are missing.
+>How-To-Repeat:
+(define bracket-snip%
+  (class editor-snip% (between-snip left-margin top-margin right-margin bottom-margin)
+    (override
+      [write
+       (lambda (p)
+         (send (get-editor) write-to-file p))])
+    (public
+      [height #f]
+      [width #f])
+    (rename [super-get-extent get-extent]
+            [super-draw draw])
+    (override
+      [get-extent
+       (lambda (dc x y w h descent space lspace rspace)
+         (for-each (lambda (x) (when (and (box? x) (> 0 (unbox x))) (set-box! x 0)))
+                   (list w h descent space lspace rspace))
+         (super-get-extent dc x y w h descent space lspace rspace)
+         (when (box? h)
+           (set! height (unbox h)))
+         (when (box? w)
+           (set! width (unbox w))))])
+    
+    (inherit get-style)
+
+    (sequence 
+      (let ([text (make-object text%)])
+        (super-init text #f
+                    left-margin top-margin right-margin bottom-margin
+                    0 0 0 0)
+        (send text insert (send between-snip copy))))))
+
+(define double-bracket-snip%
+  (class* bracket-snip% () (between-snip)
+    (override
+      [copy
+       (lambda ()
+         (make-object double-bracket-snip% between-snip))])
+    
+    (inherit height width)
+    (rename [super-draw draw])
+    (override
+      [draw
+       (lambda (dc x y left top right bottom dx dy draw-caret)
+         (let ([vertical-line
+                (lambda (x)
+                  (send dc draw-line x y x (+ y height -1)))]
+               [horizontal-lines
+                (lambda (x)
+                  (send dc draw-line x y (+ x 5) y)
+                  (send dc draw-line x (+ y height -1) (+ x 5) (+ y height -1)))])
+           (horizontal-lines x)
+           (horizontal-lines (+ x width -6))
+           (vertical-line x)
+           (vertical-line (+ x width -1))
+           (vertical-line (+ x 3))
+           (vertical-line (+ x width -4)))
+         (super-draw dc x y left top right bottom dx dy draw-caret))])
+    (inherit set-snipclass)
+    (sequence
+      (super-init between-snip 6 1 6 1)
+      (set-snipclass double-bracket-snipclass))))
+
+(define bracket-snipclass%
+  (class snip-class% (%)
+    (override
+      [read
+       (lambda (p)
+         (let ([bs (make-object % (make-object snip%))]
+               [t (send bs get-editor)])
+           (send t read-from-file p)))])
+    (sequence (super-init))))
+
+(define double-bracket-snipclass (make-object bracket-snipclass% double-bracket-snip%))
+(send double-bracket-snipclass set-version 1)
+(send double-bracket-snipclass set-classname "robby:double-bracket")
+(send (get-the-snip-class-list) add double-bracket-snipclass)
+
+(define (double-bracket snip)
+  (make-object double-bracket-snip% snip))
+
+(define text (make-object text%))
+(define text2 (make-object text%))
+(define text3 (make-object text%))
+(define frame (make-object frame% "frame" #f 100 100))
+(define editor-canvas (make-object editor-canvas% frame text))
+(send text3 insert (format "abcdef~nghijkl"))
+
+(define es3 (make-object editor-snip% text3 #f 0 0 0 0 0 0 0 0))
+(send es3 set-tight-text-fit #t)
+(send text2 insert (double-bracket es3))
+(send text insert #\newline)
+
+(define es2 (make-object editor-snip% text2 #f 0 0 0 0 0 0 0 0))
+(send es2 set-tight-text-fit #t)
+(send text insert (double-bracket es2))
+
+(send text print #t #t 'postscript)
+(send frame show #t)
+
+>Fix:
+>Release-Note:
+
+>Audit-Trail:
+
+From: Robert Findler <robby@cs.rice.edu>
+To: Paul Steckler <steck@cs.rice.edu>, mflatt@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1256: postscript printing and tight-text-fit
+Date: Thu, 4 Nov 1999 10:05:02 -0600 (CST)
+
+ 	`Robert Findler' made changes to this PR.
+ 
+ /usr/bin/diff: illegal option -- u
+ usage: diff [-bitw] [-c | -e | -f | -h | -n] file1 file2
+        diff [-bitw] [-C number] file1 file2
+        diff [-bitw] [-D string] file1 file2
+        diff [-bitw] [-c | -e | -f | -h | -n] [-l] [-r] [-s] [-S name] directory1 directory2
+ 
+ Well, it seems like gnats is mis-configured somehow (I would guess it is a
+ path problem; there are probably multiple versions of diff floating around
+ out there).
+ 
+ I made the pr easier to understand by simplifing the code as much as I could.
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Thu Nov  4 10:21:45 1999
+Responsible-Changed-Why:
+
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1256: postscript printing and tight-text-fit
+Date: Thu, 4 Nov 1999 10:30:51 -0700 (MST)
+
+ The original problem was due to round-off: rounding occured for
+ rectangular clipping regions in PS (shouldn't), but not for drawing
+ rectangles.
+ 
+ I've committed new MrEd/X sources to fix the round-off problem for
+ clipping. The new sources are not yet exp-tagged because many files
+ changed (due to other cleanups), and the changes shouldn't go into 101.
+ 
+ 
+ The problem in the
+ 
+   ----------
+    --------
+     abcdef
+     ghijkl
+    --------
+   ----------
+ 
+ example is that the double-bracket-snip% intializer should put the snip
+ in tight-text-fit mode.
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Dec  6 09:26:34 1999
+State-Changed-Why:
+
+ 
+>Unformatted:
+ 
+ I have simplified the code required to produce the problem and in the
+ course of it, found a few other problems. There are two bits of code,
+ now. The first is the shortest. In the frame, it looks just right, but in
+ postscript, the top is wrong:
+ 
+ 
+ (define text (make-object text%))
+ (define text2 (make-object text%))
+ (define text3 (make-object text%))
+ (define frame (make-object frame% "frame" #f 150 150))
+ (define editor-canvas (make-object editor-canvas% frame text))
+ (send text3 insert (format "abcdef~nghijkl"))
+ 
+ (define es3 (make-object editor-snip% text3 #t 1 1 1 1 0 0 0 0))
+ (send es3 set-tight-text-fit #t)
+ (send text2 insert es3)
+ (send text insert #\newline)
+ 
+ (define es2 (make-object editor-snip% text2 #t 1 1 1 1 0 0 0 0))
+ (send es2 set-tight-text-fit #t)
+ (send text insert es2)
+ 
+ (send text print #t #t 'postscript)
+ (send frame show #t)
+ 
+ ; ---
+ 
+ Run the code below and I expected something like this:
+ 
+  ----------
+   --------
+    abcdef
+    ghijkl
+   --------
+  ----------
+ 
+ In the frame version, the bottom pair of lines are too far apart, and the
+ left and right sides are not symmetric. In the postscript version, there
+ are the same problems as the frame version and the top is wrong, ala the
+ previous code example.
+ 
+ (define double-bracket-snip%
+  (class* editor-snip% () (between-snip)
+    (public
+      [height #f]
+      [width #f])
+    (rename [super-get-extent get-extent]
+            [super-draw draw])
+    (override
+      [get-extent
+       (lambda (dc x y w h descent space lspace rspace)
+         (for-each (lambda (x) (when (and (box? x) (> 0 (unbox x)))
+ (set-box! x 0)))
+                   (list w h descent space lspace rspace))
+         (super-get-extent dc x y w h descent space lspace rspace)
+         (when (box? h)
+           (set! height (unbox h)))
+         (when (box? w)
+           (set! width (unbox w))))]
+      [draw
+       (lambda (dc x y left top right bottom dx dy draw-caret)
+         (send dc draw-line x y (+ x width -1) y)
+         (send dc draw-line x (+ y height -1) (+ x width -1) (+ y height
+ -1))
+         (super-draw dc x y left top right bottom dx dy draw-caret))])
+    (sequence      
+      (let ([text (make-object text%)])
+        (super-init text #f
+                    1 1 1 1
+                    0 0 0 0)
+        (send text insert between-snip)))))
+ 
+ (define (double-bracket snip)
+  (make-object double-bracket-snip% snip))
+ 
+ (define text (make-object text%))
+ (define text2 (make-object text%))
+ (define text3 (make-object text%))
+ (define frame (make-object frame% "frame" #f 150 150))
+ (define editor-canvas (make-object editor-canvas% frame text))
+ (send text3 insert (format "abcdef~nghijkl"))
+ 
+ (define es3 (make-object editor-snip% text3 #f 0 0 0 0 0 0 0 0))
+ (send es3 set-tight-text-fit #t)
+ (send text2 insert (double-bracket es3))
+ (send text insert #\newline)
+ 
+ (define es2 (make-object editor-snip% text2 #f 0 0 0 0 0 0 0 0))
+ (send es2 set-tight-text-fit #t)
+ (send text insert (double-bracket es2))
+ 
+ (send text print #t #t 'postscript)
+ (send frame show #t)
+ 
+ 

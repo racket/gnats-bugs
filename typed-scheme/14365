@@ -1,0 +1,241 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Feb 23 20:56:29 2014
+Received: from mail-ob0-f171.google.com (mail-ob0-f171.google.com [209.85.214.171])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s1O1uR0T009704
+	for <bugs@bugs.plt-scheme.org>; Sun, 23 Feb 2014 20:56:27 -0500
+Message-Id: <201402240156.s1O1uPu9009693@winooski.ccs.neu.edu>
+Date: Sun, 23 Feb 2014 20:56:25 -0500
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: Exponential-time subtype check when function is in a polymorphic struct
+
+>Number:         14365
+>Category:       typed-scheme
+>Synopsis:       Exponential-time subtype check when function is in a polymorphic struct
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Feb 23 21:00:01 -0500 2014
+>Last-Modified:  Thu Jul 30 15:09:18 -0400 2015
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.0.2--2014-02-14(30bf673a/d)
+>Environment:
+unix "Linux woodstock 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 554224824
+Links: (links) = (); (links #:user? #f) = ("nonplussed"); (links #:root? #t) = (); (links #:user? #f #:root? #t) = (#<path:/home/neil/plt/racket/share/pkgs/rsound> #<path:/home/neil/plt/racket/share/pkgs/portaudio>)
+raco pkg (show):
+/home/neil/plt/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [205 auto-installed packages not shown]
+Installation-wide:
+ Package       Checksum                                    Source
+ nonplussed    f6c069990eb6b0b3356f872fcce82a3fb2fe805a    (url git://github.com/ntoronto/nonplussed)
+ rsound        4f5d4d154eb7585b96b24298b79e3381bab8f1a5    (catalog rsound)
+ [1 auto-installed package not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/development/collects"
+ (non-existent-path))
+("/home/neil/plt/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+The time taken to typecheck the program in reproduction steps appears to be exponential in the number of types in the union Num. The inefficiency seems to depend on three things:
+
+ * Wrapping the function in a struct
+ * Using a polymorphic struct
+ * Having a union in the function arguments
+
+In the actual application, the type is Real, not Num, which is a union of 20 types. The type checker appeared to be in an infinite loop.
+
+These are the timings I've collected for running the program from the command line:
+
+#lang racket
+
+(require plot)
+
+(define data
+  (list (list 1 1.35)
+        (list 2 1.35)
+        (list 3 1.35)
+        (list 4 1.36)
+        (list 5 1.36)
+        (list 6 1.37)
+        (list 7 1.45)
+        (list 8 1.5)
+        (list 9 1.65)
+        (list 10 1.9)
+        (list 11 2.5)
+        (list 12 3.8)
+        (list 13 6.6)
+        (list 14 12.5)
+        (list 15 25)
+        (list 16 52)))
+
+(plot (lines data)
+      #:x-label "# types in union"
+      #:y-label "time (s)")
+>How-To-Repeat:
+#lang typed/racket
+
+(define-type (Bar A B) ((U A B) -> B))
+(struct: (A B) foo ([bar : (Bar A B)]))
+
+;; Time to typecheck second annotation appears exponential
+;; in the number of terms in this union
+(define-type Num (U 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15))
+
+;; Fast
+(ann
+ (λ: ([x : Num]) 0)
+ (Bar Num Zero))
+
+;; Very slow
+(ann
+ (foo (λ: ([x : Num]) 0))
+ (foo Num Zero))
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14365: Exponential-time subtype check when
+ function is in a polymorphic struct
+Date: Sun, 6 Jul 2014 10:29:51 -0700
+
+ I have narrowed it down to the following infer unit test.
+ 
+ (define Num (apply Un (build-list 5 -val)))
+ 
+ [infer-t (-> Num (-val 0))
+            (-> (Un (-v a) (-v b)) (-v b))
+            #:vars '(a b)
+            #:result [(-> (Un (-v a) (-v b)) (-v b))
+                         (-> Num (-val 0))]]
+ 
+ The issue is that when trying to create the expected constraints we
+ need to find a substitution for a and b such that their union is a
+ supertype of Num. Our current algorithm then splits up the num into
+ its component cases and finds a substution for each one. for each of
+ these there are 2 cases constrain a, constrain b. We then try to join
+ these all up which computes the cross product and thus an exponential
+ amount of constraint possibilities.
+ 
+ Without changing our data structures for constraints I don't think
+ that it is possible to handle this in a non hacky way.
+ 
+ 
+ 
+ 
+ On Sun, Feb 23, 2014 at 6:00 PM,  <neil.toronto@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14365
+ >
+ > Reported by Neil Toronto for release: 6.0.0.2--2014-02-14(30bf673a/d)
+ >
+ > *** Description:
+ > The time taken to typecheck the program in reproduction steps appears to be exponential in the number of types in the union Num. The inefficiency seems to depend on three things:
+ >
+ >  * Wrapping the function in a struct
+ >  * Using a polymorphic struct
+ >  * Having a union in the function arguments
+ >
+ > In the actual application, the type is Real, not Num, which is a union of 20 types. The type checker appeared to be in an infinite loop.
+ >
+ > These are the timings I've collected for running the program from the command line:
+ >
+ > #lang racket
+ >
+ > (require plot)
+ >
+ > (define data
+ >   (list (list 1 1.35)
+ >         (list 2 1.35)
+ >         (list 3 1.35)
+ >         (list 4 1.36)
+ >         (list 5 1.36)
+ >         (list 6 1.37)
+ >         (list 7 1.45)
+ >         (list 8 1.5)
+ >         (list 9 1.65)
+ >         (list 10 1.9)
+ >         (list 11 2.5)
+ >         (list 12 3.8)
+ >         (list 13 6.6)
+ >         (list 14 12.5)
+ >         (list 15 25)
+ >         (list 16 52)))
+ >
+ > (plot (lines data)
+ >       #:x-label "# types in union"
+ >       #:y-label "time (s)")
+ >
+ > *** How to repeat:
+ > #lang typed/racket
+ >
+ > (define-type (Bar A B) ((U A B) -> B))
+ > (struct: (A B) foo ([bar : (Bar A B)]))
+ >
+ > ;; Time to typecheck second annotation appears exponential
+ > ;; in the number of terms in this union
+ > (define-type Num (U 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15))
+ >
+ > ;; Fast
+ > (ann
+ >  (λ: ([x : Num]) 0)
+ >  (Bar Num Zero))
+ >
+ > ;; Very slow
+ > (ann
+ >  (foo (λ: ([x : Num]) 0))
+ >  (foo Num Zero))
+ >
+ > *** Environment:
+ > unix "Linux woodstock 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 554224824
+ > Links: (links) = (); (links #:user? #f) = ("nonplussed"); (links #:root? #t) = (); (links #:user? #f #:root? #t) = (#<path:/home/neil/plt/racket/share/pkgs/rsound> #<path:/home/neil/plt/racket/share/pkgs/portaudio>)
+ > raco pkg (show):
+ > /home/neil/plt/racket/share/devel-pkgs:
+ >  Package              Checksum    Source
+ >  main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ >  plt-services         #f          (static-link ../../../pkgs/plt-services)
+ >  racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ >  [205 auto-installed packages not shown]
+ > Installation-wide:
+ >  Package       Checksum                                    Source
+ >  nonplussed    f6c069990eb6b0b3356f872fcce82a3fb2fe805a    (url git://github.com/ntoronto/nonplussed)
+ >  rsound        4f5d4d154eb7585b96b24298b79e3381bab8f1a5    (catalog rsound)
+ >  [1 auto-installed package not shown]
+ > User-specific for installation "development":
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/home/neil/.racket/development/collects"
+ >  (non-existent-path))
+ > ("/home/neil/plt/racket/collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >
+ > Recent Internal Errors:
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+ >
+ 
+

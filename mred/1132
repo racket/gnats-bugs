@@ -1,0 +1,165 @@
+From nobody@cs.rice.edu  Fri Aug 27 13:40:41 1999
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id NAA12259
+	for <plt-gnats@cs.rice.edu>; Fri, 27 Aug 1999 13:40:40 -0500 (CDT)
+Message-Id: <199908271840.NAA15393@web.cs.rice.edu>
+Date: Fri, 27 Aug 1999 13:40:40 -0500 (CDT)
+From: robby@cs.rice.edu
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: get-text-from-user sometimes doesn't set focus to text 
+
+>Number:         1132
+>Category:       mred
+>Synopsis:       get-text-from-user sometimes doesn't set focus to text
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Aug 27 14:45:02 -0400 1999
+>Closed-Date:    Fri Apr 18 17:13:37 -0400 2003
+>Last-Modified:  Sun Mar 28 02:40:02 -0500 2004
+>Originator:     Robby Findler
+>Release:        101/1
+>Organization:
+titan
+>Environment:
+Mac PowerPC
+>Description:
+When using check syntax, the popup menu's rename identifier
+item calls get-text-from-user and the focus is never set to the
+text object. This is the call:
+
+(mred:get-text-from-user
+ "Rename Identifier"
+ (format "Rename ~a to:" id-name)
+ #f
+ (format "~a" id-name))
+
+This is in plt/collects/drscheme/tools/syncheck/unit.ss
+
+Unfortunately, this call by itself does set the focus; only when
+using drscheme is it wrong. I dont know what could be different.
+>How-To-Repeat:
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: clements@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/1132: get-text-from-user sometimes doesn't set focus to text 
+Date: Sat, 28 Aug 1999 09:25:08 -0700
+
+ Quoting robby@cs.rice.edu:
+ > When using check syntax, the popup menu's rename identifier
+ > item calls get-text-from-user and the focus is never set to the
+ > text object. This is the call:
+ > 
+ > (mred:get-text-from-user
+ >  "Rename Identifier"
+ >  (format "Rename ~a to:" id-name)
+ >  #f
+ >  (format "~a" id-name))
+ > 
+ > This is in plt/collects/drscheme/tools/syncheck/unit.ss
+ > 
+ > Unfortunately, this call by itself does set the focus; only when
+ > using drscheme is it wrong. I dont know what could be different.
+ 
+ One difference is that evaluating the expression above in DrScheme (or
+ MrEd) creates a new window in an empty eventspace, so the keyboard
+ focus must shift eventspaces. When check syntax calls
+ get-text-from-user, the focus must shift within an eventspace. So the
+ problem may be some sort of race condition.
+ 
+ What happens with the following code?:
+ 
+ ----------------------------------------
+ 
+ (define frame (make-object frame% "SendCode" #f 100 100))
+ (define canvas (make-object editor-canvas% frame (make-object text%)))
+ 
+ (send frame show #t)
+ 
+ (thread
+  (lambda ()
+    (sleep 4)
+    (queue-callback
+     (lambda ()
+       (get-text-from-user
+        "Rename Identifier"
+        "Rename ? to:"
+        #f
+        "?")))))
+ 
+ ----------------------------------------
+ 
+ If the focus is set correctly by the above code, then the next test is
+ to call get-text-from-user via a clickback (to see whether it has
+ something to do with event handling in canvases). If that still doesn't
+ reproduce the bug, then the next test is a clickback that pops up a
+ menu that calls get-text-from-user (to see whether it has something to
+ do with popup menus). If that still doesn't reproduce the bug, then I'm
+ stuck until we get more information.
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: clements@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/1132: get-text-from-user sometimes doesn't set focus to
+	 text 
+Date: Mon, 06 Sep 1999 09:49:16 -0500
+
+ This code reproduces the bug:
+ 
+ (define frame (make-object frame% "frame" #f 100 100))
+ 
+ (define text
+   (make-object
+    (class text% ()
+      (override
+        [on-event
+         (lambda (evt)
+           (when (send evt button-down?)
+             (get-text-from-user
+              "Rename Identifier"
+              "Rename ? to:"
+              #f
+              "?")))])
+      (sequence (super-init)))))
+ 
+ (define canvas (make-object editor-canvas% frame text))
+ 
+ (send text insert "text")
+ 
+ (send frame show #t)
+ 
+ (also works if on-event is replaced with on-default-event, but I figure this
+ one is more primitive)
+ 
+ Robby
+
+Responsible-Changed-From-To: steck->clements
+Responsible-Changed-By: clements
+Responsible-Changed-When: Tue Sep  7 18:33:49 1999
+Responsible-Changed-Why:
+
+Responsible-Changed-From-To: clements->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sat Jun 15 07:37:27 2002
+Responsible-Changed-Why:
+    mac
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Apr 18 17:13:37 2003
+State-Changed-Why:
+    Fixed. (Focus problems suddenly seem obvious.)
+>Unformatted:
+ 

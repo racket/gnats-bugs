@@ -1,0 +1,727 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Dec 12 04:59:37 2013
+Received: from mail-ob0-f174.google.com (mail-ob0-f174.google.com [209.85.214.174])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id rBC9xTKb028414
+	for <bugs@bugs.plt-scheme.org>; Thu, 12 Dec 2013 04:59:30 -0500
+Message-Id: <201312120959.rBC9xR2b028407@winooski.ccs.neu.edu>
+Date: Thu, 12 Dec 2013 04:59:27 -0500
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Problem with new net/url implementation
+
+>Number:         14247
+>Category:       all
+>Synopsis:       Problem with new net/url implementation
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Dec 12 05:00:01 -0500 2013
+>Closed-Date:    Sat Dec 14 10:00:59 -0500 2013
+>Last-Modified:  Sat Dec 14 10:00:59 -0500 2013
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+...or type
+>Description:
+The code below is a very minimized version of my list-moderation
+script, which is how I saw this problem.  Running in in v5.3.6 vs a
+newly built 6.0.0.1 has these times respectively:
+
+  racket get-messages  0.28s user 0.06s system 78% cpu 0.441 total
+  racket get-messages  0.36s user 0.07s system 7% cpu 5.514 total
+
+The actual work is therefore taking more time with the new version,
+and removing the `read-html-as-xml' shows it -- it's about twice
+slower, possibly due to a slower startup.  But the bigger problem is
+that it takes more time doing nothing when `read-html-as-xml' is
+there.
+
+I then replaced it with a `copy-port' to just dump the text, and
+with the new version I see that after the dumping it just hangs
+doing nothing for about 5 more seconds.
+>How-To-Repeat:
+#lang racket
+(require html net/url)
+(define messages
+  (let ([url  "http://lists.racket-lang.org/mailman/admindb/?details=all"]
+        [post #"adminpw=bogus"])
+    (read-html-as-xml (post-pure-port (string->url url) post))))
+>Fix:
+>Audit-Trail:
+From: Jay McCarthy <jay.mccarthy@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14247: Problem with new net/url implementation
+Date: Thu, 12 Dec 2013 13:41:10 -0700
+
+ Hi Eli,
+ 
+ I can't recreate it here, but I have an idea. Can you try replace
+ copy-bytes on line 140 on http-client.rkt with this:
+ 
+ (define (copy-bytes in out count)
+   (define buffer (make-bytes 1024))
+   (let loop ([count count])
+     (when (positive? count)
+       (define r (read-bytes-avail! buffer in))
+       (unless (eof-object? r)
+         (write-bytes buffer out 0 r)
+         (loop (- count r))))))
+ 
+ I think maybe it's slow because it reads the bytes one at a time.
+ 
+ Jay
+ 
+ 
+ On Thu, Dec 12, 2013 at 3:00 AM,  <eli@barzilay.org> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14247
+ >
+ > Reported by Eli Barzilay for release: HEAD
+ >
+ > *** Description:
+ > The code below is a very minimized version of my list-moderation
+ > script, which is how I saw this problem.  Running in in v5.3.6 vs a
+ > newly built 6.0.0.1 has these times respectively:
+ >
+ >   racket get-messages  0.28s user 0.06s system 78% cpu 0.441 total
+ >   racket get-messages  0.36s user 0.07s system 7% cpu 5.514 total
+ >
+ > The actual work is therefore taking more time with the new version,
+ > and removing the `read-html-as-xml' shows it -- it's about twice
+ > slower, possibly due to a slower startup.  But the bigger problem is
+ > that it takes more time doing nothing when `read-html-as-xml' is
+ > there.
+ >
+ > I then replaced it with a `copy-port' to just dump the text, and
+ > with the new version I see that after the dumping it just hangs
+ > doing nothing for about 5 more seconds.
+ >
+ > *** How to repeat:
+ > #lang racket
+ > (require html net/url)
+ > (define messages
+ >   (let ([url  "http://lists.racket-lang.org/mailman/admindb/?details=all"]
+ >         [post #"adminpw=bogus"])
+ >     (read-html-as-xml (post-pure-port (string->url url) post))))
+ >
+ > *** Environment:
+ > ...or type
+ >
+ 
+ 
+ 
+ -- 
+ Jay McCarthy <jay@cs.byu.edu>
+ Assistant Professor / Brigham Young University
+ http://faculty.cs.byu.edu/~jay
+ 
+ "The glory of God is Intelligence" - D&C 93
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Jay McCarthy <jay.mccarthy@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14247: Problem with new net/url implementation
+Date: Thu, 12 Dec 2013 13:57:16 -0700
+
+ I've been investigating, and I currently think it has more to do with
+ HTTP 1.1 and 1.0 on the server/network side, but I could be wrong.
+ 
+ At Thu, 12 Dec 2013 13:41:10 -0700, Jay McCarthy wrote:
+ > Hi Eli,
+ > 
+ > I can't recreate it here, but I have an idea. Can you try replace
+ > copy-bytes on line 140 on http-client.rkt with this:
+ > 
+ > (define (copy-bytes in out count)
+ >   (define buffer (make-bytes 1024))
+ >   (let loop ([count count])
+ >     (when (positive? count)
+ >       (define r (read-bytes-avail! buffer in))
+ >       (unless (eof-object? r)
+ >         (write-bytes buffer out 0 r)
+ >         (loop (- count r))))))
+ > 
+ > I think maybe it's slow because it reads the bytes one at a time.
+ > 
+ > Jay
+ > 
+ > 
+ > On Thu, Dec 12, 2013 at 3:00 AM,  <eli@barzilay.org> wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=14247
+ > >
+ > > Reported by Eli Barzilay for release: HEAD
+ > >
+ > > *** Description:
+ > > The code below is a very minimized version of my list-moderation
+ > > script, which is how I saw this problem.  Running in in v5.3.6 vs a
+ > > newly built 6.0.0.1 has these times respectively:
+ > >
+ > >   racket get-messages  0.28s user 0.06s system 78% cpu 0.441 total
+ > >   racket get-messages  0.36s user 0.07s system 7% cpu 5.514 total
+ > >
+ > > The actual work is therefore taking more time with the new version,
+ > > and removing the `read-html-as-xml' shows it -- it's about twice
+ > > slower, possibly due to a slower startup.  But the bigger problem is
+ > > that it takes more time doing nothing when `read-html-as-xml' is
+ > > there.
+ > >
+ > > I then replaced it with a `copy-port' to just dump the text, and
+ > > with the new version I see that after the dumping it just hangs
+ > > doing nothing for about 5 more seconds.
+ > >
+ > > *** How to repeat:
+ > > #lang racket
+ > > (require html net/url)
+ > > (define messages
+ > >   (let ([url  "http://lists.racket-lang.org/mailman/admindb/?details=all"]
+ > >         [post #"adminpw=bogus"])
+ > >     (read-html-as-xml (post-pure-port (string->url url) post))))
+ > >
+ > > *** Environment:
+ > > ...or type
+ > >
+ > 
+ > 
+ > 
+ > -- 
+ > Jay McCarthy <jay@cs.byu.edu>
+ > Assistant Professor / Brigham Young University
+ > http://faculty.cs.byu.edu/~jay
+ > 
+ > "The glory of God is Intelligence" - D&C 93
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eli@barzilay.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14247: Problem with new net/url implementation
+Date: Thu, 12 Dec 2013 14:51:26 -0700
+
+ The difference appears to related to HTTP 1.0 vs 1.1.
+ 
+ If you change the "1.0" embedded in the request below to "1.1", then
+ there's a long pause after all the useful content is received, but
+ before the 0-sized chunk that ends the chunked encoding of the content.
+ (The content is not chunked in "1.0" mode.)
+ 
+  #lang racket
+  (require racket/port)
+ 
+  (define-values (i o) (tcp-connect "lists.racket-lang.org" 80))
+  (fprintf o
+           (~a "POST /mailman/admindb/?details=all HTTP/1.0\r\n"
+               "Host: lists.racket-lang.org:80\r\n"
+               "User-Agent: Racket/6.0.0.1 (net/http-client)\r\n"
+               "Content-Length: 13\r\n"
+               "\r\n"
+               "adminpw=bogus\r\n"))
+  (flush-output o)
+  (tcp-abandon-port o)
+  (time (copy-port i (current-output-port)))
+ 
+ Is there something about the above code that isn't the right way to do
+ HTTP 1.1 (and that might similarly be wrong in `net/http-client`)?
+ 
+ At Thu, 12 Dec 2013 05:00:02 -0500, eli@barzilay.org wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14247
+ > 
+ > Reported by Eli Barzilay for release: HEAD
+ > 
+ > *** Description:
+ > The code below is a very minimized version of my list-moderation
+ > script, which is how I saw this problem.  Running in in v5.3.6 vs a
+ > newly built 6.0.0.1 has these times respectively:
+ > 
+ >   racket get-messages  0.28s user 0.06s system 78% cpu 0.441 total
+ >   racket get-messages  0.36s user 0.07s system 7% cpu 5.514 total
+ > 
+ > The actual work is therefore taking more time with the new version,
+ > and removing the `read-html-as-xml' shows it -- it's about twice
+ > slower, possibly due to a slower startup.  But the bigger problem is
+ > that it takes more time doing nothing when `read-html-as-xml' is
+ > there.
+ > 
+ > I then replaced it with a `copy-port' to just dump the text, and
+ > with the new version I see that after the dumping it just hangs
+ > doing nothing for about 5 more seconds.
+ > 
+ > *** How to repeat:
+ > #lang racket
+ > (require html net/url)
+ > (define messages
+ >   (let ([url  "http://lists.racket-lang.org/mailman/admindb/?details=all"]
+ >         [post #"adminpw=bogus"])
+ >     (read-html-as-xml (post-pure-port (string->url url) post))))
+ > 
+ > *** Environment:
+ > ...or type
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>, Jay McCarthy <jay.mccarthy@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14247: Problem with new net/url implementation
+Date: Thu, 12 Dec 2013 18:26:43 -0500
+
+ Three hours ago, Jay McCarthy wrote:
+ > Hi Eli,
+ > 
+ > I can't recreate it here, but I have an idea. Can you try replace
+ > copy-bytes on line 140 on http-client.rkt with this:
+ > [...]
+ > I think maybe it's slow because it reads the bytes one at a time.
+ 
+ I doubt that, since when I dumped the port on stdout, the delay was
+ all at the end...  (I can do that later if needed.)
+ 
+ 
+ An hour and a half ago, Matthew Flatt wrote:
+ > The difference appears to related to HTTP 1.0 vs 1.1.
+ 
+ Ah, IIRC, I tried a few other sites and not all had the delay.  (Exam
+ day, so I didn't have much time to look into things.)
+ 
+ > If you change the "1.0" embedded in the request below to "1.1", then
+ > there's a long pause after all the useful content is received, but
+ > before the 0-sized chunk that ends the chunked encoding of the
+ > content.  (The content is not chunked in "1.0" mode.)
+ > [...]
+ 
+ Are you saying that the problem is with the server?  Should I try it
+ with things like curl, wget, or straight netcat?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14247: Problem with new net/url implementation
+Date: Thu, 12 Dec 2013 18:43:24 -0500
+
+ An hour and a half ago, Matthew Flatt wrote:
+ > 
+ >  #lang racket
+ >  [...]
+ > 
+ > Is there something about the above code that isn't the right way to
+ > do HTTP 1.1 (and that might similarly be wrong in
+ > `net/http-client`)?
+ 
+ Actually, this was useful in that using HTTP/1.1 was showing some "0"
+ output after the delay, which lead me to the keep-alive thing, and
+ that looks like the source, and the ~5sec delay is apache timing out.
+ For reference, Wikipedia says:
+ 
+   http://en.wikipedia.org/wiki/HTTP_persistent_connection#HTTP_1.1
+   In HTTP 1.1, all connections are considered persistent unless
+   declared otherwise
+ 
+ and links to http://tools.ietf.org/html/rfc2616#section-8.1 that which
+ says the same.  I added a "Connection: close\r\n" to your code, and it
+ went back to proper speed.
+ 
+ So this header should be added (at least for the get-pure-port etc
+ interface, I don't know if the new thing supports multiple requests).
+ 
+ But in addition, it seems that the idea behind tcp-abandon port is no
+ longer needed: replacing it with a `close-output-port' makes it go at
+ normal speed too.  If I follow everything, then abandoning the port
+ with a server assumption of keep-alive is exactly what leads to the
+ delay.
+ 
+ IMO, both things should be done.  So maybe extend the interface to
+ have some `#:tcp-abandon?' keyword for using it in case some antique
+ server needs it?
+ 
+ (I think that the server that lead to the abandon thing was Yahoo,
+ right?  If so, then that's probably no longer an issue.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Jay McCarthy <jay.mccarthy@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14247: Problem with new net/url implementation
+Date: Fri, 13 Dec 2013 06:33:18 -0700
+
+ --047d7b677d6050f90904ed6a81dc
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Eli,
+ 
+ Attach is a new net/http-client that should put in the close header.
+ Can you check it on your use case?
+ 
+ As far the abandon thing, I assumed that tcp-abandon-port did the same
+ thing as close-output-port but "more". Right now the code never calls
+ close, but it's pretty obvious where it would. Should I change it or
+ is abandon-port at fault for not doing the close too?
+ 
+ 
+ On Thu, Dec 12, 2013 at 4:43 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > An hour and a half ago, Matthew Flatt wrote:
+ >>
+ >>  #lang racket
+ >>  [...]
+ >>
+ >> Is there something about the above code that isn't the right way to
+ >> do HTTP 1.1 (and that might similarly be wrong in
+ >> `net/http-client`)?
+ >
+ > Actually, this was useful in that using HTTP/1.1 was showing some "0"
+ > output after the delay, which lead me to the keep-alive thing, and
+ > that looks like the source, and the ~5sec delay is apache timing out.
+ > For reference, Wikipedia says:
+ >
+ >   http://en.wikipedia.org/wiki/HTTP_persistent_connection#HTTP_1.1
+ >   In HTTP 1.1, all connections are considered persistent unless
+ >   declared otherwise
+ >
+ > and links to http://tools.ietf.org/html/rfc2616#section-8.1 that which
+ > says the same.  I added a "Connection: close\r\n" to your code, and it
+ > went back to proper speed.
+ >
+ > So this header should be added (at least for the get-pure-port etc
+ > interface, I don't know if the new thing supports multiple requests).
+ >
+ > But in addition, it seems that the idea behind tcp-abandon port is no
+ > longer needed: replacing it with a `close-output-port' makes it go at
+ > normal speed too.  If I follow everything, then abandoning the port
+ > with a server assumption of keep-alive is exactly what leads to the
+ > delay.
+ >
+ > IMO, both things should be done.  So maybe extend the interface to
+ > have some `#:tcp-abandon?' keyword for using it in case some antique
+ > server needs it?
+ >
+ > (I think that the server that lead to the abandon thing was Yahoo,
+ > right?  If so, then that's probably no longer an issue.)
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                     http://barzilay.org/                   Maze is Life!
+ 
+ 
+ 
+ -- 
+ Jay McCarthy <jay@cs.byu.edu>
+ Assistant Professor / Brigham Young University
+ http://faculty.cs.byu.edu/~jay
+ 
+ "The glory of God is Intelligence" - D&C 93
+ 
+ --047d7b677d6050f90904ed6a81dc
+ Content-Type: application/octet-stream; name="http-client.rkt"
+ Content-Disposition: attachment; filename="http-client.rkt"
+ Content-Transfer-Encoding: base64
+ X-Attachment-Id: f_hp5h6n2r0
+ 
+ I2xhbmcgcmFja2V0L2Jhc2UKKHJlcXVpcmUgcmFja2V0L2NvbnRyYWN0L2Jhc2UKICAgICAgICAg
+ cmFja2V0L21hdGNoCiAgICAgICAgIHJhY2tldC9saXN0CiAgICAgICAgIHJhY2tldC9zdHJpbmcK
+ ICAgICAgICAgcmFja2V0L3BvcnQKICAgICAgICAgKHJlbmFtZS1pbiByYWNrZXQvdGNwCiAgICAg
+ ICAgICAgICAgICAgICAgW3RjcC1jb25uZWN0IHBsYWluLXRjcC1jb25uZWN0XQogICAgICAgICAg
+ ICAgICAgICAgIFt0Y3AtYWJhbmRvbi1wb3J0IHBsYWluLXRjcC1hYmFuZG9uLXBvcnRdKQogICAg
+ ICAgICBvcGVuc3NsCiAgICAgICAgICJ3aW4zMi1zc2wucmt0IgogICAgICAgICBmaWxlL2d1bnpp
+ cCkKCihkZWZpbmUgdG9sZXJhbnQ/ICN0KQooZGVmaW5lIGVvbC10eXBlCiAgKGlmIHRvbGVyYW50
+ PwogICAgJ2FueQogICAgJ3JldHVybi1saW5lZmVlZCkpCgo7OyBMaWIKCihkZWZpbmUgKC0+c3Ry
+ aW5nIGJzKQogIChpZiAoYnl0ZXM/IGJzKQogICAgKGJ5dGVzLT5zdHJpbmcvdXRmLTggYnMpCiAg
+ ICBicykpCgooZGVmaW5lIChyZWFkLWJ5dGVzLWxpbmUvbm90LWVvZiBpcCBraW5kKQogIChkZWZp
+ bmUgYnMgKHJlYWQtYnl0ZXMtbGluZSBpcCBraW5kKSkKICAod2hlbiAoZW9mLW9iamVjdD8gYnMp
+ CiAgICAoZXJyb3IgJ2h0dHAtY2xpZW50ICJDb25uZWN0aW9uIGVuZGVkIGVhcmx5IikpCiAgYnMp
+ CgooZGVmaW5lIChyZWdleHAtbWVtYmVyIHJ4IGwpCiAgKG9ybWFwICjOuyAoaCkgKHJlZ2V4cC1t
+ YXRjaCByeCBoKSkgbCkpCgooZGVmaW5lIFBJUEUtU0laRSA0MDk2KQoKOzsgQ29yZQoKKHN0cnVj
+ dCBodHRwLWNvbm4gKGhvc3QgcG9ydCBwb3J0LXVzdWFsPyB0byBmcm9tIGFiYW5kb24tcCkgIzpt
+ dXRhYmxlKQoKKGRlZmluZSAobWFrZS1odHRwLWNvbm4pCiAgKGh0dHAtY29ubiAjZiAjZiAjZiAj
+ ZiAjZiAjZikpCgooZGVmaW5lIChodHRwLWNvbm4tbGl2ZT8gaGMpCiAgKGFuZCAoaHR0cC1jb25u
+ LXRvIGhjKQogICAgICAgKGh0dHAtY29ubi1mcm9tIGhjKSkpCgooZGVmaW5lIChodHRwLWNvbm4t
+ b3BlbiEgaGMgaG9zdC1icyAjOnNzbD8gW3NzbD8gI2ZdICM6cG9ydCBbcG9ydCAoaWYgc3NsPyA0
+ NDMgODApXSkKICAoaHR0cC1jb25uLWNsb3NlISBoYykKICAoZGVmaW5lIGhvc3QgKC0+c3RyaW5n
+ IGhvc3QtYnMpKQogIChkZWZpbmUgc3NsLXZlcnNpb24gKGlmIChib29sZWFuPyBzc2w/KSAnc3Ns
+ djItb3ItdjMgc3NsPykpCgogIChkZWZpbmUtdmFsdWVzIChmcm9tIHRvKQogICAgKGNvbmQgW3Nz
+ bD8KICAgICAgICAgICAoc2V0LWh0dHAtY29ubi1wb3J0LXVzdWFsPyEgaGMgKD0gNDQzIHBvcnQp
+ KQogICAgICAgICAgIChjb25kCiAgICAgICAgICAgICBbKG9yIHNzbC1hdmFpbGFibGU/IChub3Qg
+ d2luMzItc3NsLWF2YWlsYWJsZT8pKQogICAgICAgICAgICAgIChzZXQtaHR0cC1jb25uLWFiYW5k
+ b24tcCEgaGMgc3NsLWFiYW5kb24tcG9ydCkgICAgICAgICAgICAgIAogICAgICAgICAgICAgIChz
+ c2wtY29ubmVjdCBob3N0IHBvcnQgc3NsLXZlcnNpb24pXQogICAgICAgICAgICAgW2Vsc2UKICAg
+ ICAgICAgICAgICAoc2V0LWh0dHAtY29ubi1hYmFuZG9uLXAhIGhjIHdpbjMyLXNzbC1hYmFuZG9u
+ LXBvcnQpCiAgICAgICAgICAgICAgKHdpbjMyLXNzbC1jb25uZWN0IGhvc3QgcG9ydCBzc2wtdmVy
+ c2lvbildKV0KICAgICAgICAgIFtlbHNlCiAgICAgICAgICAgKHNldC1odHRwLWNvbm4tYWJhbmRv
+ bi1wISBoYyBwbGFpbi10Y3AtYWJhbmRvbi1wb3J0KQogICAgICAgICAgIChzZXQtaHR0cC1jb25u
+ LXBvcnQtdXN1YWw/ISBoYyAoPSA4MCBwb3J0KSkKICAgICAgICAgICAocGxhaW4tdGNwLWNvbm5l
+ Y3QgaG9zdCBwb3J0KV0pKQoKICAoc2V0LWh0dHAtY29ubi1ob3N0ISBoYyBob3N0KQogIChzZXQt
+ aHR0cC1jb25uLXBvcnQhIGhjIHBvcnQpCgogIDs7IChkZWZpbmUtdmFsdWVzIChsb2ctaSBsb2ct
+ bykgKG1ha2UtcGlwZSkpCiAgOzsgKHRocmVhZCAozrsgKCkgKGNvcHktcG9ydCBsb2ctaSB0byAo
+ Y3VycmVudC1lcnJvci1wb3J0KSkpKQoKICAoc2V0LWh0dHAtY29ubi10byEgaGMgdG8pCiAgKHNl
+ dC1odHRwLWNvbm4tZnJvbSEgaGMgZnJvbSkpCgooZGVmaW5lIChodHRwLWNvbm4tY2xvc2UhIGhj
+ KQogIChtYXRjaC1kZWZpbmUgKGh0dHAtY29ubiBob3N0IHBvcnQgcG9ydC11c3VhbD8gdG8gZnJv
+ bSBhYmFuZG9uKSBoYykKICAoc2V0LWh0dHAtY29ubi1ob3N0ISBoYyAjZikKICAod2hlbiB0bwog
+ ICAgKGFiYW5kb24gdG8pCiAgICAoc2V0LWh0dHAtY29ubi10byEgaGMgI2YpKQogICh3aGVuIGZy
+ b20KICAgIChhYmFuZG9uIGZyb20pCiAgICAoc2V0LWh0dHAtY29ubi1mcm9tISBoYyAjZikpCiAg
+ KHNldC1odHRwLWNvbm4tYWJhbmRvbi1wISBoYyAjZikpCgooZGVmaW5lIChodHRwLWNvbm4tYWJh
+ bmRvbiEgaGMpCiAgKG1hdGNoLWRlZmluZSAoaHR0cC1jb25uIGhvc3QgcG9ydCBwb3J0LXVzdWFs
+ PyB0byBmcm9tIGFiYW5kb24pIGhjKQogICh3aGVuIHRvCiAgICAoYWJhbmRvbiB0bykKICAgIChz
+ ZXQtaHR0cC1jb25uLXRvISBoYyAjZikpKQoKKGRlZmluZSAoaHR0cC1jb25uLXNlbmQhIGhjIHVy
+ bC1icwogICAgICAgICAgICAgICAgICAgICAgICAgIzp2ZXJzaW9uIFt2ZXJzaW9uLWJzICMiMS4x
+ Il0KICAgICAgICAgICAgICAgICAgICAgICAgICM6bWV0aG9kIFttZXRob2QtYnNzICMiR0VUIl0K
+ ICAgICAgICAgICAgICAgICAgICAgICAgICM6Y2xvc2U/IFtjbG9zZT8gI2ZdCiAgICAgICAgICAg
+ ICAgICAgICAgICAgICAjOmhlYWRlcnMgW2hlYWRlcnMtYnMgZW1wdHldCiAgICAgICAgICAgICAg
+ ICAgICAgICAgICAjOmNvbnRlbnQtZGVjb2RlIFtkZWNvZGVzICcoZ3ppcCldCiAgICAgICAgICAg
+ ICAgICAgICAgICAgICA7OyB4eHggbWF5YmUgc3VwcG9ydCBvdGhlciBraW5kcyBvZiBkYXRhIChw
+ b3J0cyBhbmQgd3JpdGluZyBmdW5jdGlvbnMpCiAgICAgICAgICAgICAgICAgICAgICAgICAjOmRh
+ dGEgW2RhdGEtYnNmICNmXSkKICAobWF0Y2gtZGVmaW5lIChodHRwLWNvbm4gaG9zdCBwb3J0IHBv
+ cnQtdXN1YWw/IHRvIGZyb20gXykgaGMpCiAgKGZwcmludGYgdG8gIn5hIH5hIEhUVFAvfmFcclxu
+ IiBtZXRob2QtYnNzIHVybC1icyB2ZXJzaW9uLWJzKQogICh1bmxlc3MgKHJlZ2V4cC1tZW1iZXIg
+ I3J4Il4oP2k6SG9zdDopICsuKyQiIGhlYWRlcnMtYnMpCiAgICAoZnByaW50ZiB0byAiSG9zdDog
+ fmFcclxuIiAKICAgICAgICAgICAgIChpZiBwb3J0LXVzdWFsPwogICAgICAgICAgICAgICBob3N0
+ CiAgICAgICAgICAgICAgIChmb3JtYXQgIn5hOn5hIiBob3N0IHBvcnQpKSkpCiAgKHVubGVzcyAo
+ cmVnZXhwLW1lbWJlciAjcngiXig/aTpVc2VyLUFnZW50OikgKy4rJCIgaGVhZGVycy1icykKICAg
+ IChmcHJpbnRmIHRvICJVc2VyLUFnZW50OiBSYWNrZXQvfmEgKG5ldC9odHRwLWNsaWVudClcclxu
+ IiAKICAgICAgICAgICAgICh2ZXJzaW9uKSkpCiAgKHVubGVzcyAob3IgKG5vdCAobWVtcSAnZ3pp
+ cCBkZWNvZGVzKSkKICAgICAgICAgICAgICAocmVnZXhwLW1lbWJlciAjcngiXig/aTpBY2NlcHQt
+ RW5jb2Rpbmc6KSArLiskIiBoZWFkZXJzLWJzKSkKICAgIChmcHJpbnRmIHRvICJBY2NlcHQtRW5j
+ b2Rpbmc6IGd6aXBcclxuIikpCiAgKGRlZmluZSBkYXRhCiAgICAoaWYgKHN0cmluZz8gZGF0YS1i
+ c2YpCiAgICAgIChzdHJpbmctPmJ5dGVzL3V0Zi04IGRhdGEtYnNmKQogICAgICBkYXRhLWJzZikp
+ CiAgKHdoZW4gZGF0YQogICAgKHVubGVzcyAocmVnZXhwLW1lbWJlciAjcngiXig/aTpDb250ZW50
+ LUxlbmd0aDopICsuKyQiIGhlYWRlcnMtYnMpCiAgICAgIChmcHJpbnRmIHRvICJDb250ZW50LUxl
+ bmd0aDogfmFcclxuIiAoYnl0ZXMtbGVuZ3RoIGRhdGEpKSkpCiAgKHdoZW4gY2xvc2U/CiAgICAo
+ dW5sZXNzIChyZWdleHAtbWVtYmVyICNyeCJeKD9pOkNvbm5lY3Rpb246KSArLiskIiBoZWFkZXJz
+ LWJzKQogICAgICAoZnByaW50ZiB0byAiQ29ubmVjdGlvbjogY2xvc2VcclxuIikpKQogIChmb3Ig
+ KFtoIChpbi1saXN0IGhlYWRlcnMtYnMpXSkKICAgIChmcHJpbnRmIHRvICJ+YVxyXG4iIGgpKQog
+ IChmcHJpbnRmIHRvICJcclxuIikKICAod2hlbiBkYXRhCiAgICAoZGlzcGxheSBkYXRhIHRvKQog
+ ICAgKGZwcmludGYgdG8gIlxyXG4iKSkKICAoZmx1c2gtb3V0cHV0IHRvKSkKCihkZWZpbmUgKGh0
+ dHAtY29ubi1zdGF0dXMhIGhjKQogIChyZWFkLWJ5dGVzLWxpbmUvbm90LWVvZiAoaHR0cC1jb25u
+ LWZyb20gaGMpIGVvbC10eXBlKSkKCihkZWZpbmUgKGh0dHAtY29ubi1oZWFkZXJzISBoYykKICAo
+ ZGVmaW5lIHRvcCAocmVhZC1ieXRlcy1saW5lL25vdC1lb2YgKGh0dHAtY29ubi1mcm9tIGhjKSBl
+ b2wtdHlwZSkpICAKICAoaWYgKGJ5dGVzPT8gdG9wICMiIikKICAgIGVtcHR5CiAgICAoY29ucyB0
+ b3AgKGh0dHAtY29ubi1oZWFkZXJzISBoYykpKSkKCjs7IHh4eCByZWFkIG1vcmUgYXQgYSB0aW1l
+ CihkZWZpbmUgKGNvcHktYnl0ZXMgaW4gb3V0IGNvdW50KQogIChkZWZpbmUgYnVmZmVyIChtYWtl
+ LWJ5dGVzIDEwMjQpKQogIChsZXQgbG9vcCAoW2NvdW50IGNvdW50XSkKICAgICh3aGVuIChwb3Np
+ dGl2ZT8gY291bnQpCiAgICAgIChkZWZpbmUgciAocmVhZC1ieXRlcy1hdmFpbCEgYnVmZmVyIGlu
+ KSkKICAgICAgKHVubGVzcyAoZW9mLW9iamVjdD8gcikKICAgICAgICAod3JpdGUtYnl0ZXMgYnVm
+ ZmVyIG91dCAwIHIpCiAgICAgICAgKGxvb3AgKC0gY291bnQgcikpKSkpKQoKKGRlZmluZSAoaHR0
+ cC1jb25uLXJlc3BvbnNlLXBvcnQvcmVzdCEgaGMpCiAgKGh0dHAtY29ubi1yZXNwb25zZS1wb3J0
+ L2xlbmd0aCEgaGMgK2luZi4wICM6Y2xvc2U/ICN0KSkKCihkZWZpbmUgKGh0dHAtY29ubi1yZXNw
+ b25zZS1wb3J0L2xlbmd0aCEgaGMgY291bnQgIzpjbG9zZT8gW2Nsb3NlPyAjZl0pCiAgKGRlZmlu
+ ZS12YWx1ZXMgKGluIG91dCkgKG1ha2UtcGlwZSBQSVBFLVNJWkUpKQogICh0aHJlYWQKICAgKM67
+ ICgpCiAgICAgKGNvcHktYnl0ZXMgKGh0dHAtY29ubi1mcm9tIGhjKSBvdXQgY291bnQpCiAgICAg
+ KHdoZW4gY2xvc2U/CiAgICAgICAoaHR0cC1jb25uLWNsb3NlISBoYykpCiAgICAgKGNsb3NlLW91
+ dHB1dC1wb3J0IG91dCkpKQogIGluKQoKKGRlZmluZSAoaHR0cC1jb25uLXJlc3BvbnNlLXBvcnQv
+ Y2h1bmtlZCEgaGMgIzpjbG9zZT8gW2Nsb3NlPyAjZl0pCiAgKGRlZmluZSAoaHR0cC1waXBlLWNo
+ dW5rIGlwIG9wKQogICAgKGRlZmluZSBjcmxmLWJ5dGVzIChtYWtlLWJ5dGVzIDIpKQogICAgKGxl
+ dCBsb29wIChbbGFzdC1ieXRlcyAjZl0pCiAgICAgIChkZWZpbmUgc2l6ZS1zdHIgKHN0cmluZy10
+ cmltIChyZWFkLWxpbmUgaXAgZW9sLXR5cGUpKSkKICAgICAgKGRlZmluZSBjaHVuay1zaXplIChz
+ dHJpbmctPm51bWJlciBzaXplLXN0ciAxNikpCiAgICAgICh1bmxlc3MgY2h1bmstc2l6ZQogICAg
+ ICAgIChlcnJvciAnaHR0cC1jb25uLXJlc3BvbnNlL2NodW5rZWQgCiAgICAgICAgICAgICAgICJD
+ b3VsZCBub3QgcGFyc2UgflMgYXMgaGV4YWRlY2ltYWwgbnVtYmVyIgogICAgICAgICAgICAgICBz
+ aXplLXN0cikpCiAgICAgIChkZWZpbmUgdXNlLWxhc3QtYnl0ZXM/CiAgICAgICAgKGFuZCBsYXN0
+ LWJ5dGVzICg8PSBjaHVuay1zaXplIChieXRlcy1sZW5ndGggbGFzdC1ieXRlcykpKSkKICAgICAg
+ KGlmICh6ZXJvPyBjaHVuay1zaXplKQogICAgICAgIChiZWdpbiAoZmx1c2gtb3V0cHV0IG9wKQog
+ ICAgICAgICAgICAgICAoY2xvc2Utb3V0cHV0LXBvcnQgb3ApKQogICAgICAgIChsZXQqIChbYnMg
+ KGlmIHVzZS1sYXN0LWJ5dGVzPwogICAgICAgICAgICAgICAgICAgICAoYmVnaW4KICAgICAgICAg
+ ICAgICAgICAgICAgICAocmVhZC1ieXRlcyEgbGFzdC1ieXRlcyBpcCAwIGNodW5rLXNpemUpCiAg
+ ICAgICAgICAgICAgICAgICAgICAgbGFzdC1ieXRlcykKICAgICAgICAgICAgICAgICAgICAgKHJl
+ YWQtYnl0ZXMgY2h1bmstc2l6ZSBpcCkpXQogICAgICAgICAgICAgICBbY3JsZiAocmVhZC1ieXRl
+ cyEgY3JsZi1ieXRlcyBpcCAwIDIpXSkKICAgICAgICAgICh3cml0ZS1ieXRlcyBicyBvcCAwIGNo
+ dW5rLXNpemUpCiAgICAgICAgICAobG9vcCBicykpKSkpCgogIChkZWZpbmUtdmFsdWVzIChpbiBv
+ dXQpIChtYWtlLXBpcGUgUElQRS1TSVpFKSkKICAodGhyZWFkCiAgICjOuyAoKQogICAgIChodHRw
+ LXBpcGUtY2h1bmsgKGh0dHAtY29ubi1mcm9tIGhjKSBvdXQpCiAgICAgKHdoZW4gY2xvc2U/CiAg
+ ICAgICAoaHR0cC1jb25uLWNsb3NlISBoYykpCiAgICAgKGNsb3NlLW91dHB1dC1wb3J0IG91dCkp
+ KQogIGluKQoKOzsgRGVyaXZlZAoKKGRlZmluZSAoaHR0cC1jb25uLW9wZW4gaG9zdC1icyAjOnNz
+ bD8gW3NzbD8gI2ZdICM6cG9ydCBbcG9ydCAoaWYgc3NsPyA0NDMgODApXSkKICAoZGVmaW5lIGhj
+ IChtYWtlLWh0dHAtY29ubikpCiAgKGh0dHAtY29ubi1vcGVuISBoYyBob3N0LWJzICM6c3NsPyBz
+ c2w/ICM6cG9ydCBwb3J0KQogIGhjKQoKKGRlZmluZSAoaHR0cC1jb25uLXJlY3YhIGhjCiAgICAg
+ ICAgICAgICAgICAgICAgICAgICAjOmNvbnRlbnQtZGVjb2RlIFtkZWNvZGVzICcoZ3ppcCldCiAg
+ ICAgICAgICAgICAgICAgICAgICAgICAjOmNsb3NlPyBbaWNsb3NlPyAjZl0pCiAgKGRlZmluZSBz
+ dGF0dXMgKGh0dHAtY29ubi1zdGF0dXMhIGhjKSkKICAoZGVmaW5lIGhlYWRlcnMgKGh0dHAtY29u
+ bi1oZWFkZXJzISBoYykpCiAgKGRlZmluZSBjbG9zZT8KICAgIChvciBpY2xvc2U/CiAgICAgICAg
+ KHJlZ2V4cC1tZW1iZXIgI3J4IyJeKD9pOkNvbm5lY3Rpb246ICtjbG9zZSkkIiBoZWFkZXJzKSkp
+ CiAgKHdoZW4gY2xvc2U/CiAgICAoaHR0cC1jb25uLWFiYW5kb24hIGhjKSkKICAoZGVmaW5lIHJh
+ dy1yZXNwb25zZS1wb3J0CiAgICAoY29uZAogICAgICBbKHJlZ2V4cC1tZW1iZXIgI3J4IyJeKD9p
+ OlRyYW5zZmVyLUVuY29kaW5nOiArY2h1bmtlZCkkIiBoZWFkZXJzKQogICAgICAgKGh0dHAtY29u
+ bi1yZXNwb25zZS1wb3J0L2NodW5rZWQhIGhjICM6Y2xvc2U/ICN0KV0KICAgICAgWyhvcm1hcCAo
+ zrsgKGgpCiAgICAgICAgICAgICAgICAobWF0Y2ggKHJlZ2V4cC1tYXRjaCAjcngjIl4oP2k6Q29u
+ dGVudC1MZW5ndGg6KSArKC4rKSQiIGgpCiAgICAgICAgICAgICAgICAgIFsjZiAjZl0KICAgICAg
+ ICAgICAgICAgICAgWyhsaXN0IF8gY2wtYnMpCiAgICAgICAgICAgICAgICAgICAoc3RyaW5nLT5u
+ dW1iZXIKICAgICAgICAgICAgICAgICAgICAoYnl0ZXMtPnN0cmluZy91dGYtOCBjbC1icykpXSkp
+ CiAgICAgICAgICAgICAgaGVhZGVycykKICAgICAgID0+CiAgICAgICAozrsgKGNvdW50KQogICAg
+ ICAgICAoaHR0cC1jb25uLXJlc3BvbnNlLXBvcnQvbGVuZ3RoISBoYyBjb3VudCAjOmNsb3NlPyBj
+ bG9zZT8pKV0KICAgICAgW2Vsc2UKICAgICAgIChodHRwLWNvbm4tcmVzcG9uc2UtcG9ydC9yZXN0
+ ISBoYyldKSkKICAoZGVmaW5lIGRlY29kZWQtcmVzcG9uc2UtcG9ydAogICAgKGNvbmQKICAgICAg
+ WyhhbmQgKG1lbXEgJ2d6aXAgZGVjb2RlcykgKHJlZ2V4cC1tZW1iZXIgI3J4IyJeKD9pOkNvbnRl
+ bnQtRW5jb2Rpbmc6ICtnemlwKSQiIGhlYWRlcnMpKQogICAgICAgKGRlZmluZS12YWx1ZXMgKGlu
+ IG91dCkgKG1ha2UtcGlwZSBQSVBFLVNJWkUpKQogICAgICAgKHRocmVhZAogICAgICAgICjOuyAo
+ KQogICAgICAgICAgKGd1bnppcC10aHJvdWdoLXBvcnRzIHJhdy1yZXNwb25zZS1wb3J0IG91dCkK
+ ICAgICAgICAgIChjbG9zZS1vdXRwdXQtcG9ydCBvdXQpKSkKICAgICAgIGluXQogICAgICBbZWxz
+ ZSAKICAgICAgIHJhdy1yZXNwb25zZS1wb3J0XSkpCiAgKHZhbHVlcyBzdGF0dXMgaGVhZGVycyBk
+ ZWNvZGVkLXJlc3BvbnNlLXBvcnQpKQoKKGRlZmluZSAoaHR0cC1jb25uLXNlbmRyZWN2ISBoYyB1
+ cmwtYnMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAjOnZlcnNpb24gW3ZlcnNpb24tYnMg
+ IyIxLjEiXQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICM6bWV0aG9kIFttZXRob2QtYnNz
+ ICMiR0VUIl0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAjOmhlYWRlcnMgW2hlYWRlcnMt
+ YnMgZW1wdHldCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIzpkYXRhIFtkYXRhLWJzZiAj
+ Zl0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAjOmNvbnRlbnQtZGVjb2RlIFtkZWNvZGVz
+ ICcoZ3ppcCldCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIzpjbG9zZT8gW2Nsb3NlPyAj
+ Zl0pCiAgKGh0dHAtY29ubi1zZW5kISBoYyB1cmwtYnMKICAgICAgICAgICAgICAgICAgICM6dmVy
+ c2lvbiB2ZXJzaW9uLWJzCiAgICAgICAgICAgICAgICAgICAjOm1ldGhvZCBtZXRob2QtYnNzCiAg
+ ICAgICAgICAgICAgICAgICAjOmNsb3NlPyBjbG9zZT8KICAgICAgICAgICAgICAgICAgICM6aGVh
+ ZGVycyBoZWFkZXJzLWJzCiAgICAgICAgICAgICAgICAgICAjOmNvbnRlbnQtZGVjb2RlIGRlY29k
+ ZXMKICAgICAgICAgICAgICAgICAgICM6ZGF0YSBkYXRhLWJzZikKICAoaHR0cC1jb25uLXJlY3Yh
+ IGhjIAogICAgICAgICAgICAgICAgICAgIzpjb250ZW50LWRlY29kZSBkZWNvZGVzCiAgICAgICAg
+ ICAgICAgICAgICAjOmNsb3NlPyBjbG9zZT8pKQoKKGRlZmluZSAoaHR0cC1zZW5kcmVjdiBob3N0
+ LWJzIHVybC1icwogICAgICAgICAgICAgICAgICAgICAgICM6c3NsPyBbc3NsPyAjZl0KICAgICAg
+ ICAgICAgICAgICAgICAgICAjOnBvcnQgW3BvcnQgKGlmIHNzbD8gNDQzIDgwKV0KICAgICAgICAg
+ ICAgICAgICAgICAgICAjOnZlcnNpb24gW3ZlcnNpb24tYnMgIyIxLjEiXQogICAgICAgICAgICAg
+ ICAgICAgICAgICM6bWV0aG9kIFttZXRob2QtYnNzICMiR0VUIl0KICAgICAgICAgICAgICAgICAg
+ ICAgICAjOmhlYWRlcnMgW2hlYWRlcnMtYnMgZW1wdHldCiAgICAgICAgICAgICAgICAgICAgICAg
+ IzpkYXRhIFtkYXRhLWJzZiAjZl0KICAgICAgICAgICAgICAgICAgICAgICAjOmNvbnRlbnQtZGVj
+ b2RlIFtkZWNvZGVzICcoZ3ppcCldKQogIChkZWZpbmUgaGMgKGh0dHAtY29ubi1vcGVuIGhvc3Qt
+ YnMgIzpzc2w/IHNzbD8gIzpwb3J0IHBvcnQpKQogIChodHRwLWNvbm4tc2VuZHJlY3YhIGhjIHVy
+ bC1icwogICAgICAgICAgICAgICAgICAgICAgICM6dmVyc2lvbiB2ZXJzaW9uLWJzCiAgICAgICAg
+ ICAgICAgICAgICAgICAgIzptZXRob2QgbWV0aG9kLWJzcwogICAgICAgICAgICAgICAgICAgICAg
+ ICM6aGVhZGVycyBoZWFkZXJzLWJzCiAgICAgICAgICAgICAgICAgICAgICAgIzpkYXRhIGRhdGEt
+ YnNmCiAgICAgICAgICAgICAgICAgICAgICAgIzpjb250ZW50LWRlY29kZSBkZWNvZGVzCiAgICAg
+ ICAgICAgICAgICAgICAgICAgIzpjbG9zZT8gI3QpKQoKKHByb3ZpZGUKIChjb250cmFjdC1vdXQK
+ ICBbaHR0cC1jb25uPwogICAoLT4gYW55L2MKICAgICAgIGJvb2xlYW4/KV0KICBbaHR0cC1jb25u
+ LWxpdmU/CiAgICgtPiBhbnkvYwogICAgICAgYm9vbGVhbj8pXQogIFtyZW5hbWUKICAgbWFrZS1o
+ dHRwLWNvbm4gaHR0cC1jb25uCiAgICgtPiBodHRwLWNvbm4/KV0KICBbaHR0cC1jb25uLW9wZW4h
+ CiAgICgtPiogKGh0dHAtY29ubj8gKG9yL2MgYnl0ZXM/IHN0cmluZz8pKQogICAgICAgICgjOnNz
+ bD8gKG9yL2MgYm9vbGVhbj8gc3NsLWNsaWVudC1jb250ZXh0PyBzeW1ib2w/KQogICAgICAgICAg
+ ICAgICAgIzpwb3J0IChiZXR3ZWVuL2MgMSA2NTUzNSkpCiAgICAgICAgdm9pZD8pXQogIFtodHRw
+ LWNvbm4tY2xvc2UhCiAgICgtPiBodHRwLWNvbm4/IHZvaWQ/KV0KICBbaHR0cC1jb25uLWFiYW5k
+ b24hCiAgICgtPiBodHRwLWNvbm4/IHZvaWQ/KV0KICBbaHR0cC1jb25uLXNlbmQhCiAgICgtPioK
+ ICAgIChodHRwLWNvbm4tbGl2ZT8gKG9yL2MgYnl0ZXM/IHN0cmluZz8pKQogICAgKCM6dmVyc2lv
+ biAob3IvYyBieXRlcz8gc3RyaW5nPykKICAgICAgICAgICAgICAgIzptZXRob2QgKG9yL2MgYnl0
+ ZXM/IHN0cmluZz8gc3ltYm9sPykKICAgICAgICAgICAgICAgIzpjbG9zZT8gYm9vbGVhbj8KICAg
+ ICAgICAgICAgICAgIzpoZWFkZXJzIChsaXN0b2YgKG9yL2MgYnl0ZXM/IHN0cmluZz8pKQogICAg
+ ICAgICAgICAgICAjOmNvbnRlbnQtZGVjb2RlIChsaXN0b2Ygc3ltYm9sPykgICAgICAgICAgICAg
+ ICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgIzpkYXRhIChvci9jIGZhbHNlL2MgYnl0ZXM/
+ IHN0cmluZz8pKQogICAgdm9pZCldCiAgOzsgRGVyaXZlZAogIFtodHRwLWNvbm4tb3BlbgogICAo
+ LT4qICgob3IvYyBieXRlcz8gc3RyaW5nPykpCiAgICAgICAgKCM6c3NsPyAob3IvYyBib29sZWFu
+ PyBzc2wtY2xpZW50LWNvbnRleHQ/IHN5bWJvbD8pCiAgICAgICAgICAgICAgICAjOnBvcnQgKGJl
+ dHdlZW4vYyAxIDY1NTM1KSkKICAgICAgICBodHRwLWNvbm4/KV0KICBbaHR0cC1jb25uLXJlY3Yh
+ CiAgICgtPiogKGh0dHAtY29ubi1saXZlPykKICAgICAgICAoIzpjb250ZW50LWRlY29kZSAobGlz
+ dG9mIHN5bWJvbD8pIAogICAgICAgICAgICAgICAgICAgICAgICAgICM6Y2xvc2U/IGJvb2xlYW4/
+ KQogICAgICAgICh2YWx1ZXMgYnl0ZXM/IChsaXN0b2YgYnl0ZXM/KSBpbnB1dC1wb3J0PykpXQog
+ IFtodHRwLWNvbm4tc2VuZHJlY3YhCiAgICgtPiogKGh0dHAtY29ubi1saXZlPyAob3IvYyBieXRl
+ cz8gc3RyaW5nPykpCiAgICAgICAgKCM6dmVyc2lvbiAob3IvYyBieXRlcz8gc3RyaW5nPykKICAg
+ ICAgICAgICAgICAgICAgICM6bWV0aG9kIChvci9jIGJ5dGVzPyBzdHJpbmc/IHN5bWJvbD8pCiAg
+ ICAgICAgICAgICAgICAgICAjOmhlYWRlcnMgKGxpc3RvZiAob3IvYyBieXRlcz8gc3RyaW5nPykp
+ CiAgICAgICAgICAgICAgICAgICAjOmRhdGEgKG9yL2MgZmFsc2UvYyBieXRlcz8gc3RyaW5nPykK
+ ICAgICAgICAgICAgICAgICAgICM6Y29udGVudC1kZWNvZGUgKGxpc3RvZiBzeW1ib2w/KSAKICAg
+ ICAgICAgICAgICAgICAgICM6Y2xvc2U/IGJvb2xlYW4/KQogICAgICAgICh2YWx1ZXMgYnl0ZXM/
+ IChsaXN0b2YgYnl0ZXM/KSBpbnB1dC1wb3J0PykpXQogIFtodHRwLXNlbmRyZWN2CiAgICgtPiog
+ KChvci9jIGJ5dGVzPyBzdHJpbmc/KSAob3IvYyBieXRlcz8gc3RyaW5nPykpCiAgICAgICAgKCM6
+ c3NsPyAob3IvYyBib29sZWFuPyBzc2wtY2xpZW50LWNvbnRleHQ/IHN5bWJvbD8pCiAgICAgICAg
+ ICAgICAgICAjOnBvcnQgKGJldHdlZW4vYyAxIDY1NTM1KQogICAgICAgICAgICAgICAgIzp2ZXJz
+ aW9uIChvci9jIGJ5dGVzPyBzdHJpbmc/KQogICAgICAgICAgICAgICAgIzptZXRob2QgKG9yL2Mg
+ Ynl0ZXM/IHN0cmluZz8gc3ltYm9sPykKICAgICAgICAgICAgICAgICM6aGVhZGVycyAobGlzdG9m
+ IChvci9jIGJ5dGVzPyBzdHJpbmc/KSkKICAgICAgICAgICAgICAgICM6ZGF0YSAob3IvYyBmYWxz
+ ZS9jIGJ5dGVzPyBzdHJpbmc/KQogICAgICAgICAgICAgICAgIzpjb250ZW50LWRlY29kZSAobGlz
+ dG9mIHN5bWJvbD8pKQogICAgICAgICh2YWx1ZXMgYnl0ZXM/IChsaXN0b2YgYnl0ZXM/KSBpbnB1
+ dC1wb3J0PykpXSkpCg==
+ --047d7b677d6050f90904ed6a81dc--
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Jay McCarthy <jay.mccarthy@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14247: Problem with new net/url implementation
+Date: Fri, 13 Dec 2013 08:49:11 -0700
+
+ I would say that `tcp-abandon-port` is "less" than `close-output-port`
+ in that it refrains from telling the other end of the TCP connection
+ that the port has been closed.
+ 
+ I don't remember why we had to use `tcp-abandon-port`, and it sounds
+ plausible to me that we could change it, but I suggest trying that
+ change after v6.0.
+ 
+ At Fri, 13 Dec 2013 06:33:18 -0700, Jay McCarthy wrote:
+ > Eli,
+ > 
+ > Attach is a new net/http-client that should put in the close header.
+ > Can you check it on your use case?
+ > 
+ > As far the abandon thing, I assumed that tcp-abandon-port did the same
+ > thing as close-output-port but "more". Right now the code never calls
+ > close, but it's pretty obvious where it would. Should I change it or
+ > is abandon-port at fault for not doing the close too?
+ > 
+ > 
+ > On Thu, Dec 12, 2013 at 4:43 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > > An hour and a half ago, Matthew Flatt wrote:
+ > >>
+ > >>  #lang racket
+ > >>  [...]
+ > >>
+ > >> Is there something about the above code that isn't the right way to
+ > >> do HTTP 1.1 (and that might similarly be wrong in
+ > >> `net/http-client`)?
+ > >
+ > > Actually, this was useful in that using HTTP/1.1 was showing some "0"
+ > > output after the delay, which lead me to the keep-alive thing, and
+ > > that looks like the source, and the ~5sec delay is apache timing out.
+ > > For reference, Wikipedia says:
+ > >
+ > >   http://en.wikipedia.org/wiki/HTTP_persistent_connection#HTTP_1.1
+ > >   In HTTP 1.1, all connections are considered persistent unless
+ > >   declared otherwise
+ > >
+ > > and links to http://tools.ietf.org/html/rfc2616#section-8.1 that which
+ > > says the same.  I added a "Connection: close\r\n" to your code, and it
+ > > went back to proper speed.
+ > >
+ > > So this header should be added (at least for the get-pure-port etc
+ > > interface, I don't know if the new thing supports multiple requests).
+ > >
+ > > But in addition, it seems that the idea behind tcp-abandon port is no
+ > > longer needed: replacing it with a `close-output-port' makes it go at
+ > > normal speed too.  If I follow everything, then abandoning the port
+ > > with a server assumption of keep-alive is exactly what leads to the
+ > > delay.
+ > >
+ > > IMO, both things should be done.  So maybe extend the interface to
+ > > have some `#:tcp-abandon?' keyword for using it in case some antique
+ > > server needs it?
+ > >
+ > > (I think that the server that lead to the abandon thing was Yahoo,
+ > > right?  If so, then that's probably no longer an issue.)
+ > >
+ > > --
+ > >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ > >                     http://barzilay.org/                   Maze is Life!
+ > 
+ > 
+ > 
+ > -- 
+ > Jay McCarthy <jay@cs.byu.edu>
+ > Assistant Professor / Brigham Young University
+ > http://faculty.cs.byu.edu/~jay
+ > 
+ > "The glory of God is Intelligence" - D&C 93
+ > 
+ > ------------------------------------------------------------------------------
+ > [application/octet-stream "http-client.rkt"] [~/Desktop & open] [~/Temp & open]
+Responsible changed from "nobody" to "jay" by jay@racket-lang.org at Sat, 14 Dec 2013 10:00:59 -0500
+Reason>>> A commit by jay@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/87135b110b
+State changed from "open" to "closed" by jay@racket-lang.org at Sat, 14 Dec 2013 10:00:59 -0500
+Reason>>> A commit by jay@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/87135b110b
+  | Fix PR14247
+  | 
+  | Add "Connection: close" to requests that we know will end after one
+  | request.
+  | 
+  | Read upto 1K bytes at a time on requests rather than just 1 at a time.
+  | 
+  | Change closing semantics to be "close" and not "abandon"
+

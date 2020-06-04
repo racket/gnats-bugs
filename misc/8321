@@ -1,0 +1,276 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Oct 11 15:55:10 2006
+Received: from wr-out-0506.google.com (wr-out-0506.google.com [64.233.184.235])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k9BJt4FY012315
+	for <bugs@bugs.plt-scheme.org>; Wed, 11 Oct 2006 15:55:04 -0400
+Message-Id: <200610111955.k9BJt2Ab012309@champlain.ccs.neu.edu>
+Date: Wed, 11 Oct 2006 15:55:02 -0400
+From: robby@cs.uchicago.edu
+To: bugs@plt-scheme.org
+Subject: severe performance problems with pin-under, but not with pin-over
+
+>Number:         8321
+>Category:       misc
+>Synopsis:       severe performance problems with pin-under, but not with pin-over
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Oct 11 16:00:01 -0400 2006
+>Closed-Date:    Wed Nov 15 17:11:16 -0500 2006
+>Last-Modified:  Wed Nov 15 19:30:01 -0500 2006
+>Originator:     Robby Findler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352.6-svn4oct2006
+>Environment:
+macosx "Darwin alishan.local 8.8.1 Darwin Kernel Version 8.8.1: Mon Sep 25 19:42:00 PDT 2006; root:xnu-792.13.8.obj~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/robby/svn/exp/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 130158764
+
+Collections:
+(("/Users/robby/Library/PLT Scheme/352.6/collects" non-existent-path) ("/Users/robby/svn/exp/plt/collects" ".svn" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: (#<path:/Users/robby/svn/exp/plt/collects/teachpack/htdp/world.ss> #<path:/Users/robby/html/courses/15100-2006-fall/web-itunes.ss>)
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+pin-under doesn't complete, below. But pin-over is fine.
+
+(module m mzscheme
+  (require (lib "slideshow.ss" "slideshow"))
+  
+  (define w/vertical-lines (frame (blank 300 60)))
+  
+  (define en-dot (disk 4))
+  (define d (colorize (disk 1) "gray"))
+  (define y-position
+    (- (pict-height w/vertical-lines) 
+       (/ (pict-height en-dot) 2)
+       (/ (pict-height (disk 1)) 2)))
+  
+  (define w/little-dots
+    (let loop ([pict w/vertical-lines]
+               [dot-position (+ (* (pict-width w/vertical-lines) 1/3) 2)]
+               [max 0])
+      (printf "loop ~s\n" max)
+      (cond
+        [(dot-position . >= . (* (pict-width pict) 2/3))
+         pict]
+        [else
+         (loop (pin-under pict
+                          dot-position
+                          y-position
+                          d)
+               (+ dot-position 4)
+               (+ max 1))])))
+  
+  (slide w/little-dots))
+>How-To-Repeat:
+The fix seems to be to change pin-under to this:
+
+ (define (pin-under base dx dy target)
+	(cc-superimpose
+	 (place-it 'pin-under #t (launder (ghost base)) dx dy target)
+	 base))
+
+The call to launder wasn't there before. Without it, there
+seem to be exponentially many sub-picts building up in
+some list somewhere.
+
+This also suggests that maybe the subpicts should be kept
+in some data structure that support constant-time appends
+and only flattens on a search. Maybe.
+
+I've committed the fix above, but I'm submitting this just
+in case its interesting.
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by eli at Mon, 16 Oct 2006 23:22:07 -0400
+Reason>>> slideshow (?)
+
+
+State changed from "open" to "closed" by mflatt at Wed, 15 Nov 2006 17:11:16 -0500
+Reason>>> As far as I can tell, this change breaks pin-under. Laundering the base
+means that nothing could be found by `place-it'.
+
+I moved the `launder' to the second argument of `cc-superimpose'
+instead. The example program still runs, and `pin-under' seems to
+work.
+
+(I ran into the pin-under bug last week, and I've only just now
+connected it to this PR.)
+
+From: Robby Findler <robby@cs.uchicago.edu>
+To: bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: misc/8321 severe performance problems with pin-under, but not with pin-over
+Date: Wed, 15 Nov 2006 17:25:19 -0600
+
+ At Wed, 15 Nov 2006 17:11:16 -0500, mflatt@plt-scheme.org wrote:
+ > 
+ > State changed from "open" to "closed" by mflatt at Wed, 15 Nov 2006 17:11:16 -0500
+ > Reason>>> As far as I can tell, this change breaks pin-under. Laundering the base
+ > means that nothing could be found by `place-it'.
+ > 
+ > I moved the `launder' to the second argument of `cc-superimpose'
+ > instead. The example program still runs, and `pin-under' seems to
+ > work.
+ > 
+ > (I ran into the pin-under bug last week, and I've only just now
+ > connected it to this PR.)
+ 
+ That doesn't make any sense! The pict is duplicated -- how can the
+ launder possibly cause a problem?
+ 
+ Unless the code in svn didn't match the code in the PR?
+ 
+ Robby
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: misc/8321 severe performance problems with pin-under, but not with pin-over
+Date: Wed, 15 Nov 2006 17:25:19 -0600
+
+ At Wed, 15 Nov 2006 17:11:16 -0500, mflatt@plt-scheme.org wrote:
+ > 
+ > State changed from "open" to "closed" by mflatt at Wed, 15 Nov 2006 17:11:16 -0500
+ > Reason>>> As far as I can tell, this change breaks pin-under. Laundering the base
+ > means that nothing could be found by `place-it'.
+ > 
+ > I moved the `launder' to the second argument of `cc-superimpose'
+ > instead. The example program still runs, and `pin-under' seems to
+ > work.
+ > 
+ > (I ran into the pin-under bug last week, and I've only just now
+ > connected it to this PR.)
+ 
+ That doesn't make any sense! The pict is duplicated -- how can the
+ launder possibly cause a problem?
+ 
+ Unless the code in svn didn't match the code in the PR?
+ 
+ Robby
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: misc/8321 severe performance problems with pin-under, but not with pin-over
+Date: Thu, 16 Nov 2006 08:03:31 0800
+
+ At Wed, 15 Nov 2006 17:25:19 -0600, Robby Findler wrote:
+ > At Wed, 15 Nov 2006 17:11:16 -0500, mflatt@plt-scheme.org wrote:
+ > > 
+ > > State changed from "open" to "closed" by mflatt at Wed, 15 Nov 2006 
+ > 17:11:16 -0500
+ > > Reason>>> As far as I can tell, this change breaks pin-under. Laundering the 
+ > base
+ > > means that nothing could be found by `place-it'.
+ > > 
+ > > I moved the `launder' to the second argument of `cc-superimpose'
+ > > instead. The example program still runs, and `pin-under' seems to
+ > > work.
+ > > 
+ > > (I ran into the pin-under bug last week, and I've only just now
+ > > connected it to this PR.)
+ > 
+ > That doesn't make any sense! The pict is duplicated -- how can the
+ > launder possibly cause a problem?
+ > 
+ > Unless the code in svn didn't match the code in the PR?
+ 
+ I think the confusion is that the `pin-under' procedure has two modes:
+ 
+   (pin-under pict dx dy pict) -> pict
+   (pin-under pict sub-pict find-proc pict) -> pict
+ 
+ and these two modes are not reflected in the argument names `dx' and
+ `dy':
+ 
+       (define (pin-under base dx dy target)
+         (cc-superimpose
+          (place-it 'pin-under #t (launder (ghost base)) dx dy target)
+          base))
+ 
+ When `dx' is a pict, it can't be found by `place-it' in `(launder
+ (ghost base))'.
+ 
+ Matthew
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: misc/8321 severe performance problems with pin-under, but not with pin-over
+Date: Wed, 15 Nov 2006 18:06:01 -0600
+
+ At Thu, 16 Nov 2006 08:03:31 0800, Matthew Flatt wrote:
+ > At Wed, 15 Nov 2006 17:25:19 -0600, Robby Findler wrote:
+ > > At Wed, 15 Nov 2006 17:11:16 -0500, mflatt@plt-scheme.org wrote:
+ > > > 
+ > > > State changed from "open" to "closed" by mflatt at Wed, 15 Nov 2006 
+ > > 17:11:16 -0500
+ > > > Reason>>> As far as I can tell, this change breaks pin-under. Laundering the 
+ > > base
+ > > > means that nothing could be found by `place-it'.
+ > > > 
+ > > > I moved the `launder' to the second argument of `cc-superimpose'
+ > > > instead. The example program still runs, and `pin-under' seems to
+ > > > work.
+ > > > 
+ > > > (I ran into the pin-under bug last week, and I've only just now
+ > > > connected it to this PR.)
+ > > 
+ > > That doesn't make any sense! The pict is duplicated -- how can the
+ > > launder possibly cause a problem?
+ > > 
+ > > Unless the code in svn didn't match the code in the PR?
+ > 
+ > I think the confusion is that the `pin-under' procedure has two modes:
+ > 
+ >   (pin-under pict dx dy pict) -> pict
+ >   (pin-under pict sub-pict find-proc pict) -> pict
+ > 
+ > and these two modes are not reflected in the argument names `dx' and
+ > `dy':
+ > 
+ >       (define (pin-under base dx dy target)
+ >         (cc-superimpose
+ >          (place-it 'pin-under #t (launder (ghost base)) dx dy target)
+ >          base))
+ > 
+ > When `dx' is a pict, it can't be found by `place-it' in `(launder
+ > (ghost base))'.
+ 
+ Oh, of course. Stupid me!
+ 
+ Thanks,
+ Robby
+From: Robby Findler <robby@cs.uchicago.edu>
+To: bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org, eli@plt-scheme.org
+Subject: Re: misc/8321 severe performance problems with pin-under, but not with pin-over
+Date: Wed, 15 Nov 2006 17:25:19 -0600
+
+ At Wed, 15 Nov 2006 17:11:16 -0500, mflatt@plt-scheme.org wrote:
+ > 
+ > State changed from "open" to "closed" by mflatt at Wed, 15 Nov 2006 17:11:16 -0500
+ > Reason>>> As far as I can tell, this change breaks pin-under. Laundering the base
+ > means that nothing could be found by `place-it'.
+ > 
+ > I moved the `launder' to the second argument of `cc-superimpose'
+ > instead. The example program still runs, and `pin-under' seems to
+ > work.
+ > 
+ > (I ran into the pin-under bug last week, and I've only just now
+ > connected it to this PR.)
+ 
+ That doesn't make any sense! The pict is duplicated -- how can the
+ launder possibly cause a problem?
+ 
+ Unless the code in svn didn't match the code in the PR?
+ 
+ Robby
+ 

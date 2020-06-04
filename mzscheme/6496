@@ -1,0 +1,149 @@
+From dsilva@ccs.neu.edu  Sun Oct 12 16:09:46 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id QAA23274
+	for <bugs>; Sun, 12 Oct 2003 16:09:46 -0400
+Message-Id: <200310122009.QAA23274@champlain.ccs.neu.edu>
+Date: Sun, 12 Oct 2003 16:09:46 -0400
+From: Daniel Silva <dsilva@ccs.neu.edu>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: module->namespace causes segmentation fault
+
+>Number:         6496
+>Category:       mzscheme
+>Synopsis:       module->namespace causes segmentation fault
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sun Oct 12 16:10:00 EDT 2003
+>Closed-Date:    Wed Dec 03 18:06:33 EST 2003
+>Last-Modified:  Wed Dec 03 18:06:33 EST 2003
+>Originator:     Daniel Silva
+>Release:        205.3-cvs1oct2003
+>Organization:
+titan
+>Environment:
+unix "Linux khan 2.6.0-test5 #4 SMP Sun Sep 14 16:56:09 EDT 2003 i686 GNU/Linux" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+("/home/daniel/plt/collects/doc/tex2page" "/home/daniel/plt/collects/doc/t-y-scheme" "/home/daniel/plt/collects/doc/tour" "/home/daniel/plt/collects/doc/tools" "/home/daniel/plt/collects/doc/insidemz" "/home/daniel/plt/collects/doc/mzc" "/home/daniel/plt/collects/doc/misclib" "/home/daniel/plt/collects/doc/framework" "/home/daniel/plt/collects/doc/mred" "/home/daniel/plt/collects/doc/mzlib" "/home/daniel/plt/collects/doc/mzscheme" "/home/daniel/plt/collects/doc/r5rs" "/home/daniel/plt/collects/doc/drscheme" "/home/daniel/plt/collects/doc/intermediate-lambda" "/home/daniel/plt/collects/doc/intermediate" "/home/daniel/plt/collects/doc/advanced" "/home/daniel/plt/collects/doc/beginning-abbr" "/home/daniel/plt/collects/doc/beginning" "/home/daniel/plt/collects/doc/help")
+Collections: 
+(("/home/daniel/.plt-scheme/205.3/collects" "non-existent path") ("/home/daniel/plt/collects" ("CVS" "afm" "algol60" "doc" "browser" "srfi" "backward" "compiler" "cvs-time-stamp" "defaults" "drscheme" "mred" "web-server" "dynext" "eopl" "errortrace" "finish-install" "framework" "games" "graphics" "parser-tools2" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mrdemo" "drjava" "java" "mrlib" "dromedary" "sgl" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "readline" "reduction-semantics" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "string-constants" "syntax" "test-suite" "tests" "tex2page" "texpict" "typeset" "version" "mrflow" "xml" "browser2" "cogen" "countdwn" "debug" "mrspidey" "drscheme-jr" "file-browser" "guibuilder" "guserspce" "gusrspce" "hierarchy" "html-generate" "icfp-robot-gui" "plot" "libsndfile" "python" "mzdynext" "mzos" "schemeql" "newspidey" "ollie-world" "profj" "quasiquote" "release-notes" "sml" "stepper-graphical" "system" "test" "userspce" "xelda" "zodiac" "robotclient" "syntax-color" "waterworld" "handin-client" "handin-server")))
+ 
+Human Language: english
+ 
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#f write mixed-fraction-e #f #t debug) (default)))
+>Description:
+module->namespace causes mzscheme to segfault when applied to a module that requires other modules.
+
+The problem seems to be that, in mzscheme/src/module.c:module_to_namespace, in both for loops iterating over menv->require_names and menv->et_require_names, idx sometimes is not a valid key in menv->module_registry, so 'im' is null.  Passing a null 'im' to add_require_names causes it to be dereferenced and mzscheme crashes.
+
+I changed the body of both loops to include this:
+
+	scheme_add_global("cur-idx", idx, scheme_get_env(scheme_config));
+	scheme_eval_string("(print-cur-idx)", scheme_get_env(scheme_config));
+	scheme_eval_string("(newline)", scheme_get_env(scheme_config));
+	if ( im ) 
+	  add_require_renames(rn, im, idx);
+	else
+	  fprintf(stderr, "module_to_namespace: current module-path-index is not in the module registry\n");
+
+(the warning message for the second loop is different)
+
+Then tried again:
+[/tmp] > cat dbg.scm
+;; module-idx->str: module-path-index -> string
+(define (module-idx->str idx)
+  (if (module-path-index? idx)
+      (let-values ([(path base) (module-path-index-split idx)])
+        (list path (module-idx->str base)))
+      idx))
+
+;; print the current module-path-index
+;; cur-idx should be set by a modified mzscheme/src/module.c
+(define (print-cur-idx)
+  (display (module-idx->str cur-idx)))
+
+[/tmp] > mzscheme --load dbg.scm
+Welcome to MzScheme version 205.3, Copyright (c) 1995-2003 PLT
+>  (require (file "/tmp/a.scm"))
+>  (require (file "/tmp/b.scm"))
+> (module->namespace '(file "/tmp/a.scm"))
+mzscheme
+mzscheme
+#<namespace>
+> (module->namespace '(file "/tmp/b.scm"))
+(a.scm ((file /tmp/b.scm) #f))
+module_to_namespace: current module-path-index is not in the module registry
+mzscheme
+mzscheme
+#<namespace>
+> (require (lib "etc.ss"))
+> (module->namespace '(lib "etc.ss"))
+(spidey.ss ((lib etc.ss) #f))
+module_to_namespace: current module-path-index is not in the module registry
+mzscheme
+(private/stxset.ss ((lib etc.ss) #f))
+module_to_namespace: yet another module index not in the module registry
+((lib context.ss syntax) ((lib etc.ss) #f))
+module_to_namespace: yet another module index not in the module registry
+((lib name.ss syntax) ((lib etc.ss) #f))
+module_to_namespace: yet another module index not in the module registry
+((lib stx.ss syntax) ((lib etc.ss) #f))
+module_to_namespace: yet another module index not in the module registry
+((lib kerncase.ss syntax) ((lib etc.ss) #f))
+module_to_namespace: yet another module index not in the module registry
+mzscheme
+#<namespace>
+> (require (lib "python.ss" "python"))
+> (module->namespace '(lib "python.ss" "python"))
+(python-import.ss ((lib python.ss python) #f))
+module_to_namespace: current module-path-index is not in the module registry
+(compile-python.ss ((lib python.ss python) #f))
+module_to_namespace: current module-path-index is not in the module registry
+(primitives.ss ((lib python.ss python) #f))
+module_to_namespace: current module-path-index is not in the module registry
+(python-node.ss ((lib python.ss python) #f))
+module_to_namespace: current module-path-index is not in the module registry
+((lib etc.ss) ((lib python.ss python) #f))
+module_to_namespace: current module-path-index is not in the module registry
+((lib class.ss) ((lib python.ss python) #f))
+module_to_namespace: current module-path-index is not in the module registry
+mzscheme
+mzscheme
+#<namespace>
+> 
+>How-To-Repeat:
+[/tmp] > cat a.scm
+(module a mzscheme (provide x) (define x 1))
+[/tmp] > cat b.scm
+(module b mzscheme (require "a.scm") (define (y) x))
+[/tmp] > mzscheme
+Welcome to MzScheme version 205.3, Copyright (c) 1995-2003 PLT
+> (require (file "a.scm") (file "b.scm"))
+> (module->namespace '(file "a.scm"))
+#<namespace>
+> (module->namespace '(file "b.scm"))
+Segmentation fault
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+Responsible-Changed-From-To: eli->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Wed Dec  3 18:06:33 2003
+Responsible-Changed-Why:
+    mz
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Dec  3 18:06:33 2003
+State-Changed-Why:
+    fixed long ago
+>Unformatted:
+

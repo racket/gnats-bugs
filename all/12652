@@ -1,0 +1,694 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Mar 27 00:47:30 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q2R4lRF4000415
+	for <bugs@bugs.plt-scheme.org>; Tue, 27 Mar 2012 00:47:27 -0400
+Message-Id: <201203270447.q2R4lN1n000409@champlain.ccs.neu.edu>
+Date: Tue, 27 Mar 2012 00:47:23 -0400
+From: agocke@gmail.com
+To: bugs@racket-lang.org
+Subject: The domain contract on string->url excepts any string while it should only accept valid URLs according to RFC 3986.
+
+>Number:         12652
+>Category:       all
+>Synopsis:       The domain contract on string->url excepts any string while it should only accept valid URLs according to RFC 3986.
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Mar 27 00:48:01 -0400 2012
+>Closed-Date:    Tue Mar 27 13:21:24 -0400 2012
+>Last-Modified:  Fri Mar 30 16:48:01 -0400 2012
+>Originator:     Loose contract on net/url/string->url
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.1.1
+>Environment:
+unix "Linux helium 3.0.0-16-generic #29-Ubuntu SMP Tue Feb 14 12:48:51 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 227095640
+
+Collections:
+("/home/andy/.racket/5.1.1/collects"
+ (non-existent-path))
+("/usr/share/racket/collects"
+ ("lang" "games" "typed-scheme" "config" "plai" "stepper" "srfi" "framework" "plot" "rackunit" "at-exp" "texpict" "file" "2htdp" "embedded-gui" "sgl" "launcher" "scribblings" "tests" "string-constants" "algol60" "graphics" "r6rs" "mysterx" "errortrace" "syntax" "data" "schemeunit" "htdp" "icons" "rnrs" "planet" "trace" "combinator-parser" "defaults" "help" "test-engine" "scribble" "version" "racklog" "profile" "make" "drscheme" "wxme" "net" "racket" "xml" "slatex" "s-exp" "html" "deinprogramm" "macro-debugger" "test-box-recovery" "ffi" "teachpack" "info-domain" "scriblib" "slideshow" "unstable" "frtime" "mzcom" "setup" "web-server" "scheme" "datalog" "browser" "reader" "raco" "parser-tools" "openssl" "hierlist" "picturing-programs" "syntax-color" "mzscheme" "dynext" "typed" "tex2page" "readline" "drracket" "eopl" "mzlib" "compiler" "lazy" "preprocessor" "mred" "gui-debugger" "redex" "r5rs" "swindle" "mrlib"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+The fix is the following patch:
+
+diff --git a/collects/net/url.rkt b/collects/net/url.rkt
+index 13a8f92..e15d2af 100644
+--- a/collects/net/url.rkt
++++ b/collects/net/url.rkt
+@@ -488,8 +488,7 @@
+               [query    (if query (form-urlencoded->alist query) '())]
+               [fragment (uri-decode/maybe fragment)])
+          (make-url scheme user host port abs? path query fragment))))
+-   (cdr (or (regexp-match url-rx str)
+-            (url-error "Invalid URL string: ~e" str)))))
++   (cdr (regexp-match url-rx str))))
+ 
+ (define (uri-decode/maybe f) (friendly-decode/maybe f uri-decode))
+ 
+@@ -661,7 +660,7 @@
+ (provide (struct-out url) (struct-out path/param))
+ 
+ (provide/contract
+- (string->url ((or/c bytes? string?) . -> . url?))
++ (string->url (url-rx . -> . url?))
+  (path->url ((or/c path-string? path-for-some-system?) . -> . url?))
+  (url->string (url? . -> . string?))
+  (url->path (->* (url?) ((one-of/c 'unix 'windows)) path-for-some-system?))
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "robby" by robby@racket-lang.org at Tue, 27 Mar 2012 13:21:24 -0400
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/fdf3fa6492
+State changed from "open" to "closed" by robby@racket-lang.org at Tue, 27 Mar 2012 13:21:24 -0400
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/fdf3fa6492
+From: Eli Barzilay <eli@barzilay.org>
+To: agocke@gmail.com, bugs@racket-lang.org
+Cc: bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Tue, 27 Mar 2012 13:38:07 -0400
+
+ Earlier today, agocke@gmail.com wrote:
+ > The fix is the following patch:
+ 
+ I see that Robby added the patch, but I think that it should be
+ reverted, if only as a very obvious example of wasting cycles by
+ running a computation twice.
+ 
+ * From a plain user's pov, there is no difference -- an error is
+   raised in the same cases.
+ 
+ * If the error is somehow better with contracts and it cannot be
+   produced otherwise, then the contract system should expose whatever
+   functionality is needed to do so.
+ 
+ * If the point is adding information, for example, something to be
+   used with generating random inputs, then the contract system should
+   allow adding that information in but avoid the extra checking.
+ 
+ * Perhaps more radically, have a kind of contracts that can cooperate
+   with the function they're protecting by sending it values.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: agocke@gmail.com, bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Tue, 27 Mar 2012 14:29:46 -0500
+
+ I completely disagree with this point of view and I encourage you to
+ read Bertrand Meyer's papers for more about the general principle.
+ 
+ As to how contracts-as-contracts specifically adds value to Racket
+ (not talking about the more general SE benefits in Meyer's writings):
+ Andy found this by by applying random testing based on the contracts
+ via an automated tool he's working on. If the contract is not written
+ as part of the interface to the function, then this way of improving
+ the quality of our software goes away.
+ 
+ If your concern is performance, then I am happy to have some other
+ "unsafe-" version of this function that does little checking or, even
+ better, a typed version.
+ 
+ Robby
+ 
+ On Tue, Mar 27, 2012 at 12:38 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > Earlier today, agocke@gmail.com wrote:
+ >> The fix is the following patch:
+ >
+ > I see that Robby added the patch, but I think that it should be
+ > reverted, if only as a very obvious example of wasting cycles by
+ > running a computation twice.
+ >
+ > * From a plain user's pov, there is no difference -- an error is
+ >  raised in the same cases.
+ >
+ > * If the error is somehow better with contracts and it cannot be
+ >  produced otherwise, then the contract system should expose whatever
+ >  functionality is needed to do so.
+ >
+ > * If the point is adding information, for example, something to be
+ >  used with generating random inputs, then the contract system should
+ >  allow adding that information in but avoid the extra checking.
+ >
+ > * Perhaps more radically, have a kind of contracts that can cooperate
+ >  with the function they're protecting by sending it values.
+ >
+ > --
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                    http://barzilay.org/                   Maze is Life!
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eli Barzilay <eli@barzilay.org>, agocke@gmail.com, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Tue, 27 Mar 2012 16:27:27 -0400
+
+ I second this opinion. [[ I will write a larger email on consistency in a moment. ]] 
+ 
+ 
+ On Mar 27, 2012, at 3:29 PM, Robby Findler wrote:
+ 
+ > I completely disagree with this point of view and I encourage you to
+ > read Bertrand Meyer's papers for more about the general principle.
+ > 
+ > As to how contracts-as-contracts specifically adds value to Racket
+ > (not talking about the more general SE benefits in Meyer's writings):
+ > Andy found this by by applying random testing based on the contracts
+ > via an automated tool he's working on. If the contract is not written
+ > as part of the interface to the function, then this way of improving
+ > the quality of our software goes away.
+ > 
+ > If your concern is performance, then I am happy to have some other
+ > "unsafe-" version of this function that does little checking or, even
+ > better, a typed version.
+ > 
+ > Robby
+ > 
+ > On Tue, Mar 27, 2012 at 12:38 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> Earlier today, agocke@gmail.com wrote:
+ >>> The fix is the following patch:
+ >> 
+ >> I see that Robby added the patch, but I think that it should be
+ >> reverted, if only as a very obvious example of wasting cycles by
+ >> running a computation twice.
+ >> 
+ >> * From a plain user's pov, there is no difference -- an error is
+ >>  raised in the same cases.
+ >> 
+ >> * If the error is somehow better with contracts and it cannot be
+ >>  produced otherwise, then the contract system should expose whatever
+ >>  functionality is needed to do so.
+ >> 
+ >> * If the point is adding information, for example, something to be
+ >>  used with generating random inputs, then the contract system should
+ >>  allow adding that information in but avoid the extra checking.
+ >> 
+ >> * Perhaps more radically, have a kind of contracts that can cooperate
+ >>  with the function they're protecting by sending it values.
+ >> 
+ >> --
+ >>          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >>                    http://barzilay.org/                   Maze is Life!
+ 
+ 
+From: Andy Gocke <agocke@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eli Barzilay <eli@barzilay.org>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Tue, 27 Mar 2012 15:39:06 -0500
+
+ --e89a8f234509d6608904bc3f7d75
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Since I'm probably going to be submitting bugs like this quite often I feel
+ the need to briefly explain my own reasoning, which mirrors a lot of what
+ Meyer has written (I'm assuming Robby is referring to Design by Contract
+ and Eiffel)
+ 
+ > I see that Robby added the patch, but I think that it should be
+ > > reverted, if only as a very obvious example of wasting cycles by
+ > > running a computation twice.
+ >
+ 
+ Note that the regex is only compiled once, just executed multiple times.
+ This is far less expensive.
+ 
+ 
+ > > * From a plain user's pov, there is no difference -- an error is
+ > >  raised in the same cases.
+ >
+ 
+  In the previous version the contract states that string->url accepts
+ either bytes or strings, but this is not true. The contract doesn't simply
+ describe restrictions on the domain -- it describes the domain itself. By
+ placing checking code for the domain inside the function this harms the
+ fundamental point of the contract, which is to describe the preconditions
+ required by the function. A missing precondition is an incomplete contract.
+ From a more formal perspective, if you envision the operational semantics
+ of any contracted function, if the domain contract fully encapsulates the
+ required semantics for the domain it allows us to simplify the deduction
+ (range contract) by eliminating an implicit "possible exception." Of
+ course, the result is the same in practice (an exception is thrown either
+ way) but the exception is 1) better handled by the contract system and 2)
+ produces less pollution of the operational semantics if it is handled by
+ the contract system rather than the function itself.
+ 
+ 
+ > >
+ > > * If the error is somehow better with contracts and it cannot be
+ > >  produced otherwise, then the contract system should expose whatever
+ > >  functionality is needed to do so.
+ > >
+ > > * If the point is adding information, for example, something to be
+ > >  used with generating random inputs, then the contract system should
+ > >  allow adding that information in but avoid the extra checking.
+ >
+ 
+ I personally feel that requiring custom generators for every function which
+ has a weak contract would be quite annoying and prohibitively expensive.
+ 
+ 
+ > > * Perhaps more radically, have a kind of contracts that can cooperate
+ > >  with the function they're protecting by sending it values.
+ >
+ 
+ Reifying contract values within the function is certainly interesting, but,
+ I think, far beyond the scope we're discussing here.
+ 
+ Cheers,
+ Andy
+ 
+ --e89a8f234509d6608904bc3f7d75
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Since I&#39;m probably going to be submitting bugs like this quite often I =
+ feel the need to briefly explain my own reasoning, which mirrors a lot of w=
+ hat Meyer has written (I&#39;m assuming Robby is referring to Design by Con=
+ tract and Eiffel)<br>
+ 
+ <br><div class=3D"gmail_quote"><blockquote class=3D"gmail_quote" style=3D"m=
+ argin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><div class=3D=
+ "HOEnZb"><div class=3D"h5">
+ &gt; I see that Robby added the patch, but I think that it should be<br>
+ &gt; reverted, if only as a very obvious example of wasting cycles by<br>
+ &gt; running a computation twice.<br></div></div></blockquote><div><br></di=
+ v><div>Note that the regex is only compiled once, just executed multiple ti=
+ mes. This is far less expensive.</div><div>=C2=A0</div><blockquote class=3D=
+ "gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding=
+ -left:1ex">
+ 
+ <div class=3D"HOEnZb"><div class=3D"h5">&gt; * From a plain user&#39;s pov,=
+  there is no difference -- an error is<br>
+ &gt; =C2=A0raised in the same cases.<br></div></div></blockquote><div><br><=
+ /div><div>=C2=A0In the previous version the contract states that string-&gt=
+ ;url accepts either bytes or strings, but this is not true. The contract do=
+ esn&#39;t simply describe restrictions on the domain -- it describes the do=
+ main itself. By placing checking code for the domain inside the function th=
+ is harms the fundamental point of the contract, which is to describe the pr=
+ econditions required by the function. A missing precondition is an incomple=
+ te contract. From a more formal perspective, if you envision the operationa=
+ l semantics of any contracted function, if the domain contract fully encaps=
+ ulates the required semantics for the domain it allows us to simplify the d=
+ eduction (range contract) by eliminating an implicit &quot;possible excepti=
+ on.&quot; Of course, the result is the same in practice (an exception is th=
+ rown either way) but the exception is 1) better handled by the contract sys=
+ tem and 2) produces less pollution of the operational semantics if it is ha=
+ ndled by the contract system rather than the function itself.</div>
+ 
+ <div>=C2=A0</div><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8=
+ ex;border-left:1px #ccc solid;padding-left:1ex"><div class=3D"HOEnZb"><div =
+ class=3D"h5">
+ &gt;<br>
+ &gt; * If the error is somehow better with contracts and it cannot be<br>
+ &gt; =C2=A0produced otherwise, then the contract system should expose whate=
+ ver<br>
+ &gt; =C2=A0functionality is needed to do so.<br>
+ &gt;<br>
+ &gt; * If the point is adding information, for example, something to be<br>
+ &gt; =C2=A0used with generating random inputs, then the contract system sho=
+ uld<br>
+ &gt; =C2=A0allow adding that information in but avoid the extra checking.<b=
+ r></div></div></blockquote><div><br></div><div>I personally feel that requi=
+ ring custom generators for every function which has a weak contract would b=
+ e quite annoying and prohibitively expensive.</div>
+ 
+ <div>=C2=A0</div><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8=
+ ex;border-left:1px #ccc solid;padding-left:1ex"><div class=3D"HOEnZb"><div =
+ class=3D"h5">&gt; * Perhaps more radically, have a kind of contracts that c=
+ an cooperate<br>
+ 
+ 
+ &gt; =C2=A0with the function they&#39;re protecting by sending it values.<b=
+ r></div></div></blockquote><div><br></div><div>Reifying contract values wit=
+ hin the function is certainly interesting, but, I think, far beyond the sco=
+ pe we&#39;re discussing here.</div>
+ 
+ <div><br></div><div>Cheers,</div><div>Andy</div></div>
+ 
+ --e89a8f234509d6608904bc3f7d75--
+From: Eli Barzilay <eli@barzilay.org>
+To: Andy Gocke <agocke@gmail.com>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Wed, 28 Mar 2012 08:40:57 -0400
+
+ (First, a general clarification, since several people seem to have
+ understood my objection to the patch as a general objection to
+ contracts.  It's not.)
+ 
+ 
+ Yesterday, Andy Gocke wrote:
+ > Since I'm probably going to be submitting bugs like this quite often
+ 
+ (Sidenote: please enter your name for future bugs.  When a bug comes
+ from "Loose contract", it looks suspicious.)
+ 
+ 
+ >     > I see that Robby added the patch, but I think that it should
+ >     > be reverted, if only as a very obvious example of wasting
+ >     > cycles by running a computation twice.
+ > 
+ > Note that the regex is only compiled once, just executed multiple
+ > times. This is far less expensive.
+ 
+ I'm not talking about time to compile regexps.  I'm talking about the
+ work done in matching the regexp, which is most of what this function
+ is doing.
+ 
+ 
+ >     > * From a plain user's pov, there is no difference -- an error is
+ >     >  raised in the same cases.
+ > 
+ > In the previous version the contract states that string->url accepts
+ > either bytes or strings, but this is not true. The contract doesn't
+ > simply describe restrictions on the domain -- it describes the
+ > domain itself.
+ 
+ In the thread on the dev list you described this issue by referring to
+ parsers.  This is exactly the case here: `string->url' *is* a parser.
+ 
+ I'll continue the discussion there.  This post is mostly to have a
+ reference from this PR to that discussion.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+From: Andy Gocke <agocke@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Wed, 28 Mar 2012 09:17:07 -0500
+
+ --f46d04426aa49e318504bc4e45ce
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Wed, Mar 28, 2012 at 7:40 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ 
+ > (Sidenote: please enter your name for future bugs.  When a bug comes
+ > from "Loose contract", it looks suspicious.)
+ >
+ 
+ My mistake; it was my first time using the DrRacket bug reporter and I
+ thought that "Name" indicated the name of the bug report, not my name.
+ Another thing that would be useful would be the ability to attach files to
+ the bug report instead of having to paste diffs into the description.
+ 
+ Andy
+ 
+ --f46d04426aa49e318504bc4e45ce
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <br><div class=3D"gmail_quote">On Wed, Mar 28, 2012 at 7:40 AM, Eli Barzila=
+ y <span dir=3D"ltr">&lt;<a href=3D"mailto:eli@barzilay.org">eli@barzilay.or=
+ g</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" style=3D"margi=
+ n:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ 
+ <div id=3D":89">(Sidenote: please enter your name for future bugs. =C2=A0Wh=
+ en a bug comes<br>
+ from &quot;Loose contract&quot;, it looks suspicious.)<br>
+ <div class=3D"im"></div></div></blockquote></div><br><div>My mistake; it wa=
+ s my first time using the DrRacket bug reporter and I thought that &quot;Na=
+ me&quot; indicated the name of the bug report, not my name. Another thing t=
+ hat would be useful would be the ability to attach files to the bug report =
+ instead of having to paste diffs into the description.</div>
+ 
+ <div><br></div><div>Andy</div>
+ 
+ --f46d04426aa49e318504bc4e45ce--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Andy Gocke <agocke@gmail.com>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Wed, 28 Mar 2012 10:00:36 -0500
+
+ I'm not completely clear on what Eli's objection is yet (it seems to
+ not simply be a performance argument, in particular, I think), but
+ since it seemed relevant, I did some timing measurements of the
+ various possible contracts, in case that's useful. (I'm replying here,
+ since this seems less like part of the general discussion.)
+ 
+ Anyways, these are the times I see:
+ 
+   "no contract:"
+   cpu time: 567 real time: 569 gc time: 3
+   "weak contract:"
+   cpu time: 556 real time: 558 gc time: 4
+   "weak, regexp-based contract:"
+   cpu time: 645 real time: 646 gc time: 4
+   "strong, regexp-based contract:"
+   cpu time: 887 real time: 889 gc time: 6
+   "strong, regexp-based contract, no parsing(?):"
+   cpu time: 612 real time: 613 gc time: 5
+ 
+ And below is the code. I'm not sure that the last line is actually
+ checking the right thing. It seems like lots of things collapse when
+ the regexp is changed from one that parses to one that just checks
+ well-formedness, but maybe I did too much collapsing?
+ 
+ Robby
+ 
+ #lang racket/base
+ (require net/url racket/contract)
+ 
+ (define string->url/no-contract
+   (parameterize ([current-namespace (module->namespace 'net/url)])
+     (eval 'string->url)))
+ 
+ (define (time-it ctc)
+   (define f (contract ctc string->url/no-contract 'pos 'neg))
+   (collect-garbage) (collect-garbage) (collect-garbage)
+   (sync (system-idle-evt))
+   (time
+    (for ([x (in-range 0 1000)])
+      (f "http://www.racket-lang.com/") (f
+ "http://www.racket-lang.com/") (f "http://www.racket-lang.com/")
+      (f "http://www.racket-lang.com/") (f
+ "http://www.racket-lang.com/") (f "http://www.racket-lang.com/")
+      (f "http://www.racket-lang.com/") (f
+ "http://www.racket-lang.com/") (f "http://www.racket-lang.com/")
+      (f "http://www.racket-lang.com/") (f
+ "http://www.racket-lang.com/") (f "http://www.racket-lang.com/")
+      (f "http://www.racket-lang.com/") (f
+ "http://www.racket-lang.com/") (f "http://www.racket-lang.com/")
+      (f "http://www.racket-lang.com/") (f
+ "http://www.racket-lang.com/") (f "http://www.racket-lang.com/")
+      (f "http://www.racket-lang.com/") (f
+ "http://www.racket-lang.com/") (f "http://www.racket-lang.com/"))))
+ 
+ "no contract:"
+ (time-it any/c)
+ 
+ "weak contract:"
+ (time-it (-> (or/c string? bytes?) url?))
+ 
+ "weak, regexp-based contract:"
+ (time-it (-> #rx".*" url?))
+ 
+ "strong, regexp-based contract:"
+ (time-it (-> url-regexp url?))
+ 
+ "strong, regexp-based contract, no parsing(?):"
+ (time-it (-> #rx"^(?:[^:/?]*:)?" url?))
+From: Andy Gocke <agocke@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Wed, 28 Mar 2012 11:50:28 -0500
+
+ --f46d043435b6098a1504bc506a0e
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Also, on the post Eli just made to the dev list, I agree that the current
+ regex method is shoddy. I'm unconvinced that regexs are the best way to
+ validate urls. Certainly the existing one is suboptimal. I would probably
+ recommend Diego Perini's regex at https://gist.github.com/729294
+ 
+ Andy
+ On Mar 28, 2012 9:17 AM, "Andy Gocke" <agocke@gmail.com> wrote:
+ 
+ >
+ > On Wed, Mar 28, 2012 at 7:40 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ >
+ >> (Sidenote: please enter your name for future bugs.  When a bug comes
+ >> from "Loose contract", it looks suspicious.)
+ >>
+ >
+ > My mistake; it was my first time using the DrRacket bug reporter and I
+ > thought that "Name" indicated the name of the bug report, not my name.
+ > Another thing that would be useful would be the ability to attach files to
+ > the bug report instead of having to paste diffs into the description.
+ >
+ > Andy
+ >
+ 
+ --f46d043435b6098a1504bc506a0e
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p>Also, on the post Eli just made to the dev list, I agree that the curren=
+ t regex method is shoddy. I&#39;m unconvinced that regexs are the best way =
+ to validate urls. Certainly the existing one is suboptimal. I would probabl=
+ y recommend Diego Perini&#39;s regex at=C2=A0<a href=3D"https://gist.github=
+ .com/729294">https://gist.github.com/729294</a></p>
+ 
+ <p>Andy</p>
+ <div class=3D"gmail_quote">On Mar 28, 2012 9:17 AM, &quot;Andy Gocke&quot; =
+ &lt;<a href=3D"mailto:agocke@gmail.com" target=3D"_blank">agocke@gmail.com<=
+ /a>&gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" st=
+ yle=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ 
+ 
+ <br><div class=3D"gmail_quote">On Wed, Mar 28, 2012 at 7:40 AM, Eli Barzila=
+ y <span dir=3D"ltr">&lt;<a href=3D"mailto:eli@barzilay.org" target=3D"_blan=
+ k">eli@barzilay.org</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quo=
+ te" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"=
+ >
+ 
+ 
+ 
+ <div>(Sidenote: please enter your name for future bugs. =C2=A0When a bug co=
+ mes<br>
+ from &quot;Loose contract&quot;, it looks suspicious.)<br>
+ <div></div></div></blockquote></div><br><div>My mistake; it was my first ti=
+ me using the DrRacket bug reporter and I thought that &quot;Name&quot; indi=
+ cated the name of the bug report, not my name. Another thing that would be =
+ useful would be the ability to attach files to the bug report instead of ha=
+ ving to paste diffs into the description.</div>
+ 
+ 
+ 
+ <div><br></div><div>Andy</div>
+ </blockquote></div>
+ 
+ --f46d043435b6098a1504bc506a0e--
+
+----------
+A commit by robby@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/86572cc8c3
+From: Eli Barzilay <eli@barzilay.org>
+To: Andy Gocke <agocke@gmail.com>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Fri, 30 Mar 2012 11:32:42 -0400
+
+ Two days ago, Andy Gocke wrote:
+ > Also, on the post Eli just made to the dev list, I agree that the
+ > current regex method is shoddy. I'm unconvinced that regexs are the
+ > best way to validate urls. Certainly the existing one is
+ > suboptimal. I would probably recommend Diego Perini's regex
+ > at https://gist.github.com/729294
+ 
+ That regexp has a very different purpose -- we definitely don't want
+ to restrict host names & ports as done there, and we do parse the path
+ into its pieces.  (Which IMO is not useful, but that's how it was
+ made...)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+From: Andy Gocke <agocke@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12652: The domain contract on string->url
+ excepts any string while it should only accept valid URLs according to RFC 3986.
+Date: Fri, 30 Mar 2012 15:43:43 -0500
+
+ --f46d04083a9de4509204bc7be711
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I see, that makes sense. Robby's changes seem fine with me if the
+ performance is satisfiable to you.
+ 
+ Andy
+ 
+ On Fri, Mar 30, 2012 at 10:32 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ 
+ > Two days ago, Andy Gocke wrote:
+ > > Also, on the post Eli just made to the dev list, I agree that the
+ > > current regex method is shoddy. I'm unconvinced that regexs are the
+ > > best way to validate urls. Certainly the existing one is
+ > > suboptimal. I would probably recommend Diego Perini's regex
+ > > at https://gist.github.com/729294
+ >
+ > That regexp has a very different purpose -- we definitely don't want
+ > to restrict host names & ports as done there, and we do parse the path
+ > into its pieces.  (Which IMO is not useful, but that's how it was
+ > made...)
+ >
+ > --
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                    http://barzilay.org/                   Maze is Life!
+ >
+ 
+ --f46d04083a9de4509204bc7be711
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ I see, that makes sense. Robby&#39;s changes seem fine with me if the perfo=
+ rmance is satisfiable to you.<div><br></div><div>Andy<br><br><div class=3D"=
+ gmail_quote">On Fri, Mar 30, 2012 at 10:32 AM, Eli Barzilay <span dir=3D"lt=
+ r">&lt;<a href=3D"mailto:eli@barzilay.org">eli@barzilay.org</a>&gt;</span> =
+ wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div class=3D"im">Two days ago, Andy Gocke w=
+ rote:<br>
+ &gt; Also, on the post Eli just made to the dev list, I agree that the<br>
+ &gt; current regex method is shoddy. I&#39;m unconvinced that regexs are th=
+ e<br>
+ &gt; best way to validate urls. Certainly the existing one is<br>
+ &gt; suboptimal. I would probably recommend Diego Perini&#39;s regex<br>
+ &gt; at=C2=A0<a href=3D"https://gist.github.com/729294" target=3D"_blank">h=
+ ttps://gist.github.com/729294</a><br>
+ <br>
+ </div>That regexp has a very different purpose -- we definitely don&#39;t w=
+ ant<br>
+ to restrict host names &amp; ports as done there, and we do parse the path<=
+ br>
+ into its pieces. =C2=A0(Which IMO is not useful, but that&#39;s how it was<=
+ br>
+ made...)<br>
+ <div class=3D"HOEnZb"><div class=3D"h5"><br>
+ --<br>
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0((lambda (x) (x x)) (lambda (x) (x x))) =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Eli Barzilay:<br>
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0<a hr=
+ ef=3D"http://barzilay.org/" target=3D"_blank">http://barzilay.org/</a> =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Maze is Life!<b=
+ r>
+ </div></div></blockquote></div><br></div>
+ 
+ --f46d04083a9de4509204bc7be711--

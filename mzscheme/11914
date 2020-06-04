@@ -1,0 +1,79 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri May 13 02:23:09 2011
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p4D6N5rc009721
+	for <bugs@bugs.plt-scheme.org>; Fri, 13 May 2011 02:23:06 -0400
+Message-Id: <201105130623.p4D6N1tu009716@champlain.ccs.neu.edu>
+Date: Fri, 13 May 2011 02:23:01 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Memory leak on module instantiations
+
+>Number:         11914
+>Category:       mzscheme
+>Synopsis:       Memory leak on module instantiations
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri May 13 02:24:01 -0400 2011
+>Closed-Date:    Wed Aug 03 12:43:57 -0400 2011
+>Last-Modified:  Wed Aug 03 12:43:57 -0400 2011
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Any
+>Description:
+Run the code below, the `avg-per-iteration' should fluctuate around 0,
+but instead it settles on some small number, indicating some leak.
+
+(This is a minimization of PR10444.)
+>How-To-Repeat:
+#lang racket/base
+(define-syntax-rule (repeat N E ...) (for ([i (in-range N)]) E ...))
+(define (make-one)
+  (parameterize ([current-namespace (make-base-empty-namespace)])
+    (dynamic-require ''#%kernel #f))
+  (repeat 2 (collect-garbage)))
+(repeat 5 (make-one))
+(define first (current-memory-use))
+(define last  first)
+(for ([i (in-range 10000)])
+  (make-one)
+  (let ([m (current-memory-use)])
+    (printf "~s delta: ~s avg-per-iteration: ~s current: ~s\n"
+            i (- m last) (round (/ (- m first) (add1 i))) m)
+    (set! last m)))
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt at Wed, 03 Aug 2011 12:43:57 -0400
+Reason>>> It turns out that 10000 isn't enough iterations.
+
+At issue is a weak hash table. When a weak box is
+cleared by the GC, then the hash tabel can reuse the
+box's slot, but the hash table doesn't check all the
+boxes on every hash. If there are enough empty weak
+boxes in the table, it will be grown anyway; rehashing
+will drop the empty weak boxes, but now the table is
+bigger, so it will have even more weak boxes by the time
+the hash table runs out of slots again.
+
+To counteract this growth, a weak hash table starts
+inspecting every box on a rehash to decide whether
+to grow. However, it only does that when the table
+has 4096 slots. As it turns out, that point is hit
+in the example program sometime after 10000 iterations
+--- about 12000.
+
+The memory per iteration thus creeps up
+until about 12000 iterations, after which it
+starts going back down (very slowly). On my
+machine, the peak average was around 25, and
+at 30000 iterations it's down to about 9.
+Total memory use has held constant since around
+12000 iterations.
+

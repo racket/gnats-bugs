@@ -1,0 +1,322 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jan 27 17:25:55 2010
+Received: from mail-yx0-f171.google.com (mail-yx0-f171.google.com [209.85.210.171])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o0RMPsZQ015189
+	for <bugs@bugs.plt-scheme.org>; Wed, 27 Jan 2010 17:25:54 -0500
+Message-Id: <201001272225.o0RMPpHx015181@champlain.ccs.neu.edu>
+Date: Wed, 27 Jan 2010 17:25:51 -0500
+From: wmfarr@gmail.com
+To: bugs@plt-scheme.org
+Subject: fl< fl<= behave inconsistently or give errors depending on location of print statement
+
+>Number:         10720
+>Category:       mzscheme
+>Synopsis:       fl< fl<= behave inconsistently or give errors depending on location of print statement
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jan 27 17:28:01 -0500 2010
+>Closed-Date:    Wed Jan 27 18:25:17 -0500 2010
+>Last-Modified:  Wed Jan 27 20:12:01 -0500 2010
+>Originator:     Will M Farr
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.4.1 (SVN 17851)
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_2; en-us) AppleWebKit/531.21.8 (KHTML, like Gecko) Version/4.0.4 Safari/531.21.10
+>Description:
+Using the fl< and fl<= procedures gives an unusual error: procedure application: expected procedure, given: #<variable-code>; arguments were: 0.0 ; adding a print statement before the comparisons prevents the error and the statements function normally; also changing the fl< and fl<= to < and <= prevents the error.  See the code below.
+
+Perhaps this is a JIT issue (floating point stack?); I haven't tried turning off the JIT and looking for whether the problem persists.
+>How-To-Repeat:
+;; The following interactions should demonstrate the error 
+;; (See below for file contents.)
+
+Welcome to MzScheme v4.2.4.1 [3m], Copyright (c) 2004-2010 PLT Scheme Inc.
+> (require "denest.ss" scheme/flonum)
+(require "denest.ss" scheme/flonum)
+> (in-cell? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-flvector 3 1.0)))
+(in-cell? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-flvector 3 1.0)))
+procedure application: expected procedure, given: #<variable-code>; arguments were: 0.0
+
+ === context ===
+/Applications/PLT Scheme Full/collects/scheme/private/misc.ss:74:7
+
+> (in-cell-print? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-flvector 3 1.0)))
+(in-cell-print? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-flvector 3 1.0)))
+0.0 0.0 1.0
+0.0 0.0 1.0
+0.0 0.0 1.0
+#t
+> (in-cell-noflonum? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-flvector 3 1.0)))
+(in-cell-noflonum? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-flvector 3 1.0)))
+#t
+>
+
+
+;;----- Contents of flvector-iter.ss
+#lang scheme
+
+(require scheme/flonum
+         scheme/fixnum
+         scheme/unsafe/ops)
+
+(provide in-flvector)
+
+(define (*in-flvector v)
+  (make-do-sequence
+   (lambda ()
+     (values
+      (lambda (i) (flvector-ref v i))
+      add1
+      0
+      (lambda (i) (fx< i (flvector-length v)))
+      (lambda (x) #t)
+      (lambda (x i) #t)))))
+
+(define-sequence-syntax in-flvector
+  (lambda (stx)
+    (syntax-case stx ()
+      ((in-flvector body ...)
+       (syntax/loc stx (*in-flvector body ...)))))
+  (lambda (stx)
+    (syntax-case stx ()
+      (((id) (in-flvector flvector-expr))
+       (syntax/loc stx
+         ((id) (:do-in (((the-flvector) flvector-expr))
+                       (when (not (flvector? the-flvector))
+                         (error 'in-flvector "expected flvector, got: " the-flvector))
+                       ((i 0) (N (unsafe-flvector-length the-flvector)))
+                       (fx< i N)
+                       (((id) (unsafe-flvector-ref the-flvector i)))
+                       #t
+                       #t
+                       ((add1 i) N))))))))
+
+;;----------------- Contents of denest.ss
+#lang scheme
+
+(require "flvector-iter.ss"
+         scheme/flonum)
+
+(provide in-cell? in-cell-print? in-cell-noflonum?
+         (struct-out cell))
+
+(define-struct cell
+  (low high)
+  #:transparent)
+
+(define (in-cell? x cell)
+  (for/and ((x (in-flvector x))
+            (low (in-flvector (cell-low cell)))
+            (high (in-flvector (cell-high cell))))
+    (and (fl<= low x)
+         (fl< x high))))
+
+(define (in-cell-print? x cell)
+  (for/and ((x (in-flvector x))
+            (low (in-flvector (cell-low cell)))
+            (high (in-flvector (cell-high cell))))
+    (printf "~a ~a ~a~%" low x high)
+    (and (fl<= low x)
+         (fl< x high))))
+
+(define (in-cell-noflonum? x cell)
+  (for/and ((x (in-flvector x))
+            (low (in-flvector (cell-low cell)))
+            (high (in-flvector (cell-high cell))))
+    (and (<= low x)
+         (< x high))))
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt at Wed, 27 Jan 2010 18:25:17 -0500
+Reason>>> Fixed in SVN.
+
+The JIT bug was related to functions calls where an
+argument was a locally bound flonum and all the other
+arguments were either constants of local bindings.
+
+From: "Will M. Farr" <wmfarr@gmail.com>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] mzscheme/10720 fl< fl<= behave inconsistently or give errors depending on location of print statement
+Date: Wed, 27 Jan 2010 17:28:01 -0600
+
+ Matthew,
+ 
+ I cannot believe how *fast* you guys fix bugs!  Thanks a bunch!
+ 
+ Will
+ 
+ On Jan 27, 2010, at 5:25 PM, mflatt@plt-scheme.org wrote:
+ 
+ >=20
+ > State changed from "open" to "closed" by mflatt at Wed, 27 Jan 2010 =
+ 18:25:17 -0500
+ > Reason>>> Fixed in SVN.
+ >=20
+ > The JIT bug was related to functions calls where an
+ > argument was a locally bound flonum and all the other
+ > arguments were either constants of local bindings.
+ >=20
+ >=20
+ > View:
+ >  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10720
+ >=20
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: bugs@plt-scheme.org, Matthew Flatt <mflatt@cs.utah.edu>
+Cc: 
+Subject: Re: [plt-bug] all/10720: fl< fl<= behave inconsistently or give 
+	errors depending on location of print statement
+Date: Wed, 27 Jan 2010 19:08:32 -0600
+
+ Do let me know what the bug was!
+ 
+ On Wed, Jan 27, 2010 at 4:28 PM,  <wmfarr@gmail.com> wrote:
+ > A new problem report is waiting at
+ > =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10720
+ >
+ > Reported by Will M Farr for release: 4.2.4.1 (SVN 17851)
+ >
+ > *** Description:
+ > Using the fl< and fl<=3D procedures gives an unusual error: procedure app=
+ lication: expected procedure, given: #<variable-code>; arguments were: 0.0 =
+ ; adding a print statement before the comparisons prevents the error and th=
+ e statements function normally; also changing the fl< and fl<=3D to < and <=
+ =3D prevents the error. =C2=A0See the code below.
+ >
+ > Perhaps this is a JIT issue (floating point stack?); I haven't tried turn=
+ ing off the JIT and looking for whether the problem persists.
+ >
+ > *** How to repeat:
+ > ;; The following interactions should demonstrate the error
+ > ;; (See below for file contents.)
+ >
+ > Welcome to MzScheme v4.2.4.1 [3m], Copyright (c) 2004-2010 PLT Scheme Inc=
+ .
+ >> (require "denest.ss" scheme/flonum)
+ > (require "denest.ss" scheme/flonum)
+ >> (in-cell? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-=
+ flvector 3 1.0)))
+ > (in-cell? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (make-f=
+ lvector 3 1.0)))
+ > procedure application: expected procedure, given: #<variable-code>; argum=
+ ents were: 0.0
+ >
+ > =C2=A0=3D=3D=3D context =3D=3D=3D
+ > /Applications/PLT Scheme Full/collects/scheme/private/misc.ss:74:7
+ >
+ >> (in-cell-print? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) =
+ (make-flvector 3 1.0)))
+ > (in-cell-print? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0) (=
+ make-flvector 3 1.0)))
+ > 0.0 0.0 1.0
+ > 0.0 0.0 1.0
+ > 0.0 0.0 1.0
+ > #t
+ >> (in-cell-noflonum? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.=
+ 0) (make-flvector 3 1.0)))
+ > (in-cell-noflonum? (flvector 0.0 0.0 0.0) (make-cell (make-flvector 3 0.0=
+ ) (make-flvector 3 1.0)))
+ > #t
+ >>
+ >
+ >
+ > ;;----- Contents of flvector-iter.ss
+ > #lang scheme
+ >
+ > (require scheme/flonum
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/fixnum
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/unsafe/ops)
+ >
+ > (provide in-flvector)
+ >
+ > (define (*in-flvector v)
+ > =C2=A0(make-do-sequence
+ > =C2=A0 (lambda ()
+ > =C2=A0 =C2=A0 (values
+ > =C2=A0 =C2=A0 =C2=A0(lambda (i) (flvector-ref v i))
+ > =C2=A0 =C2=A0 =C2=A0add1
+ > =C2=A0 =C2=A0 =C2=A00
+ > =C2=A0 =C2=A0 =C2=A0(lambda (i) (fx< i (flvector-length v)))
+ > =C2=A0 =C2=A0 =C2=A0(lambda (x) #t)
+ > =C2=A0 =C2=A0 =C2=A0(lambda (x i) #t)))))
+ >
+ > (define-sequence-syntax in-flvector
+ > =C2=A0(lambda (stx)
+ > =C2=A0 =C2=A0(syntax-case stx ()
+ > =C2=A0 =C2=A0 =C2=A0((in-flvector body ...)
+ > =C2=A0 =C2=A0 =C2=A0 (syntax/loc stx (*in-flvector body ...)))))
+ > =C2=A0(lambda (stx)
+ > =C2=A0 =C2=A0(syntax-case stx ()
+ > =C2=A0 =C2=A0 =C2=A0(((id) (in-flvector flvector-expr))
+ > =C2=A0 =C2=A0 =C2=A0 (syntax/loc stx
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((id) (:do-in (((the-flvector) flvector-expr)=
+ )
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (when (not (flvector? the-flvector))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 (error 'in-flvector "expected flvector, got: " the-flvector))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 ((i 0) (N (unsafe-flvector-length the-flvector)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (fx< i N)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (((id) (unsafe-flvector-ref the-flvector i)))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 #t
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 #t
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 ((add1 i) N))))))))
+ >
+ > ;;----------------- Contents of denest.ss
+ > #lang scheme
+ >
+ > (require "flvector-iter.ss"
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 scheme/flonum)
+ >
+ > (provide in-cell? in-cell-print? in-cell-noflonum?
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 (struct-out cell))
+ >
+ > (define-struct cell
+ > =C2=A0(low high)
+ > =C2=A0#:transparent)
+ >
+ > (define (in-cell? x cell)
+ > =C2=A0(for/and ((x (in-flvector x))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(low (in-flvector (cell-low cell=
+ )))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(high (in-flvector (cell-high ce=
+ ll))))
+ > =C2=A0 =C2=A0(and (fl<=3D low x)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 (fl< x high))))
+ >
+ > (define (in-cell-print? x cell)
+ > =C2=A0(for/and ((x (in-flvector x))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(low (in-flvector (cell-low cell=
+ )))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(high (in-flvector (cell-high ce=
+ ll))))
+ > =C2=A0 =C2=A0(printf "~a ~a ~a~%" low x high)
+ > =C2=A0 =C2=A0(and (fl<=3D low x)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 (fl< x high))))
+ >
+ > (define (in-cell-noflonum? x cell)
+ > =C2=A0(for/and ((x (in-flvector x))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(low (in-flvector (cell-low cell=
+ )))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(high (in-flvector (cell-high ce=
+ ll))))
+ > =C2=A0 =C2=A0(and (<=3D low x)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 (< x high))))
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_2; en-us) Apple=
+ WebKit/531.21.8 (KHTML, like Gecko) Version/4.0.4 Safari/531.21.10
+ >
+ >

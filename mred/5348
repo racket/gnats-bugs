@@ -1,0 +1,190 @@
+From gfc@altern.org  Mon Apr 15 08:28:43 2002
+Received: from cs.rice.edu (cs.rice.edu [128.42.1.30])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id IAA16089
+	for <bugs@plt-scheme.org>; Mon, 15 Apr 2002 08:28:14 -0400
+Message-Id: <20020415122737.60EA2182B@cs.rice.edu>
+Date: Mon, 15 Apr 2002 07:27:37 -0500 (CDT)
+From: gfc@altern.org
+To: plt-gnats@cs.rice.edu
+Subject: Slow image loading under XFree
+
+>Number:         5348
+>Category:       mred
+>Synopsis:       Slow image loading under XFree
+>Confidential:   no
+>Severity:       non-critical
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          change-request
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon Apr 15 08:30:00 -0400 2002
+>Closed-Date:    Tue May 21 20:06:08 -0400 2002
+>Last-Modified:  Sun Mar 28 02:49:07 -0500 2004
+>Originator:     Guillaume Chazarain
+>Release:        103p1
+>Organization:
+titan
+>Environment:
+unix (alpha-OSF1-V4.0) (get-display-depth) = 8
+Tools: ("syncheck" "project-manager")
+Docs Installed:
+("help" "mzscheme" "r5rs" "icons" "drscheme" "teachpack" "misclib" "mred" "beginning" "intermediate" "advanced" "mzc")
+Collections:
+(("/usr/local/Langages/Install/plt/collects" ("browser" "afm" "compiler" "drscheme" "graphics" "stepper" "hierlist" "icons" "make" "mzlib" "mred" "games" "mzscheme" "net" "help" "zodiac" "userspce" "dynext" "xml" "launcher" "drscheme-jr" "errortrace" "framework" "slibinit" "htdp" "setup" "defaults" "guserspce" "stepper-graphical" "doc")))
+>Description:
+Hello all,
+
+I have a problem with the time DrScheme takes to load images.
+I use
+> (time (make-object bitmap% "image.bmp"))
+and here is the result:
+
+cpu time: 10580 real time: 70318 gc time: 0
+
+Yes, 70s to load an image, image.bmp is a 640x480 16bits photo.
+
+I think the slowdown is caused by wxAllocColor().
+Disabling the color cache (#define wxAllocColor XAllocColor) I get:
+
+cpu time: 9920 real time: 49163 gc time: 0
+
+50s, a bit better.
+
+Rewriting wxxt/src/XWidgets/wxAllocColor.c to:
+
+---------$<-----------$<-----------$<-----------$<-----------$<--
+#define OK 1
+
+extern Screen *wxAPP_SCREEN;
+
+Status wxAllocColor(Display * d, Colormap cm, XColor * c)
+{
+    if (cm != DefaultColormapOfScreen(wxAPP_SCREEN))
+        return XAllocColor(d, cm, c);
+
+    switch (DefaultDepthOfScreen(wxAPP_SCREEN)) {
+    case 24:                   /* Tested. */
+    case 32:                   /* Not tested. */
+        c->pixel = (c->blue >> 8) |
+                   (c->green & 0xff00) | 
+                   ((c->red & 0xff00) << 8);
+        return OK;
+
+    case 16:                   /* Tested. */
+        c->pixel = ((c->blue & 0xf800) >> 11) |
+                   ((c->green & 0xfc00) >> 5) |
+                   (c->red & 0xf800);
+        return OK;
+
+    case 15:                   /* Not tested. */
+        c->pixel = ((c->blue & 0xf800) >> 10) |
+                   ((c->green & 0xf800) >> 5) |
+                   (c->red & 0xf800);
+        return OK;
+
+    default:
+        return XAllocColor(d, cm, c);
+    }
+}
+---------$<-----------$<-----------$<-----------$<-----------$<--
+
+I get
+cpu time: 260 real time: 267 gc time: 0
+
+I tested this only on my linux system (XFree86-4.2.0, PentiumIII 450),
+that is, it doesn't concern this alpha-OSF1 system.
+there might be endianness problems...
+
+I used 103p1, but it is roughly the same with 200alpha.
+
+BTW, here is a small other problem:
+gcc-3.0 fails to compile files #including src/wxxt/src/GDI-Classes/Colour.h
+with:
+
+../../wxxt/src/GDI-Classes/Colour.h:81: friend declaration requires class-key, 
+   i.e. `friend class wxColourMap'
+../../wxxt/src/GDI-Classes/Colour.h:96: friend declaration requires class-key, 
+   i.e. `friend class wxColour'
+../../wxxt/src/GDI-Classes/Colour.h:97: friend declaration requires class-key, 
+   i.e. `friend class wxColourDatabase'
+
+The error is turned into a warning with CXXFLAGS=-fpermissive.
+
+
+Sincerely
+Guillaume Chazarain
+
+>How-To-Repeat:
+(make-object bitmap" "big_image.bmp")
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Apr 22 08:58:27 2002
+Responsible-Changed-Why:
+    mr
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: gfc@altern.org
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/5348: Slow image loading under XFree
+Date: Fri, 3 May 2002 13:15:14 -0600 (MDT)
+
+ Thanks for the code.
+ 
+ I've learned a bit more about X colormaps, and it looks like this code
+ works when the colormap's vaisual class is TrueColor.
+ 
+ Though it's not obviously true, it looks like the default colormap for
+ a screen uses the screen's default visual. So I've modified
+ wxAllocColor to check the default visual and use your code when that
+ visual's class is TrueColor.
+ 
+ Speeds things up a lot on my machine, too.
+ 
+ Thanks,
+ Matthew
+ 
+ At Mon, 15 Apr 2002 07:27:37 -0500 (CDT), gfc@altern.org wrote:
+ > Status wxAllocColor(Display * d, Colormap cm, XColor * c)
+ > {
+ >     if (cm != DefaultColormapOfScreen(wxAPP_SCREEN))
+ >         return XAllocColor(d, cm, c);
+ > 
+ >     switch (DefaultDepthOfScreen(wxAPP_SCREEN)) {
+ >     case 24:                   /* Tested. */
+ >     case 32:                   /* Not tested. */
+ >         c->pixel = (c->blue >> 8) |
+ >                    (c->green & 0xff00) | 
+ >                    ((c->red & 0xff00) << 8);
+ >         return OK;
+ > 
+ >     case 16:                   /* Tested. */
+ >         c->pixel = ((c->blue & 0xf800) >> 11) |
+ >                    ((c->green & 0xfc00) >> 5) |
+ >                    (c->red & 0xf800);
+ >         return OK;
+ > 
+ >     case 15:                   /* Not tested. */
+ >         c->pixel = ((c->blue & 0xf800) >> 10) |
+ >                    ((c->green & 0xf800) >> 5) |
+ >                    (c->red & 0xf800);
+ >         return OK;
+ > 
+ >     default:
+ >         return XAllocColor(d, cm, c);
+ >     }
+ > }
+ 
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Tue May 21 20:06:07 2002
+State-Changed-Why:
+    user-supplied patch applied, tested with a variety
+    of X servers and endian combinations.
+>Unformatted:
+ 

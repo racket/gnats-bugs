@@ -1,0 +1,486 @@
+From meunier@ccs.neu.edu  Thu Aug 15 18:15:19 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id SAA09476
+	for <bugs>; Thu, 15 Aug 2002 18:15:19 -0400
+Message-Id: <200208152215.SAA09476@champlain.ccs.neu.edu>
+Date: Thu, 15 Aug 2002 18:15:19 -0400
+From: Philippe Meunier <meunier@ccs.neu.edu>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: dc from on-paint not always the same as dc from editor
+
+>Number:         5737
+>Category:       mred
+>Synopsis:       dc from on-paint not always the same as dc from editor
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Aug 15 18:20:00 -0400 2002
+>Closed-Date:    Fri Aug 23 16:47:23 -0400 2002
+>Last-Modified:  Sun Mar 28 02:50:22 -0500 2004
+>Originator:     Philippe Meunier
+>Release:        201
+>Organization:
+plt
+>Environment:
+unix "SunOS syrma.ccs.neu.edu 5.8 Generic_108528-15 sun4u sparc SUNW,Sun-Blade-100" (sparc-solaris)
+
+Docs Installed:
+("CVS" "help" "icons" "teachpack" "beginning" "beginning-abbr" "advanced" "intermediate" "drscheme" "r5rs" "mzscheme" "mzlib" "mred" "intermediate-lambda" "framework" "misclib" "mzc" "insidemz" "tools" "tour" "t-y-scheme" "tex2page")
+
+Collections:
+(("/home/meunier/lang/scheme/200/plt/collects" ("CVS" "afm" "algol60" "mrflow" "browser" "compiler" "cvs-time-stamp" "defaults" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "doc" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mysterx" "mzcom" "mzlib" "mrdemo" "mzscheme" "net" "parser-tools" "readline" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "syntax" "string-constants" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xml")))
+
+Human Language: philippe
+>Description:
+I have the following code:
+
+(require
+ (lib "class.ss")
+ (lib "mred.ss" "mred")
+ )
+
+(define (avg a b) (/ (+ (unbox a) (unbox b)) 2))
+
+; draws a circle half way between pos-start and pos-end
+(define (my-draw-circle pos-start span radius editor dc)
+  (let ([pos-end (+ pos-start span)]
+        [start-x (box 0)]
+        [y-top (box 0)]
+        [end-x (box 0)]
+        [y-bot (box 0)]
+        [diam (+ (* 2 radius) 1)])
+    (send editor position-location pos-start start-x y-top #t)
+    (send editor position-location pos-end end-x y-bot #f)
+    (let-values ([(x y) (send editor editor-location-to-dc-location
+                              (avg start-x end-x)
+                              (avg y-top y-bot))])
+      (printf "~a ~a ~a ~a ~a ~a ~a~n" radius x y start-x end-x y-top
+  y-bot)
+      (send dc draw-ellipse (- x radius) (- y radius) diam diam)))
+  )
+
+(define t%
+  (class text%
+    (rename [super-on-paint on-paint])
+    (define/override (on-paint before? dc left top right bottom dx dy draw-care\
+t)
+      (super-on-paint before? dc left top right bottom dx dy draw-caret)
+      (printf "~a~n" (eq? dc (send this get-dc)))
+      (my-draw-circle 0 5 3 t1 dc)
+      (my-draw-circle 0 5 5 t1 (send this get-dc))
+      (sleep 1)
+      )
+    (super-instantiate ())))
+
+(define f (make-object frame% "frame" #f 400 400))
+(define t1 (make-object t%))
+(send t1 insert "+++++")
+(define ec (make-object editor-canvas% f t1))
+(send f show #t)
+
+
+and I observe the following behavior when I run the program:
+
+- an empty window shows up and only the second, bigger circle is drawn
+
+- after two seconds and a second call to on-paint, the smaller circle
+  as well as "+++++" appear.  The second circle is not centered on the
+  middle "+".  The bigger circle has disappeared.
+
+- the whole process repeats itself identically when the window is
+  shadowed by another one and then raised on top again
+
+- if I evaluate (send t1 invalidate-bitmap-cache), the same process
+  repeats itself too, except that the smaller circle and the "+++++"
+  never disappear.
+
+
+So I have some questions:
+
+- why is on-paint called twice?
+
+- why aren't the two circles drawn at the same time.  From the eq?
+  test it looks like the dc from on-paint is not the same thing as the
+  dc from the editor.  What's the difference?
+
+- how do I get the smaller circle to be centered like the bigger one?
+
+
+Now, the really interesting bit is this: if, after the first circle
+has been drawn, but before the two seconds have elapsed, I re-execute
+the program (i.e. I re-execute it before the current execution is
+finished), then the two circles are drawn at the same time, both are
+centered, and the eq? test now always returns true, regardless of
+whether I re-execute, invalidate the bitmap cache, or hide the
+window.  The only way I found to go back to the previous behaviour is
+by restarting DrScheme...
+
+This is after recompiling everything from scratch, and without MrFlow
+loaded...
+
+
+>How-To-Repeat:
+...
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Robert Bruce Findler <robby@cs.uchicago.edu>
+To: Philippe Meunier <meunier@ccs.neu.edu>, mflatt@cs.utah.edu
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5737: dc from on-paint not always the same as dc from editor
+Date: Thu, 15 Aug 2002 17:42:44 -0500
+
+ I have some guesses as to these answers, but I'd like to hear what Matthew has 
+ to say!
+ 
+ Robby
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Philippe Meunier <meunier@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, robby@cs.rice.edu
+Subject: Re: all/5737: dc from on-paint not always the same as dc from editor
+Date: Fri, 16 Aug 2002 05:00:20 -0700
+
+ At Thu, 15 Aug 2002 18:15:19 -0400, Philippe Meunier wrote:
+ > - why is on-paint called twice?
+ 
+ Once with `before?' as true, and a second time with `before' as false.
+ Draw during the first call to create a background behind the editor
+ content. Draw during the seoncd call to paint on top of editor content.
+ 
+ > - why aren't the two circles drawn at the same time.  From the eq?
+ >   test it looks like the dc from on-paint is not the same thing as the
+ >   dc from the editor.  What's the difference?
+ 
+ `get-dc' in editor<%> returns a dc that is suitable for sizing (i.e.,
+ measuring text) and nothing else.
+ 
+ An adminstrator (or even the editor itself) is free to select a
+ compatible dc when it calls `draw' and `on-paint'methods. In
+ particular, an editor updates itself by drawing into an offscreen
+ bitmap,and then copying the bitmap into the display only when all
+ drawing is complete. (Another example: When printing, the drawing
+ context is temporarily changed to a printer context.)
+ 
+ The size of an offscreen bitmap can be less than the size of the
+ display area (when only a small region needs to be updated). Also, the
+ top-left corner of the bitmap may correspond to a point in the middle
+ of the display area.
+ 
+ > - how do I get the smaller circle to be centered like the bigger one?
+ 
+ Use the `dx' and `dy' arguments. They are the difference between editor
+ coordinates and display coordinates.
+ 
+ > Now, the really interesting bit is this: if, after the first circle
+ > has been drawn, but before the two seconds have elapsed, I re-execute
+ > the program (i.e. I re-execute it before the current execution is
+ > finished), then the two circles are drawn at the same time, both are
+ > centered, and the eq? test now always returns true, 
+ 
+ There's only one offscreen bitmap, so it's unavailable during the
+ nested call.
+ 
+ > regardless of
+ > whether I re-execute, invalidate the bitmap cache, or hide the
+ > window.  The only way I found to go back to the previous behaviour is
+ > by restarting DrScheme...
+ 
+ The editor gets confused by the nested call, and it never releases the
+ offscreen bitmap. So no editor ever gets to use it again. (In the near
+ future, there will be up to one offscreen bitmap per eventspace to
+ avoid this problem.)
+ 
+ Matthew
+ 
+
+From: meunier@ccs.neu.edu (Philippe Meunier)
+To: mflatt@cs.utah.edu
+Cc: bugs@plt-scheme.org, robby@cs.rice.edu
+Subject: Re: all/5737: dc from on-paint not always the same as dc from editor
+Date: Fri, 16 Aug 2002 15:05:26 -0400 (EDT)
+
+ Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >At Thu, 15 Aug 2002 18:15:19 -0400, Philippe Meunier wrote:
+ >> - why aren't the two circles drawn at the same time.  From the eq?
+ >>   test it looks like the dc from on-paint is not the same thing as the
+ >>   dc from the editor.  What's the difference?
+ >
+ >`get-dc' in editor<%> returns a dc that is suitable for sizing (i.e.,
+ >measuring text) and nothing else.
+ >
+ >An adminstrator (or even the editor itself) is free to select a
+ >compatible dc when it calls `draw' and `on-paint'methods.
+ 
+ So, which dc does editor-location-to-dc-location refer to?  What does
+ the result of calling editor-location-to-dc-location correspond to?
+ 
+ >> - how do I get the smaller circle to be centered like the bigger one?
+ >
+ >Use the `dx' and `dy' arguments. They are the difference between editor
+ >coordinates and display coordinates.
+ 
+ Ok, suppose I have the following code:
+ 
+ (require
+  (lib "class.ss")
+  (lib "mred.ss" "mred")
+  )
+ 
+ (define (avg a b) (/ (+ (unbox a) (unbox b)) 2))
+ 
+ (define (my-draw-circle pos-start span radius editor dc dx dy)
+   (let ([pos-end (+ pos-start span)]
+         [start-x (box 0)]
+         [y-top (box 0)]
+         [end-x (box 0)]
+         [y-bot (box 0)]
+         [diam (+ (* 2 radius) 1)])
+     (send editor position-location pos-start start-x y-top #t)
+     (send editor position-location pos-end end-x y-bot #f)
+     (let-values ([(x y) ;(send editor editor-location-to-dc-location
+                         ;      (avg start-x end-x)
+                         ;      (avg y-top y-bot))
+                   (values (+ (avg start-x end-x) dx) (+ (avg y-top y-bot) dy))
+                   ])
+       (printf "~a ~a ~a ~a ~a ~a ~a~n" radius x y start-x end-x y-top y-bot)
+       (send dc draw-ellipse (- x radius) (- y radius) diam diam)))
+   )
+ 
+ (define t%
+   (class text%
+     (rename [super-on-paint on-paint])
+     (define/override (on-paint before? dc left top right bottom dx dy draw-caret)
+       (super-on-paint before? dc left top right bottom dx dy draw-caret)
+       (when (not before?)
+         (sleep 1)
+         (printf "~a ~a ~a~n" (eq? dc (send this get-dc)) dx dy)
+         (my-draw-circle 0 5 3 t1 dc dx dy)
+         (my-draw-circle 0 5 5 t1 dc dx dy)
+         (sleep 1))
+       )
+     (super-instantiate ())))
+ 
+ (define f (make-object frame% "frame" #f 400 400))
+ (define t1 (make-object t%))
+ (send t1 insert "+++++")
+ ;(define t2 (make-object text%))
+ ;(send t2 insert "+++++")
+ ;(send t1 insert (make-object editor-snip% t2))
+ (define ec (make-object editor-canvas% f t1))
+ (send f show #t)
+ 
+ Then the two circles are correctly centered.  Note that if I use
+ editor-location-to-dc-location instead of manually adding dx and dy,
+ the result is wrong, so, really, I have less and less clue about what
+ editor-location-to-dc-location is supposed to do...
+ 
+ Now suppose I uncomment the three t2-related lines at the end of the
+ program and re-run the program.  That time the two circles are not
+ centered anymore, even when I manually add dx and dy.  So how's this
+ thing supposed to work?
+ 
+ Note that in all cases dx and dy are zero, so what's the magic
+ incantation?
+ 
+ 
+ Now the complete story:
+ 
+ (require
+  (lib "class.ss")
+  (lib "mred.ss" "mred")
+  )
+ 
+ (define (avg a b) (/ (+ (unbox a) (unbox b)) 2))
+ 
+ (define (my-draw-circle pos-start span radius editor sub-editor dc dx
+ dy)
+   (let ([pos-end (+ pos-start span)]
+         [start-x (box 0)]
+         [y-top (box 0)]
+         [end-x (box 0)]
+         [y-bot (box 0)]
+         [diam (+ (* 2 radius) 1)])
+     (send sub-editor position-location pos-start start-x y-top #t)
+     (send sub-editor position-location pos-end end-x y-bot #f)
+     (let*-values ([(x-sub-ed y-sub-ed) (values (avg start-x end-x) (avg y-top y-bot))]
+                   [(x-dc y-dc) (send sub-editor editor-location-to-dc-location x-sub-ed y-sub-ed)]
+                   [(x-ed y-ed) (send editor dc-location-to-editor-location x-dc y-dc)]
+                   [(x y) (values (+ x-ed dx) (+ y-ed dy))]
+                   )
+       (printf "~a ~a ~a ~a ~a ~a ~a~n" radius x y start-x end-x y-top
+ 			y-bot)
+       (send dc draw-ellipse (- x radius) (- y radius) diam diam)))
+   )
+ 
+ (define t%
+   (class text%
+     (rename [super-on-paint on-paint])
+     (define/override (on-paint before? dc left top right bottom dx dy draw-caret)
+       (super-on-paint before? dc left top right bottom dx dy draw-caret)
+       (when (not before?)
+         (sleep 1)
+         (printf "~a ~a ~a~n" (eq? dc (send this get-dc)) dx dy)
+         ;(my-draw-circle 0 5 3 this this dc dx dy)
+         ;(my-draw-circle 0 5 5 this this dc dx dy)        
+         (my-draw-circle 0 5 3 this t1 dc dx dy)
+         (my-draw-circle 0 5 5 this t1 dc dx dy)
+         (my-draw-circle 0 5 3 this t2 dc dx dy)
+         (my-draw-circle 0 5 5 this t2 dc dx dy)
+         (sleep 1))
+       )
+     (super-instantiate ())))
+ 
+ (define f (make-object frame% "frame" #f 400 400))
+ (define t1 (make-object t%))
+ (send t1 insert "+++++")
+ (define t2 (make-object text%))
+ (send t2 insert "+++++")
+ (send t1 insert (make-object editor-snip% t2))
+ (define ec (make-object editor-canvas% f t1))
+ (send f show #t)
+ 
+ 
+ In my-draw-circle function, I go from a position in the sub-editor to
+ a location in the sub-editor to a dc location to a location in the
+ enclosing editor, then add dx/dy to get the final answer.  At least it
+ seems to me like that's the logical thing to do.  And it works, but
+ only for the two circles for the sub-editor.  It still doesn't work
+ for the two circles for the first set of "+++++".
+ 
+ If I define t2 as (define t2 (make-object t%)) (instead of text%), and
+ use (my-draw-circle 0 5 3 this this dc dx dy) inside on-paint instead
+ of explicitely using t1 and t2, I get, logically, the exact same
+ result.  But why still only the circles for the sub-editor are
+ centered, I don't know.
+ 
+ Anybody has a solution that works in all cases?
+ 
+ Philippe
+ 
+
+From: Robert Bruce Findler <robby@cs.uchicago.edu>
+To: meunier@ccs.neu.edu (Philippe Meunier)
+Cc: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Subject: Re: all/5737: dc from on-paint not always the same as dc from editor
+Date: Sat, 17 Aug 2002 18:34:22 -0500 (CDT)
+
+ At Fri, 16 Aug 2002 15:05:26 -0400 (EDT), Philippe Meunier wrote:
+ > Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > >At Thu, 15 Aug 2002 18:15:19 -0400, Philippe Meunier wrote:
+ > >> - why aren't the two circles drawn at the same time.  From the eq?
+ > >>   test it looks like the dc from on-paint is not the same thing as the
+ > >>   dc from the editor.  What's the difference?
+ > >
+ > >`get-dc' in editor<%> returns a dc that is suitable for sizing (i.e.,
+ > >measuring text) and nothing else.
+ > >
+ > >An adminstrator (or even the editor itself) is free to select a
+ > >compatible dc when it calls `draw' and `on-paint'methods.
+ > 
+ > So, which dc does editor-location-to-dc-location refer to?  What does
+ > the result of calling editor-location-to-dc-location correspond to?
+ 
+ I suspect that this has to do with the scroll bars. The dc location
+ mentioned there is probably the visible region dc (not the temporary
+ offscreen dc that someonties on-paint gets called with).
+ 
+ Unless you are dealing with nested editors or mouse events, I don't
+ think you need to bother with editor-location-to-dc-location.
+ 
+ If you are working on the check syntax arrows, have a look at how the
+ current implementation does it. That's probably the best thing. If that
+ doesn't help enough, you and I can look at this together next week. How
+ about that?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: meunier@ccs.neu.edu (Philippe Meunier)
+Cc: bugs@plt-scheme.org, robby@cs.rice.edu
+Subject: Re: all/5737: dc from on-paint not always the same as dc from editor
+Date: Sat, 17 Aug 2002 21:01:46 -0700
+
+ At Fri, 16 Aug 2002 15:05:26 -0400 (EDT), Philippe Meunier wrote:
+ > Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > >At Thu, 15 Aug 2002 18:15:19 -0400, Philippe Meunier wrote:
+ > >> - why aren't the two circles drawn at the same time.  From the eq?
+ > >>   test it looks like the dc from on-paint is not the same thing as the
+ > >>   dc from the editor.  What's the difference?
+ > >
+ > >`get-dc' in editor<%> returns a dc that is suitable for sizing (i.e.,
+ > >measuring text) and nothing else.
+ > >
+ > >An adminstrator (or even the editor itself) is free to select a
+ > >compatible dc when it calls `draw' and `on-paint'methods.
+ > 
+ > So, which dc does editor-location-to-dc-location refer to?  What does
+ > the result of calling editor-location-to-dc-location correspond to?
+ 
+ That dc is not guaranteed to be either of the others. The result is
+ useful for, say, a pop-up menu when the top-level display is a canvas,
+ but it's not for drawing.
+ 
+ > Now suppose I uncomment the three t2-related lines at the end of the
+ > program and re-run the program.  That time the two circles are not
+ > centered anymore, even when I manually add dx and dy.
+ 
+ When you uncomment the line, you change the height of position 5,
+ because the snip after position 5 is tall.
+ 
+ In other words, the problem has nothing to do with dc offsets, but with
+ the bounds that you're getting. I think you meant to measure the bottom
+ at the position before the last item:
+ 
+     (send editor position-location pos-start start-x y-top #t)
+     (send editor position-location pos-end end-x #f #f)
+     (send editor position-location (sub1 pos-end) #f y-bot #f)
+ 
+ That looks prettier in the case when the span contains items all of the
+ same height, anyway.
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Aug 23 16:47:23 2002
+Responsible-Changed-Why:
+    mr
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Aug 23 16:47:23 2002
+State-Changed-Why:
+    docs improved
+
+From: Philippe Meunier <meunier@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5737: dc from on-paint not always the same as dc from editor
+Date: Fri, 30 Aug 2002 15:54:50 -0400
+
+ Matthew Flatt wrote:
+ >At Fri, 16 Aug 2002 15:05:26 -0400 (EDT), Philippe Meunier wrote:
+ >> Now suppose I uncomment the three t2-related lines at the end of the
+ >> program and re-run the program.  That time the two circles are not
+ >> centered anymore, even when I manually add dx and dy.
+ >
+ >When you uncomment the line, you change the height of position 5,
+ >because the snip after position 5 is tall.
+ 
+ Yes.  You're so right it hurts...  Thanks, I'm going to close the bug
+ report.
+ 
+ Philippe
+ 
+>Unformatted:
+ 

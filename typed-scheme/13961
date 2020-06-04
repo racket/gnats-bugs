@@ -1,0 +1,520 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug  9 13:03:46 2013
+Received: from mail-oa0-f52.google.com (mail-oa0-f52.google.com [209.85.219.52])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r79H3g4d005629
+	for <bugs@bugs.plt-scheme.org>; Fri, 9 Aug 2013 13:03:42 -0400
+Message-Id: <201308091703.r79H3eVJ005623@champlain.ccs.neu.edu>
+Date: Fri, 9 Aug 2013 13:03:40 -0400
+From: asumu@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: TR: #:opaque is unsound for types that overlap with built-in types for higher-order values
+
+>Number:         13961
+>Category:       typed-scheme
+>Synopsis:       TR: #:opaque is unsound for types that overlap with built-in types for higher-order values
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Aug 09 13:04:02 -0400 2013
+>Last-Modified:  Mon Sep 02 16:15:05 -0400 2013
+>Originator:     Asumu Takikawa
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.90.0.5--2013-08-09(086a1b75/d)
+>Environment:
+unix "Linux willamette 3.2.0-2-amd64 #1 SMP Mon May 21 17:45:41 UTC 2012 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: japanese
+(current-memory-use) 253596248
+Links: (links) = (); (links #:user? #f) = ("cow-repl"); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+/home/asumu/plt/racket-git/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+Installation-wide:
+ Package     Checksum    Source
+ cow-repl    #f          (link ../../../../../code/cow-repl)
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/asumu/plt/racket-git/add-on/development/collects"
+ (non-existent-path))
+("/home/asumu/plt/racket-git/racket/collects"
+ ("launcher" "compiler" "srfi" "setup" "info-domain" "acks" "racket" "net" "file" "openssl" "xml" "syntax" "planet" "ffi" "json" "data" "unstable" "scheme" "pkg" "rackunit" "version" "s-exp" "info" "raco" "db" "dynext" "reader" ".gitignore"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test)) #t))
+>Description:
+Consider the following example:
+
+  #lang racket
+
+  (module a typed/racket
+    (require/typed racket/base
+                   ;; type overlaps with Procedure type
+                   [#:opaque MyProcedure procedure?])
+    (define f
+      ;; use occurrence typing to inject this function
+      ;; into the opaque type
+      (assert (λ: ([v : Float]) (* v 3.3)) procedure?))
+    (provide f))
+
+  (require 'a)
+  ;; arbitrary behavior
+  (f "foo")
+
+This example shows that occurrence typing can be unsound with #:opaque.
+A potential solution is to restrict occurrence typing to
+only non-opaque types, but that is overly restrictive for many
+practical uses (e.g., discriminating unions of opaque types).
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Fri, 9 Aug 2013 15:18:18 -0400
+
+ On Fri, Aug 9, 2013 at 1:04 PM,  <asumu@ccs.neu.edu> wrote:
+ >
+ > A potential solution is to restrict occurrence typing to
+ > only non-opaque types, but that is overly restrictive for many
+ > practical uses (e.g., discriminating unions of opaque types).
+ 
+ Another, more palatable solution is to treat opaque types like `Any`
+ in contract generation.
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Fri, 9 Aug 2013 15:22:30 -0400
+
+ On 2013-08-09 15:18:18 -0400, Sam Tobin-Hochstadt wrote:
+ > Another, more palatable solution is to treat opaque types like `Any`
+ > in contract generation.
+ 
+ That has problems of its own, since a very common use of opaque types is
+ to give types to untyped functions that operate on values inhabiting
+ those types. Those functions will now get an `Any`-wrapped value and
+ blow up.
+ 
+ Cheers,
+ Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Fri, 9 Aug 2013 15:26:23 -0400
+
+ On Fri, Aug 9, 2013 at 3:22 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2013-08-09 15:18:18 -0400, Sam Tobin-Hochstadt wrote:
+ >> Another, more palatable solution is to treat opaque types like `Any`
+ >> in contract generation.
+ >
+ > That has problems of its own, since a very common use of opaque types is
+ > to give types to untyped functions that operate on values inhabiting
+ > those types. Those functions will now get an `Any`-wrapped value and
+ > blow up.
+ 
+ Yeah, that won't work for things like `image`.
+ 
+ What about wrapping in the other direction?  Then TR wouldn't get the
+ real values, but that shouldn't be much of a problem.  And we know
+ where to unwrap, unlike in the `Any` case.  I guess this is a lot like
+ #:exists for provide/contract.
+ 
+ Sam
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Fri, 9 Aug 2013 15:34:22 -0400
+
+ On 2013-08-09 15:26:23 -0400, Sam Tobin-Hochstadt wrote:
+ > What about wrapping in the other direction?  Then TR wouldn't get the
+ > real values, but that shouldn't be much of a problem.  And we know
+ > where to unwrap, unlike in the `Any` case.  I guess this is a lot like
+ > #:exists for provide/contract.
+ 
+ That sounds like it would work and ought to be backwards compatible,
+ since TR programs shouldn't be relying on any properties observable
+ about inhabitants of an opaque type (except the operations provided by
+ `require/typed`).
+ 
+ I think this also means that `require/typed` has to modify the predicate
+ for the opaque type on import. The new predicate would first unwrap (and
+ error if it isn't wrapped) and then run the original predicate.
+ 
+ Cheers,
+ Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Fri, 9 Aug 2013 15:38:46 -0400
+
+ On Fri, Aug 9, 2013 at 3:34 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2013-08-09 15:26:23 -0400, Sam Tobin-Hochstadt wrote:
+ >> What about wrapping in the other direction?  Then TR wouldn't get the
+ >> real values, but that shouldn't be much of a problem.  And we know
+ >> where to unwrap, unlike in the `Any` case.  I guess this is a lot like
+ >> #:exists for provide/contract.
+ >
+ > That sounds like it would work and ought to be backwards compatible,
+ > since TR programs shouldn't be relying on any properties observable
+ > about inhabitants of an opaque type (except the operations provided by
+ > `require/typed`).
+ 
+ Right.
+ 
+ > I think this also means that `require/typed` has to modify the predicate
+ > for the opaque type on import. The new predicate would first unwrap (and
+ > error if it isn't wrapped) and then run the original predicate.
+ 
+ It would return #f for unwrapped values.
+ 
+ Sam
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that overlap with built-in types for higher-order values
+Date: Sat, 10 Aug 2013 10:24:53 -0400
+
+ How brittle is this solution? When something type-errors it it obvious? When something run-time errors, do we get a good ptr? 
+ 
+ 
+ 
+ 
+ On Aug 9, 2013, at 3:38 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Fri, Aug 9, 2013 at 3:34 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >> On 2013-08-09 15:26:23 -0400, Sam Tobin-Hochstadt wrote:
+ >>> What about wrapping in the other direction?  Then TR wouldn't get the
+ >>> real values, but that shouldn't be much of a problem.  And we know
+ >>> where to unwrap, unlike in the `Any` case.  I guess this is a lot like
+ >>> #:exists for provide/contract.
+ >> 
+ >> That sounds like it would work and ought to be backwards compatible,
+ >> since TR programs shouldn't be relying on any properties observable
+ >> about inhabitants of an opaque type (except the operations provided by
+ >> `require/typed`).
+ > 
+ > Right.
+ > 
+ >> I think this also means that `require/typed` has to modify the predicate
+ >> for the opaque type on import. The new predicate would first unwrap (and
+ >> error if it isn't wrapped) and then run the original predicate.
+ > 
+ > It would return #f for unwrapped values.
+ > 
+ > Sam
+ 
+ 
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        bugs <bugs@racket-lang.org>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        nobody <nobody@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Sat, 10 Aug 2013 16:00:42 -0400
+
+ --20cf307f3b2ca66ef004e39d5889
+ Content-Type: text/plain; charset=UTF-8
+ 
+ This wouldn't introduce new type errors, I believe. I don't know yet how
+ comprehensible the dynamic errors will be, but we have to do something to
+ repair the soundness hole.
+ On Aug 10, 2013 9:23 AM, "Matthias Felleisen" <matthias@ccs.neu.edu> wrote:
+ 
+ >
+ > How brittle is this solution? When something type-errors it it obvious?
+ > When something run-time errors, do we get a good ptr?
+ >
+ >
+ >
+ >
+ > On Aug 9, 2013, at 3:38 PM, Sam Tobin-Hochstadt wrote:
+ >
+ > > On Fri, Aug 9, 2013 at 3:34 PM, Asumu Takikawa <asumu@ccs.neu.edu>
+ > wrote:
+ > >> On 2013-08-09 15:26:23 -0400, Sam Tobin-Hochstadt wrote:
+ > >>> What about wrapping in the other direction?  Then TR wouldn't get the
+ > >>> real values, but that shouldn't be much of a problem.  And we know
+ > >>> where to unwrap, unlike in the `Any` case.  I guess this is a lot like
+ > >>> #:exists for provide/contract.
+ > >>
+ > >> That sounds like it would work and ought to be backwards compatible,
+ > >> since TR programs shouldn't be relying on any properties observable
+ > >> about inhabitants of an opaque type (except the operations provided by
+ > >> `require/typed`).
+ > >
+ > > Right.
+ > >
+ > >> I think this also means that `require/typed` has to modify the predicate
+ > >> for the opaque type on import. The new predicate would first unwrap (and
+ > >> error if it isn't wrapped) and then run the original predicate.
+ > >
+ > > It would return #f for unwrapped values.
+ > >
+ > > Sam
+ >
+ >
+ 
+ --20cf307f3b2ca66ef004e39d5889
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p>This wouldn&#39;t introduce new type errors, I believe. I don&#39;t know=
+  yet how comprehensible the dynamic errors will be, but we have to do somet=
+ hing to repair the soundness hole.</p>
+ <div class=3D"gmail_quote">On Aug 10, 2013 9:23 AM, &quot;Matthias Felleise=
+ n&quot; &lt;<a href=3D"mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a=
+ >&gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" styl=
+ e=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ <br>
+ How brittle is this solution? When something type-errors it it obvious? Whe=
+ n something run-time errors, do we get a good ptr?<br>
+ <br>
+ <br>
+ <br>
+ <br>
+ On Aug 9, 2013, at 3:38 PM, Sam Tobin-Hochstadt wrote:<br>
+ <br>
+ &gt; On Fri, Aug 9, 2013 at 3:34 PM, Asumu Takikawa &lt;<a href=3D"mailto:a=
+ sumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt; On 2013-08-09 15:26:23 -0400, Sam Tobin-Hochstadt wrote:<br>
+ &gt;&gt;&gt; What about wrapping in the other direction? =C2=A0Then TR woul=
+ dn&#39;t get the<br>
+ &gt;&gt;&gt; real values, but that shouldn&#39;t be much of a problem. =C2=
+ =A0And we know<br>
+ &gt;&gt;&gt; where to unwrap, unlike in the `Any` case. =C2=A0I guess this =
+ is a lot like<br>
+ &gt;&gt;&gt; #:exists for provide/contract.<br>
+ &gt;&gt;<br>
+ &gt;&gt; That sounds like it would work and ought to be backwards compatibl=
+ e,<br>
+ &gt;&gt; since TR programs shouldn&#39;t be relying on any properties obser=
+ vable<br>
+ &gt;&gt; about inhabitants of an opaque type (except the operations provide=
+ d by<br>
+ &gt;&gt; `require/typed`).<br>
+ &gt;<br>
+ &gt; Right.<br>
+ &gt;<br>
+ &gt;&gt; I think this also means that `require/typed` has to modify the pre=
+ dicate<br>
+ &gt;&gt; for the opaque type on import. The new predicate would first unwra=
+ p (and<br>
+ &gt;&gt; error if it isn&#39;t wrapped) and then run the original predicate=
+ .<br>
+ &gt;<br>
+ &gt; It would return #f for unwrapped values.<br>
+ &gt;<br>
+ &gt; Sam<br>
+ <br>
+ </blockquote></div>
+ 
+ --20cf307f3b2ca66ef004e39d5889--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        bugs <bugs@racket-lang.org>, Asumu Takikawa <asumu@ccs.neu.edu>,
+        nobody <nobody@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that overlap with built-in types for higher-order values
+Date: Sat, 10 Aug 2013 19:31:33 -0400
+
+ --Apple-Mail=_96CE135C-413A-4905-B0B6-AEB82B2CB1E4
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ 
+ Do Unions of opaque type and similar constructions introduce partial =
+ non-opaqueness?=20
+ 
+ 
+ On Aug 10, 2013, at 4:00 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > This wouldn't introduce new type errors, I believe. I don't know yet =
+ how comprehensible the dynamic errors will be, but we have to do =
+ something to repair the soundness hole.
+ >=20
+ > On Aug 10, 2013 9:23 AM, "Matthias Felleisen" <matthias@ccs.neu.edu> =
+ wrote:
+ >=20
+ > How brittle is this solution? When something type-errors it it =
+ obvious? When something run-time errors, do we get a good ptr?
+ >=20
+ >=20
+ >=20
+ >=20
+ > On Aug 9, 2013, at 3:38 PM, Sam Tobin-Hochstadt wrote:
+ >=20
+ > > On Fri, Aug 9, 2013 at 3:34 PM, Asumu Takikawa <asumu@ccs.neu.edu> =
+ wrote:
+ > >> On 2013-08-09 15:26:23 -0400, Sam Tobin-Hochstadt wrote:
+ > >>> What about wrapping in the other direction?  Then TR wouldn't get =
+ the
+ > >>> real values, but that shouldn't be much of a problem.  And we know
+ > >>> where to unwrap, unlike in the `Any` case.  I guess this is a lot =
+ like
+ > >>> #:exists for provide/contract.
+ > >>
+ > >> That sounds like it would work and ought to be backwards =
+ compatible,
+ > >> since TR programs shouldn't be relying on any properties observable
+ > >> about inhabitants of an opaque type (except the operations provided =
+ by
+ > >> `require/typed`).
+ > >
+ > > Right.
+ > >
+ > >> I think this also means that `require/typed` has to modify the =
+ predicate
+ > >> for the opaque type on import. The new predicate would first unwrap =
+ (and
+ > >> error if it isn't wrapped) and then run the original predicate.
+ > >
+ > > It would return #f for unwrapped values.
+ > >
+ > > Sam
+ >=20
+ 
+ 
+ --Apple-Mail=_96CE135C-413A-4905-B0B6-AEB82B2CB1E4
+ Content-Transfer-Encoding: 7bit
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head></head><body style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; "><div><br></div><div>Do Unions of opaque type and similar constructions introduce partial non-opaqueness?&nbsp;</div><div><br></div><br><div><div>On Aug 10, 2013, at 4:00 PM, Sam Tobin-Hochstadt wrote:</div><br class="Apple-interchange-newline"><blockquote type="cite"><p>This wouldn't introduce new type errors, I believe. I don't know yet how comprehensible the dynamic errors will be, but we have to do something to repair the soundness hole.</p>
+ <div class="gmail_quote">On Aug 10, 2013 9:23 AM, "Matthias Felleisen" &lt;<a href="mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a>&gt; wrote:<br type="attribution"><blockquote class="gmail_quote" style="margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ <br>
+ How brittle is this solution? When something type-errors it it obvious? When something run-time errors, do we get a good ptr?<br>
+ <br>
+ <br>
+ <br>
+ <br>
+ On Aug 9, 2013, at 3:38 PM, Sam Tobin-Hochstadt wrote:<br>
+ <br>
+ &gt; On Fri, Aug 9, 2013 at 3:34 PM, Asumu Takikawa &lt;<a href="mailto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt; On 2013-08-09 15:26:23 -0400, Sam Tobin-Hochstadt wrote:<br>
+ &gt;&gt;&gt; What about wrapping in the other direction? &nbsp;Then TR wouldn't get the<br>
+ &gt;&gt;&gt; real values, but that shouldn't be much of a problem. &nbsp;And we know<br>
+ &gt;&gt;&gt; where to unwrap, unlike in the `Any` case. &nbsp;I guess this is a lot like<br>
+ &gt;&gt;&gt; #:exists for provide/contract.<br>
+ &gt;&gt;<br>
+ &gt;&gt; That sounds like it would work and ought to be backwards compatible,<br>
+ &gt;&gt; since TR programs shouldn't be relying on any properties observable<br>
+ &gt;&gt; about inhabitants of an opaque type (except the operations provided by<br>
+ &gt;&gt; `require/typed`).<br>
+ &gt;<br>
+ &gt; Right.<br>
+ &gt;<br>
+ &gt;&gt; I think this also means that `require/typed` has to modify the predicate<br>
+ &gt;&gt; for the opaque type on import. The new predicate would first unwrap (and<br>
+ &gt;&gt; error if it isn't wrapped) and then run the original predicate.<br>
+ &gt;<br>
+ &gt; It would return #f for unwrapped values.<br>
+ &gt;<br>
+ &gt; Sam<br>
+ <br>
+ </blockquote></div>
+ </blockquote></div><br></body></html>
+ --Apple-Mail=_96CE135C-413A-4905-B0B6-AEB82B2CB1E4--
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        bug-notification <bug-notification@racket-lang.org>,
+        bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Sat, 10 Aug 2013 20:10:20 -0400
+
+ On 2013-08-10 19:31:33 -0400, Matthias Felleisen wrote:
+ >    Do Unions of opaque type and similar constructions introduce partial
+ >    non-opaqueness?
+ 
+ That depends on what you mean by partially non-opaque. Unions will still
+ work, but the opaque types will actually be *more* opaque than they are
+ now because all predicates except the one for the opaque type will
+ return #f (well, maybe `struct?` will return #t).
+ 
+ Cheers,
+ Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [racket-bug] all/13961: TR: #:opaque is unsound for types that
+ overlap with built-in types for higher-order values
+Date: Sun, 11 Aug 2013 14:26:31 -0400
+
+ --001a11c2da569c708504e3b02587
+ Content-Type: text/plain; charset=UTF-8
+ 
+ 'struct?' will still return false, because all the fields will be
+ inaccessible to the inspector that the program has.
+ On Aug 10, 2013 8:10 PM, "Asumu Takikawa" <asumu@ccs.neu.edu> wrote:
+ 
+ > On 2013-08-10 19:31:33 -0400, Matthias Felleisen wrote:
+ > >    Do Unions of opaque type and similar constructions introduce partial
+ > >    non-opaqueness?
+ >
+ > That depends on what you mean by partially non-opaque. Unions will still
+ > work, but the opaque types will actually be *more* opaque than they are
+ > now because all predicates except the one for the opaque type will
+ > return #f (well, maybe `struct?` will return #t).
+ >
+ > Cheers,
+ > Asumu
+ >
+ 
+ --001a11c2da569c708504e3b02587
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">&#39;struct?&#39; will still return false, because all the f=
+ ields will be inaccessible to the inspector that the program has.</p>
+ <div class=3D"gmail_quote">On Aug 10, 2013 8:10 PM, &quot;Asumu Takikawa&qu=
+ ot; &lt;<a href=3D"mailto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrot=
+ e:<br type=3D"attribution"><blockquote class=3D"gmail_quote" style=3D"margi=
+ n:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ On 2013-08-10 19:31:33 -0400, Matthias Felleisen wrote:<br>
+ &gt; =C2=A0 =C2=A0Do Unions of opaque type and similar constructions introd=
+ uce partial<br>
+ &gt; =C2=A0 =C2=A0non-opaqueness?<br>
+ <br>
+ That depends on what you mean by partially non-opaque. Unions will still<br=
+ >
+ work, but the opaque types will actually be *more* opaque than they are<br>
+ now because all predicates except the one for the opaque type will<br>
+ return #f (well, maybe `struct?` will return #t).<br>
+ <br>
+ Cheers,<br>
+ Asumu<br>
+ </blockquote></div>
+ 
+ --001a11c2da569c708504e3b02587--
+

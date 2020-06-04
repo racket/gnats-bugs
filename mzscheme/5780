@@ -1,0 +1,184 @@
+From eli@barzilay.org  Mon Sep  2 21:42:44 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id VAA08320
+	for <bugs>; Mon, 2 Sep 2002 21:42:44 -0400
+Message-Id: <200209030142.VAA08320@champlain.ccs.neu.edu>
+Date: Mon, 2 Sep 2002 21:42:44 -0400
+From: Eli Barzilay <eli@barzilay.org>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: No way to modify behavior of internal `display' etc and `printf'
+
+>Number:         5780
+>Category:       mzscheme
+>Synopsis:       No way to modify behavior of internal `display' etc and `printf'
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Sep 02 21:50:00 -0400 2002
+>Closed-Date:    Fri Nov 25 07:50:59 -0500 2005
+>Last-Modified:  Fri Nov 25 07:50:59 -0500 2005
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        202
+>Environment:
+unix "Linux lambda.cs.cornell.edu 2.4.18-10 #1 Wed Aug 7 11:39:21 EDT 2002 i686 unknown" (i386-linux)
+
+Docs Installed:
+("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack" "misclib" "framework" "mred" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "tex2page" "tools" "tour" "t-y-scheme" "insidemz")
+
+Collections:
+(("/home/eli/scheme/my-plt" ("pics")) ("/home/eli/plt/collects" ("browser" "compiler" "defaults" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper" "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm" "version" "eopl" "web-server" "tex2page" "doc" "swindle")))
+
+Human Language: english
+>Description:
+There is no current way to modify internal printing
+functions.  For relatives of `display', it is easy to
+override the built in by a new function, but for `printf'
+etc there is no easy way to get this.  Even if there was a
+way to do this, then still there is the problem that to
+modify the way things are shown, many different pieces
+should be put together -- `error-value->string-handler',
+`current-print', `display' etc, and printf.
+
+It would be nice if there was some centralized way to get
+this effect...
+>How-To-Repeat:
+>Fix:
+>Release-Note:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5780: No way to modify behavior of internal `display' etc and `printf'
+Date: Mon, 2 Sep 2002 20:10:26 -0600 (MDT)
+
+ At Mon, 2 Sep 2002 21:42:44 -0400, Eli Barzilay wrote:
+ > There is no current way to modify internal printing
+ > functions.  For relatives of `display', it is easy to
+ > override the built in by a new function, but for `printf'
+ > etc there is no easy way to get this.  Even if there was a
+ > way to do this, then still there is the problem that to
+ > modify the way things are shown, many different pieces
+ > should be put together -- `error-value->string-handler',
+ > `current-print', `display' etc, and printf.
+ 
+ As you probably know, the behavior of `display' and `write' can be
+ controlled for an individual port.
+ 
+ The reason it's not globally configurable is that libraries could not
+ then use `write' and `display' to implement functions that are
+ unrelated to Scheme output. An ok (not great) example is the ICFP robot
+ server/client that I just wrote. It relies on the precise meaning of
+ `display' to reliably communicate in a non-Scheme protocol. Without a
+ fixed `display', my code would have to resort to character-by-character
+ output.
+ 
+ So that's an argument for not solving your problem through `display'
+ and `write' handlers. I recognize that I'm not providing a solution for
+ whatever problem you're trying to solve!
+ 
+ Matthew
+ 
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5780: No way to modify behavior of internal `display' etc and `printf'
+Date: Tue, 3 Sep 2002 00:56:37 -0400
+
+ On Sep  2, Matthew Flatt wrote:
+ > As you probably know, the behavior of `display' and `write' can be
+ > controlled for an individual port.
+ 
+ Ugh, I did read about it, but somehow it completely slipped my mind...
+ Something else that I never bothered to remember, is the difference
+ between `print' and `write' -- which I now know is something that can
+ be easily modified the way I want.  At least it makes my life easier
+ by making it redundant to modify `error-value->string-handler' and
+ `current-print'.  Anyway, there are still some problems with this.
+ 
+ * First, there is still the problem of many points that need to
+   change: the global print handler, the write and handlers for both
+   stdout and stderr.
+ 
+ * Second, using this approach requires my users to be aware that they
+   need to install my handlers every time they use a new port.  This is
+   a hassle when you do something that opens pipes, uses log files etc.
+ 
+ * It looks like the current printout would just call itself
+   recursively for nested objects, instead of reinvoking the current
+   handler.  This forces me to reimplement a complete display mechanism
+   (which, BTW, is not *my* specific problem since I need to
+   reimplement one using a generic function anyway...)
+ 
+ * Using `print' should be a convenient approximate solution, but
+   grepping through the collects recursively, I found no occurrences of
+   `~v'...  (BTW, the funny thing is that since I didn't know about it,
+   I ended up using `~e' with the installed error handler.)
+ 
+ * I still don't know if these changes (one print handler, four
+   display/write handlers for stdout/err).  What I tried was a quick
+   example of very small change (printing (or x 'false) instead of x),
+   and I think that having this at some place in the manual would be
+   very useful.
+ 
+ * All that still doesn't have any effect in DrScheme -- Robby said
+   that he'll make DrScheme respect a language-installed
+   `current-print' handler...  Aha!  I didn't see that he did it
+   already -- and it works with just changing the global-print-handler
+   -- nice!
+ 
+ * BTW, it seems a bit fishy that the handlers still get the
+   destination ports when they are used with just one port anyway.
+ 
+ 
+ > The reason it's not globally configurable is that libraries could not
+ > then use `write' and `display' to implement functions that are
+ > unrelated to Scheme output. An ok (not great) example is the ICFP robot
+ > server/client that I just wrote. It relies on the precise meaning of
+ > `display' to reliably communicate in a non-Scheme protocol. Without a
+ > fixed `display', my code would have to resort to character-by-character
+ > output.
+ 
+ Well, I thought about this, and I didn't see any reason why it should
+ be any problem...  First, you could just provide some
+ `standard-foo-handler' functions, and then you could just use
+ parameterize if you absolutely want the standard behavior.  But this
+ is redundant since people who change output handlers should probably
+ be aware of the consequences, which is why for most irregular objects,
+ they'll use the unreadable "#<" convention -- unless they also
+ redefine the reader (which is nicely symmetric to the writer settings
+ now, so it suffers from most above problems too...).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5780: No way to modify behavior of internal `display' etc and `printf'
+Date: Tue, 3 Sep 2002 01:09:06 -0400
+
+ One more comment -- doesn't the fact that `print' is customizable
+ using the `global-print-handler' makes it redundant to have
+ port-specific handlers too?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Apr 28 13:11:15 2003
+Responsible-Changed-Why:
+    mz
+State changed from "open" to "closed" by mflatt at Fri, 25 Nov 2005 07:50:59 -0500
+Reason>>> MzScheme now supports per-struct-type write procedures
+
+>Unformatted:

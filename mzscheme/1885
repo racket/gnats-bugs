@@ -1,0 +1,125 @@
+From nobody@cs.rice.edu  Sat Mar  3 17:47:06 2001
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id RAA02951
+	for <plt-gnats@cs.rice.edu>; Sat, 3 Mar 2001 17:47:05 -0600 (CST)
+Message-Id: <200103032347.RAA11549@web.cs.rice.edu>
+Date: Sat, 3 Mar 2001 17:47:04 -0600 (CST)
+From: rjs@isil.lloke.dna.fi
+Reply-To: rjs@isil.lloke.dna.fi
+To: plt-gnats@cs.rice.edu
+Subject: Slowish "display" in MzScheme 
+
+>Number:         1885
+>Category:       mzscheme
+>Synopsis:       Slowish "display" in MzScheme
+>Confidential:   no
+>Severity:       non-critical
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          change-request
+>Submitter-Id:   unknown
+>Arrival-Date:   Sun Mar  4 00:00:01 GMT 2001
+>Last-Modified:  Wed May 16 16:15:01 GMT 2001
+>Originator:     Riku Saikkonen
+>Organization:
+titan
+>Release:        mzscheme
+>Environment:
+Linux
+>Description:
+Writing strings using "display" in MzScheme v103 seems to be quite
+slow compared to doing the same in C.
+
+Some Scheme code:
+
+(define (disp n)
+  (if (= n 0)
+      'ok
+      (begin
+        (display "foo bar baz quux foo bar baz quuxw foo bar baz quuxw foo bar baz quuxw ")
+        (newline)
+        (disp (- n 1)))))
+
+(time (begin (disp 100000) (newline)))
+
+The real time returned is about 2000 (milliseconds) on my PC
+(i386-linux) when I run it with MzScheme and pipe the data to "tail
+-1" (so that actually displaying the data won't slow it down).
+Compiled with mzc --prim, it takes about 1900 milliseconds.
+
+A comparable C program only takes around 250 milliseconds to do the
+same. (But the Scheme interpreter SCM appears to be about as slow as
+MzScheme.)
+
+More interesting is this: When I remove the (newline) from the "disp"
+procedure above, it only takes about 420 milliseconds (compiled with
+mzc --prim), which isn't all that much slower than the C code.
+
+Looking at the actual write(2) system calls with strace, I find that
+the version with (newline) writes things one line at a time, while the
+version without the newlines calls write(2) 1988 bytes at a time. (The
+C version writes 4096-byte blocks.)
+
+A quick look at the MzScheme source code (fd_write_string() in port.c)
+reveals that it tries to do some sort of buffering, and does
+something special with the ends of lines. The documentation
+(plt/collects/doc/node122.htm) says that "Buffered data is
+automatically flushed after each newline.", and I guess that's the
+problem.
+
+
+So, a feature request: Make the buffering user-configurable. For
+example, unbuffered / line buffered / fully buffered as in setvbuf(3)
+in the C library.
+
+The default buffering could perhaps also be changed to be fully
+buffered for file and fd ports, except for stderr (unbuffered) and
+stdout (line buffered, iff it's connected to a terminal). (I mean, do
+what the C library does.)
+
+(Why do I care? I think my xdraw program for graphics in MzScheme
+under X (<URL:http://www.hut.fi/u/rsaikkon/software/xdraw.html>) would
+be quite a bit faster if the display primitive was faster.)
+
+>How-To-Repeat:
+
+>Fix:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Mar 19 19:09:41 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed May 16 11:01:29 2001
+State-Changed-Why:
+Added for the next release (199.11 and up).
+
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: rjs@isil.lloke.dna.fi
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1885: Slowish "display" in MzScheme 
+Date: Wed, 16 May 2001 10:00:49 -0600 (MDT)
+
+ Quoting rjs@isil.lloke.dna.fi:
+ > So, a feature request: Make the buffering user-configurable. For
+ > example, unbuffered / line buffered / fully buffered as in setvbuf(3)
+ > in the C library.
+ 
+ Hi,
+ 
+ As you may have noticed in yesterday's 199.11 announcement, I've added
+ `file-stream-buffer' to MzScheme.
+ 
+ It's not well supported under Windows (due to various tricks MzScheme
+ plays to get non-blocking output). But it works well in Unix, of
+ course.
+ 
+ Matthew
+ 
+>Unformatted:

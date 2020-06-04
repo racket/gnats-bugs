@@ -1,0 +1,226 @@
+From nobody@champlain.ccs.neu.edu  Wed Mar 19 17:05:09 2003
+Received: (from nobody@localhost)
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) id RAA05886
+	for bugs@plt-scheme.org; Wed, 19 Mar 2003 17:05:09 -0500
+Message-Id: <200303192205.RAA05886@champlain.ccs.neu.edu>
+Date: Wed, 19 Mar 2003 17:05:09 -0500
+From: dpb@pobox.com
+To: bugs@plt-scheme.org
+Subject: lexer problems with EOF on stdin
+
+>Number:         6163
+>Category:       parser-tools
+>Synopsis:       lexer problems with EOF on stdin
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    sowens
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Mar 19 17:10:00 EST 2003
+>Closed-Date:    Tue Apr 01 20:35:20 EST 2003
+>Last-Modified:  Tue Apr 01 20:35:20 EST 2003
+>Originator:     Don Bennett
+>Release:        203
+>Organization:
+plt
+>Environment:
+linux-redhat
+>Description:
+A lexer created using collects/parser-tools/lex.ss does not return immediately
+when encountering EOF on stdin, it needs to read one more character before
+returning the EOF symbol.
+
+I fixed the problem as follows:
+
+*** lex.ss.orig	2003-03-19 13:55:35.000000000 -0800
+--- lex.ss	2003-03-19 13:19:12.000000000 -0800
+***************
+*** 153,158 ****
+--- 153,159 ----
+            (let ((next-state 
+                   (cond
+  		  ((eof-object? char)
++ 		   (set! length 0)
+  		   (vector-ref eof-table state))
+  		  (else
+  		   (vector-ref 
+
+This seems to me to be the right thing todo, because a few lines further
+up it says that length should be the number of characters read including
+the one just read, but in fact the last read() returned a length of zero.
+
+
+
+>How-To-Repeat:
+(require (lib "lex.ss" "parser-tools"))
+(define-empty-tokens delim (EOF))
+
+(define test-lexer
+  (lexer
+   ((eof) 'EOF)
+   ((- #\000 #\377) lexeme)
+   ))
+
+(define (lexit)
+  (define (lexit1)
+    (let ((tok (test-lexer (current-input-port))))
+      (if (not (eq? tok 'EOF))
+	  (lexit1)
+	    #t)
+      ))
+  (lexit1))
+
+(lexit)
+
+Note that to get the return value, you must either enter
+control-d twice, or control-d followed by a return.
+
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Don Bennett <dpb@pobox.com>
+To: bugs@plt-scheme.org
+Cc:  
+Subject: Re: all/6163: lexer problems with EOF on stdin
+Date: 19 Mar 2003 22:11:21 -0800
+
+ On Wed, 2003-03-19 at 14:10, bugs@plt-scheme.org wrote:
+ > Thank you very much for your PLT problem report.
+ > It has the internal identification `all/6163'.
+ > 
+ > You can check on the status of your problem report at
+ > 
+ > http://bugs.plt-scheme.org/cgi-bin/gnats-query?pr-number=6163&query-type=pr-number
+ > 
+ > >Category:       all
+ > >Responsible:    steck
+ > >Synopsis:       lexer problems with EOF on stdin
+ > >Arrival-Date:   Wed Mar 19 17:10:00 EST 2003
+ 
+ My suggested fix really doesn't solve the problem in
+ all cases.
+ 
+ I can't seem to annotate my original bug report.
+ 
+ 
+ 
+
+From: Scott Owens <sowens@cs.utah.edu>
+To: dpb@pobox.com, bugs@plt-scheme.org
+Cc: Matthew Flatt <mflatt@cs.utah.edu>
+Subject: Re: all/6163: lexer problems with EOF on stdin
+Date: Tue, 1 Apr 2003 13:08:41 -0700
+
+ The suggested fix is incorrect.  This problem was caused by a bug in 
+ mzscheme's primitive EOF handling which has been fixed and exp tagged in CVS 
+ by Matthew.  It is still possible that an input like:
+ aaa^D
+ would not actually send an EOF to mzscheme depending on the type of terminal 
+ in use, although:
+ aaa
+ ^D
+ should always work now.
+ 
+ -Scott
+ 
+ On Wednesday 19 March 2003 03:05 pm, dpb@pobox.com wrote:
+ > You may claim or edit this problem report at
+ >
+ > https://internal.plt-scheme.org/cgis-bin/gnatsweb.pl?cmd=edit&pr=6163&datab
+ >ase=plt
+ >
+ > >Number:         6163
+ > >Category:       all
+ > >Synopsis:       lexer problems with EOF on stdin
+ > >Confidential:   no
+ > >Severity:       serious
+ > >Priority:       medium
+ > >Responsible:    steck
+ > >State:          open
+ > >Class:          sw-bug
+ > >Submitter-Id:   unknown
+ > >Arrival-Date:   Wed Mar 19 17:10:00 EST 2003
+ > >Closed-Date:
+ > >Last-Modified:
+ > >Originator:     Don Bennett
+ > >Release:        203
+ > >Organization:
+ >
+ > plt
+ >
+ > >Environment:
+ >
+ > linux-redhat
+ >
+ > >Description:
+ >
+ > A lexer created using collects/parser-tools/lex.ss does not return
+ > immediately when encountering EOF on stdin, it needs to read one more
+ > character before returning the EOF symbol.
+ >
+ > I fixed the problem as follows:
+ >
+ > *** lex.ss.orig	2003-03-19 13:55:35.000000000 -0800
+ > --- lex.ss	2003-03-19 13:19:12.000000000 -0800
+ > ***************
+ > *** 153,158 ****
+ > --- 153,159 ----
+ >             (let ((next-state
+ >                    (cond
+ >   		  ((eof-object? char)
+ > + 		   (set! length 0)
+ >   		   (vector-ref eof-table state))
+ >   		  (else
+ >   		   (vector-ref
+ >
+ > This seems to me to be the right thing todo, because a few lines further
+ > up it says that length should be the number of characters read including
+ > the one just read, but in fact the last read() returned a length of zero.
+ >
+ > >How-To-Repeat:
+ >
+ > (require (lib "lex.ss" "parser-tools"))
+ > (define-empty-tokens delim (EOF))
+ >
+ > (define test-lexer
+ >   (lexer
+ >    ((eof) 'EOF)
+ >    ((- #\000 #\377) lexeme)
+ >    ))
+ >
+ > (define (lexit)
+ >   (define (lexit1)
+ >     (let ((tok (test-lexer (current-input-port))))
+ >       (if (not (eq? tok 'EOF))
+ > 	  (lexit1)
+ > 	    #t)
+ >       ))
+ >   (lexit1))
+ >
+ > (lexit)
+ >
+ > Note that to get the return value, you must either enter
+ > control-d twice, or control-d followed by a return.
+ >
+ > >Fix:
+ > >Release-Note:
+ > >Audit-Trail:
+ > >Unformatted:
+Responsible-Changed-From-To: steck->sowens
+Responsible-Changed-By: sowens
+Responsible-Changed-When: Tue Apr  1 20:35:20 2003
+Responsible-Changed-Why:
+    Mine
+State-Changed-From-To: open->closed
+State-Changed-By: sowens
+State-Changed-When: Tue Apr  1 20:35:20 2003
+State-Changed-Why:
+    Fixed
+>Unformatted:
+

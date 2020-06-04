@@ -1,0 +1,142 @@
+From dskippy@ccs.neu.edu  Tue Mar  5 04:15:22 2002
+Received: from localhost (localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id EAA10913
+	for <plt-gnats>; Tue, 5 Mar 2002 04:15:22 -0500
+Message-Id: <200203050915.EAA10913@champlain.ccs.neu.edu>
+Date: Tue, 5 Mar 2002 04:15:22 -0500
+From: Mike MacHenry <dskippy@ccs.neu.edu>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: (not (eq? process process*))
+
+>Number:         5305
+>Category:       mzscheme
+>Synopsis:       (not (eq? process process*))
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Mar 05 04:20:01 EST 2002
+>Closed-Date:    Sun Apr 21 19:37:19 EDT 2002
+>Last-Modified:  Sun Apr 21 19:37:19 EDT 2002
+>Originator:     Mike MacHenry
+>Release:        200alpha12-cvs20feb2002
+>Organization:
+titan
+>Environment:
+unix "Linux xequals8 2.4.9 #1 Tue Oct 2 13:56:13 EDT 2001 i686 unknown" (i386-linux) (get-display-depth) = 16
+Docs Installed:
+("help" "icons" "teachpack" "beginning" "beginning-abbr" "advanced" "intermediate" "intermediate-lambda" "drscheme" "r5rs" "mzscheme" "mzlib" "mred" "framework" "misclib" "mzc" "insidemz" "tools" "t-y-scheme" "tex2page")
+Collections: 
+(("/usr/local/lib/plt/collects" ("CVS" "afm" "algol60" "doc" "browser" "test-suite" "compiler" "cvs-time-stamp" "defaults" "drjava" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mrflow" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "parser-tools" "readline" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "string-constants" "syntax" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xml")))
+Human Language: english
+>Description:
+As I understand process* should act like process accept
+that process* allows you to seperate out the command
+line arguments as seperate arguments to the function
+instead of putting them in one long command. That being
+said i believe they are acting differently. process* is
+getting a broken pipe whenever i try to send a newline
+to the process's stdin.
+>How-To-Repeat:
+(require
+ (lib "process.ss")
+ (lib "list.ss"))
+(define-struct proc (stdout stdin pid stderr status))
+
+(define close
+  (lambda (p)
+    (close-input-port (proc-stdout p))
+    (close-output-port (proc-stdin p))
+    (close-input-port (proc-stderr p))))
+
+(define read-open-port
+  (lambda (fp)
+    (if (char-ready? fp)
+        (cons (read-line fp)
+              (read-open-port fp))
+        empty)))
+
+(define run
+  (lambda (p cmd)
+    (fprintf (proc-stdin p) (format "~a~n" cmd))
+    (peek-char (proc-stdout p)) ;force waiting til atleast one char is writen
+    (read-open-port (proc-stdout p))))
+
+;;this program works fine and returns the basic equivelent of directory-list
+(let ((p (apply make-proc (process "bash"))))
+  (begin0
+    (run p "ls")
+    (close p)))
+
+;;this program recieves "error writing to stream port (Broken pipe; errno=32)"
+(let ((p (apply make-proc (process* "bash"))))
+  (begin0
+    (run p "ls")
+    (close p)))
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Mike MacHenry <dskippy@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5305: (not (eq? process process*))
+Date: Tue, 5 Mar 2002 06:05:22 -0700 (MST)
+
+ At Tue, 5 Mar 2002 04:15:22 -0500, Mike MacHenry wrote:
+ > As I understand process* should act like process accept
+ > that process* allows you to seperate out the command
+ > line arguments as seperate arguments to the function
+ > instead of putting them in one long command.
+ 
+ That's not the only difference. The other difference is that `process'
+ uses a shell to run its command (so the PATH environment variable is
+ relevant), while `process*' needs the exact path to the executable
+ (relative to the current directory).
+ 
+ > ;;this program recieves "error writing to stream port (Broken pipe; errno=32)"
+ > (let ((p (apply make-proc (process* "bash"))))
+ >   (begin0
+ >     (run p "ls")
+ >     (close p)))
+ 
+ More simply:
+ 
+   (let ((p (apply make-proc (process* "bash"))))
+       (sleep 0.2) ; enough time to fail..
+       ((proc-status p) 'status)) 
+   => 'done-error
+ 
+ In other words, the write fails because there's nothing attached to the
+ other end of the pipe --- "bash" is never started.
+ 
+ Matthew
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Mike MacHenry <dskippy@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5305: (not (eq? process process*))
+Date: Tue, 5 Mar 2002 06:05:54 -0700 (MST)
+
+ P.S. - depending on what you're trying to do, `find-executable-path'
+ may be useful.
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Apr 21 19:37:19 2002
+Responsible-Changed-Why:
+    mz
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Sun Apr 21 19:37:19 2002
+State-Changed-Why:
+    port errors are confusing, but it can't be helped
+>Unformatted:
+

@@ -1,0 +1,118 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed May 14 00:10:15 2014
+Received: from mail-oa0-f47.google.com (mail-oa0-f47.google.com [209.85.219.47])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s4E4ADLd022939
+	for <bugs@bugs.plt-scheme.org>; Wed, 14 May 2014 00:10:13 -0400
+Message-Id: <201405140410.s4E4ABMl022932@winooski.ccs.neu.edu>
+Date: Wed, 14 May 2014 00:10:11 -0400
+From: kominek@gmail.com
+To: bugs@racket-lang.org
+Subject: quotient/remainder significantly slower than quotient & remainder
+
+>Number:         14511
+>Category:       all
+>Synopsis:       quotient/remainder significantly slower than quotient & remainder
+>Class:          change-request
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed May 14 00:12:02 -0400 2014
+>Last-Modified:  Wed Nov 26 06:48:01 -0500 2014
+>Originator:     Jay Kominek
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0 b76b2aa638613827dd059dc979cb17bcf89fa79a
+>Environment:
+linux-ubuntu
+>Description:
+After
+http://lists.racket-lang.org/users/archive/2014-May/062334.html
+I wondered why arithmetic-shift and bitwise-and were so much faster
+than quotient/remainder. Poked around, found that quotient/remainder
+doesn't appear to be jitted, but quotient & remainder are. I wrote
+a little program to compare them and was surprised by the difference.
+(I included it in the "short sequence of steps".)
+
+In light of the claim in the documentation: "... the combination may be computed more efficiently than separate calls to quotient and remainder." it seems worth mentioning.
+
+pidigits1 runs in less than half the time when converted to quotient & remainder, and Tim Brown's code sees a ~25% reduction in run time.
+
+the most awesome thing would be if quotient/remainder could get the jit treatment, too. failing that maybe the note should be taken out of the documentation, so nobody is lead astray?
+>How-To-Repeat:
+#lang racket/base
+
+(define numbers
+ (for/list ([x (in-range 0 5000000)])
+  (+ (random 10000) 10000)))
+
+(printf "quotient/remainder:~n")
+(time
+  (for ([v (in-list numbers)])
+    (quotient/remainder v 8)))
+
+(printf "quotient & remainder:~n")
+(time
+  (for ([v (in-list numbers)])
+    (quotient v 8)
+    (remainder v 8)))
+
+(printf "arithmetic-shift & bitwise-and:~n")
+(time
+  (for ([v (in-list numbers)])
+    (arithmetic-shift v -3)
+    (bitwise-and v 7)))
+>Fix:
+>Audit-Trail:
+From: Gustavo Massaccesi <gustavo@oma.org.ar>
+To: Bugs Racket <bugs@racket-lang.org>, kominek@gmail.com
+Cc: 
+Subject: Re: all/14511: quotient/remainder significantly slower than quotient
+ & remainder
+Date: Wed, 26 Nov 2014 08:46:45 -0300
+
+ It's more complicated. I made a few microbenchmarks. (In these
+ examples ...) For fixnums quotient & remainder is ~4 times faster, but
+ for bignums quotient/remainder is ~2 times faster (probably because
+ quotient & remainder have to do the division twice).
+ Gustavo
+ ;---
+ #lang racket
+ (define-syntax-rule (time/cpu body ...)
+   (let-values ([(ret cpu real gc) (time-apply (lambda () body ...) '())])
+     cpu))
+ (define (collect-garbage/3)
+   (collect-garbage)
+   (collect-garbage)
+   (collect-garbage))
+ 
+ (displayln '(n fixnum? q/r q&r s&b ratio))
+ (for ([n (map (lambda (x) (expt 10 x)) (range 7 13))])
+   (define numbers (for/list ([x (in-range 0 1000000)])
+                     (+ (random 100) n)))
+   (collect-garbage/3)
+   (define q/r (time/cpu (for ([v (in-list numbers)])
+                           (quotient/remainder v 8))))
+   (collect-garbage/3)
+   (define q&r (time/cpu (for ([v (in-list numbers)])
+                           (quotient v 8)
+                           (remainder v 8))))
+   (collect-garbage/3)
+   (define s&b (time/cpu (for ([v (in-list numbers)])
+                           (arithmetic-shift v -3)
+                           (bitwise-and v 7))))
+ 
+   (displayln (list n (fixnum? n) q/r q&r s&b (~r (/ q/r q&r) #:precision 2)))
+   )
+ ;---
+ 
+ Results (32 bits version):
+ 
+ (n fixnum? q/r q&r s&b ratio)
+ (10000000 #t 436 124 16 3.52)
+ (100000000 #t 437 110 16 3.97)
+ (1000000000 #t 499 110 31 4.54)
+ (10000000000 #f 2465 4274 983 0.58)
+ (100000000000 #f 2324 3947 905 0.59)
+ (1000000000000 #f 2309 3993 874 0.58)

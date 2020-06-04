@@ -1,0 +1,93 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jan 28 13:52:16 2013
+Received: from mail-ob0-f180.google.com (mail-ob0-f180.google.com [209.85.214.180])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r0SIq8ql030643
+	for <bugs@bugs.plt-scheme.org>; Mon, 28 Jan 2013 13:52:08 -0500
+Message-Id: <201301281852.r0SIq6m1030638@champlain.ccs.neu.edu>
+Date: Mon, 28 Jan 2013 13:52:06 -0500
+From: cce@racket-lang.org
+To: bugs@racket-lang.org
+Subject: Bizarre errors from phase 1 variable references in dynamic-require
+
+>Number:         13462
+>Category:       mzscheme
+>Synopsis:       Bizarre errors from phase 1 variable references in dynamic-require
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          analyzed
+>Confidential:   no
+>Arrival-Date:   Mon Jan 28 13:56:01 -0500 2013
+>Closed-Date:    
+>Last-Modified:  Thu Feb 14 17:52:26 -0500 2013
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.2
+>Environment:
+mac-i386-osx
+>Description:
+The program below produces the error:
+
+  uncontracted-variable: undefined;
+   cannot reference an identifier before its definition
+
+Swapping out uncontracted-variable for contracted-variable produces this error instead:
+
+  link: module mismatch;
+   possibly, bytecode file needs re-compile because dependencies changed
+
+Swapping out the dynamic require for a static require makes either error go away, and the program works correctly.
+>How-To-Repeat:
+#lang racket
+(require syntax/location)
+
+(module bug racket
+  (begin-for-syntax
+    (require racket/contract)
+    (define uncontracted-variable
+      #'(printf "Oh wait, it worked!\n"))
+    (define/contract contracted-variable any/c
+      uncontracted-variable))
+  (eval
+    #'(let {}
+
+        (define-syntax (macro stx)
+
+          ;; Uncomment just one of the following references:
+
+          ;; Uncontracted variable; produces an undefined variable error.
+          uncontracted-variable
+
+          ;; Contracted variable; produces a "link: module mismatch" error.
+          #;contracted-variable)
+
+        (macro))))
+
+;; Uncomment just one of the following (static or dynamic) requires:
+
+;; Static require; no errors regardless of reference chosen above.
+#;(require (submod "." bug))
+
+;; Dynamic require; produces an error depending on reference chosen above.
+(dynamic-require (quote-module-path bug) #false)
+>Fix:
+>Audit-Trail:
+State changed from "open" to "analyzed" by mflatt at Thu, 14 Feb 2013 17:52:26 -0500
+Reason>>> As of recent versions, the error message is hopefully more helpful:
+
+?: module mismatch;
+ attempted to use a module that is not available
+  possible cause:
+   using (dynamic-require .... #f)
+   but need (dynamic-require .... 0)
+  module: "/tmp/dr.rkt"
+  phase: 1
+  in: uncontracted-variable
+
+The issue is that `(dynamic-wind ... #f)' doesn't set up enough
+for `eval' to work. That used to just confuse the expander, but
+now it detects that the combination of `dynamic-require' and
+`eval' requests is inconsistent.
+

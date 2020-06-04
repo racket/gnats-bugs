@@ -1,0 +1,175 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jul 12 18:01:59 2011
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p6CM1uoN009049
+	for <bugs@bugs.plt-scheme.org>; Tue, 12 Jul 2011 18:01:56 -0400
+Message-Id: <201107122201.p6CM1mFB009043@champlain.ccs.neu.edu>
+Date: Tue, 12 Jul 2011 18:01:48 -0400
+From: wzimrin@cs.brown.edu
+To: bugs@racket-lang.org
+Subject: errors in scheme-lexer return values
+
+>Number:         12038
+>Category:       misc
+>Synopsis:       errors in scheme-lexer return values
+>Class:          sw-bug
+>Responsible:    ryanc
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jul 12 18:04:01 -0400 2011
+>Closed-Date:    Tue Jul 19 05:36:14 -0400 2011
+>Last-Modified:  Mon Feb 18 23:54:05 -0500 2013
+>Originator:     William Zimrin
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.1.1
+>Environment:
+unix "Linux babbage 2.6.26-2-686 #1 SMP Thu Jan 27 00:28:05 UTC 2011 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 308029732
+
+Collections:
+("/home/wzimrin/.racket/5.1.1/collects"
+ (non-existent-path))
+("/research/plt/software/racket/5.1.1/std/collects"
+ ("syntax" "planet" "errortrace" "xml" "scribblings" "file" "htdp" "s-exp" "schemeunit" "eopl" "slatex" "syntax-color" "hierlist" "deinprogramm" "tests" "make" "gui-debugger" "picturing-programs" "unstable" "slideshow" "openssl" "version" "parser-tools" "combinator-parser" "r6rs" "defaults" "rnrs" "scriblib" "dynext" "r5rs" "rackunit" "string-constants" "lazy" "launcher" "readline" "mysterx" "mrlib" "browser" "mzcom" "lang" "embedded-gui" "framework" "at-exp" "graphics" "test-box-recovery" "mred" "datalog" "games" "compiler" "profile" "web-server" "icons" "frtime" "teachpack" "raco" "wxme" "typed-scheme" "trace" "texpict" "ffi" "algol60" "racket" "setup" "scribble" "plot" "drracket" "drscheme" "typed" "scheme" "racklog" "data" "html" "tex2page" "stepper" "srfi" "mzscheme" "macro-debugger" "net" "test-engine" "config" "sgl" "mzlib" "help" "swindle" "plai" "reader" "redex" "2htdp" "preprocessor" "info-domain"))
+
+Computer Language: (("Determine language from source") (#(#t constructor mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+When I try to run scheme-lexer on the string "λ", it gives offsets that say it is two characters long, but the string returned is one character long.  If it was working on bytes, it would be correct, but it takes and returns strings, so this is confusing behavior.
+
+When I try to run scheme-lexer on a line comment (";foo"), the offsets returned are correct, but the string returned ignores the initial semi-colon.  Any later semicolons in the comment are preserved.
+>How-To-Repeat:
+1.  Run the code below:
+
+#lang racket
+
+(require syntax-color/scheme-lexer)
+(require racket/port)
+
+(define (test-lexer str)
+  (printf "original string: ~S~n" str)
+  (let-values ([(string type paren start end)
+                (scheme-lexer (open-input-string str))])
+    (printf "Return from scheme-lexer~n")
+    (printf "string: ~S~n" string)
+    (printf "type: ~S~n" type)
+    (printf "start: ~S~n" start)
+    (printf "end: ~S~n" end)
+    (displayln "--------------")))
+
+(test-lexer "λ")
+(test-lexer ";;;;;foo\n")
+
+2.  note that the start index of the set of outputs is 1 and the end index of the first string is 3, so the string is 2 characters long.
+
+3.  note that the string in the second set of outputs is "foo", but the indices of the element are 1 and 5, indicating that the string should be 4 characters long.
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: wzimrin@cs.brown.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12038: errors in scheme-lexer return values
+Date: Thu, 14 Jul 2011 17:26:41 -0600
+
+ To enable character counting instead of byte counting, use
+ `port-count-lines!' on the input port:
+ 
+     (let ([p (open-input-string str)])
+       (port-count-lines! p)
+       (scheme-lexer p))
+ 
+ See 
+ 
+  http://docs.racket-lang.org/reference/linecol.html
+ 
+ for more information. I'll change the docs for `scheme-lexer' to
+ include a reminder about `port-count-lines!'.
+ 
+ For a comment's string result, `scheme-lexer' returns the content of
+ the comment, leaving off the opening semi-colon and terminating
+ newline. That result seems to be by design, but the documentation needs
+ to change to clarify.
+ 
+ At Tue, 12 Jul 2011 18:04:01 -0400, wzimrin@cs.brown.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=12038
+ > 
+ > Reported by William Zimrin for release: 5.1.1
+ > 
+ > *** Description:
+ > When I try to run scheme-lexer on the string "λ", it gives offsets that say it 
+ > is two characters long, but the string returned is one character long.  If it 
+ > was working on bytes, it would be correct, but it takes and returns strings, so 
+ > this is confusing behavior.
+ > 
+ > When I try to run scheme-lexer on a line comment (";foo"), the offsets returned 
+ > are correct, but the string returned ignores the initial semi-colon.  Any later 
+ > semicolons in the comment are preserved.
+ > 
+ > *** How to repeat:
+ > 1.  Run the code below:
+ > 
+ > #lang racket
+ > 
+ > (require syntax-color/scheme-lexer)
+ > (require racket/port)
+ > 
+ > (define (test-lexer str)
+ >   (printf "original string: ~S~n" str)
+ >   (let-values ([(string type paren start end)
+ >                 (scheme-lexer (open-input-string str))])
+ >     (printf "Return from scheme-lexer~n")
+ >     (printf "string: ~S~n" string)
+ >     (printf "type: ~S~n" type)
+ >     (printf "start: ~S~n" start)
+ >     (printf "end: ~S~n" end)
+ >     (displayln "--------------")))
+ > 
+ > (test-lexer "λ")
+ > (test-lexer ";;;;;foo\n")
+ > 
+ > 2.  note that the start index of the set of outputs is 1 and the end index of 
+ > the first string is 3, so the string is 2 characters long.
+ > 
+ > 3.  note that the string in the second set of outputs is "foo", but the indices 
+ > of the element are 1 and 5, indicating that the string should be 4 characters 
+ > long.
+ > 
+ > *** Environment:
+ > unix "Linux babbage 2.6.26-2-686 #1 SMP Thu Jan 27 00:28:05 UTC 2011 i686 
+ > GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 308029732
+ > 
+ > Collections:
+ > ("/home/wzimrin/.racket/5.1.1/collects"
+ >  (non-existent-path))
+ > ("/research/plt/software/racket/5.1.1/std/collects"
+ >  ("syntax" "planet" "errortrace" "xml" "scribblings" "file" "htdp" "s-exp" 
+ > "schemeunit" "eopl" "slatex" "syntax-color" "hierlist" "deinprogramm" "tests" 
+ > "make" "gui-debugger" "picturing-programs" "unstable" "slideshow" "openssl" 
+ > "version" "parser-tools" "combinator-parser" "r6rs" "defaults" "rnrs" 
+ > "scriblib" "dynext" "r5rs" "rackunit" "string-constants" "lazy" "launcher" 
+ > "readline" "mysterx" "mrlib" "browser" "mzcom" "lang" "embedded-gui" 
+ > "framework" "at-exp" "graphics" "test-box-recovery" "mred" "datalog" "games" 
+ > "compiler" "profile" "web-server" "icons" "frtime" "teachpack" "raco" "wxme" 
+ > "typed-scheme" "trace" "texpict" "ffi" "algol60" "racket" "setup" "scribble" 
+ > "plot" "drracket" "drscheme" "typed" "scheme" "racklog" "data" "html" 
+ > "tex2page" "stepper" "srfi" "mzscheme" "macro-debugger" "net" "test-engine" 
+ > "config" "sgl" "mzlib" "help" "swindle" "plai" "reader" "redex" "2htdp" 
+ > "preprocessor" "info-domain"))
+ > 
+ > Computer Language: (("Determine language from source") (#(#t constructor 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+ 
+
+State changed from "open" to "closed" by ryanc at Tue, 19 Jul 2011 05:36:14 -0400
+Reason>>> resolved
+
+
+Responsible changed from "nobody" to "ryanc" by eli at Mon, 18 Feb 2013 23:54:05 -0500
+Reason>>> ryanc closed
+

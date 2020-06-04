@@ -1,0 +1,218 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Nov 23 23:33:37 2008
+Received: from yx-out-2324.google.com (yx-out-2324.google.com [74.125.44.30])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id mAO4XUgc026479
+	for <bugs@bugs.plt-scheme.org>; Sun, 23 Nov 2008 23:33:30 -0500
+Message-Id: <200811240433.mAO4XPtQ026472@champlain.ccs.neu.edu>
+Date: Sun, 23 Nov 2008 23:33:25 -0500
+From: derick.eddington@gmail.com
+To: bugs@plt-scheme.org
+Subject: syntax-case literals not matching across modules
+
+>Number:         9941
+>Category:       all
+>Synopsis:       syntax-case literals not matching across modules
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Nov 23 23:36:01 -0500 2008
+>Closed-Date:    Tue Dec 06 15:02:52 -0500 2011
+>Last-Modified:  Mon Feb 18 23:46:01 -0500 2013
+>Originator:     Derick Eddington
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.3.1-svn23nov2008
+>Environment:
+unix "Linux eep 2.6.24-21-generic #1 SMP Tue Oct 21 23:43:45 UTC 2008 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 152405952
+
+Collections:
+(("/home/d/.plt-scheme/4.1.3.1/collects" "temp" "xitomatl") ("/home/d/plt/collects" "afm" "ffi" "net" "sgl" "xml" "eopl" "file" "help" "htdp" "html" "lang" "lazy" "make" "r5rs" "r6rs" "mred" "plot" "rnrs" "srfi" "wxme" "framework" "teachpack" "mzscheme" "games" "icons" "htdch" "s-exp" "mrlib" "mzcom" "mzlib" "graphics" "profj" "redex" "setup" "trace" "typed" "test-engine" "combinator-parser" "preprocessor" "test-box-recovery" "tex2page" "texpict" "scribblings" "stepper" "scribble" "typed-scheme" "web-server" "config" "compiler" "swindle" "dynext" "hierlist" "macro-debugger" "frtime" "defaults" "gui-debugger" "drscheme" "syntax-color" "planet" "mysterx" "errortrace" "scheme" "slatex" "syntax" "version" "algol60" "parser-tools" "openssl" "embedded-gui" "slideshow" "repos-time-stamp" "info-domain" "readline" "launcher" "string-constants" "browser"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#!r6rs\n(import\n  (rnrs))\n" #t))
+>Description:
+>How-To-Repeat:
+#!r6rs
+(library (temp quoted-id)
+  (export quoted-id?)
+  (import (rnrs))
+  (define (quoted-id? x)
+    (syntax-case x (quote)
+      [(quote id) (identifier? #'id)]
+      [_ #F])))
+
+#!r6rs
+(import (rnrs) (for (temp quoted-id) expand))
+(define-syntax s
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x ...)
+       (cons #'list (filter quoted-id? #'(x ...)))])))
+(write (s no 'yes "a" 'b #\c 'd)) (newline)
+
+PRINTS=>
+()
+
+Changing the program to:
+
+#!r6rs
+(import (rnrs))
+(define-syntax s
+  (lambda (stx)
+    (define (quoted-id? x)
+      (syntax-case x (quote)
+        [(quote id) (identifier? #'id)]
+        [_ #F]))
+    (syntax-case stx ()
+      [(_ x ...)
+       (cons #'list (filter quoted-id? #'(x ...)))])))
+(write (s no 'yes "a" 'b #\c 'd)) (newline)
+
+PRINTS=>
+(yes b d)
+
+Same for #lang scheme versions:
+
+#lang scheme
+(provide quoted-id?)
+(define (quoted-id? x)
+  (syntax-case x (quote)
+    [(quote id) (identifier? #'id)]
+    [_ #F]))
+
+#lang scheme
+(require (for-syntax temp/quoted-id-plt))
+(define-syntax s
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x ...)
+       #`(list . #,(filter quoted-id? (syntax->list #'(x ...))))])))
+(write (s no 'yes "a" 'b #\c 'd)) (newline)
+
+PRINTS=>
+()
+
+Changing the program to:
+
+#lang scheme
+(define-syntax s
+  (lambda (stx)
+    (define (quoted-id? x)
+      (syntax-case x (quote)
+        [(quote id) (identifier? #'id)]
+        [_ #F]))
+    (syntax-case stx ()
+      [(_ x ...)
+       #`(list . #,(filter quoted-id? (syntax->list #'(x ...))))])))
+(write (s no 'yes "a" 'b #\c 'd)) (newline)
+
+PRINTS=>
+(yes b d)
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: derick.eddington@gmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, matthias@plt-scheme.org, sk@plt-scheme.org,
+        mflatt@plt-scheme.org, robby@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/9941: syntax-case literals not matching across modules
+Date: Mon, 24 Nov 2008 00:46:08 -0500
+
+ On Nov 23, derick.eddington@gmail.com wrote:
+ > [...]
+ > Same for #lang scheme versions:
+ 
+ I think that what happens is as follows:
+ 
+ > #lang scheme
+ > (provide quoted-id?)
+ > (define (quoted-id? x)
+ >   (syntax-case x (quote)
+ >     [(quote id) (identifier? #'id)]
+ >     [_ #F]))
+ 
+ Usually, you use `syntax-case' at the syntax level, and the bindings
+ it compares are bindings from the runtime level -- which is one level
+ below the code.  The above code is in a plain `define' at the
+ runtime level, so it compares bindings from the level below that.  To
+ make the code work, you need to add a (require (for-template scheme)).
+ The r6rs version works with (import (rnrs) (for (rnrs) (meta -1))).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Derick Eddington <derick.eddington@gmail.com>
+To: bugs@plt-scheme.org
+Cc: Eli Barzilay <eli@barzilay.org>
+Subject: Re: [plt-bug] all/9941: syntax-case literals not matching across
+	modules
+Date: Sun, 23 Nov 2008 23:46:14 -0800
+
+ On Mon, 2008-11-24 at 00:46 -0500, Eli Barzilay wrote:
+ > On Nov 23, derick.eddington@gmail.com wrote:
+ > > [...]
+ > > Same for #lang scheme versions:
+ > 
+ > I think that what happens is as follows:
+ > 
+ > > #lang scheme
+ > > (provide quoted-id?)
+ > > (define (quoted-id? x)
+ > >   (syntax-case x (quote)
+ > >     [(quote id) (identifier? #'id)]
+ > >     [_ #F]))
+ > 
+ > Usually, you use `syntax-case' at the syntax level, and the bindings
+ > it compares are bindings from the runtime level -- which is one level
+ > below the code.  The above code is in a plain `define' at the
+ > runtime level, so it compares bindings from the level below that.  To
+ > make the code work, you need to add a (require (for-template scheme)).
+ > The r6rs version works with (import (rnrs) (for (rnrs) (meta -1))).
+ 
+ Thanks for the quick response.  I thought I now understand and I can see
+ why it's not a bug, but the below example, which I thought shows the
+ same issue as my above problem, confuses me still.  
+ 
+ #lang scheme
+ (require (for-template scheme))
+ (provide quote?)
+ (define (quote? x)
+   (free-identifier=? x #'quote))
+ 
+ #lang scheme
+ (require temp/quote)
+ (printf "~s\n" (quote? #'quote))
+ 
+ PRINTS=>
+ #T
+ 
+ Why is the result not #F?  Aren't references introduced by #' templates
+ always level - 1?  If so, shouldn't the result be #F because the #'quote
+ in the first module refers to the quote from the (require (for-template
+ scheme)) but the #'quote in the second module refers to nothing so
+ therefore they shouldn't be free-identifier=? ?  If the (require
+ (for-template scheme)) is absent from the first module, a #T result
+ makes sense to me because then both #'quote both refer to nothing at
+ level - 1.
+ 
+ Thanks again,
+ 
+ -- 
+ : Derick
+ ----------------------------------------------------------------
+ 
+ 
+
+State changed from "open" to "closed" by samth at Tue, 06 Dec 2011 15:02:52 -0500
+Reason>>> Not a bug -- the comparison in the last example is at phase
+0, not -1.
+
+
+Responsible changed from "nobody" to "samth" by eli at Mon, 18 Feb 2013 23:46:01 -0500
+Reason>>> samth closed
+

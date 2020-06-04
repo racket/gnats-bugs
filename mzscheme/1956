@@ -1,0 +1,196 @@
+From robby@cs.rice.edu  Thu May 24 08:03:55 2001
+Return-Path: <robby@cs.rice.edu>
+Received: from sun.cs.rice.edu (sun.cs.rice.edu [128.42.1.42])
+	by cs.rice.edu (Postfix) with ESMTP id 6E5FF1795
+	for <plt-gnats@cs.rice.edu>; Thu, 24 May 2001 08:03:55 -0500 (CDT)
+Message-Id: <200105241303.IAA08210@sun.cs.rice.edu>
+Date: Thu, 24 May 2001 08:03:52 -0500 (CDT)
+From: <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: awk library terminally inefficient
+X-Send-Pr-Version: 3.101
+
+>Number:         1956
+>Category:       mzscheme
+>Synopsis:       awk library terminally inefficient
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu May 24 13:15:02 GMT 2001
+>Last-Modified:  Sun Jun 10 17:47:49 CDT 2001
+>Originator:     Robert Findler
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	
+>Description:
+
+the awk library's macro expansion process killed my mac. It sucked up all
+available memory and then the machine did a hard crash (no "out of memory"
+warning to speak of -- just lose your data and smile like the sol that you
+are).
+
+>How-To-Repeat:
+
+This is the awk expression in some version of dlatex. 
+
+(require (lib "awk.ss"))
+
+(time
+ (expand
+  '(awk
+    (read-line) (ln) () continue
+    ["%dlatexskipnext" (read-line) (continue)]
+    [/"^%"/ (#f) (continue)]
+    ; [/ "([^%]*)%" / (#f m) (set! ln m) ]
+    ; [else (void)]
+    
+    [/"\\\\unsetallspecial"/ (#f)
+      (set! specials null)]
+    [/"\\\\setitalcorrect{([^}]*)}"/ (#f s)
+      (set! ital-correct? (string=? s "#t"))]
+    [/"\\\\setsemicoloncomments{([^}]*)}"/ (#f s)
+      (set! semicolon-comments? (string=? s "#t"))]
+    [/"\\\\setdashseparator{([^}]*)}"/ (#f s)
+      (set! dash-is-sep? (string=? s "#t"))]
+    
+    [/"\\\\setspecialsymbol{([^}]*)}{(.*)}"/ (#f s d) (add-special-symbol s d #f) (continue)]
+    [/"\\\\setkeyword{(.*)"/ (#f r) (parse-keywords keyword-style r) (continue)]
+    [/"\\\\setconstant{(.*)"/ (#f r) (parse-keywords const-style r) (continue)]
+    [/"\\\\setfont{(.*)}{(.*)"/ (#f f r) (parse-keywords f r) (continue)]
+    [/ "\\\\schemepicture{([^}]*)}{([^}]*)}" / (#f f mztp)
+       (let* ([fss (string-append f ".ss")]
+              [ftex (string-append f "-ss.tex")]
+              [ftexdep (string-append f "-ss.tx.dl.dep")]
+              [raw-deps (with-handlers ([void (lambda (x) (list fss))])
+                          (with-input-from-file ftexdep read))]
+              [deps (cons mztp raw-deps)]
+              [dates (map file-modify-seconds/tf deps)]
+              [fssdate (file-or-directory-modify-seconds fss)]
+              [ftexdate (file-modify-seconds/tf ftex)])
+         (when (or (not ftexdate)
+                   (ormap (lambda (d) (and (or (not d) (< ftexdate d)))) dates))
+           (fprintf (get-diagnostic-port) "running ~a~n" fss)
+           (with-handlers ([void
+                            (lambda (exn)
+                              (delete-file ftex)
+                              (error 'dlatex "Error in ~a: ~a" fss (exn-message exn)))])
+             (let ([lh (current-load)]
+                   [p (open-output-file ftex 'truncate)]
+                   [od (current-directory)]
+                   [exn #f]
+                   [depends null])
+               (thread-wait
+                (thread
+                 (lambda ()
+                   (with-handlers ([void (lambda (x) (set! exn x))])
+                     (read-case-sensitive #f)
+                     (parameterize ([current-namespace (make-namespace)]
+                                    [current-load
+                                     (lambda (f)
+                                       (let ([cd (current-directory)])
+                                         (set! depends
+                                               (cons (if (string=? cd od)
+                                                         f
+                                                         (path->complete-path f cd))
+                                                     depends))
+                                         (lh f)))]
+                                    [current-output-port p])
+                       (dynamic-wind
+                        void
+                        (lambda () (load fss))
+                        (lambda () (close-output-port p))))))))
+               (when exn (raise exn))
+               (set! raw-deps depends)
+               (with-output-to-file ftexdep (lambda () (write depends) (newline)) 'truncate))))
+         (set! depends-list (append (list (cons mztp ftex))
+                                    (map (lambda (f) (cons f ftex)) raw-deps)
+                                    depends-list))
+         (set! ln (format "\\input{~a-ss}" f)))]
+    [/"\\\\schemeinput(|list|box|display|listnumbered|boxnumbered){(.*)}"/ (#f opt-list f)
+      (set! depends-list (cons (cons f current-dest) depends-list))
+      (let-values ([(in out) (make-pipe)]
+                   [(kind) (if (string=? opt-list "")
+                               "box"
+                               opt-list)])
+        (parameterize ([current-input-port in])
+          (fprintf out "\\begin{scheme~a}~n" kind)
+          (with-input-from-file f
+            (lambda ()
+              (let loop ()
+                (let ([l (read-line)])
+                  (unless (eof-object? l)
+                    (fprintf out "~a~n" l)
+                    (loop)))))
+            'text)
+          (fprintf out "\\end{scheme~a}~n" kind)
+          (close-output-port out)
+          (go)))
+      (continue)]
+    ["\\\\scheme"
+     (parse-scheme (replace-tabs ln) #f #f #f) (continue)]
+    ["\\\\java"
+     (for-java (lambda () (parse-scheme (replace-tabs ln) #f #f #f))) (continue)]
+    ["\\\\begin{schemelist}"
+     (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f))) (continue)]
+    ["\\\\begin{schemelistnumbered}"
+     (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f))) (continue)]
+    ["\\\\begin{schemedisplay}"
+     (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f))) (continue)]
+    ["\\\\begin{schemeresponse}"
+     (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f))) (continue)]
+    ["\\\\begin{schemebox}"
+     (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f))) (continue)]
+    ["\\\\begin{schemeboxnumbered}"
+     (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f))) (continue)]
+    ["\\\\begin{schemeresponsebox}"
+     (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f))) (continue)]
+    ["\\\\begin{javabox}"
+     (for-java (lambda () (tab-filter (lambda () (parse-scheme (replace-tabs ln) #t #t #f)))))
+     (continue)]
+    ["\\\\begin{schemeregion}" (continue)]
+    ["\\\\end{schemeregion}" (continue)]
+    ["\\\\includeonly{([^}]*)}"
+     (printf "~a~n" (regexp-replace "}" (regexp-replace* "," ln ".dl,") ".dl}"))
+     (continue)]
+    [/ "^\\\\input{([^}]*)}" / (#f f)
+       (go-if-needed (strip-tex-suffix f) "input")
+       (continue)]
+    [/ "^\\\\inputCD{([^}]*)}{([^}]*)}" / (#f f d)
+       (set! include-path (cons d include-path))
+       (parameterize ([current-directory (build-path (current-directory) d)])
+         (go-if-needed (strip-tex-suffix f) "input"))
+       (set! include-path (cdr include-path))
+       (continue)]
+    [/ "^\\\\include{([^}]*)}" / (#f f)
+       (inc-depth)
+       (go-if-needed (strip-tex-suffix f) "include")
+       (dec-depth)
+       (continue)]
+    ["\\\\defschememathescape{\\$}"
+     (set! dollar-escapes-to-math? #t)]
+    [else
+     (printf "~a~n" ln)])))
+
+>Fix:
+	
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Jun 10 17:47:43 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Sun Jun 10 17:47:46 2001
+State-Changed-Why:
+Fixed
+
+>Unformatted:

@@ -1,0 +1,1021 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug 10 19:52:32 2012
+Received: from mail-ob0-f172.google.com (mail-ob0-f172.google.com [209.85.214.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7ANpxF8006499
+	for <bugs@bugs.plt-scheme.org>; Fri, 10 Aug 2012 19:51:59 -0400
+Message-Id: <201208102351.q7ANpvLZ006493@champlain.ccs.neu.edu>
+Date: Fri, 10 Aug 2012 19:51:57 -0400
+From: danburton.email@gmail.com
+To: bugs@racket-lang.org
+Subject: Typed Racket can't define union of parameterized structs 
+
+>Number:         12999
+>Category:       all
+>Synopsis:       Typed Racket can't define union of parameterized structs
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 10 19:56:01 -0400 2012
+>Closed-Date:    Fri Aug 31 09:32:13 -0400 2012
+>Last-Modified:  Mon Feb 18 23:13:58 -0500 2013
+>Originator:     Dan Burton
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3
+>Environment:
+Linux x86_64 / Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:11.0) Gecko/20100101 Firefox/11.0
+>Description:
+Here's a simple file that illustrates the problem
+
+;;;;;
+#lang typed/racket/no-check
+ 
+(require racket/match)
+ 
+(struct: (I R) Fun ([fun : (I -> (To-Res I R))]))
+(struct: (R) Done ([result : R]))
+ 
+(define-type (To-Res I R)
+  (U (Fun I R)
+     (Done R)))
+
+(: repeatedly-apply (All (I R) ((To-Res I R) I -> R)))
+(define (repeatedly-apply to-res x)
+  (match to-res
+    [(Fun f) (repeatedly-apply (f x) x)]
+    [(Done r) r]))
+ 
+(: sample (To-Res Integer Integer))
+(define sample
+  (Fun (lambda (x) (Fun (lambda (y) (Done (+ x y)))))))
+ 
+(repeatedly-apply sample 3) ;; => 6
+;;;;;
+
+This file is perfectly valid Racket, as evidenced by the fact that you can run it just fine with typed/racket/no-check. And it *should* be well-typed, but I get this error:
+
+Type Checker: Structure type constructor Fun
+applied to non-regular arguments (g24704 R) in: (Fun I R)
+
+However, it is obviously well-typed, as evidenced by this equivalent Haskell file
+
+----
+data ToRes i r
+  = Fun (i -> ToRes i r)
+  | Done r
+
+repeatedlyApply :: ToRes i r -> i -> r
+repeatedlyApply (Fun f) x = repeatedlyApply (f x) x
+repeatedlyApply (Done r) _ = r
+
+sample :: ToRes Integer Integer
+sample = Fun $ \x -> Fun $ \y -> Done (x + y)
+
+main = print (repeatedlyApply sample 3)
+----
+
+This bug makes me very sad, because it prevents me from typing this file: http://pastebin.com/LpP8JSry
+>How-To-Repeat:
+Load first "file" mentioned above into DrRacket, delete "/no-check", press "run".
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: danburton.email@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12999: Typed Racket can't define union of parameterized
+ structs
+Date: Fri, 10 Aug 2012 18:07:26 -0600
+
+ On 08/10/2012 05:56 PM, danburton.email@gmail.com wrote:
+ > #lang typed/racket/no-check
+ >
+ > (require racket/match)
+ >
+ > (struct: (I R) Fun ([fun : (I -> (To-Res I R))]))
+ > (struct: (R) Done ([result : R]))
+ >
+ > (define-type (To-Res I R)
+ >    (U (Fun I R)
+ >       (Done R)))
+ >
+ > (: repeatedly-apply (All (I R) ((To-Res I R) I -> R)))
+ > (define (repeatedly-apply to-res x)
+ >    (match to-res
+ >      [(Fun f) (repeatedly-apply (f x) x)]
+ >      [(Done r) r]))
+ >
+ > (: sample (To-Res Integer Integer))
+ > (define sample
+ >    (Fun (lambda (x) (Fun (lambda (y) (Done (+ x y)))))))
+ >
+ > (repeatedly-apply sample 3) ;; => 6
+ 
+ If it helps, this does typecheck:
+ 
+ #lang typed/racket
+ 
+ (require racket/match)
+ 
+ (struct: (R) Done ([result : R]))
+ 
+ (define-type (To-Res I R)
+    (Rec T (U (I -> T)
+              (Done R))))
+ 
+ (: repeatedly-apply (All (I R) ((To-Res I R) I -> R)))
+ (define (repeatedly-apply to-res x)
+    (cond [(Done? to-res)  (Done-result to-res)]
+          [else  (repeatedly-apply (to-res x) x)]))
+ 
+ (: sample (To-Res Integer Integer))
+ (define sample
+    (lambda: ([x : Integer]) (lambda: ([y : Integer]) (Done (+ x y)))))
+ 
+ (repeatedly-apply sample 3) ;; => 6
+ 
+ 
+ Neil ⊥
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: danburton.email@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12999: Typed Racket can't define union of parameterized structs
+Date: Fri, 10 Aug 2012 20:49:21 -0400
+
+ --Apple-Mail=_EFF3E320-0CBB-4A1D-845B-4C3E0410B1BC
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ 
+ On Aug 10, 2012, at 7:56 PM, danburton.email@gmail.com wrote:
+ 
+ > data ToRes i r
+ >  =3D Fun (i -> ToRes i r)
+ >  | Done r
+ >=20
+ > repeatedlyApply :: ToRes i r -> i -> r
+ > repeatedlyApply (Fun f) x =3D repeatedlyApply (f x) x
+ > repeatedlyApply (Done r) _ =3D r
+ >=20
+ > sample :: ToRes Integer Integer
+ > sample =3D Fun $ \x -> Fun $ \y -> Done (x + y)
+ >=20
+ > main =3D print (repeatedlyApply sample 3)
+ 
+ 
+ Dan,=20
+ 
+ (1) typed/racket/no-check: this looks more like a bug in your program, =
+ or to be precise, in your way of translating a Racket module into a =
+ Typed Racket module.=20
+ (2) haskell: Just because one language can assign a type to a function =
+ does not mean some other type system can (say Pascal or ML for that =
+ matter).=20
+ 
+ So the above are definitely not arguments in support of the subject =
+ line.=20
+ 
+ Having said that, one could argue that you wrote a program that you =
+ believed should pass the TR type checker *intuitively* and that it =
+ rejected this program with a type error. In this case, you would have to =
+ supply a chain of reasoning that expresses your intuition. Or you would =
+ have to explain why a programmer cannot understand the type error wrt to =
+ a rather intuitive notion of type. And for the latter, I can see why =
+ you're frustrated with TR. Expressing recursive types via True Unions is =
+ quite different from expressing them via algebraic datatypes where only =
+ one form can do it right. So perhaps this is the real trouble here.=20
+ 
+ -- Matthias
+ 
+ 
+ --Apple-Mail=_EFF3E320-0CBB-4A1D-845B-4C3E0410B1BC
+ Content-Disposition: attachment;
+ 	filename=smime.p7s
+ Content-Type: application/pkcs7-signature;
+ 	name=smime.p7s
+ Content-Transfer-Encoding: base64
+ 
+ MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAQAAoIIMTDCCBVYw
+ ggQ+oAMCAQICEHbDqMitQnj5Qd81mMX31uMwDQYJKoZIhvcNAQEFBQAwgd0xCzAJBgNVBAYTAlVT
+ MRcwFQYDVQQKEw5WZXJpU2lnbiwgSW5jLjEfMB0GA1UECxMWVmVyaVNpZ24gVHJ1c3QgTmV0d29y
+ azE7MDkGA1UECxMyVGVybXMgb2YgdXNlIGF0IGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9ycGEg
+ KGMpMDkxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UEAxMuVmVyaVNpZ24g
+ Q2xhc3MgMSBJbmRpdmlkdWFsIFN1YnNjcmliZXIgQ0EgLSBHMzAeFw0xMjA3MjYwMDAwMDBaFw0x
+ MzA3MjYyMzU5NTlaMIIBGTEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlT
+ aWduIFRydXN0IE5ldHdvcmsxRjBEBgNVBAsTPXd3dy52ZXJpc2lnbi5jb20vcmVwb3NpdG9yeS9S
+ UEEgSW5jb3JwLiBieSBSZWYuLExJQUIuTFREKGMpOTgxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZh
+ bGlkYXRlZDEzMDEGA1UECxMqRGlnaXRhbCBJRCBDbGFzcyAxIC0gTmV0c2NhcGUgRnVsbCBTZXJ2
+ aWNlMRswGQYDVQQDFBJNYXR0aGlhcyBGZWxsZWlzZW4xIzAhBgkqhkiG9w0BCQEWFG1hdHRoaWFz
+ QGNjcy5uZXUuZWR1MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxoivceU706ZnD2XD
+ JfoNFd4KTbYA9AObozHkSZ6BJLC8oSGjakZu6m11azFwk5LfPOjd7dQIKw9uDhmT1e4q6jP+B1FC
+ a1qqwm7Rw9PcFhqYFBlE8MbqJUXJW53Ynw3dK2XiUNqTXFcBa2otI8XxMtrQch4f9oMUy+aIn/fZ
+ QQDbkkzuwz3884xSbm0IMDneYUC6FF1OJe2+fkMqHqEDsSgY97RFcjdgTCOB012odwGhxJ3rIGaX
+ WUs7ttjnftzyGODVILMIx8RBJpGJ+Ur4R67SJygV8Clpg1RBuRUSNaZAN0tCjO9YSkb9HfF2tAx9
+ POWmQXdTtNNjZfJPbTVnkQIDAQABo4HSMIHPMAkGA1UdEwQCMAAwRAYDVR0gBD0wOzA5BgtghkgB
+ hvhFAQcXATAqMCgGCCsGAQUFBwIBFhxodHRwczovL3d3dy52ZXJpc2lnbi5jb20vcnBhMAsGA1Ud
+ DwQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDBAYIKwYBBQUHAwIwUAYDVR0fBEkwRzBFoEOgQYY/
+ aHR0cDovL2luZGMxZGlnaXRhbGlkLWczLWNybC52ZXJpc2lnbi5jb20vSW5kQzFEaWdpdGFsSUQt
+ RzMuY3JsMA0GCSqGSIb3DQEBBQUAA4IBAQCeAXGCjjlMmU1wb3Ii4V0yNygujjQcvJstFh7IyVcM
+ oD5/5Ar7b36JL1O2tpBosTf0pVZaORKCMPAf1IfBS48CvvqSoeVyXCFG1goXDjr7Ut+ZwosuFXdr
+ 2gD6u9EftuoUy+UBdz46NcN9YC0WbX7CrRE96XxvYwPfWnGIjsoNY7WqFI4f7HLlM5dCmAOXySsw
+ EbPKpflzEGPU8aKf4FqTX9ne+hTzPbCf5CDJdzrdyn5bQkqvSzxw+P3tvQSU9lnyZkG7wZ1cibna
+ QIuSNEe+HKOKcEfeTeD50JhLa43RE24nMsaXWdX61VTiPE/2Y9woEVLxXBp+AFpMZjGYsF/yMIIG
+ 7jCCBdagAwIBAgIQcRVmBUrkkSFN6bxE+azT3DANBgkqhkiG9w0BAQUFADCByjELMAkGA1UEBhMC
+ VVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3
+ b3JrMTowOAYDVQQLEzEoYykgMTk5OSBWZXJpU2lnbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVz
+ ZSBvbmx5MUUwQwYDVQQDEzxWZXJpU2lnbiBDbGFzcyAxIFB1YmxpYyBQcmltYXJ5IENlcnRpZmlj
+ YXRpb24gQXV0aG9yaXR5IC0gRzMwHhcNMDkwNTAxMDAwMDAwWhcNMTkwNDMwMjM1OTU5WjCB3TEL
+ MAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBU
+ cnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNp
+ Z24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQD
+ Ey5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczMIIBIjANBgkq
+ hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7cRH3yooHXwGa7vXITLJbBOP6bGNQU4099oL42r6ZYgg
+ CxET6ZvgSU6Lb9UB0F8NR5GKWkx0Pj/GkQm7TDSejW6hglFi92l2WJYHr54UGAdPWr2f0jGyVBlz
+ RmoZQhHsEnMhjfXcMM3l2VYKMcU2bSkUl70t2olHGYjYSwQ967Y8Zx50ABMN0Ibak2f4MwOuGjxr
+ aXj2wCyO4YM/d/mZ//6fUlrCtIcK2GypR8FUKWVDPkrAlh/Brfd3r2yxBF6+wbaULZeQLSfSux7p
+ g2qE9sSyriMGZSalJ1grByK0b6ZiSBp38tVQJ5op05b7KPW6JHZi44xZ6/tu1ULEvkHH9QIDAQAB
+ o4ICuTCCArUwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC52ZXJpc2ln
+ bi5jb20wEgYDVR0TAQH/BAgwBgEB/wIBADBwBgNVHSAEaTBnMGUGC2CGSAGG+EUBBxcBMFYwKAYI
+ KwYBBQUHAgEWHGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9jcHMwKgYIKwYBBQUHAgIwHhocaHR0
+ cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYTA0BgNVHR8ELTArMCmgJ6AlhiNodHRwOi8vY3JsLnZl
+ cmlzaWduLmNvbS9wY2ExLWczLmNybDAOBgNVHQ8BAf8EBAMCAQYwbgYIKwYBBQUHAQwEYjBgoV6g
+ XDBaMFgwVhYJaW1hZ2UvZ2lmMCEwHzAHBgUrDgMCGgQUS2u5KJYGDLvQUjibKaxLB4shBRgwJhYk
+ aHR0cDovL2xvZ28udmVyaXNpZ24uY29tL3ZzbG9nbzEuZ2lmMC4GA1UdEQQnMCWkIzAhMR8wHQYD
+ VQQDExZQcml2YXRlTGFiZWw0LTIwNDgtMTE4MB0GA1UdDgQWBBR5R2EIQf04BKJL57XM9UP2SSsR
+ +DCB8QYDVR0jBIHpMIHmoYHQpIHNMIHKMQswCQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24s
+ IEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRydXN0IE5ldHdvcmsxOjA4BgNVBAsTMShjKSAxOTk5
+ IFZlcmlTaWduLCBJbmMuIC0gRm9yIGF1dGhvcml6ZWQgdXNlIG9ubHkxRTBDBgNVBAMTPFZlcmlT
+ aWduIENsYXNzIDEgUHVibGljIFByaW1hcnkgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkgLSBHM4IR
+ AItbdVaEVIULAM+vOEjOsaQwDQYJKoZIhvcNAQEFBQADggEBADlNz0GZgbWpBbVSOOk5hIls5DSo
+ WufYbAlMJBq6WaSHO3Mh8ZOBz79oY1pn/jWFK6HDXaNKwjoZ3TDWzE3v8dKBl8pUWkO/N4t6jhmN
+ D0OojPKvYLMVirOVnDzgnrMnmKQ1chfl/Cpdh9OKDcLRRSr4wPSsKpM61a4ScAjr+zvid+zoK2Q1
+ ds262uDRyxTWcVibvtU+fbbZ6CTFJGZMXZEfdrMXPn8NxiGJL7M3uKH/XLJtSd5lUkL7DojS7Uod
+ v0vj+Mxy+kgOZY5JyNb4mZg7t5Q+MXEGh/psWVMu198r7V9jAKwV7QO4VRaMxmgD5yKocwuxvKDa
+ UljdCg5/wYIxggSLMIIEhwIBATCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWdu
+ LCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBv
+ ZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVy
+ c29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwg
+ U3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMAkGBSsOAwIaBQCgggJtMBgGCSqG
+ SIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTEyMDgxMTAwNDkyMVowIwYJKoZI
+ hvcNAQkEMRYEFMYAyZFP9Q1Vx+6mttAvxMr1YaS1MIIBAwYJKwYBBAGCNxAEMYH1MIHyMIHdMQsw
+ CQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRy
+ dXN0IE5ldHdvcmsxOzA5BgNVBAsTMlRlcm1zIG9mIHVzZSBhdCBodHRwczovL3d3dy52ZXJpc2ln
+ bi5jb20vcnBhIChjKTA5MR4wHAYDVQQLExVQZXJzb25hIE5vdCBWYWxpZGF0ZWQxNzA1BgNVBAMT
+ LlZlcmlTaWduIENsYXNzIDEgSW5kaXZpZHVhbCBTdWJzY3JpYmVyIENBIC0gRzMCEHbDqMitQnj5
+ Qd81mMX31uMwggEFBgsqhkiG9w0BCRACCzGB9aCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
+ DlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQL
+ EzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwG
+ A1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIElu
+ ZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMA0GCSqGSIb3DQEB
+ AQUABIIBAL+XWBNpyZbpRcF8yoOxkSfknwk0kUjwddY8zqHQg5vkf7OPB1hKursli06gZdNJZHAl
+ NqzrVjfP0fgV6HF/VQxGumb12aZLZi0yyf+qhv9qcFHvg7v7jF3MoI2s0PrsE5KoDa7Acxiw6/1x
+ 6dRgX1F+nEmT3wrwE3E/Bf+4mSevL1KI2i22Jh8gEV8gTdfa6nKnK0KVT2+T1U6TvrPlf2F9vPhr
+ Yysoh1fk5s/3XlTt/pm6w/q44VjExFr4p+cGeJupY2XtrM8uNglrKdhpMJQ1i+i+zbbz3m/ppxpE
+ +amJVcy3nGjwWQY3zFiMzB+nLbRzhs/ecfZxCxOIMTe8VBQAAAAAAAA=
+ 
+ --Apple-Mail=_EFF3E320-0CBB-4A1D-845B-4C3E0410B1BC--
+From: Dan Burton <danburton.email@gmail.com>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12999: Typed Racket can't define union of
+ parameterized structs
+Date: Sat, 11 Aug 2012 12:08:52 -0600
+
+ --f46d044481359c8c0304c7015b58
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ -- haskell
+ data ToRes i r
+   = Fun { fun :: i -> ToRes i r}
+   | Done { result :: r }
+ 
+ ;; typed/racket
+ (struct: (I R) Fun (fun : [I -> To-Res I R]))
+ (struct: (R) Done (result r)
+ (define-type (To-Res I R)
+   (U (Fun I R)
+      (Done R)))
+ 
+ In Haskell, I can define a type as a *tagged union* of (otherwise) *
+ untagged structs*. In Racket, I can define a type as an *untagged union* of
+ *tagged structs.* I was under the impression that these accomplished
+ essentially the same goal. As it turns out, when the type is recursive, the
+ Typed Racket type checker sometimes (?) rejects it. I fail to see what in
+ the typed racket code provided here is invalid according to the Typed
+ Racket type system. Can you please point me to some documentation
+ explaining the limitation in the TR type system that prevents this
+ particular code from being a valid type declaration?
+ 
+ Having said that, I've discovered a different way to type the program,
+ without changing the "untyped" portions of code. The solution is to let TR
+ know that To-Res is recursive (as Neil did).
+ 
+ ;;;;
+ #lang typed/racket
+ 
+ (require racket/match)
+ 
+ (struct: (I Next) Fun ([fun : (I -> Next)]))
+ (struct: (R) Done ([result : R]))
+ 
+ (define-type (To-Res I R)
+   (Rec Next
+     (U (Fun I Next)
+        (Done R))))
+ 
+ (: repeatedly-apply (All (I R) ((To-Res I R) I -> R)))
+ (define (repeatedly-apply to-res x)
+   (match to-res
+     [(Fun f) (repeatedly-apply (f x) x)]
+     [(Done r) r]))
+ ;;;;
+ 
+ However, note the awkward annotation that I must write in order for
+ `sample` to typecheck.
+ 
+ ;;;;
+ (: sample (To-Res Integer Integer))
+ (define sample
+   (Fun (lambda: ([x : Integer])
+          (ann
+          (Fun (lambda: ([y : Integer])
+                 (Done (+ x y))))
+          (Fun Integer (Done Integer))
+          ))))
+ 
+ (repeatedly-apply sample 3) ;; => 6
+ ;;;;
+ 
+ Without the annotation, it tries to infer that subexpression to be (Fun
+ Nothing (Done Integer)). Shall I submit a feature request for that, or is
+ there a way to declare the Fun type such that the annotation is unnecessary?
+ 
+ -- Dan Burton
+ 
+ --f46d044481359c8c0304c7015b58
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div><font face=3D"courier new, monospace">-- haskell</font></div><div><fon=
+ t face=3D"courier new, monospace">data ToRes i r</font></div><div><font fac=
+ e=3D"courier new, monospace">=A0 =3D Fun { fun :: i -&gt; ToRes i r}</font>=
+ </div><div>
+ 
+ <font face=3D"courier new, monospace">=A0 | Done { result :: r }</font></di=
+ v><div><font face=3D"courier new, monospace"><br></font></div><div><font fa=
+ ce=3D"courier new, monospace">;; typed/racket</font></div><div><font face=
+ =3D"courier new, monospace">(struct: (I R) Fun (fun : [I -&gt; To-Res I R])=
+ )</font></div>
+ 
+ <div><font face=3D"courier new, monospace">(struct: (R) Done (result r)</fo=
+ nt></div><div><span style=3D"font-family:&#39;courier new&#39;,monospace">(=
+ define-type (To-Res I R)</span></div><div><font face=3D"courier new, monosp=
+ ace">=A0 (U (Fun I R)</font></div>
+ 
+ <div><font face=3D"courier new, monospace">=A0 =A0 =A0(Done R)))</font></di=
+ v><div><br></div><div>In Haskell, I can define a type as a <i>tagged union<=
+ /i> of (otherwise) <i>untagged=A0structs</i>. In Racket, I can define a typ=
+ e as an=A0<i>untagged union</i> of <i>tagged structs.</i>=A0I was under the=
+  impression that these accomplished essentially the same goal. As it turns =
+ out, when the type is recursive, the Typed Racket type checker sometimes (?=
+ ) rejects it. I fail to see what in the typed racket code provided here is =
+ invalid according to the Typed Racket type system. Can you please point me =
+ to some documentation explaining the limitation in the TR type system that =
+ prevents this particular code from being a valid type declaration?</div>
+ 
+ <div><br></div><div>Having said that, I&#39;ve discovered a different way t=
+ o type the program, without changing the &quot;untyped&quot; portions of co=
+ de. The solution is to let TR know that To-Res is recursive (as Neil did).<=
+ /div>
+ 
+ <div><br></div><div>;;;;</div><div>#lang typed/racket</div><div><br></div><=
+ div>(require racket/match)</div><div><br></div><div>(struct: (I Next) Fun (=
+ [fun : (I -&gt; Next)]))</div><div>(struct: (R) Done ([result : R]))</div>
+ 
+ <div><br></div><div>(define-type (To-Res I R)</div><div>=A0 (Rec Next</div>=
+ <div>=A0 =A0 (U (Fun I Next)</div><div>=A0 =A0 =A0 =A0(Done R))))</div><div=
+ ><br></div><div>(: repeatedly-apply (All (I R) ((To-Res I R) I -&gt; R)))</=
+ div><div>
+ (define (repeatedly-apply to-res x)</div>
+ <div>=A0 (match to-res</div><div>=A0 =A0 [(Fun f) (repeatedly-apply (f x) x=
+ )]</div><div>=A0 =A0 [(Done r) r]))</div><div>;;;;</div><div><br></div><div=
+ >However, note the awkward annotation that I must write in order for `sampl=
+ e` to typecheck.</div>
+ 
+ <div><br></div><div>;;;;</div><div><div>(: sample (To-Res Integer Integer))=
+ </div><div>(define sample</div><div>=A0 (Fun (lambda: ([x : Integer])</div>=
+ <div>=A0 =A0 =A0 =A0 =A0(ann</div><div>=A0 =A0 =A0 =A0 =A0(Fun (lambda: ([y=
+  : Integer])</div>
+ 
+ <div>=A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 (Done (+ x y))))</div><div>=A0 =A0 =A0=
+  =A0 =A0(Fun Integer (Done Integer))</div><div>=A0 =A0 =A0 =A0 =A0))))</div=
+ ></div><div><br></div><div>(repeatedly-apply sample 3) ;; =3D&gt; 6</div><d=
+ iv>;;;;</div><div><br></div><div>
+ Without the annotation, it tries to infer that subexpression to be (Fun Not=
+ hing (Done Integer)). Shall I submit a feature request for that, or is ther=
+ e a way to declare the Fun type such that the annotation is unnecessary?</d=
+ iv>
+ 
+ <div><br></div>-- Dan Burton<br>
+ 
+ --f46d044481359c8c0304c7015b58--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Dan Burton <danburton.email@gmail.com>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12999: Typed Racket can't define union of parameterized structs
+Date: Sat, 11 Aug 2012 14:40:31 -0400
+
+ --Apple-Mail=_B56217F1-86F0-4EEA-9AD6-31FCB8978EAC
+ Content-Type: multipart/alternative;
+ 	boundary="Apple-Mail=_0839BB31-F454-4A97-BFA4-1328FAD46B63"
+ 
+ 
+ --Apple-Mail=_0839BB31-F454-4A97-BFA4-1328FAD46B63
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=iso-8859-1
+ 
+ 
+ On Aug 11, 2012, at 2:08 PM, Dan Burton wrote:
+ 
+ > -- haskell
+ > data ToRes i r
+ >   =3D Fun { fun :: i -> ToRes i r}
+ >   | Done { result :: r }
+ >=20
+ > ;; typed/racket
+ > (struct: (I R) Fun (fun : [I -> To-Res I R]))
+ > (struct: (R) Done (result r)
+ > (define-type (To-Res I R)
+ >   (U (Fun I R)
+ >      (Done R)))
+ 
+ 
+ Dan, I gave you a research answer that you didn't understand. I =
+ apologize.=20
+ 
+ Let's start from scratch. It seems to me that you want to write this =
+ program (a standard test case for soft scheme from 1989):=20
+ 
+ #lang typed/racket
+ 
+ (define-type (To-Res I) (Rec To-Res (U (Done I) (I -> To-Res))))
+ (struct: (R) Done ({result : R}))
+ 
+ (: repeatedly-apply (All (I) ((To-Res I) I -> I)))
+ (define (repeatedly-apply to-res x)
+   (cond
+     [(procedure? to-res) (repeatedly-apply (to-res x) x)]
+     [(Done? to-res) (Done-result to-res)]))
+ 
+ (repeatedly-apply Done 10)
+ (repeatedly-apply Done #f)
+ 
+ Is this correct? Which annotation is bad? (Please leave Haskell out of =
+ the picture. It confuses things.)=20=
+ 
+ --Apple-Mail=_0839BB31-F454-4A97-BFA4-1328FAD46B63
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=iso-8859-1
+ 
+ <html><head></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; =
+ "><br><div><div>On Aug 11, 2012, at 2:08 PM, Dan Burton wrote:</div><br =
+ class=3D"Apple-interchange-newline"><blockquote type=3D"cite"><span =
+ class=3D"Apple-style-span" style=3D"border-collapse: separate; =
+ font-family: 'Lucida Grande'; font-style: normal; font-variant: normal; =
+ font-weight: normal; letter-spacing: normal; line-height: normal; =
+ orphans: 2; text-align: -webkit-auto; text-indent: 0px; text-transform: =
+ none; white-space: normal; widows: 2; word-spacing: 0px; =
+ -webkit-border-horizontal-spacing: 0px; -webkit-border-vertical-spacing: =
+ 0px; -webkit-text-decorations-in-effect: none; -webkit-text-size-adjust: =
+ auto; -webkit-text-stroke-width: 0px; font-size: medium; "><div><font =
+ face=3D"courier new, monospace">-- haskell</font></div><div><font =
+ face=3D"courier new, monospace">data ToRes i r</font></div><div><font =
+ face=3D"courier new, monospace">&nbsp; =3D Fun { fun :: i -&gt; ToRes i =
+ r}</font></div><div><font face=3D"courier new, monospace">&nbsp; | Done =
+ { result :: r }</font></div><div><font face=3D"courier new, =
+ monospace"><br></font></div><div><font face=3D"courier new, =
+ monospace">;; typed/racket</font></div><div><font face=3D"courier new, =
+ monospace">(struct: (I R) Fun (fun : [I -&gt; To-Res I =
+ R]))</font></div><div><font face=3D"courier new, monospace">(struct: (R) =
+ Done (result r)</font></div><div><span style=3D"font-family: 'courier =
+ new', monospace; ">(define-type (To-Res I R)</span></div><div><font =
+ face=3D"courier new, monospace">&nbsp; (U (Fun I =
+ R)</font></div><div><font face=3D"courier new, monospace">&nbsp; &nbsp; =
+ &nbsp;(Done =
+ R)))</font></div></span></blockquote></div><br><div><br></div><div>Dan, =
+ I gave you a research answer that you didn't understand. I =
+ apologize.&nbsp;</div><div><br></div><div>Let's start from scratch. It =
+ seems to me that you want to write this program (a standard test case =
+ for soft scheme from =
+ 1989):&nbsp;</div><div><br></div><div><div><div>#lang =
+ typed/racket</div><div><br></div><div>(define-type (To-Res I) (Rec =
+ To-Res (U (Done I) (I -&gt; To-Res))))</div><div>(struct: (R) Done =
+ ({result : R}))</div><div><br></div><div>(: repeatedly-apply (All (I) =
+ ((To-Res I) I -&gt; I)))</div><div>(define (repeatedly-apply to-res =
+ x)</div><div>&nbsp; (cond</div><div>&nbsp; &nbsp; [(procedure? to-res) =
+ (repeatedly-apply (to-res x) x)]</div><div>&nbsp; &nbsp; [(Done? to-res) =
+ (Done-result to-res)]))</div><div><br></div><div>(repeatedly-apply Done =
+ 10)</div><div>(repeatedly-apply Done =
+ #f)</div></div></div><div><br></div><div>Is this correct? Which =
+ annotation is bad? (Please leave Haskell out of the picture. It confuses =
+ things.)&nbsp;</div></body></html>=
+ 
+ --Apple-Mail=_0839BB31-F454-4A97-BFA4-1328FAD46B63--
+ 
+ --Apple-Mail=_B56217F1-86F0-4EEA-9AD6-31FCB8978EAC
+ Content-Disposition: attachment;
+ 	filename=smime.p7s
+ Content-Type: application/pkcs7-signature;
+ 	name=smime.p7s
+ Content-Transfer-Encoding: base64
+ 
+ MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAQAAoIIMTDCCBVYw
+ ggQ+oAMCAQICEHbDqMitQnj5Qd81mMX31uMwDQYJKoZIhvcNAQEFBQAwgd0xCzAJBgNVBAYTAlVT
+ MRcwFQYDVQQKEw5WZXJpU2lnbiwgSW5jLjEfMB0GA1UECxMWVmVyaVNpZ24gVHJ1c3QgTmV0d29y
+ azE7MDkGA1UECxMyVGVybXMgb2YgdXNlIGF0IGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9ycGEg
+ KGMpMDkxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UEAxMuVmVyaVNpZ24g
+ Q2xhc3MgMSBJbmRpdmlkdWFsIFN1YnNjcmliZXIgQ0EgLSBHMzAeFw0xMjA3MjYwMDAwMDBaFw0x
+ MzA3MjYyMzU5NTlaMIIBGTEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlT
+ aWduIFRydXN0IE5ldHdvcmsxRjBEBgNVBAsTPXd3dy52ZXJpc2lnbi5jb20vcmVwb3NpdG9yeS9S
+ UEEgSW5jb3JwLiBieSBSZWYuLExJQUIuTFREKGMpOTgxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZh
+ bGlkYXRlZDEzMDEGA1UECxMqRGlnaXRhbCBJRCBDbGFzcyAxIC0gTmV0c2NhcGUgRnVsbCBTZXJ2
+ aWNlMRswGQYDVQQDFBJNYXR0aGlhcyBGZWxsZWlzZW4xIzAhBgkqhkiG9w0BCQEWFG1hdHRoaWFz
+ QGNjcy5uZXUuZWR1MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxoivceU706ZnD2XD
+ JfoNFd4KTbYA9AObozHkSZ6BJLC8oSGjakZu6m11azFwk5LfPOjd7dQIKw9uDhmT1e4q6jP+B1FC
+ a1qqwm7Rw9PcFhqYFBlE8MbqJUXJW53Ynw3dK2XiUNqTXFcBa2otI8XxMtrQch4f9oMUy+aIn/fZ
+ QQDbkkzuwz3884xSbm0IMDneYUC6FF1OJe2+fkMqHqEDsSgY97RFcjdgTCOB012odwGhxJ3rIGaX
+ WUs7ttjnftzyGODVILMIx8RBJpGJ+Ur4R67SJygV8Clpg1RBuRUSNaZAN0tCjO9YSkb9HfF2tAx9
+ POWmQXdTtNNjZfJPbTVnkQIDAQABo4HSMIHPMAkGA1UdEwQCMAAwRAYDVR0gBD0wOzA5BgtghkgB
+ hvhFAQcXATAqMCgGCCsGAQUFBwIBFhxodHRwczovL3d3dy52ZXJpc2lnbi5jb20vcnBhMAsGA1Ud
+ DwQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDBAYIKwYBBQUHAwIwUAYDVR0fBEkwRzBFoEOgQYY/
+ aHR0cDovL2luZGMxZGlnaXRhbGlkLWczLWNybC52ZXJpc2lnbi5jb20vSW5kQzFEaWdpdGFsSUQt
+ RzMuY3JsMA0GCSqGSIb3DQEBBQUAA4IBAQCeAXGCjjlMmU1wb3Ii4V0yNygujjQcvJstFh7IyVcM
+ oD5/5Ar7b36JL1O2tpBosTf0pVZaORKCMPAf1IfBS48CvvqSoeVyXCFG1goXDjr7Ut+ZwosuFXdr
+ 2gD6u9EftuoUy+UBdz46NcN9YC0WbX7CrRE96XxvYwPfWnGIjsoNY7WqFI4f7HLlM5dCmAOXySsw
+ EbPKpflzEGPU8aKf4FqTX9ne+hTzPbCf5CDJdzrdyn5bQkqvSzxw+P3tvQSU9lnyZkG7wZ1cibna
+ QIuSNEe+HKOKcEfeTeD50JhLa43RE24nMsaXWdX61VTiPE/2Y9woEVLxXBp+AFpMZjGYsF/yMIIG
+ 7jCCBdagAwIBAgIQcRVmBUrkkSFN6bxE+azT3DANBgkqhkiG9w0BAQUFADCByjELMAkGA1UEBhMC
+ VVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3
+ b3JrMTowOAYDVQQLEzEoYykgMTk5OSBWZXJpU2lnbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVz
+ ZSBvbmx5MUUwQwYDVQQDEzxWZXJpU2lnbiBDbGFzcyAxIFB1YmxpYyBQcmltYXJ5IENlcnRpZmlj
+ YXRpb24gQXV0aG9yaXR5IC0gRzMwHhcNMDkwNTAxMDAwMDAwWhcNMTkwNDMwMjM1OTU5WjCB3TEL
+ MAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBU
+ cnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNp
+ Z24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQD
+ Ey5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczMIIBIjANBgkq
+ hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7cRH3yooHXwGa7vXITLJbBOP6bGNQU4099oL42r6ZYgg
+ CxET6ZvgSU6Lb9UB0F8NR5GKWkx0Pj/GkQm7TDSejW6hglFi92l2WJYHr54UGAdPWr2f0jGyVBlz
+ RmoZQhHsEnMhjfXcMM3l2VYKMcU2bSkUl70t2olHGYjYSwQ967Y8Zx50ABMN0Ibak2f4MwOuGjxr
+ aXj2wCyO4YM/d/mZ//6fUlrCtIcK2GypR8FUKWVDPkrAlh/Brfd3r2yxBF6+wbaULZeQLSfSux7p
+ g2qE9sSyriMGZSalJ1grByK0b6ZiSBp38tVQJ5op05b7KPW6JHZi44xZ6/tu1ULEvkHH9QIDAQAB
+ o4ICuTCCArUwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC52ZXJpc2ln
+ bi5jb20wEgYDVR0TAQH/BAgwBgEB/wIBADBwBgNVHSAEaTBnMGUGC2CGSAGG+EUBBxcBMFYwKAYI
+ KwYBBQUHAgEWHGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9jcHMwKgYIKwYBBQUHAgIwHhocaHR0
+ cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYTA0BgNVHR8ELTArMCmgJ6AlhiNodHRwOi8vY3JsLnZl
+ cmlzaWduLmNvbS9wY2ExLWczLmNybDAOBgNVHQ8BAf8EBAMCAQYwbgYIKwYBBQUHAQwEYjBgoV6g
+ XDBaMFgwVhYJaW1hZ2UvZ2lmMCEwHzAHBgUrDgMCGgQUS2u5KJYGDLvQUjibKaxLB4shBRgwJhYk
+ aHR0cDovL2xvZ28udmVyaXNpZ24uY29tL3ZzbG9nbzEuZ2lmMC4GA1UdEQQnMCWkIzAhMR8wHQYD
+ VQQDExZQcml2YXRlTGFiZWw0LTIwNDgtMTE4MB0GA1UdDgQWBBR5R2EIQf04BKJL57XM9UP2SSsR
+ +DCB8QYDVR0jBIHpMIHmoYHQpIHNMIHKMQswCQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24s
+ IEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRydXN0IE5ldHdvcmsxOjA4BgNVBAsTMShjKSAxOTk5
+ IFZlcmlTaWduLCBJbmMuIC0gRm9yIGF1dGhvcml6ZWQgdXNlIG9ubHkxRTBDBgNVBAMTPFZlcmlT
+ aWduIENsYXNzIDEgUHVibGljIFByaW1hcnkgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkgLSBHM4IR
+ AItbdVaEVIULAM+vOEjOsaQwDQYJKoZIhvcNAQEFBQADggEBADlNz0GZgbWpBbVSOOk5hIls5DSo
+ WufYbAlMJBq6WaSHO3Mh8ZOBz79oY1pn/jWFK6HDXaNKwjoZ3TDWzE3v8dKBl8pUWkO/N4t6jhmN
+ D0OojPKvYLMVirOVnDzgnrMnmKQ1chfl/Cpdh9OKDcLRRSr4wPSsKpM61a4ScAjr+zvid+zoK2Q1
+ ds262uDRyxTWcVibvtU+fbbZ6CTFJGZMXZEfdrMXPn8NxiGJL7M3uKH/XLJtSd5lUkL7DojS7Uod
+ v0vj+Mxy+kgOZY5JyNb4mZg7t5Q+MXEGh/psWVMu198r7V9jAKwV7QO4VRaMxmgD5yKocwuxvKDa
+ UljdCg5/wYIxggSLMIIEhwIBATCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWdu
+ LCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBv
+ ZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVy
+ c29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwg
+ U3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMAkGBSsOAwIaBQCgggJtMBgGCSqG
+ SIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTEyMDgxMTE4NDAzMlowIwYJKoZI
+ hvcNAQkEMRYEFA12vs97Vgn30yvzby/Hhh4WzXSfMIIBAwYJKwYBBAGCNxAEMYH1MIHyMIHdMQsw
+ CQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRy
+ dXN0IE5ldHdvcmsxOzA5BgNVBAsTMlRlcm1zIG9mIHVzZSBhdCBodHRwczovL3d3dy52ZXJpc2ln
+ bi5jb20vcnBhIChjKTA5MR4wHAYDVQQLExVQZXJzb25hIE5vdCBWYWxpZGF0ZWQxNzA1BgNVBAMT
+ LlZlcmlTaWduIENsYXNzIDEgSW5kaXZpZHVhbCBTdWJzY3JpYmVyIENBIC0gRzMCEHbDqMitQnj5
+ Qd81mMX31uMwggEFBgsqhkiG9w0BCRACCzGB9aCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
+ DlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQL
+ EzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwG
+ A1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIElu
+ ZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMA0GCSqGSIb3DQEB
+ AQUABIIBAH8eQOMkavsxjSJGrI/ZCVLsyrnuyb8jrlNqkzcwOnWm1GRiJuj/ocZGtvQs4njycw+o
+ zBmhzi+5hNQmXxskqCDGYnlvaNtNKs+lkWTKgbGXomQRcHJJpYomq++xfMhisb9unWdK8II8ctSx
+ OOzjw+AiDjRBRc8yvKhRRe49yJqzut6RBpM3YB9EyzcK7X2tDGw0wIABG5a1lPYNlIRQ1LCh1q87
+ VnH1zC3mhLGCPmdRpmASUTGw+iYj8ZzZ1ZHAwFflTLQfmwrX59w5tllUtlAsKB7SQvzypST1Cu9A
+ WV9S3Kn1B7+cJ/WQobjzWiFSnaYoqUT0SGEod9oqkkFjikAAAAAAAAA=
+ 
+ --Apple-Mail=_B56217F1-86F0-4EEA-9AD6-31FCB8978EAC--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Dan Burton <danburton.email@gmail.com>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12999: Typed Racket can't define union of parameterized structs
+Date: Sat, 11 Aug 2012 14:45:37 -0400
+
+ --Apple-Mail=_8F637A9D-BFE0-490F-BB6B-1A7569933469
+ Content-Transfer-Encoding: 7bit
+ Content-Type: text/plain;
+ 	charset=iso-8859-1
+ 
+ 
+ p.s. I meant to include Sample: 
+ 
+ #lang typed/racket
+ 
+ (define-type (To-Res I) (Rec To-Res (U (Done I) (I -> To-Res))))
+ (struct: (R) Done ({result : R}))
+ 
+ (: repeatedly-apply (All (I) ((To-Res I) I -> I)))
+ (define (repeatedly-apply to-res x)
+   (cond
+     [(procedure? to-res) (repeatedly-apply (to-res x) x)]
+     [(Done? to-res) (Done-result to-res)]))
+ 
+ (repeatedly-apply Done 10)
+ (repeatedly-apply Done #f)
+ 
+ (: sample (To-Res Integer))
+ (define sample
+   (lambda: ([x : Integer])
+     (lambda: ([y : Integer])
+       (Done (+ x y)))))
+ 
+ (repeatedly-apply sample 3) ;; => 6
+ 
+ 
+ --Apple-Mail=_8F637A9D-BFE0-490F-BB6B-1A7569933469
+ Content-Disposition: attachment;
+ 	filename=smime.p7s
+ Content-Type: application/pkcs7-signature;
+ 	name=smime.p7s
+ Content-Transfer-Encoding: base64
+ 
+ MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAQAAoIIMTDCCBVYw
+ ggQ+oAMCAQICEHbDqMitQnj5Qd81mMX31uMwDQYJKoZIhvcNAQEFBQAwgd0xCzAJBgNVBAYTAlVT
+ MRcwFQYDVQQKEw5WZXJpU2lnbiwgSW5jLjEfMB0GA1UECxMWVmVyaVNpZ24gVHJ1c3QgTmV0d29y
+ azE7MDkGA1UECxMyVGVybXMgb2YgdXNlIGF0IGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9ycGEg
+ KGMpMDkxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UEAxMuVmVyaVNpZ24g
+ Q2xhc3MgMSBJbmRpdmlkdWFsIFN1YnNjcmliZXIgQ0EgLSBHMzAeFw0xMjA3MjYwMDAwMDBaFw0x
+ MzA3MjYyMzU5NTlaMIIBGTEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlT
+ aWduIFRydXN0IE5ldHdvcmsxRjBEBgNVBAsTPXd3dy52ZXJpc2lnbi5jb20vcmVwb3NpdG9yeS9S
+ UEEgSW5jb3JwLiBieSBSZWYuLExJQUIuTFREKGMpOTgxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZh
+ bGlkYXRlZDEzMDEGA1UECxMqRGlnaXRhbCBJRCBDbGFzcyAxIC0gTmV0c2NhcGUgRnVsbCBTZXJ2
+ aWNlMRswGQYDVQQDFBJNYXR0aGlhcyBGZWxsZWlzZW4xIzAhBgkqhkiG9w0BCQEWFG1hdHRoaWFz
+ QGNjcy5uZXUuZWR1MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxoivceU706ZnD2XD
+ JfoNFd4KTbYA9AObozHkSZ6BJLC8oSGjakZu6m11azFwk5LfPOjd7dQIKw9uDhmT1e4q6jP+B1FC
+ a1qqwm7Rw9PcFhqYFBlE8MbqJUXJW53Ynw3dK2XiUNqTXFcBa2otI8XxMtrQch4f9oMUy+aIn/fZ
+ QQDbkkzuwz3884xSbm0IMDneYUC6FF1OJe2+fkMqHqEDsSgY97RFcjdgTCOB012odwGhxJ3rIGaX
+ WUs7ttjnftzyGODVILMIx8RBJpGJ+Ur4R67SJygV8Clpg1RBuRUSNaZAN0tCjO9YSkb9HfF2tAx9
+ POWmQXdTtNNjZfJPbTVnkQIDAQABo4HSMIHPMAkGA1UdEwQCMAAwRAYDVR0gBD0wOzA5BgtghkgB
+ hvhFAQcXATAqMCgGCCsGAQUFBwIBFhxodHRwczovL3d3dy52ZXJpc2lnbi5jb20vcnBhMAsGA1Ud
+ DwQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDBAYIKwYBBQUHAwIwUAYDVR0fBEkwRzBFoEOgQYY/
+ aHR0cDovL2luZGMxZGlnaXRhbGlkLWczLWNybC52ZXJpc2lnbi5jb20vSW5kQzFEaWdpdGFsSUQt
+ RzMuY3JsMA0GCSqGSIb3DQEBBQUAA4IBAQCeAXGCjjlMmU1wb3Ii4V0yNygujjQcvJstFh7IyVcM
+ oD5/5Ar7b36JL1O2tpBosTf0pVZaORKCMPAf1IfBS48CvvqSoeVyXCFG1goXDjr7Ut+ZwosuFXdr
+ 2gD6u9EftuoUy+UBdz46NcN9YC0WbX7CrRE96XxvYwPfWnGIjsoNY7WqFI4f7HLlM5dCmAOXySsw
+ EbPKpflzEGPU8aKf4FqTX9ne+hTzPbCf5CDJdzrdyn5bQkqvSzxw+P3tvQSU9lnyZkG7wZ1cibna
+ QIuSNEe+HKOKcEfeTeD50JhLa43RE24nMsaXWdX61VTiPE/2Y9woEVLxXBp+AFpMZjGYsF/yMIIG
+ 7jCCBdagAwIBAgIQcRVmBUrkkSFN6bxE+azT3DANBgkqhkiG9w0BAQUFADCByjELMAkGA1UEBhMC
+ VVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3
+ b3JrMTowOAYDVQQLEzEoYykgMTk5OSBWZXJpU2lnbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVz
+ ZSBvbmx5MUUwQwYDVQQDEzxWZXJpU2lnbiBDbGFzcyAxIFB1YmxpYyBQcmltYXJ5IENlcnRpZmlj
+ YXRpb24gQXV0aG9yaXR5IC0gRzMwHhcNMDkwNTAxMDAwMDAwWhcNMTkwNDMwMjM1OTU5WjCB3TEL
+ MAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBU
+ cnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNp
+ Z24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQD
+ Ey5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczMIIBIjANBgkq
+ hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7cRH3yooHXwGa7vXITLJbBOP6bGNQU4099oL42r6ZYgg
+ CxET6ZvgSU6Lb9UB0F8NR5GKWkx0Pj/GkQm7TDSejW6hglFi92l2WJYHr54UGAdPWr2f0jGyVBlz
+ RmoZQhHsEnMhjfXcMM3l2VYKMcU2bSkUl70t2olHGYjYSwQ967Y8Zx50ABMN0Ibak2f4MwOuGjxr
+ aXj2wCyO4YM/d/mZ//6fUlrCtIcK2GypR8FUKWVDPkrAlh/Brfd3r2yxBF6+wbaULZeQLSfSux7p
+ g2qE9sSyriMGZSalJ1grByK0b6ZiSBp38tVQJ5op05b7KPW6JHZi44xZ6/tu1ULEvkHH9QIDAQAB
+ o4ICuTCCArUwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC52ZXJpc2ln
+ bi5jb20wEgYDVR0TAQH/BAgwBgEB/wIBADBwBgNVHSAEaTBnMGUGC2CGSAGG+EUBBxcBMFYwKAYI
+ KwYBBQUHAgEWHGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9jcHMwKgYIKwYBBQUHAgIwHhocaHR0
+ cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYTA0BgNVHR8ELTArMCmgJ6AlhiNodHRwOi8vY3JsLnZl
+ cmlzaWduLmNvbS9wY2ExLWczLmNybDAOBgNVHQ8BAf8EBAMCAQYwbgYIKwYBBQUHAQwEYjBgoV6g
+ XDBaMFgwVhYJaW1hZ2UvZ2lmMCEwHzAHBgUrDgMCGgQUS2u5KJYGDLvQUjibKaxLB4shBRgwJhYk
+ aHR0cDovL2xvZ28udmVyaXNpZ24uY29tL3ZzbG9nbzEuZ2lmMC4GA1UdEQQnMCWkIzAhMR8wHQYD
+ VQQDExZQcml2YXRlTGFiZWw0LTIwNDgtMTE4MB0GA1UdDgQWBBR5R2EIQf04BKJL57XM9UP2SSsR
+ +DCB8QYDVR0jBIHpMIHmoYHQpIHNMIHKMQswCQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24s
+ IEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRydXN0IE5ldHdvcmsxOjA4BgNVBAsTMShjKSAxOTk5
+ IFZlcmlTaWduLCBJbmMuIC0gRm9yIGF1dGhvcml6ZWQgdXNlIG9ubHkxRTBDBgNVBAMTPFZlcmlT
+ aWduIENsYXNzIDEgUHVibGljIFByaW1hcnkgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkgLSBHM4IR
+ AItbdVaEVIULAM+vOEjOsaQwDQYJKoZIhvcNAQEFBQADggEBADlNz0GZgbWpBbVSOOk5hIls5DSo
+ WufYbAlMJBq6WaSHO3Mh8ZOBz79oY1pn/jWFK6HDXaNKwjoZ3TDWzE3v8dKBl8pUWkO/N4t6jhmN
+ D0OojPKvYLMVirOVnDzgnrMnmKQ1chfl/Cpdh9OKDcLRRSr4wPSsKpM61a4ScAjr+zvid+zoK2Q1
+ ds262uDRyxTWcVibvtU+fbbZ6CTFJGZMXZEfdrMXPn8NxiGJL7M3uKH/XLJtSd5lUkL7DojS7Uod
+ v0vj+Mxy+kgOZY5JyNb4mZg7t5Q+MXEGh/psWVMu198r7V9jAKwV7QO4VRaMxmgD5yKocwuxvKDa
+ UljdCg5/wYIxggSLMIIEhwIBATCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWdu
+ LCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBv
+ ZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVy
+ c29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwg
+ U3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMAkGBSsOAwIaBQCgggJtMBgGCSqG
+ SIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTEyMDgxMTE4NDUzOFowIwYJKoZI
+ hvcNAQkEMRYEFAeCeGxTNT4mIbvASSzLtskdHmKDMIIBAwYJKwYBBAGCNxAEMYH1MIHyMIHdMQsw
+ CQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRy
+ dXN0IE5ldHdvcmsxOzA5BgNVBAsTMlRlcm1zIG9mIHVzZSBhdCBodHRwczovL3d3dy52ZXJpc2ln
+ bi5jb20vcnBhIChjKTA5MR4wHAYDVQQLExVQZXJzb25hIE5vdCBWYWxpZGF0ZWQxNzA1BgNVBAMT
+ LlZlcmlTaWduIENsYXNzIDEgSW5kaXZpZHVhbCBTdWJzY3JpYmVyIENBIC0gRzMCEHbDqMitQnj5
+ Qd81mMX31uMwggEFBgsqhkiG9w0BCRACCzGB9aCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
+ DlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQL
+ EzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwG
+ A1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIElu
+ ZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMA0GCSqGSIb3DQEB
+ AQUABIIBAIc01/AnXKOVI218/ZLDrqIL27pOh+6xY0sdAgb7FKpHfYQabP7FSx2IdECWt/f6NhpN
+ OvVi5jwW/vn/KVqM1oWMbzEa67B3zfSVovBQewZpi0BLwPtX6dZ8giPT/vcX6BgBWxorDbgwc1C6
+ c/iqY8lTKGOa0KgjzZhXk8r67EIrW3K2swPoa2iPL9UJwldkVx0dQfNb4FAU2x7xAioK2CUE+0d+
+ Awa0iEpIHuXlKbgf7xi9ZR37A6/BXZzf5UGvkeLn1pZFOot08NWjSj5Pp1yURXkUOPvXTWrPoxgq
+ yakVD+d5hmy7PYds535kEG8hh/SqQtBTkyFBjfxMUWwZOiMAAAAAAAA=
+ 
+ --Apple-Mail=_8F637A9D-BFE0-490F-BB6B-1A7569933469--
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, danburton.email@gmail.com
+Cc: 
+Subject: Re: all/12999: Typed Racket can't define union of parameterized structs
+Date: Sat, 11 Aug 2012 12:12:28 -0700
+
+ Dan,
+ The limitation is documented here:
+ http://docs.racket-lang.org/ts-reference/special-forms.html?q=struct%3A#(form._((lib._typed/racket/base..rkt)._define-type))
+ 
+ The issue with inferring Nothing instead of the type you want is:
+ http://bugs.racket-lang.org/query/?debug=&database=default&cmd=view+audit-trail&cmd=view&pr=12970
+From: Dan Burton <danburton.email@gmail.com>
+To: Eric Dobson <eric.n.dobson@gmail.com>,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/12999: Typed Racket can't define union of parameterized structs
+Date: Sat, 11 Aug 2012 16:25:26 -0600
+
+ --0016e6de03e52a96aa04c704f134
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ >
+ > Dan,
+ > The limitation is documented here:
+ >
+ > http://docs.racket-lang.org/ts-reference/special-forms.html?q=struct%3A#(form._((lib._typed/racket/base..rkt)._define-type))
+ >
+ > The issue with inferring Nothing instead of the type you want is:
+ >
+ > http://bugs.racket-lang.org/query/?debug=&database=default&cmd=view+audit-trail&cmd=view&pr=12970
+ >
+ 
+ Eric nailed my questions right on the head. Thanks!
+ 
+  It seems to me that you want to write this program [Mattias]
+ 
+ 
+ That is not quite the program I want to write, though it's *essentially* the
+ same. The program I want to write is this:
+ 
+ (struct Fun (fun))
+ (struct Done (result))
+ 
+ (define (repeatedly-apply to-res x)
+   (match x
+     [(Fun f) (repeatedly-apply (f x) x)]
+     [(Done r) r]))
+ 
+ I *want *to use the Fun struct and the Done struct to explicitly tag the
+ data as either "need another input" or "here's the result".
+ 
+ I have two objections to your version. First, it diverges from the original
+ code that I wrote; I'd like to be able to type the code I wrote without
+ changing anything in the "actual code" itself. Second, it has a flaw:
+ 
+ (define (repeatedly-apply to-res x)
+ >   (cond
+ >     [(procedure? to-res) (repeatedly-apply (to-res x) x)]
+ >     [(Done? to-res) (Done-result to-res)]))
+ 
+ 
+ This would render repeatedly-apply unusable if the desired "result"
+ happened to also be a procedure. Neil's similar suggested rework fixes
+ this, although it also changes the original program that I wrote (see my
+ first objection). As Eric pointed out, the documentation for define-type
+ *does* come with a warning:
+ 
+ Type names may refer to other types defined in the same module, but cycles
+ > among them are prohibited.
+ 
+ 
+ So I am satisfied that the original issue I brought up is not a "bug" like
+ I first thought, although a clearer error message would be nice. My subject
+ line should have said "Typed Racket can't define union of parameterized
+ structs *that refer to that same union*"; and this is a non-issue because
+ the documentation already clearly indicates that such is the case.
+ 
+ I also discovered an alternate way to type the program that does work,
+ using a Next type, so I'm satisfied with TR's ability to type the program I
+ wrote. Sorry for distracting this issue with the variance bug, but thanks
+ again Eric for pointing out the existing report for that issue.
+ 
+ -- Dan Burton
+ 
+ --0016e6de03e52a96aa04c704f134
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div class=3D"gmail_quote"><blockquote class=3D"gmail_quote" style=3D"margi=
+ n:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">Dan,<br>
+ The limitation is documented here:<br>
+ <a href=3D"http://docs.racket-lang.org/ts-reference/special-forms.html?q=3D=
+ struct%3A#(form._((lib._typed/racket/base..rkt)._define-type))" target=3D"_=
+ blank">http://docs.racket-lang.org/ts-reference/special-forms.html?q=3Dstru=
+ ct%3A#(form._((lib._typed/racket/base..rkt)._define-type))</a><br>
+ 
+ 
+ <br>
+ The issue with inferring Nothing instead of the type you want is:<br>
+ <a href=3D"http://bugs.racket-lang.org/query/?debug=3D&amp;database=3Ddefau=
+ lt&amp;cmd=3Dview+audit-trail&amp;cmd=3Dview&amp;pr=3D12970" target=3D"_bla=
+ nk">http://bugs.racket-lang.org/query/?debug=3D&amp;database=3Ddefault&amp;=
+ cmd=3Dview+audit-trail&amp;cmd=3Dview&amp;pr=3D12970</a><br>
+ 
+ 
+ </blockquote></div><br><div><div>Eric nailed my questions right on the head=
+ . Thanks!</div><div><br></div><blockquote class=3D"gmail_quote" style=3D"ma=
+ rgin:0px 0px 0px 0.8ex;border-left-width:1px;border-left-color:rgb(204,204,=
+ 204);border-left-style:solid;padding-left:1ex">
+ 
+ <span style=3D"color:rgb(34,34,34);font-family:arial,sans-serif;font-size:1=
+ 3px;background-color:rgb(255,255,255)">=A0It seems to me that you want to w=
+ rite this program [Mattias]</span></blockquote><div><br></div><div>That is =
+ not quite the program I want to write, though it&#39;s=A0<i>essentially</i>=
+ =A0the same.=A0The program I want to write is this:</div>
+ 
+ <div><br></div><div>(struct Fun (fun))</div><div>(struct Done (result))</di=
+ v><div><br></div><div>(define (repeatedly-apply to-res x)</div><div>=A0 (ma=
+ tch x</div><div>=A0 =A0 [(Fun f) (repeatedly-apply (f x) x)]</div><div>=A0 =
+ =A0 [(Done r) r]))</div>
+ 
+ <div><br></div><div>I=A0<i>want=A0</i>to use the Fun struct and the Done st=
+ ruct to explicitly tag the data as either &quot;need another input&quot; or=
+  &quot;here&#39;s the result&quot;.</div><div><br></div><div>I have two obj=
+ ections to your version. First, it diverges from the original code that I w=
+ rote; I&#39;d like to be able to type the code I wrote without changing any=
+ thing in the &quot;actual code&quot; itself. Second, it has a flaw:</div>
+ 
+ <div><br></div><blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0p=
+ x 0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-lef=
+ t-style:solid;padding-left:1ex">(define (repeatedly-apply to-res x)<br>=A0 =
+ (cond<br>
+ 
+ =A0 =A0 [(procedure? to-res) (repeatedly-apply (to-res x) x)]<br>=A0 =A0 [(=
+ Done? to-res) (Done-result to-res)]))</blockquote><div><br></div><div>This =
+ would render repeatedly-apply unusable if the desired &quot;result&quot; ha=
+ ppened to also be a procedure. Neil&#39;s similar suggested rework fixes th=
+ is, although it also changes the original program that I wrote (see my firs=
+ t objection). As Eric pointed out, the documentation for define-type *does*=
+  come with a warning:</div>
+ 
+ <div><br></div><blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0p=
+ x 0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-lef=
+ t-style:solid;padding-left:1ex"><span style=3D"background-color:rgb(255,255=
+ ,255);font-family:serif;font-size:medium">Type names may refer to other typ=
+ es defined in the same module, but cycles among them are prohibited.</span>=
+ </blockquote>
+ 
+ <div><br></div><div>So I am satisfied that the original issue I brought up =
+ is not a &quot;bug&quot; like I first thought, although a clearer error mes=
+ sage would be nice. My subject line should have said &quot;Typed Racket can=
+ &#39;t define union of parameterized structs=A0<i>that refer to that same u=
+ nion</i>&quot;; and this is a non-issue because the documentation already c=
+ learly indicates that such is the case.</div>
+ 
+ <div><br></div><div>I also discovered an alternate way to type the program =
+ that does work, using a Next type, so I&#39;m satisfied with TR&#39;s abili=
+ ty to type the program I wrote. Sorry for distracting this issue with the v=
+ ariance bug, but thanks again Eric for pointing out the existing report for=
+  that issue.</div>
+ 
+ <div><br clear=3D"all">-- Dan Burton</div></div>
+ 
+ --0016e6de03e52a96aa04c704f134--
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Dan Burton <danburton.email@gmail.com>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, nobody@racket-lang.org,
+        bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: all/12999: Typed Racket can't define union of parameterized structs
+Date: Wed, 15 Aug 2012 22:16:19 -0700
+
+ So the type name forming a cycle was not the issue you were seeing, it
+ was a different one involving substitution (which is now fixed at
+ head). The define-type cycle condition is only between define-types,
+ if there is a struct instance the loop then it is ok.
+ This program now typechecks:
+ #lang typed/racket
+ 
+ (require racket/match)
+ 
+ (struct: (I R) Fun ([fun : (I -> (To-Res I R))]))
+ (struct: (R) Done ([result : R]))
+ 
+ (define-type (To-Res I R)
+                (U (Fun I R)
+                        (Done R)))
+ 
+ (: repeatedly-apply (All (I R) ((To-Res I R) I -> R)))
+ (define (repeatedly-apply to-res x)
+     (match to-res
+                [(Fun f) (repeatedly-apply (f x) x)]
+                    [(Done r) r]))
+ 
+ (: sample (To-Res Integer Integer))
+ (define sample
+     ((inst Fun Integer Integer) (lambda (x) ((inst Fun Integer
+ Integer)(lambda (y) (Done (+ x y)))))))
+ 
+ (repeatedly-apply sample 3) ;; => 6
+ 
+ 
+ This is the same as your program except that the calls to the fun
+ constructor have been instantiated to avoid the variance bug.
+ 
+ On Sat, Aug 11, 2012 at 3:25 PM, Dan Burton <danburton.email@gmail.com> wrote:
+ >> Dan,
+ >> The limitation is documented here:
+ >>
+ >> http://docs.racket-lang.org/ts-reference/special-forms.html?q=struct%3A#(form._((lib._typed/racket/base..rkt)._define-type))
+ >>
+ >> The issue with inferring Nothing instead of the type you want is:
+ >>
+ >> http://bugs.racket-lang.org/query/?debug=&database=default&cmd=view+audit-trail&cmd=view&pr=12970
+ >
+ >
+ > Eric nailed my questions right on the head. Thanks!
+ >
+ >>  It seems to me that you want to write this program [Mattias]
+ >
+ >
+ > That is not quite the program I want to write, though it's essentially the
+ > same. The program I want to write is this:
+ >
+ > (struct Fun (fun))
+ > (struct Done (result))
+ >
+ > (define (repeatedly-apply to-res x)
+ >   (match x
+ >     [(Fun f) (repeatedly-apply (f x) x)]
+ >     [(Done r) r]))
+ >
+ > I want to use the Fun struct and the Done struct to explicitly tag the data
+ > as either "need another input" or "here's the result".
+ >
+ > I have two objections to your version. First, it diverges from the original
+ > code that I wrote; I'd like to be able to type the code I wrote without
+ > changing anything in the "actual code" itself. Second, it has a flaw:
+ >
+ >> (define (repeatedly-apply to-res x)
+ >>   (cond
+ >>     [(procedure? to-res) (repeatedly-apply (to-res x) x)]
+ >>     [(Done? to-res) (Done-result to-res)]))
+ >
+ >
+ > This would render repeatedly-apply unusable if the desired "result" happened
+ > to also be a procedure. Neil's similar suggested rework fixes this, although
+ > it also changes the original program that I wrote (see my first objection).
+ > As Eric pointed out, the documentation for define-type *does* come with a
+ > warning:
+ >
+ >> Type names may refer to other types defined in the same module, but cycles
+ >> among them are prohibited.
+ >
+ >
+ > So I am satisfied that the original issue I brought up is not a "bug" like I
+ > first thought, although a clearer error message would be nice. My subject
+ > line should have said "Typed Racket can't define union of parameterized
+ > structs that refer to that same union"; and this is a non-issue because the
+ > documentation already clearly indicates that such is the case.
+ >
+ > I also discovered an alternate way to type the program that does work, using
+ > a Next type, so I'm satisfied with TR's ability to type the program I wrote.
+ > Sorry for distracting this issue with the variance bug, but thanks again
+ > Eric for pointing out the existing report for that issue.
+ >
+ > -- Dan Burton
+
+State changed from "open" to "closed" by samth at Fri, 31 Aug 2012 09:32:13 -0400
+Reason>>> Fixed (some instantiation is still required here that
+shouldn't be, but that's a separate issue).
+
+
+Responsible changed from "nobody" to "samth" by eli at Mon, 18 Feb 2013 23:13:58 -0500
+Reason>>> samth closed
+

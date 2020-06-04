@@ -1,0 +1,602 @@
+From nobody@cs.rice.edu  Wed Nov 26 11:58:24 1997
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id LAA09514 for <plt-gnats@cs.rice.edu>; Wed, 26 Nov 1997 11:58:24 -0600 (CST)
+Message-Id: <199711261758.LAA00931@web.cs.rice.edu>
+Date: Wed, 26 Nov 1997 11:58:23 -0600 (CST)
+From: gklix@hassler.de
+Reply-To: gklix@hassler.de
+To: plt-gnats@cs.rice.edu
+Subject: Internal error 
+
+>Number:         380
+>Category:       drscheme
+>Synopsis:       Internal error
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Nov 26 18:00:01 GMT 1997
+>Last-Modified:  Mon Dec  1 13:06:04 CST 1997
+>Originator:     Gerald Klix
+>Organization:
+titan
+>Release:        50
+>Environment:
+Linux
+>Description:
+Excution of the program below ("acct.ss") gives this error:
+Internal Error: exception #(struct:exn:application:type "uq-ivar: expects type <object> as 1st arg, given: #f; other arguments were: interactions-edit" #<void> #f object) raised by exception handler
+
+
+>How-To-Repeat:
+File: acct.scs
+--Begin--
+(load "acc.ss")
+
+(define tp0 
+  (make-object partner%
+	       "Cs2"
+	       "Erlangen"
+	       "00000"
+	       "Hofmannstr."
+	       "51"))
+
+(define tc0 
+  (make-object 
+   contract%
+   tp0 'wk000 105))
+
+(define ti0 (make-object invoice% 'one))
+
+(send ti0 subtask-add! 
+      (make-object atomic-task%
+		   'att0))
+
+(send tc0 subtask-add! ti0)
+
+(write (send tc0 fee))
+      
+--End--
+
+File : acc.ss
+--Begin--
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; This will be a new version of our accounting package
+;;
+;; $Header$
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define the-vat-rate 15/100)
+(constant-name 'the-vat-rate)
+(define the-seconds-per-hour (* 60 60))
+(constant-name 'the-seconds-per-hour)
+
+;; The location class representing a location were work has been done.
+(define location%
+  (class '() (act-name)
+    (private (my-name act-name))
+    (public
+      ; Answer the name
+      (name (lambda () my-name)))))
+
+;; The task interface
+
+(define atomic-task<%>
+  (interface 
+   ()
+   name 
+   description set-description!
+   supertasks-for-each supertask-add!
+   supertask supertask-remove!
+   start-time duration
+   hours))
+
+(define task<%>
+  (interface
+   (atomic-task<%>)
+   subtasks-for-each 
+   subtask-add! subtask-remove!))
+
+(define atomic-task%
+  (class* '() (atomic-task<%>) (act-name)
+    (private 
+      (my-name act-name)
+      (my-description (symbol->string act-name))
+      (my-supertasks (make-hash-table-weak))
+      my-start-time 
+      (my-duration 0))
+    (public
+      (supertasks-for-each
+       (lambda (act-procedure) 
+	 (hash-table-for-each 
+	  my-supertasks
+	  act-procedure)))
+      (supertask-add!
+       (lambda (act-task)
+	 (hash-table-put! 
+	  my-supertasks 
+	  (send act-task name)
+	  act-task)))
+      (supertask
+       (case-lambda 
+	(()
+	 (let/ec a-continuation
+	   (supertasks-for-each
+	    (lambda (act-ignored-name act-task)
+	      (a-continuation act-task)))
+	   '()))
+	((act-name)
+	 (hash-table-get my-supertasks act-name))))
+      (supertask-remove!
+       (lambda (act-name)
+	 (hash-table-remove! my-supertasks act-name)))
+      (description
+       (lambda () my-description))
+      (set-description!
+       (lambda (act-description)
+	 (set! my-description act-description)))
+      (name
+       (lambda () my-name))
+      (start-time (lambda () my-start-time))
+      (set-start-time!
+       (lambda (act-time)
+	 (set! my-start-time act-time)))
+      (duration (lambda () my-duration))
+      (set-duration!
+       (lambda (act-duration)
+	 (set! my-duration act-duration)))
+      (hours
+       (lambda ()
+	 (/ (duration) the-seconds-per-hour))))))
+
+(define task%
+  (class* atomic-task% (task<%>) (act-name)
+    (rename (calculated-duration duration))
+    (inherit set-duration!)
+    (private
+      (my-subtasks (make-hash-table)))
+    (public
+      (subtasks-for-each 
+       (lambda (act-procedure) 
+	 (hash-table-for-each 
+	  my-subtasks
+	  act-procedure)))
+      (subtask
+       (case-lambda 
+	(()
+	 (let/ec a-continuation
+	   (subtasks-for-each
+	    (lambda (act-ignored-name act-task)
+	      (a-continuation act-task)))
+	   '()))
+	((act-name)
+	 (hash-table-get my-subtasks act-name))))
+      (subtask-remove!
+       (lambda (act-name)
+	 (hash-table-remove! my-subtasks act-name)))
+      (subtask-add! 
+       (lambda (act-subtask)
+	 (hash-table-put!
+	  my-subtasks
+	  (send act-subtask name)
+	  act-subtask)
+	 (send 
+	  act-subtask
+	  supertask-add!
+	  this)))
+      (duration
+       (lambda ()
+	 (if (nil? (calculated-duration))
+	     (set-duration!
+	      (let ((a-duration 0))
+		(subtasks-for-each
+		 (lambda (act-name act-task)
+		   (set! 
+		    a-duration
+		    (+ a-duration
+		       (send act-task duration)))))
+		(a-duration))))
+	 (calculated-duration))))
+    (sequence 
+      (super-init act-name)
+      (set-duration! '()))))
+       
+       
+(define partner%
+  (class '() (act-name act-town act-zip act-street act-number)
+    (public 
+      (my-name act-name)
+      (my-town act-town)
+      (my-zip act-zip)
+      (my-street act-street)
+      (my-number act-number))))
+
+
+(define invoice%
+  (class task% (act-name)
+    (private (my-fee-adjustment 0))
+    (public 
+      (adjust-fee!
+       (lambda (act-adjustment)
+	 (set! my-fee-adjustment act-adjustment)))
+      (adjustment
+       (lambda ()
+	 my-fee-adjustment))
+      (fee
+       (lambda ()
+	 (+
+	  (* (hours) (hourly-fee))
+	  (adjustment))))
+      (hourly-fee
+       (lambda ()
+	 (send (supertask) hourly-fee))))
+    (sequence
+      (super-init act-name))))
+       
+(define contract%
+  (class task% (act-partner act-name act-hourly-fee)
+    (inherit subtasks-for-each)
+    (rename 
+      (task-subtask-add! subtask-add!)
+      (task-subtask-remove! subtask-remove!))
+    (private 
+      (my-partner act-partner)
+      (my-hourly-fee act-hourly-fee)
+      (my-fee '())
+      (my-maximum-fee +inf.0))
+    (public
+     (calculate-fee
+      (lambda ()
+	(let ((an-answer 0))
+	  (subtasks-for-each
+	   (lambda (act-name act-task)
+	     (set! 
+	      an-answer
+	      (+ an-answer (send act-task fee)))))
+	  an-answer))))
+    (public 
+      (partner (lambda () my-partner))
+      (hourly-fee-set!
+       (lambda (act-fee)
+	 (set! my-hourly-fee act-fee)))
+      (hourly-fee
+       (lambda ()
+	 my-hourly-fee))
+      (maximum-fee
+       (lambda () my-maximum-fee))
+      (maximum-fee-set!
+       (lambda (act-fee) 
+	 (set! my-maximum-fee act-fee)))
+      (fee
+       (lambda ()
+	 (if (null? my-fee)
+	     (set! my-fee (calculate-fee)))
+	 my-fee))
+      (fee-left
+       (lambda ()
+	 (- my-maximum-fee (fee))))
+      (subtask-add!
+       (lambda (act-task)
+	 (task-subtask-add act-task)
+	 (set! my-fee nil)))
+      (subtask-remove!
+       (lambda (act-name)
+	 (task-subtask-remove! act-name)
+	 (set! my-fee nil))))
+    (sequence
+      (super-init act-name))))
+
+      
+      
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; $Log$
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--End--
+>Fix:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: ptg->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Wed Nov 26 12:29:24 1997
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: robby
+State-Changed-When: Wed Nov 26 12:34:45 1997
+State-Changed-Why:
+
+This bug has been fixed in 51. It turns out that this bug occurs in certain
+situations when your program has a bug. In this case, you left off a `!' in
+acc.ss. Here's the error message:
+
+acc.ss: 220.11-220.26: reference to undefined identifier: task-subtask-add
+
+Please let me know if you want a patch, I can make one up for you after
+Thanksgiving. 
+
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: plt-gnats@cs.rice.edu, gklix@hassler.de
+Cc: mflatt@cs.rice.edu, robby@cs.rice.edu
+Subject: Re: all/380: Internal error
+Date: Wed, 26 Nov 1997 12:20:08 -0600 (CST)
+
+ Gerald, der Bug ist bekannt und deutet auf einen Fehler in deinem Program
+ hin. Ich habe das ganze mal in DrScheme Version 51 durchgespielt und habe
+ mehrere Fehler beseitigt (see MF annotations in acc.ss). Leider bin ich 
+ dann steckengeblieben mit einem Fehler wo du 0 als Funktion benutzt. Take a
+ look. 
+ 
+ Mfg -- Matthias
+ 
+ (load "acc.ss")
+ 
+ (define tp0 
+   (make-object partner% "Cs2" "Erlangen" "00000" "Hofmannstr." "51"))
+ 
+ (define tc0 
+   (make-object contract% tp0 'wk000 105))
+ 
+ (define ti0
+   (make-object invoice% 'one))
+ 
+ (send ti0 subtask-add! (make-object atomic-task% 'att0))
+ 
+ (send tc0 subtask-add! ti0)
+ 
+ (write (send tc0 fee))
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;;
+ ;; This will be a new version of our accounting package
+ ;;
+ ;; $Header$
+ ;;
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ 
+ ;; MF: replaced nil by null and nil? by null?
+ 
+ (define the-vat-rate 15/100)
+ (constant-name 'the-vat-rate)
+ (define the-seconds-per-hour (* 60 60))
+ (constant-name 'the-seconds-per-hour)
+ 
+ ;; The location class representing a location were work has been done.
+ (define location%
+   (class '() (act-name)
+     (private (my-name act-name))
+     (public
+       ; Answer the name
+       (name (lambda () my-name)))))
+ 
+ ;; The task interface
+ 
+ (define atomic-task<%>
+   (interface 
+    ()
+    name 
+    description set-description!
+    supertasks-for-each supertask-add!
+    supertask supertask-remove!
+    start-time duration
+    hours))
+ 
+ (define task<%>
+   (interface
+    (atomic-task<%>)
+    subtasks-for-each 
+    subtask-add! subtask-remove!))
+ 
+ (define atomic-task%
+   (class* '() (atomic-task<%>) (act-name)
+     (private 
+       (my-name act-name)
+       (my-description (symbol->string act-name))
+       (my-supertasks (make-hash-table-weak))
+       my-start-time 
+       (my-duration 0))
+     (public
+       (supertasks-for-each
+        (lambda (act-procedure) 
+ 	 (hash-table-for-each 
+ 	  my-supertasks
+ 	  act-procedure)))
+       (supertask-add!
+        (lambda (act-task)
+ 	 (hash-table-put! 
+ 	  my-supertasks 
+ 	  (send act-task name)
+ 	  act-task)))
+       (supertask
+        (case-lambda 
+ 	(()
+ 	 (let/ec a-continuation
+ 	   (supertasks-for-each
+ 	    (lambda (act-ignored-name act-task)
+ 	      (a-continuation act-task)))
+ 	   '()))
+ 	((act-name)
+ 	 (hash-table-get my-supertasks act-name))))
+       (supertask-remove!
+        (lambda (act-name)
+ 	 (hash-table-remove! my-supertasks act-name)))
+       (description
+        (lambda () my-description))
+       (set-description!
+        (lambda (act-description)
+ 	 (set! my-description act-description)))
+       (name
+        (lambda () my-name))
+       (start-time (lambda () my-start-time))
+       (set-start-time!
+        (lambda (act-time)
+ 	 (set! my-start-time act-time)))
+       (duration (lambda () my-duration))
+       (set-duration!
+        (lambda (act-duration)
+ 	 (set! my-duration act-duration)))
+       (hours
+        (lambda ()
+ 	 (/ (duration) the-seconds-per-hour))))))
+ 
+ (define task%
+   (class* atomic-task% (task<%>) (act-name)
+     (rename (calculated-duration duration))
+     (inherit set-duration!)
+     (private
+       (my-subtasks (make-hash-table)))
+     (public
+       (subtasks-for-each 
+        (lambda (act-procedure) 
+ 	 (hash-table-for-each 
+ 	  my-subtasks
+ 	  act-procedure)))
+       (subtask
+        (case-lambda 
+ 	(()
+ 	 (let/ec a-continuation
+ 	   (subtasks-for-each
+ 	    (lambda (act-ignored-name act-task)
+ 	      (a-continuation act-task)))
+ 	   '()))
+ 	((act-name)
+ 	 (hash-table-get my-subtasks act-name))))
+       (subtask-remove!
+        (lambda (act-name)
+ 	 (hash-table-remove! my-subtasks act-name)))
+       (subtask-add! 
+        (lambda (act-subtask)
+ 	 (hash-table-put!
+ 	  my-subtasks
+ 	  (send act-subtask name)
+ 	  act-subtask)
+ 	 (send 
+ 	  act-subtask
+ 	  supertask-add!
+ 	  this)))
+       (duration
+        (lambda ()
+ 	 (if (null? (calculated-duration))
+ 	     (set-duration!
+ 	      (let ((a-duration 0))
+ 		(subtasks-for-each
+ 		 (lambda (act-name act-task)
+ 		   (set! 
+ 		    a-duration
+ 		    (+ a-duration
+ 		       (send act-task duration)))))
+ 		;; MF: a bug I csn't eliminate; a-duration is provably a
+ 		;; number when control flow reaches this point here -- why applied?
+ 		(a-duration))))
+ 	 (calculated-duration))))
+     (sequence 
+       (super-init act-name)
+       (set-duration! '()))))
+        
+        
+ (define partner%
+   (class '() (act-name act-town act-zip act-street act-number)
+     (public 
+       (my-name act-name)
+       (my-town act-town)
+       (my-zip act-zip)
+       (my-street act-street)
+       (my-number act-number))))
+ 
+ 
+ (define invoice%
+   (class task% (act-name)
+     (private (my-fee-adjustment 0))
+     (inherit hours) ;; MF: added line 
+     (public 
+       (adjust-fee!
+        (lambda (act-adjustment)
+ 	 (set! my-fee-adjustment act-adjustment)))
+       (adjustment
+        (lambda ()
+ 	 my-fee-adjustment))
+       (fee
+        (lambda ()
+ 	 (+
+ 	  (* (hours) (hourly-fee))
+ 	  (adjustment))))
+       (hourly-fee
+        (lambda ()
+ 	 (send (supertask) hourly-fee))))
+     (sequence
+       (super-init act-name))))
+        
+ (define contract%
+   (class task% (act-partner act-name act-hourly-fee)
+     (inherit subtasks-for-each)
+     (rename 
+       (task-subtask-add! subtask-add!)
+       (task-subtask-remove! subtask-remove!))
+     (private 
+       (my-partner act-partner)
+       (my-hourly-fee act-hourly-fee)
+       (my-fee '())
+       (my-maximum-fee +inf.0))
+     (public
+      (calculate-fee
+       (lambda ()
+ 	(let ((an-answer 0))
+ 	  (subtasks-for-each
+ 	   (lambda (act-name act-task)
+ 	     (set! 
+ 	      an-answer
+ 	      (+ an-answer (send act-task fee)))))
+ 	  an-answer))))
+     (public 
+       (partner (lambda () my-partner))
+       (hourly-fee-set!
+        (lambda (act-fee)
+ 	 (set! my-hourly-fee act-fee)))
+       (hourly-fee
+        (lambda ()
+ 	 my-hourly-fee))
+       (maximum-fee
+        (lambda () my-maximum-fee))
+       (maximum-fee-set!
+        (lambda (act-fee) 
+ 	 (set! my-maximum-fee act-fee)))
+       (fee
+        (lambda ()
+ 	 (if (null? my-fee)
+ 	     (set! my-fee (calculate-fee)))
+ 	 my-fee))
+       (fee-left
+        (lambda ()
+ 	 (- my-maximum-fee (fee))))
+       (subtask-add!
+        (lambda (act-task)
+ 	 (task-subtask-add! act-task) ;; MF: added ! to task-subtask-add
+ 	 (set! my-fee null)))
+       (subtask-remove!
+        (lambda (act-name)
+ 	 (task-subtask-remove! act-name)
+ 	 (set! my-fee null))))
+     (sequence
+       (super-init act-name))))
+ 
+       
+       
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;;
+ ;; $Log$
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: robby
+State-Changed-When: Mon Dec  1 13:05:51 1997
+State-Changed-Why:
+
+>Unformatted:

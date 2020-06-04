@@ -1,0 +1,677 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Aug 26 17:13:20 2013
+Received: from mail-ob0-f179.google.com (mail-ob0-f179.google.com [209.85.214.179])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r7QLDFQC005102
+	for <bugs@bugs.plt-scheme.org>; Mon, 26 Aug 2013 17:13:16 -0400
+Message-Id: <201308262113.r7QLDD9s005093@champlain.ccs.neu.edu>
+Date: Mon, 26 Aug 2013 17:13:13 -0400
+From: ianj@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: generic in-set shadowed, so method definition leads to syntax error
+
+>Number:         13982
+>Category:       all
+>Synopsis:       generic in-set shadowed, so method definition leads to syntax error
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Aug 26 17:16:01 -0400 2013
+>Closed-Date:    Thu Oct 10 20:16:59 -0400 2013
+>Last-Modified:  Thu Oct 10 20:20:01 -0400 2013
+>Originator:     J. Ian Johnson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.90.0.5
+>Environment:
+Linux x86_64 / Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:23.0) Gecko/20100101 Firefox/23.0
+>Description:
+Asumu discovered that in-set's renaming is the problem of the failure, so there must be a hygiene problem in the implementation of generics.
+>How-To-Repeat:
+#lang racket
+(require racket/generic)
+(struct S (x) #:methods gen:set [(define/generic gin-set in-set) (define (in-set g) (gin-set (S-x g)))])
+
+bug.rkt:2:33: define/generic: in-set is not a method of generic interfaces gen:set
+  at: in-set
+  in: (define/generic gin-set in-set)
+  context...:
+   /home/ianj/racket/racket/collects/racket/private/generic-methods.rkt:68:4: find-generic-method
+   /home/ianj/racket/racket/collects/racket/private/generic-methods.rkt:177:2
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:345:0: compile-zo*
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:552:26
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:545:42
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:510:0: maybe-compile-zo
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:622:2: do-check
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:732:4: compilation-manager-load-handler
+   standard-module-name-resolver
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:345:0: compile-zo*
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:552:26
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:545:42
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:510:0: maybe-compile-zo
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:622:2: do-check
+   /home/ianj/racket/racket/collects/compiler/cm.rkt:661:15
+   /home/ianj/racket/racket/collects/compiler/../racket/private/map.rkt:113:23: loop...
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "cce" by cce at Mon, 26 Aug 2013 17:43:51 -0400
+Reason>>> related to define/generic and gen:set
+
+From: "J. Ian Johnson" <ianj@ccs.neu.edu>
+To: bugs@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Tue, 27 Aug 2013 10:22:22 -0400 (EDT)
+
+ A fix is to change (rename-out [*in-set in-set]) to in-set in private/set.rkt, since the sequence syntax isn't beneficial, and the renaming shadows the generic function. Not sure if this is the proper fix, since there seems to be code to counteract this kind of thing by crawling back through syntax-local-get-shadower, but it obviously wasn't working in the way one would expect. Could it be that syntax-local-get-shadower doesn't consider shadowing through provide rename-out?
+ -Ian
+ ----- Original Message -----
+ From: cce@racket-lang.org
+ To: cce@racket-lang.org, nobody@racket-lang.org, bug-notification@racket-lang.org, ianj@ccs.neu.edu
+ Sent: Monday, August 26, 2013 5:43:52 PM GMT -05:00 US/Canada Eastern
+ Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method definition leads to syntax error
+ 
+ 
+ Responsible changed from "nobody" to "cce" by cce at Mon, 26 Aug 2013 17:43:51 -0400
+ Reason>>> related to define/generic and gen:set
+ 
+ 
+ View:
+   http://bugs.racket-lang.org/query/?cmd=view&pr=13982
+ 
+
+Responsible changed from "cce" to "mflatt" by cce at Mon, 02 Sep 2013 19:32:19 -0400
+Reason>>> Bug appears to lie in free-identifier=? when applied to
+identifiers produced by syntax-local-get-shadower.
+
+State changed from "open" to "analyzed" by cce at Mon, 02 Sep 2013 19:32:19 -0400
+Reason>>> It turns out syntax-local-get-shadower is producing the
+right identifier.  I modified
+collects/racket/private/generic-methods.rkt to apply
+syntax-local-value to context-id and method-id (as compared
+on line 101).  The results were eq? and instances of the
+struct 'unimplemented'.  It looks like the only error is
+that free-identifier=? nevertheless produces #f.
+
+
+----------
+A commit by cce@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/10bce2b472
+  | Constructed a test related to PR 13982.
+
+From: "J. Ian Johnson" <ianj@ccs.neu.edu>
+To: bugs@racket-lang.org
+Cc: mflatt@racket-lang.org, cce@racket-lang.org,
+        bug-notification@racket-lang.org, ianj@ccs.neu.edu
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Wed, 4 Sep 2013 16:15:46 -0400 (EDT)
+
+ Instead of free-identifier=? being the culprit here, perhaps in generic-methods.rkt 162,30 delta should be (compose syntax-local-introduce delta)? The methods are reintroduced into the scope with all the right marks except the mark on the generic-methods invocation itself.
+ -Ian
+ ----- Original Message -----
+ From: cce@racket-lang.org
+ To: mflatt@racket-lang.org, cce@racket-lang.org, bug-notification@racket-lang.org, ianj@ccs.neu.edu
+ Sent: Monday, September 2, 2013 7:32:19 PM GMT -05:00 US/Canada Eastern
+ Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method definition leads to syntax error
+ 
+ 
+ Responsible changed from "cce" to "mflatt" by cce at Mon, 02 Sep 2013 19:32:19 -0400
+ Reason>>> Bug appears to lie in free-identifier=? when applied to
+ identifiers produced by syntax-local-get-shadower.
+ 
+ State changed from "open" to "analyzed" by cce at Mon, 02 Sep 2013 19:32:19 -0400
+ Reason>>> It turns out syntax-local-get-shadower is producing the
+ right identifier.  I modified
+ collects/racket/private/generic-methods.rkt to apply
+ syntax-local-value to context-id and method-id (as compared
+ on line 101).  The results were eq? and instances of the
+ struct 'unimplemented'.  It looks like the only error is
+ that free-identifier=? nevertheless produces #f.
+ 
+ 
+ View:
+   http://bugs.racket-lang.org/query/?cmd=view&pr=13982
+ 
+From: Carl Eastlund <cce@racket-lang.org>
+To: "J. Ian Johnson" <ianj@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, mflatt@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Wed, 4 Sep 2013 16:24:49 -0400
+
+ --089e0111bd804340a804e5949bca
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I don't think so, the delta introducer should already include that mark.
+ If it didn't, no implementation of a generic interface would ever work.
+ And syntax-local-value wouldn't be finding the right binding for the
+ method.  I don't see any way for syntax-local-value to find the right
+ binding, but free-identifier=? not find it, except for free-identifier=?
+ being the culprit.
+ 
+ Carl Eastlund
+ 
+ 
+ On Wed, Sep 4, 2013 at 4:15 PM, J. Ian Johnson <ianj@ccs.neu.edu> wrote:
+ 
+ > Instead of free-identifier=? being the culprit here, perhaps in
+ > generic-methods.rkt 162,30 delta should be (compose syntax-local-introduce
+ > delta)? The methods are reintroduced into the scope with all the right
+ > marks except the mark on the generic-methods invocation itself.
+ > -Ian
+ > ----- Original Message -----
+ > From: cce@racket-lang.org
+ > To: mflatt@racket-lang.org, cce@racket-lang.org,
+ > bug-notification@racket-lang.org, ianj@ccs.neu.edu
+ > Sent: Monday, September 2, 2013 7:32:19 PM GMT -05:00 US/Canada Eastern
+ > Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ > definition leads to syntax error
+ >
+ >
+ > Responsible changed from "cce" to "mflatt" by cce at Mon, 02 Sep 2013
+ > 19:32:19 -0400
+ > Reason>>> Bug appears to lie in free-identifier=? when applied to
+ > identifiers produced by syntax-local-get-shadower.
+ >
+ > State changed from "open" to "analyzed" by cce at Mon, 02 Sep 2013
+ > 19:32:19 -0400
+ > Reason>>> It turns out syntax-local-get-shadower is producing the
+ > right identifier.  I modified
+ > collects/racket/private/generic-methods.rkt to apply
+ > syntax-local-value to context-id and method-id (as compared
+ > on line 101).  The results were eq? and instances of the
+ > struct 'unimplemented'.  It looks like the only error is
+ > that free-identifier=? nevertheless produces #f.
+ >
+ >
+ > View:
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13982
+ >
+ >
+ >
+ 
+ --089e0111bd804340a804e5949bca
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I don&#39;t think so, the delta introducer should already =
+ include that mark.=C2=A0 If it didn&#39;t, no implementation of a generic i=
+ nterface would ever work.=C2=A0 And syntax-local-value wouldn&#39;t be find=
+ ing the right binding for the method.=C2=A0 I don&#39;t see any way for syn=
+ tax-local-value to find the right binding, but free-identifier=3D? not find=
+  it, except for free-identifier=3D? being the culprit.<br>
+ 
+ </div><div class=3D"gmail_extra"><br clear=3D"all"><div>Carl Eastlund</div>
+ <br><br><div class=3D"gmail_quote">On Wed, Sep 4, 2013 at 4:15 PM, J. Ian J=
+ ohnson <span dir=3D"ltr">&lt;<a href=3D"mailto:ianj@ccs.neu.edu" target=3D"=
+ _blank">ianj@ccs.neu.edu</a>&gt;</span> wrote:<br><blockquote class=3D"gmai=
+ l_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left=
+ :1ex">
+ 
+ Instead of free-identifier=3D? being the culprit here, perhaps in generic-m=
+ ethods.rkt 162,30 delta should be (compose syntax-local-introduce delta)? T=
+ he methods are reintroduced into the scope with all the right marks except =
+ the mark on the generic-methods invocation itself.<br>
+ 
+ 
+ <div class=3D"im HOEnZb">-Ian<br>
+ ----- Original Message -----<br>
+ From: <a href=3D"mailto:cce@racket-lang.org">cce@racket-lang.org</a><br>
+ </div><div class=3D"im HOEnZb">To: <a href=3D"mailto:mflatt@racket-lang.org=
+ ">mflatt@racket-lang.org</a>, <a href=3D"mailto:cce@racket-lang.org">cce@ra=
+ cket-lang.org</a>, <a href=3D"mailto:bug-notification@racket-lang.org">bug-=
+ notification@racket-lang.org</a>, <a href=3D"mailto:ianj@ccs.neu.edu">ianj@=
+ ccs.neu.edu</a><br>
+ 
+ 
+ Sent: Monday, September 2, 2013 7:32:19 PM GMT -05:00 US/Canada Eastern<br>
+ Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method def=
+ inition leads to syntax error<br>
+ <br>
+ <br>
+ </div><div class=3D"HOEnZb"><div class=3D"h5">Responsible changed from &quo=
+ t;cce&quot; to &quot;mflatt&quot; by cce at Mon, 02 Sep 2013 19:32:19 -0400=
+ <br>
+ Reason&gt;&gt;&gt; Bug appears to lie in free-identifier=3D? when applied t=
+ o<br>
+ identifiers produced by syntax-local-get-shadower.<br>
+ <br>
+ State changed from &quot;open&quot; to &quot;analyzed&quot; by cce at Mon, =
+ 02 Sep 2013 19:32:19 -0400<br>
+ Reason&gt;&gt;&gt; It turns out syntax-local-get-shadower is producing the<=
+ br>
+ right identifier. =C2=A0I modified<br>
+ collects/racket/private/generic-methods.rkt to apply<br>
+ syntax-local-value to context-id and method-id (as compared<br>
+ on line 101). =C2=A0The results were eq? and instances of the<br>
+ struct &#39;unimplemented&#39;. =C2=A0It looks like the only error is<br>
+ that free-identifier=3D? nevertheless produces #f.<br>
+ <br>
+ <br>
+ View:<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 982" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13982</a><br>
+ <br>
+ <br>
+ </div></div></blockquote></div><br></div>
+ 
+ --089e0111bd804340a804e5949bca--
+From: "J. Ian Johnson" <ianj@ccs.neu.edu>
+To: Carl Eastlund <cce@racket-lang.org>
+Cc: bugs <bugs@racket-lang.org>, mflatt@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>,
+        "J. Ian Johnson" <ianj@ccs.neu.edu>
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Wed, 4 Sep 2013 16:35:07 -0400 (EDT)
+
+ Okay, so syntax-local-value of (car originals) in find-generic-method should be returning the result of make-unimplemented.
+ This is a torn-down version of generic-methods with the problem. Change delta to the following #;expr in bar to see the difference.
+ Without the change, this raises the syntax error with the (lambda (stx) #'(printf "default")) value.
+ With the change, the local value is #f, however the program compiles and runs to print "default".
+ 
+ Not the tiniest example, but should be more manageable for mflatt.
+ 
+ #lang racket/load
+ (module A racket
+   (provide gen:foo (rename-out [*a a]))
+   (define *a #t)
+   (define a #f)
+   (define-for-syntax a 'how-dem-apples)
+   (define-syntax gen:foo (list #'a)))
+ 
+ (module B racket
+   (require 'A racket/stxparam)
+   (define-syntax-parameter generic-method-context #f)
+   (define-syntax (define/derp stx)
+     (define (find-generic-method ctx gen-id delta info method-id)
+       (define originals
+         (let loop ([original-ids info]
+                    [rev-originals '()])
+           (cond
+            [(null? original-ids) (reverse rev-originals)]
+            [else
+             (define original-id (car original-ids))
+             (define context-id (syntax-local-get-shadower (delta original-id)))
+             (cond
+              [(free-identifier=? context-id method-id)
+               (loop (cdr original-ids) (cons original-id rev-originals))]
+              [else
+               (loop (cdr original-ids) rev-originals)])])))
+       (when (null? originals)
+         (raise-syntax-error
+          #f
+          (format "~.s is not a method of generic interfaces ~.s (local-value ~a)"
+                  (syntax-e method-id)
+                  (syntax-e gen-id)
+                  (syntax-local-value method-id (λ () #f)))
+          ctx
+          method-id))
+       (printf "local value ~a~%" (syntax-local-value method-id (λ () #f)))
+       (car originals))
+     (syntax-case stx ()
+       [(_ gen ref)
+        (let ()
+          (define gen-id (syntax-parameter-value #'generic-method-context))
+          (define info (syntax-local-value gen-id (λ () #f)))
+          (define delta (syntax-local-make-delta-introducer gen-id))
+          (define methods (map delta info))
+          (define method-id (find-generic-method stx #'gen delta info #'ref))
+          (with-syntax ([gmethod method-id])
+            #'(define gen gmethod)))]))
+   (define-syntax (bar stx)
+     (syntax-case stx ()
+       [(_ gen def ...)
+        (let ()
+          (define info (syntax-local-value #'gen (λ () #f)))
+          (define delta (syntax-local-make-delta-introducer #'gen))
+          (define methods (map delta #;(compose syntax-local-introduce delta) info
+                           ))
+          (with-syntax ([(method ...) methods])
+            #'(syntax-parameterize ([generic-method-context #'gen])
+                (letrec-syntaxes+values ([(method) (λ (stx) #'(printf "default"))] ...)
+                                        ()
+                                        def ...
+                                        (values method ...)))))]))
+ 
+   (bar gen:foo [define/derp ga a] (define a (cons ga 'bar))))
+ (require 'B)
+ 
+ ----- Original Message -----
+ From: "Carl Eastlund" <cce@racket-lang.org>
+ To: "J. Ian Johnson" <ianj@ccs.neu.edu>
+ Cc: "bugs" <bugs@racket-lang.org>, mflatt@racket-lang.org, "bug-notification" <bug-notification@racket-lang.org>
+ Sent: Wednesday, September 4, 2013 4:24:49 PM GMT -05:00 US/Canada Eastern
+ Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method definition leads to syntax error
+ 
+ 
+ I don't think so, the delta introducer should already include that mark. If it didn't, no implementation of a generic interface would ever work. And syntax-local-value wouldn't be finding the right binding for the method. I don't see any way for syntax-local-value to find the right binding, but free-identifier=? not find it, except for free-identifier=? being the culprit. 
+ 
+ 
+ 
+ Carl Eastlund 
+ 
+ 
+ On Wed, Sep 4, 2013 at 4:15 PM, J. Ian Johnson < ianj@ccs.neu.edu > wrote: 
+ 
+ 
+ Instead of free-identifier=? being the culprit here, perhaps in generic-methods.rkt 162,30 delta should be (compose syntax-local-introduce delta)? The methods are reintroduced into the scope with all the right marks except the mark on the generic-methods invocation itself. 
+ 
+ -Ian 
+ ----- Original Message ----- 
+ From: cce@racket-lang.org 
+ 
+ To: mflatt@racket-lang.org , cce@racket-lang.org , bug-notification@racket-lang.org , ianj@ccs.neu.edu 
+ Sent: Monday, September 2, 2013 7:32:19 PM GMT -05:00 US/Canada Eastern 
+ Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method definition leads to syntax error 
+ 
+ 
+ 
+ 
+ Responsible changed from "cce" to "mflatt" by cce at Mon, 02 Sep 2013 19:32:19 -0400 
+ Reason>>> Bug appears to lie in free-identifier=? when applied to 
+ identifiers produced by syntax-local-get-shadower. 
+ 
+ State changed from "open" to "analyzed" by cce at Mon, 02 Sep 2013 19:32:19 -0400 
+ Reason>>> It turns out syntax-local-get-shadower is producing the 
+ right identifier. I modified 
+ collects/racket/private/generic-methods.rkt to apply 
+ syntax-local-value to context-id and method-id (as compared 
+ on line 101). The results were eq? and instances of the 
+ struct 'unimplemented'. It looks like the only error is 
+ that free-identifier=? nevertheless produces #f. 
+ 
+ 
+ View: 
+ http://bugs.racket-lang.org/query/?cmd=view&pr=13982 
+ 
+ 
+ 
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "J. Ian Johnson" <ianj@ccs.neu.edu>
+Cc: Carl Eastlund <cce@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        "J. Ian Johnson" <ianj@ccs.neu.edu>
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Tue, 8 Oct 2013 19:51:20 -0600
+
+ Still working on this one.
+ 
+ Below is a smaller program whose result seems wrong to me.
+ 
+ I think that `ref` at REFERENCE shouldn't be bound by `in` at BINDING.
+ That is, the result of `free-identifier=?` seems right to me, and I
+ think that `ref` at REFERENCE should be unbound.
+ 
+ If the `rename-out` form is commented out, then `ref` is still bound
+ and `free-identifier=?` returns #t. Both of those results seem wrong to
+ me.
+ 
+ Finally, if the `rename-out` form is commented out and the definition
+ of `a` is commented out, then `ref` is still bound and
+ `free-identifier=?` returns #t --- but that seems right to me.
+ 
+ ----------------------------------------
+ 
+ #lang racket/load
+ 
+ (module A racket
+   (provide g (rename-out [*a a]))
+   (define *a 10)
+   (define a 10)
+   (define-syntax g #'a))
+ 
+ (module B racket
+   (require 'A)
+   (define-syntax (n stx)
+     (syntax-case stx ()
+       [(_ ref)
+        (with-syntax ([in (syntax-local-introduce
+                           (syntax-local-value #'g))])
+          #'(let ([in 10]) ; BINDING
+              (list (free-identifier=? #'in #'ref)
+                    in
+                    ref)))])) ; REFERENCE
+   (n a))
+ 
+ (require 'B)
+ 
+From: "J. Ian Johnson" <ianj@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: "J. Ian Johnson" <ianj@ccs.neu.edu>, Carl Eastlund <cce@racket-lang.org>,
+        bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        "J. Ian Johnson" <ianj@ccs.neu.edu>
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Tue, 8 Oct 2013 23:48:43 -0400 (EDT)
+
+ Why should two modules syntax-quoting an unbound identifier have those be free-identifier=? I would expect the opposite - free in separate modules should not mean free globally in my mind.
+ -Ian
+ ----- Original Message -----
+ From: Matthew Flatt <mflatt@cs.utah.edu>
+ To: J. Ian Johnson <ianj@ccs.neu.edu>
+ Cc: Carl Eastlund <cce@racket-lang.org>, bugs <bugs@racket-lang.org>, bug-notification <bug-notification@racket-lang.org>, J. Ian Johnson <ianj@ccs.neu.edu>
+ Sent: Tue, 8 Oct 2013 21:51:20 -0400 (EDT)
+ Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method definition leads to syntax error
+ 
+ Still working on this one.
+ 
+ Below is a smaller program whose result seems wrong to me.
+ 
+ I think that `ref` at REFERENCE shouldn't be bound by `in` at BINDING.
+ That is, the result of `free-identifier=?` seems right to me, and I
+ think that `ref` at REFERENCE should be unbound.
+ 
+ If the `rename-out` form is commented out, then `ref` is still bound
+ and `free-identifier=?` returns #t. Both of those results seem wrong to
+ me.
+ 
+ Finally, if the `rename-out` form is commented out and the definition
+ of `a` is commented out, then `ref` is still bound and
+ `free-identifier=?` returns #t --- but that seems right to me.
+ 
+ ----------------------------------------
+ 
+ #lang racket/load
+ 
+ (module A racket
+   (provide g (rename-out [*a a]))
+   (define *a 10)
+   (define a 10)
+   (define-syntax g #'a))
+ 
+ (module B racket
+   (require 'A)
+   (define-syntax (n stx)
+     (syntax-case stx ()
+       [(_ ref)
+        (with-syntax ([in (syntax-local-introduce
+                           (syntax-local-value #'g))])
+          #'(let ([in 10]) ; BINDING
+              (list (free-identifier=? #'in #'ref)
+                    in
+                    ref)))])) ; REFERENCE
+   (n a))
+ 
+ (require 'B)
+ 
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "J. Ian Johnson" <ianj@ccs.neu.edu>
+Cc: "J. Ian Johnson" <ianj@ccs.neu.edu>, Carl Eastlund <cce@racket-lang.org>,
+        bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        "J. Ian Johnson" <ianj@ccs.neu.edu>
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Wed, 9 Oct 2013 07:23:25 -0600
+
+ At Tue, 8 Oct 2013 23:48:43 -0400 (EDT), "J. Ian Johnson" wrote:
+ > Why should two modules syntax-quoting an unbound identifier have those be 
+ > free-identifier=? I would expect the opposite - free in separate modules 
+ > should not mean free globally in my mind.
+ 
+ I'm not sure why you're making a distinction for modules.
+ 
+ Hopefully, we agree that
+ 
+  #lang racket/base
+  (define a (let ([x 1]) #'z))
+  (define b (let ([y 2]) #'z))
+  (free-identifier=? a b)
+ 
+ should produce #t. Even though the `z`s are from different local
+ scopes, they're both free overall, and so they're equivalently free.
+ 
+ For the same reason, I expect #t from
+ 
+  #lang racket/load
+ 
+  (module a racket/base
+    (provide a)
+    (define a #'z))
+ 
+  (module b racket/base
+    (provide b)
+    (define b #'z))
+ 
+  (module c racket/base
+    (require 'a 'b)
+    (free-identifier=? a b))
+ 
+  (require 'c)
+ 
+ since the `z`s seem just as equivalently free as in the single-module
+ example.
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: "J. Ian Johnson" <ianj@ccs.neu.edu>, Carl Eastlund <cce@racket-lang.org>,
+        bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method definition leads to syntax error
+Date: Wed, 9 Oct 2013 11:16:01 -0400
+
+ There is a third option that one could rightfully consider: modules (plus imports) are closed so the question in c does not denote. (The function could blow up for example.) But that may not jive with practical uses. 
+ 
+ 
+ 
+ On Oct 9, 2013, at 9:23 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > At Tue, 8 Oct 2013 23:48:43 -0400 (EDT), "J. Ian Johnson" wrote:
+ >> Why should two modules syntax-quoting an unbound identifier have those be 
+ >> free-identifier=? I would expect the opposite - free in separate modules 
+ >> should not mean free globally in my mind.
+ > 
+ > I'm not sure why you're making a distinction for modules.
+ > 
+ > Hopefully, we agree that
+ > 
+ > #lang racket/base
+ > (define a (let ([x 1]) #'z))
+ > (define b (let ([y 2]) #'z))
+ > (free-identifier=? a b)
+ > 
+ > should produce #t. Even though the `z`s are from different local
+ > scopes, they're both free overall, and so they're equivalently free.
+ > 
+ > For the same reason, I expect #t from
+ > 
+ > #lang racket/load
+ > 
+ > (module a racket/base
+ >   (provide a)
+ >   (define a #'z))
+ > 
+ > (module b racket/base
+ >   (provide b)
+ >   (define b #'z))
+ > 
+ > (module c racket/base
+ >   (require 'a 'b)
+ >   (free-identifier=? a b))
+ > 
+ > (require 'c)
+ > 
+ > since the `z`s seem just as equivalently free as in the single-module
+ > example.
+ > 
+ 
+ 
+State changed from "analyzed" to "closed" by mflatt@racket-lang.org at Thu, 10 Oct 2013 20:16:59 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/ca002494e3
+  | fix an inconsistency in `free-identifier=?`
+  | 
+  | Closes PR 13982
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "J. Ian Johnson" <ianj@ccs.neu.edu>
+Cc: Carl Eastlund <cce@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        "J. Ian Johnson" <ianj@ccs.neu.edu>
+Subject: Re: [racket-bug] all/13982: generic in-set shadowed, so method
+ definition leads to syntax error
+Date: Thu, 10 Oct 2013 18:16:31 -0600
+
+ Well, the behavior that seems wrong to me is also deeply wired into the
+ implementation of lexical context for identifiers.
+ 
+ Part of the story is that local bindings are treated in a
+ phase-independent way. That treatment is not consistent with my
+ suggestion that the module-level bindings of different `a`s are
+ relevant, because those bindings are phase-specific.
+ 
+ Now that I understand, though, it's clear how to make
+ `free-identifier=?` consistent with the behavior of bindings.
+ 
+ At Tue, 8 Oct 2013 19:51:20 -0600, Matthew Flatt wrote:
+ > Still working on this one.
+ > 
+ > Below is a smaller program whose result seems wrong to me.
+ > 
+ > I think that `ref` at REFERENCE shouldn't be bound by `in` at BINDING.
+ > That is, the result of `free-identifier=?` seems right to me, and I
+ > think that `ref` at REFERENCE should be unbound.
+ > 
+ > If the `rename-out` form is commented out, then `ref` is still bound
+ > and `free-identifier=?` returns #t. Both of those results seem wrong to
+ > me.
+ > 
+ > Finally, if the `rename-out` form is commented out and the definition
+ > of `a` is commented out, then `ref` is still bound and
+ > `free-identifier=?` returns #t --- but that seems right to me.
+ > 
+ > ----------------------------------------
+ > 
+ > #lang racket/load
+ > 
+ > (module A racket
+ >   (provide g (rename-out [*a a]))
+ >   (define *a 10)
+ >   (define a 10)
+ >   (define-syntax g #'a))
+ > 
+ > (module B racket
+ >   (require 'A)
+ >   (define-syntax (n stx)
+ >     (syntax-case stx ()
+ >       [(_ ref)
+ >        (with-syntax ([in (syntax-local-introduce
+ >                           (syntax-local-value #'g))])
+ >          #'(let ([in 10]) ; BINDING
+ >              (list (free-identifier=? #'in #'ref)
+ >                    in
+ >                    ref)))])) ; REFERENCE
+ >   (n a))
+ > 
+ > (require 'B)

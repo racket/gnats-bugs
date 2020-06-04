@@ -1,0 +1,133 @@
+From mflatt@cs.rice.edu  Thu Mar 12 19:50:30 1998
+Received: from africa.cs.rice.edu (africa.cs.rice.edu [128.42.1.175])
+          by cs.rice.edu (8.8.5/8.8.4) with ESMTP
+	  id TAA24667 for <plt-gnats@cs.rice.edu>; Thu, 12 Mar 1998 19:50:30 -0600 (CST)
+Message-Id: <199803130150.TAA14742@africa.cs.rice.edu>
+Date: Thu, 12 Mar 1998 19:50:30 -0600 (CST)
+From: Matthew Flatt <mflatt@cs.rice.edu>
+Reply-To: mflatt@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: kill-breaking display can destroy the interaction window
+X-Send-Pr-Version: 3.101
+
+>Number:         491
+>Category:       mred
+>Synopsis:       kill-breaking display can destroy the interaction window
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Mar 13 02:00:02 GMT 1998
+>Last-Modified:  Sat Mar 14 08:30:29 CST 1998
+>Originator:     Matthew Flatt
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	51
+>Description:
+
+Killing (double-click the "break" button) can destroy the interactions
+window if a display is being performed during the kill.
+
+I'd guess that DrScheme is killing the thread while its in a sensitive
+buffer state that normally disallows breaks. While breaking is turned
+off for displaying, so should killing. (This requires cooperation
+between the killer and killee, which is possible since they're both
+DrScheme.)
+
+>How-To-Repeat:
+
+ (let loop ()
+    (with-handlers ([void void])
+      (display "a")
+      (loop)))
+
+Click "Break" twice and kill the thread. (If you manage to break, try
+again.) Now hit execute. Your interaction window probably won't
+update. If it does, try again.
+
+>Fix:
+
+Currently, MrEd's console output uses MzScheme's dynamic-disable-break
+to protect the output. To make it non-killable as well, one trick is
+to perform the work in a tread that is based on DrScheme's custodian:
+
+  (define (dynamic-disable-break/not-killable c f)
+    (mzlib:function:dynamic-disable-break
+     (lambda ()
+       (let* ([t (parameterize ([current-custodian c])
+		   (thread
+		    (lambda ()
+		      (f))))])
+	 (with-handlers ([exn:misc:user-break?
+			  (lambda (x)
+			    (break-thread t)
+			    (raise x))])
+	     (thread-wait t))))))
+
+[The extra break handling stuff is in anticipation of applying this to
+the killing-read problem; reads need to be breakable, but not
+killable.]
+
+Calling this function (using the custodian from the time that the
+console is created) instead of dynamic-disable-break seems to fix thhe
+bug, but more testing is necessary.
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Mar 13 11:01:15 1998
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Mar 13 11:02:36 1998
+State-Changed-Why:
+
+My suggested fix above works for this bug. To work for the read
+problem, it needs some adjustment, because the above assumes that `f'
+will always terminate pretty soon without prodding. The solution is to
+add another thread that notices when the main thread is killed, and if
+that happens it sends a break to the `f' thread.
+
+
+
+
+>Unformatted:
+
+Some test cases:
+
+ (read-eval-print-loop) ; you'll have to kill it to stop
+ (with-handlers ([void void]) (read-eval-print-loop)) ; should break
+ (read) ; should break
+ (let loop () (read) (loop)) ; should break
+ (let loop () (display 10) (loop)) ; should break
+ (let loop ()
+   (with-handlers ([void void])
+     (display 10))
+   (loop)) ; probably'll have to kill it
+ (let loop ()
+   (with-handlers ([void void])
+     (read))
+   (loop)) ; probably'll have to kill it
+ (thread
+  (lambda ()
+   (let loop () (display 10) (loop)))) ; returns, hit execute to stop all
+ (begin
+   (thread
+    (lambda ()
+     (let loop () (display 10) (loop))))
+   (read)) ; break then execute
+ (begin
+   (thread
+    (lambda ()
+     (let loop () (display 10) (loop))))
+   (read-eval-print-loop)) ; kill
+
+After all kills, make sure (read) and (display) work after
+re-executing.

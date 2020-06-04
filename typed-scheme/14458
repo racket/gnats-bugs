@@ -1,0 +1,333 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Apr 19 23:55:49 2014
+Received: from mail-oa0-f53.google.com (mail-oa0-f53.google.com [209.85.219.53])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s3K3tkCL024525
+	for <bugs@bugs.plt-scheme.org>; Sat, 19 Apr 2014 23:55:46 -0400
+Message-Id: <201404200355.s3K3tjnZ024514@winooski.ccs.neu.edu>
+Date: Sat, 19 Apr 2014 23:55:45 -0400
+From: pnguyen@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: TR: Strange error message when using Vectorof
+
+>Number:         14458
+>Category:       typed-scheme
+>Synopsis:       TR: Strange error message when using Vectorof
+>Class:          sw-bug
+>Responsible:    asumu
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Apr 19 23:56:01 -0400 2014
+>Closed-Date:    Wed Apr 30 15:03:39 -0400 2014
+>Last-Modified:  Wed Apr 30 15:03:39 -0400 2014
+>Originator:     Phil Nguyen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1.4--2014-04-18(ccefa53/a)
+>Environment:
+unix "Linux ubulap 3.13.0-24-generic #46-Ubuntu SMP Thu Apr 10 19:11:08 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 653785536
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    820e85aeae454e9aaa7090e53100c639fc7aac6f    (catalog main-distribution)
+ racket-lib           a5ad75266826476cc1034e69afe7ca6740b572d7    (catalog racket-lib)
+ [174 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ [none]
+
+
+
+Collections:
+("/home/phil/.racket/snapshot/collects"
+ (non-existent-path))
+("/home/phil/Apps/Racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+Using a struct parameterized by X with a field being (Vectorof X) results in a hard to understand error message.
+>How-To-Repeat:
+The following program:
+
+(struct: (X) S ([z : (Vectorof X)]))
+(define-type (T X) (U 'Leaf (S X)))
+
+(: f (∀ (X) (T X) → Any))
+(define (f s)
+  (match s
+    [(S _) 42]))
+
+gives the following error:
+Type Checker: Cannot apply expression of type Procedure, since it is not a function type in: (match s ((S _) 42))
+
+The error disappears if I do any of the following:
+* replace (Vectorof X) with (Listof X) or (Vectorof Any)
+* replace 'Leaf with a common type like Integer or String, #f, #t, 0, 1 (but not 2, 3, 42 or any symbol)
+* replace (S _) with (? S?)
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: pnguyen@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14458: TR: Strange error message when using
+ Vectorof
+Date: Tue, 29 Apr 2014 23:56:29 -0400
+
+ On 2014-04-19 23:56:01 -0400, pnguyen@ccs.neu.edu wrote:
+ > *** How to repeat:
+ > The following program:
+ >
+ > (struct: (X) S ([z : (Vectorof X)]))
+ > (define-type (T X) (U 'Leaf (S X)))
+ >
+ > (: f (∀ (X) (T X) → Any))
+ > (define (f s)
+ >   (match s
+ >     [(S _) 42]))
+ >
+ > gives the following error:
+ > Type Checker: Cannot apply expression of type Procedure, since it is not a function type in: (match s ((S _) 42))
+ 
+ This is a neat bug that involves TR incorrectly reasoning about dead
+ branches IIUC.
+ 
+ Basically, TR should not be able to check this in general because the
+ expansion of struct match clauses contains `unsafe-struct-ref` which has
+ a useless type. This is why you get the `Procedure` error message.
+ 
+ (BTW: that error message is pretty useless because the application is
+  inside the expanded syntax, but showing the actual application is
+  probably more confusing)
+ 
+ It just happens to work in some cases, however, for two reasons.
+ 
+ One is if TR's optimizer is able to prove that the `(S? s)` is trivially
+ false and thus rewrites it to `(begin (S? s) #f)`. The problematic
+ branch is now actually dead (this should be sound).
+ 
+ In others, it appears that TR thinks the branch is dead (but the
+ optimizer doesn't). That's what happens when you use `Listof` instead of
+ `Vectorof`.
+ 
+ To see the latter case, try this example after doing the `Listof`
+ substitution:
+ 
+   (: g (All (X) (-> (T X) Any)))
+   (define (g s) (if (S? s) (+ 1 "foo") 0))
+ 
+ It will type-check just fine. (thus TR is unsound on this example)
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: pnguyen@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14458: TR: Strange error message when using
+ Vectorof
+Date: Wed, 30 Apr 2014 00:15:52 -0400
+
+ On 2014-04-29 23:56:29 -0400, Asumu Takikawa wrote:
+ > In others, it appears that TR thinks the branch is dead (but the
+ > optimizer doesn't). That's what happens when you use `Listof` instead of
+ > `Vectorof`.
+ >
+ > To see the latter case, try this example after doing the `Listof`
+ > substitution:
+ >
+ >   (: g (All (X) (-> (T X) Any)))
+ >   (define (g s) (if (S? s) (+ 1 "foo") 0))
+ >
+ > It will type-check just fine. (thus TR is unsound on this example)
+ 
+ Whoops, sorry this explanation was actually wrong. I had the wrong
+ language setting when I tried this.
+ 
+ My guess is that the actual problem is that the tc/app-hetero type rule
+ for unsafe-struct-ref is failing to trigger for the original code, but
+ works for some reason with other types.
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: pnguyen@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14458: TR: Strange error message when using
+ Vectorof
+Date: Wed, 30 Apr 2014 00:25:07 -0400
+
+ On 2014-04-30 00:15:52 -0400, Asumu Takikawa wrote:
+ > My guess is that the actual problem is that the tc/app-hetero type rule
+ > for unsafe-struct-ref is failing to trigger for the original code, but
+ > works for some reason with other types.
+ 
+ And it probably doesn't trigger because occurrence typing doesn't
+ manage to recover a good type for the struct instance.
+ 
+ For example, this also doesn't type-check:
+ 
+   #lang typed/racket
+   (struct: (X) S ([z : (Vectorof X)]))
+   (define-type (T X) (U 'Leaf (S X)))
+ 
+   (: g (All (X) (-> (T X) Any)))
+   (define (g s) (if (S? s) (S-z s) 'dummy))
+ 
+ and produces this pretty unfortunate type error:
+ 
+   Type Checker: Polymorphic function `S-z' could not be applied to arguments:
+   Argument 1:
+     Expected: (S X)
+     Given:    (Struct S)
+ 
+   Result type:     ((Vectorof X) : ((! False @ (((Unknown Path Element: #(struct:App 1155 #(struct:combined-frees #hasheq() (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq((X . #(struct:Covariant))) ()))))) #(struct:combined-frees #hasheq() (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq() ()))))) #f #f S (X) #<syntax:4:28 (S X)>)) 0)) (0 0)) | (False @ (((Unknown Path Element: #(struct:App 1155 #(struct:combined-frees #hasheq() (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq((X . #(struct:Covariant))) ()))))) #(struct:combined-frees #hasheq() (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq() ()))))) #f #f S (X) #<syntax:4:28 (S X)>)) 0)) (0 0))) : (((Unknown Path Element: #(struct:App 1155 #(struct:combined-frees #hasheq() (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq((X . #(struct:Covariant))) ()))))) #(struct:combined-frees #hasheq() (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq() ()))))) #f #f S (X) #<syntax:4:28 (S X)>)) 0) (0 0)))
+   Expected result: Any
+    in: (S-z s)
+ 
+ Cheers,
+ Asumu
+ 
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: Phil Nguyen <pnguyen@ccs.neu.edu>,
+        bug-notification <bug-notification@racket-lang.org>,
+        bugs@racket-lang.org, nobody@racket-lang.org
+Subject: Re: [racket-bug] all/14458: TR: Strange error message when using Vectorof
+Date: Wed, 30 Apr 2014 08:08:24 -0400
+
+ --047d7b2ed255ccb95804f84167f8
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Aside from the printing issue, the problem with this example is that
+ overlap checking isn't doing a good enough job with non-covariant
+ structures.
+ 
+ Sam
+ On Apr 30, 2014 12:25 AM, "Asumu Takikawa" <asumu@ccs.neu.edu> wrote:
+ 
+ > On 2014-04-30 00:15:52 -0400, Asumu Takikawa wrote:
+ > > My guess is that the actual problem is that the tc/app-hetero type rule
+ > > for unsafe-struct-ref is failing to trigger for the original code, but
+ > > works for some reason with other types.
+ >
+ > And it probably doesn't trigger because occurrence typing doesn't
+ > manage to recover a good type for the struct instance.
+ >
+ > For example, this also doesn't type-check:
+ >
+ >   #lang typed/racket
+ >   (struct: (X) S ([z : (Vectorof X)]))
+ >   (define-type (T X) (U 'Leaf (S X)))
+ >
+ >   (: g (All (X) (-> (T X) Any)))
+ >   (define (g s) (if (S? s) (S-z s) 'dummy))
+ >
+ > and produces this pretty unfortunate type error:
+ >
+ >   Type Checker: Polymorphic function `S-z' could not be applied to
+ > arguments:
+ >   Argument 1:
+ >     Expected: (S X)
+ >     Given:    (Struct S)
+ >
+ >   Result type:     ((Vectorof X) : ((! False @ (((Unknown Path Element:
+ > #(struct:App 1155 #(struct:combined-frees #hasheq() (#(struct:app-frees
+ > #<syntax:3:13 S> (#(struct:combined-frees #hasheq((X .
+ > #(struct:Covariant))) ()))))) #(struct:combined-frees #hasheq()
+ > (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq()
+ > ()))))) #f #f S (X) #<syntax:4:28 (S X)>)) 0)) (0 0)) | (False @ (((Unknown
+ > Path Element: #(struct:App 1155 #(struct:combined-frees #hasheq()
+ > (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq((X .
+ > #(struct:Covariant))) ()))))) #(struct:combined-frees #hasheq()
+ > (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq()
+ > ()))))) #f #f S (X) #<syntax:4:28 (S X)>)) 0)) (0 0))) : (((Unknown Path
+ > Element: #(struct:App 1155 #(struct:combined-frees #hasheq()
+ > (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq((X .
+ > #(struct:Covariant))) ()))))) #(struct:combined-frees #hasheq()
+ > (#(struct:app-frees #<syntax:3:13 S> (#(struct:combined-frees #hasheq()
+ > ()))))) #f #f S (X) #<syntax:4:28 (S X)>)) 0) (0 0)))
+ >   Expected result: Any
+ >    in: (S-z s)
+ >
+ > Cheers,
+ > Asumu
+ >
+ 
+ --047d7b2ed255ccb95804f84167f8
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">Aside from the printing issue, the problem with this example=
+  is that overlap checking isn&#39;t doing a good enough job with non-covari=
+ ant structures.</p>
+ <p dir=3D"ltr">Sam</p>
+ <div class=3D"gmail_quote">On Apr 30, 2014 12:25 AM, &quot;Asumu Takikawa&q=
+ uot; &lt;<a href=3D"mailto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wro=
+ te:<br type=3D"attribution"><blockquote class=3D"gmail_quote" style=3D"marg=
+ in:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ On 2014-04-30 00:15:52 -0400, Asumu Takikawa wrote:<br>
+ &gt; My guess is that the actual problem is that the tc/app-hetero type rul=
+ e<br>
+ &gt; for unsafe-struct-ref is failing to trigger for the original code, but=
+ <br>
+ &gt; works for some reason with other types.<br>
+ <br>
+ And it probably doesn&#39;t trigger because occurrence typing doesn&#39;t<b=
+ r>
+ manage to recover a good type for the struct instance.<br>
+ <br>
+ For example, this also doesn&#39;t type-check:<br>
+ <br>
+ =C2=A0 #lang typed/racket<br>
+ =C2=A0 (struct: (X) S ([z : (Vectorof X)]))<br>
+ =C2=A0 (define-type (T X) (U &#39;Leaf (S X)))<br>
+ <br>
+ =C2=A0 (: g (All (X) (-&gt; (T X) Any)))<br>
+ =C2=A0 (define (g s) (if (S? s) (S-z s) &#39;dummy))<br>
+ <br>
+ and produces this pretty unfortunate type error:<br>
+ <br>
+ =C2=A0 Type Checker: Polymorphic function `S-z&#39; could not be applied to=
+  arguments:<br>
+ =C2=A0 Argument 1:<br>
+ =C2=A0 =C2=A0 Expected: (S X)<br>
+ =C2=A0 =C2=A0 Given: =C2=A0 =C2=A0(Struct S)<br>
+ <br>
+ =C2=A0 Result type: =C2=A0 =C2=A0 ((Vectorof X) : ((! False @ (((Unknown Pa=
+ th Element: #(struct:App 1155 #(struct:combined-frees #hasheq() (#(struct:a=
+ pp-frees #&lt;syntax:3:13 S&gt; (#(struct:combined-frees #hasheq((X . #(str=
+ uct:Covariant))) ()))))) #(struct:combined-frees #hasheq() (#(struct:app-fr=
+ ees #&lt;syntax:3:13 S&gt; (#(struct:combined-frees #hasheq() ()))))) #f #f=
+  S (X) #&lt;syntax:4:28 (S X)&gt;)) 0)) (0 0)) | (False @ (((Unknown Path E=
+ lement: #(struct:App 1155 #(struct:combined-frees #hasheq() (#(struct:app-f=
+ rees #&lt;syntax:3:13 S&gt; (#(struct:combined-frees #hasheq((X . #(struct:=
+ Covariant))) ()))))) #(struct:combined-frees #hasheq() (#(struct:app-frees =
+ #&lt;syntax:3:13 S&gt; (#(struct:combined-frees #hasheq() ()))))) #f #f S (=
+ X) #&lt;syntax:4:28 (S X)&gt;)) 0)) (0 0))) : (((Unknown Path Element: #(st=
+ ruct:App 1155 #(struct:combined-frees #hasheq() (#(struct:app-frees #&lt;sy=
+ ntax:3:13 S&gt; (#(struct:combined-frees #hasheq((X . #(struct:Covariant)))=
+  ()))))) #(struct:combined-frees #hasheq() (#(struct:app-frees #&lt;syntax:=
+ 3:13 S&gt; (#(struct:combined-frees #hasheq() ()))))) #f #f S (X) #&lt;synt=
+ ax:4:28 (S X)&gt;)) 0) (0 0)))<br>
+ 
+ =C2=A0 Expected result: Any<br>
+ =C2=A0 =C2=A0in: (S-z s)<br>
+ <br>
+ Cheers,<br>
+ Asumu<br>
+ </blockquote></div>
+ 
+ --047d7b2ed255ccb95804f84167f8--
+Responsible changed from "samth" to "asumu" by asumu@racket-lang.org at Wed, 30 Apr 2014 15:03:39 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/eb006a0e9e
+State changed from "open" to "closed" by asumu@racket-lang.org at Wed, 30 Apr 2014 15:03:39 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/eb006a0e9e
+  | Improve TR's overlap checking for StructTop types
+  | 
+  | Closes PR 14458
+

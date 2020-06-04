@@ -1,0 +1,167 @@
+From kimbly@cybercom.net  Sun Dec 29 13:30:20 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id NAA16156
+	for <bugs>; Sun, 29 Dec 2002 13:30:20 -0500
+Message-Id: <200212291830.NAA16156@champlain.ccs.neu.edu>
+Date: Sun, 29 Dec 2002 13:30:20 -0500
+From: Kimberley Burchett <kimbly@cybercom.net>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: (regexp-match regexp port) consumes characters on failure
+
+>Number:         6043
+>Category:       mzscheme
+>Synopsis:       (regexp-match regexp port) consumes characters on failure
+>Confidential:   no
+>Severity:       non-critical
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sun Dec 29 13:35:00 EST 2002
+>Closed-Date:    Mon Dec 30 08:24:59 EST 2002
+>Last-Modified:  Mon Dec 30 16:05:00 EST 2002
+>Originator:     Kimberley Burchett
+>Release:        203
+>Organization:
+plt
+>Environment:
+windows "Windows NT 5.1 (Build 2600)" (win32\i386)
+
+Docs installed:
+("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack" "misclib" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "framework" "mred" "tex2page" "tools" "tour" "t-y-scheme")
+
+Collections:
+(("C:\\PROGRA~1\\PLT\\./collects/setup/..\\..\\collects\\mzlib\\..\\..\\collects" ("browser" "compiler" "defaults" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper" "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm" "version" "eopl" "web-server" "tex2page" "mrlib" "test-suite" "doc")))
+
+Human language: english
+Computer language: ("PLT" "Textual (MzScheme, includes R5RS)")
+
+>Description:
+regexp-match consumes characters from a port even if 
+the match fails.  Inserting a ^ at the beginning of 
+the regexp doesn't seem to help.
+
+A workaround is to use regexp-match-peek first, and 
+then use regexp-match only if you know that the match 
+will succeed.
+
+By the way, the documentation isn't all that clear as 
+to whether this is actually a bug or not.  So this is 
+both a software bug and somewhat of a doc bug.
+>How-To-Repeat:
+> (define p (open-input-string "abc"))
+> (regexp-match "^x" p)
+#f
+> (peek-char p)
+#<eof>
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Kimberley Burchett <kimbly@cybercom.net>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6043: (regexp-match regexp port) consumes characters on failure
+Date: Sun, 29 Dec 2002 13:06:00 -0700 (MST)
+
+ At Sun, 29 Dec 2002 13:30:20 -0500, Kimberley Burchett wrote:
+ > regexp-match consumes characters from a port even if 
+ > the match fails.  Inserting a ^ at the beginning of 
+ > the regexp doesn't seem to help.
+ 
+ This is intentional. Although I considered special-casing patterns that
+ begin with "^", I decided that it wasn't a good idea to make a class of
+ previously equivalent patterns non-equivalent (e.g., "^(a*) and
+ (^a*)"), and I didn't want to implement a general "can only match at
+ the beginning" predicate.
+ 
+ > By the way, the documentation isn't all that clear as 
+ > to whether this is actually a bug or not.  So this is 
+ > both a software bug and somewhat of a doc bug.
+ 
+ True --- I'll fix the docs.
+ 
+ BTW, if you use `regexp-match-peek-positions', you can avoid redundant
+ pattern-matching work. I've added the following function to the
+ "string.ss" MzLib library:
+ 
+   (define regexp-match/fail-without-reading
+     (opt-lambda (pattern input-port [start-k 0] [end-k #f] [output-port #f])
+       (unless (input-port? input-port)
+         (raise-type-error 'regexp-match/fail-without-reading "input port"
+                           input-port))
+       (let ([m (apply regexp-match-peek-positions
+                       pattern input-port start-k end-k
+                       (if output-port
+                           (list output-port)
+                           null))])
+         (and m
+              (begin
+                ;; drop prefix before match:
+                (read-string (caar m) input-port)
+                (let ([s (read-string (- (cdar m) (caar m)) input-port)])
+                  (cons s
+                        (map (lambda (p)
+                               (substring s (- (car p) (caar m)) 
+                                            (- (cdr p) (caar m))))
+                             (cdr m)))))))))
+ 
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Dec 30 08:24:59 2002
+Responsible-Changed-Why:
+    mz
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Dec 30 08:24:59 2002
+State-Changed-Why:
+    Imrpoved docs, added regexp-match/fail-without-reading
+
+From: Kimberley Burchett <kimbly@cybercom.net>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6043: (regexp-match regexp port) consumes characters on
+ failure
+Date: Mon, 30 Dec 2002 15:22:04 -0500 (EST)
+
+ Just out of curiosity, what is the scenario you're envisioning where it's
+ useful for regexp-match to consume characters on failure?  I'm having
+ trouble imagining any situation where it's useful.
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Kimberley Burchett <kimbly@cybercom.net>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6043: (regexp-match regexp port) consumes characters on
+ failure
+Date: Mon, 30 Dec 2002 14:00:34 -0700 (MST)
+
+ At Mon, 30 Dec 2002 15:22:04 -0500 (EST), Kimberley Burchett wrote:
+ > 
+ > Just out of curiosity, what is the scenario you're envisioning where it's
+ > useful for regexp-match to consume characters on failure?  I'm having
+ > trouble imagining any situation where it's useful.
+ 
+ The main reason I see for a primitive `regexp-match' on ports is space
+ efficiency over long streams. The matcher might need to skip lots of
+ data before finding a match. In that case, I want the matcher to
+ discard non-matching data as it goes, rather than keeping it in memory.
+ For consistency, that means the port is emptied entirely when no match
+ is available.
+ 
+ Note that `regexp-match' also accepts an output port to send
+ "discarded" characters, so that different matching passes can be
+ combined into a pipeline.
+ 
+ Matthew
+ 
+>Unformatted:
+

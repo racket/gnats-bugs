@@ -1,0 +1,267 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jul 15 17:50:47 2014
+Received: from mail-oa0-f44.google.com (mail-oa0-f44.google.com [209.85.219.44])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s6FLoken020117
+	for <bugs@bugs.plt-scheme.org>; Tue, 15 Jul 2014 17:50:46 -0400
+Message-Id: <201407152150.s6FLoi0X020108@winooski.ccs.neu.edu>
+Date: Tue, 15 Jul 2014 17:50:44 -0400
+From: DavidCNelson@gmail.com
+To: bugs@racket-lang.org
+Subject: typed/racket: type of handler-function in with-handlers seems impossible to satisfy
+
+>Number:         14641
+>Category:       typed-scheme
+>Synopsis:       typed/racket: type of handler-function in with-handlers seems impossible to satisfy
+>Class:          sw-bug
+>Responsible:    asumu
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jul 15 17:52:01 -0400 2014
+>Closed-Date:    Fri Jul 25 18:31:26 -0400 2014
+>Last-Modified:  Fri Jul 25 18:31:26 -0400 2014
+>Originator:     David Nelson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1
+>Environment:
+macosx "Darwin dcnmacbook.local 13.3.0 Darwin Kernel Version 13.3.0: Tue Jun  3 21:27:35 PDT 2014; root:xnu-2422.110.17~1/RELEASE_X86_64 x86_64" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 266860408
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    b5541888d9afdeea2addc1986e17b0ca3b8533d7    (catalog main-distribution)
+ racket-lib           4e0ce39bb85789f0012f962eaf7027f0977b2b83    (catalog racket-lib)
+ [177 auto-installed packages not shown]
+User-specific for installation "6.0.1":
+ Package                Checksum                                    Source
+ grommet                b714f4a74faaca53b27e4e944b1b214a60b741ed    (catalog grommet)
+ optimization-coach     34cfb004cec372c4f2195befb95dca39e4e175d9    (catalog optimization-coach)
+ planet-vyzo-crypto2    512c3401f6773e8b323bd88a372f0a9eb9a6f7cf    (catalog planet-vyzo-crypto2)
+ scratchy               aef8883759fc962828bf977811697fccf06ef8b0    (catalog scratchy)
+ tests                  #f                                          (link ../../../../Documents/functional-test/test-fixture-3.0/program-and-test/tests)
+
+
+
+Collections:
+("/Volumes/MacintoshHD/david/Library/Racket/6.0.1/collects"
+ ())
+("/Applications/Racket v6.0.1/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+When compiling a sample program, I get a Type Checker error on the handler function for a with-handlers. I would expect the type of the parameter to be an Exception or maybe Any, but it seems to be Nothing.
+The tiny section for with-handlers in the Typed Racket Reference does not provide any guidance how to successfully use with-handlers.
+
+Type Checker: Expected a function of type (-> Nothing AnyValues), but got a function with the wrong arity in: (lambda (x : Exception) : Void (printf "caught an exception: ~v~%" x))
+>How-To-Repeat:
+Compile:
+
+#lang typed/racket
+
+(with-handlers ([exn:fail?
+                 (lambda (x : Exception) : Void
+                   (printf "caught an exception: ~v~%" x))])
+  (printf "This space intentionally left blank.~%"))
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: DavidCNelson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14641: typed/racket: type of handler-function
+ in with-handlers seems impossible to satisfy
+Date: Tue, 15 Jul 2014 18:06:50 -0400
+
+ On 2014-07-15 17:52:01 -0400, DavidCNelson@gmail.com wrote:
+ > *** How to repeat:
+ > Compile:
+ >
+ > #lang typed/racket
+ >
+ > (with-handlers ([exn:fail?
+ >                  (lambda (x : Exception) : Void
+ >                    (printf "caught an exception: ~v~%" x))])
+ >   (printf "This space intentionally left blank.~%"))
+ 
+ The problem here is actually that there is a syntax error in this
+ program. It will work if you re-write it like this:
+ 
+   (with-handlers ([exn:fail?
+                    (lambda ([x : exn]) : Void
+                      (printf "caught an exception: ~v~%" x))])
+     (printf "This space intentionally left blank.~%"))
+ 
+ When you write `(lambda (x : Exception) ...)`, this is actually a
+ function that takes three arguments: `x`, `:`, and `Exception` because
+ you are missing a set of parentheses. Obviously that wasn't the intended
+ program, but Typed Racket's parser cannot figure that out.
+ 
+ The error message is definitely not helpful though, so we should change
+ that. It's even worse in git HEAD:
+ 
+   -> (with-handlers ([exn:fail?
+                       (lambda (x : Exn) : Void
+                         (printf "caught an exception: ~v~%" x))])
+        (printf "This space intentionally left blank.~%"))
+   ; Internal Typechecker Error: Unsupported function type in get-result-ty:
+   ; (-> Any Any Any Void)
+   ; while typechecking:
+   ; (lambda (x : Exn) (#%expression (#%app printf (quote caught an exception:
+   ;   ~v~%) x)))
+   ; originally:
+   ; (lambda (x : Exn) : Void (printf caught an exception: ~v~% x))
+   ; [,bt for context]
+ 
+ Cheers,
+ Asumu
+From: David Nelson <davidcnelson@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14641: typed/racket: type of handler-function in
+ with-handlers seems impossible to satisfy
+Date: Tue, 15 Jul 2014 17:17:15 -0500
+
+ --089e0158c8462128cf04fe42c54c
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Thank you.
+ 
+ -- David
+ 
+ 
+ On Tue, Jul 15, 2014 at 5:06 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ 
+ > On 2014-07-15 17:52:01 -0400, DavidCNelson@gmail.com wrote:
+ > > *** How to repeat:
+ > > Compile:
+ > >
+ > > #lang typed/racket
+ > >
+ > > (with-handlers ([exn:fail?
+ > >                  (lambda (x : Exception) : Void
+ > >                    (printf "caught an exception: ~v~%" x))])
+ > >   (printf "This space intentionally left blank.~%"))
+ >
+ > The problem here is actually that there is a syntax error in this
+ > program. It will work if you re-write it like this:
+ >
+ >   (with-handlers ([exn:fail?
+ >                    (lambda ([x : exn]) : Void
+ >                      (printf "caught an exception: ~v~%" x))])
+ >     (printf "This space intentionally left blank.~%"))
+ >
+ > When you write `(lambda (x : Exception) ...)`, this is actually a
+ > function that takes three arguments: `x`, `:`, and `Exception` because
+ > you are missing a set of parentheses. Obviously that wasn't the intended
+ > program, but Typed Racket's parser cannot figure that out.
+ >
+ > The error message is definitely not helpful though, so we should change
+ > that. It's even worse in git HEAD:
+ >
+ >   -> (with-handlers ([exn:fail?
+ >                       (lambda (x : Exn) : Void
+ >                         (printf "caught an exception: ~v~%" x))])
+ >        (printf "This space intentionally left blank.~%"))
+ >   ; Internal Typechecker Error: Unsupported function type in get-result-ty:
+ >   ; (-> Any Any Any Void)
+ >   ; while typechecking:
+ >   ; (lambda (x : Exn) (#%expression (#%app printf (quote caught an
+ > exception:
+ >   ;   ~v~%) x)))
+ >   ; originally:
+ >   ; (lambda (x : Exn) : Void (printf caught an exception: ~v~% x))
+ >   ; [,bt for context]
+ >
+ > Cheers,
+ > Asumu
+ >
+ 
+ --089e0158c8462128cf04fe42c54c
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Thank you.<br></div><div class=3D"gmail_extra"><br clear=
+ =3D"all"><div>-- David<br></div>
+ <br><br><div class=3D"gmail_quote">On Tue, Jul 15, 2014 at 5:06 PM, Asumu T=
+ akikawa <span dir=3D"ltr">&lt;<a href=3D"mailto:asumu@ccs.neu.edu" target=
+ =3D"_blank">asumu@ccs.neu.edu</a>&gt;</span> wrote:<br><blockquote class=3D=
+ "gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding=
+ -left:1ex">
+ On 2014-07-15 17:52:01 -0400, <a href=3D"mailto:DavidCNelson@gmail.com">Dav=
+ idCNelson@gmail.com</a> wrote:<br>
+ &gt; *** How to repeat:<br>
+ &gt; Compile:<br>
+ &gt;<br>
+ &gt; #lang typed/racket<br>
+ &gt;<br>
+ &gt; (with-handlers ([exn:fail?<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lambda =
+ (x : Exception) : Void<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(=
+ printf &quot;caught an exception: ~v~%&quot; x))])<br>
+ &gt; =C2=A0 (printf &quot;This space intentionally left blank.~%&quot;))<br=
+ >
+ <br>
+ The problem here is actually that there is a syntax error in this<br>
+ program. It will work if you re-write it like this:<br>
+ <br>
+ =C2=A0 (with-handlers ([exn:fail?<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lambd=
+ a ([x : exn]) : Void<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0(printf &quot;caught an exception: ~v~%&quot; x))])<br>
+ =C2=A0 =C2=A0 (printf &quot;This space intentionally left blank.~%&quot;))<=
+ br>
+ <br>
+ When you write `(lambda (x : Exception) ...)`, this is actually a<br>
+ function that takes three arguments: `x`, `:`, and `Exception` because<br>
+ you are missing a set of parentheses. Obviously that wasn&#39;t the intende=
+ d<br>
+ program, but Typed Racket&#39;s parser cannot figure that out.<br>
+ <br>
+ The error message is definitely not helpful though, so we should change<br>
+ that. It&#39;s even worse in git HEAD:<br>
+ <br>
+ =C2=A0 -&gt; (with-handlers ([exn:fail?<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (lambda (x : Exn) : Void<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 (printf &quot;caught an exception: ~v~%&quot; x))])<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0(printf &quot;This space intentionally left blan=
+ k.~%&quot;))<br>
+ =C2=A0 ; Internal Typechecker Error: Unsupported function type in get-resul=
+ t-ty:<br>
+ =C2=A0 ; (-&gt; Any Any Any Void)<br>
+ =C2=A0 ; while typechecking:<br>
+ =C2=A0 ; (lambda (x : Exn) (#%expression (#%app printf (quote caught an exc=
+ eption:<br>
+ =C2=A0 ; =C2=A0 ~v~%) x)))<br>
+ =C2=A0 ; originally:<br>
+ =C2=A0 ; (lambda (x : Exn) : Void (printf caught an exception: ~v~% x))<br>
+ =C2=A0 ; [,bt for context]<br>
+ <br>
+ Cheers,<br>
+ Asumu<br>
+ </blockquote></div><br></div>
+ 
+ --089e0158c8462128cf04fe42c54c--
+
+Responsible changed from "samth" to "asumu" by asumu@racket-lang.org at Fri, 25 Jul 2014 18:31:26 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/41175d74be
+State changed from "open" to "closed" by asumu@racket-lang.org at Fri, 25 Jul 2014 18:31:26 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/41175d74be
+  | Check with-handlers better in TR
+  | 
+  | Now checks that a predicate and handler in the same clause
+  | are consistent (using the filter on the predicate).
+  | 
+  | Closes PR 13950
+  | Closes PR 14641
+

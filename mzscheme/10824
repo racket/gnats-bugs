@@ -1,0 +1,589 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Mar 16 06:46:06 2010
+Received: from mail-yx0-f198.google.com (mail-yx0-f198.google.com [209.85.210.198])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o2GAk3nl010840
+	for <bugs@bugs.plt-scheme.org>; Tue, 16 Mar 2010 06:46:03 -0400
+Message-Id: <201003161046.o2GAk08B010832@champlain.ccs.neu.edu>
+Date: Tue, 16 Mar 2010 06:46:00 -0400
+From: phao.1989@gmail.com
+To: bugs@plt-scheme.org
+Subject: mzscheme isn't producing expected results in evaluating scheme in quoted expressions
+
+>Number:         10824
+>Category:       mzscheme
+>Synopsis:       mzscheme isn't producing expected results in evaluating scheme in quoted expressions
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Mar 16 06:48:01 -0400 2010
+>Closed-Date:    Tue Mar 16 11:24:45 -0400 2010
+>Last-Modified:  Tue Mar 16 19:48:01 -0400 2010
+>Originator:     Pedro Henrique
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        MzScheme v4.2.4 [3m]
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2) Gecko/20100207 Namoroka/3.6
+>Description:
+mzscheme isn't evaluating a piece of code I did correctly. I thought I had it wrongly, but no one in #scheme@irc.freenode.com was able to find the problem with the code. Also, it runs in mit-scheme.
+
+When I run e2.58.ss, I get 
+
+((3 + +) + +)
+
+as output. mit-scheme gives me
+
+7
+
+as output.
+
+==============/e2.58.ss/=================
+(load "../common.ss")
+
+(define (deriv exp var)
+  (cond ((number? exp) 0)
+        ((variable? exp) (if (same-variable? exp var) 1 0))
+        ((sum? exp) (make-sum (deriv (addend exp) var)
+                              (deriv (augend exp) var)))
+        ((product? exp) (make-sum (make-product (multiplier exp)
+                                                (deriv (multiplicand exp) var))
+                                  (make-product (deriv (multiplier exp) var)
+                                                (multiplicand exp))))
+        ((exponentiation? exp) (make-product (exponent exp)
+                                             (make-product (make-expt (base exp)
+                                                                      (make-sub (exponent exp) 1))
+                                                           (deriv (base exp) var))))
+        (else (error "unknown expression type -- DERIV" exp))))
+
+(define (variable? x)
+  (symbol? x))
+
+(define (same-variable? x y)
+  (symbol-eq? x y))
+
+(define (make-sub a b)
+  (cond ((=number? b 0) a)
+        ((and (number? a) (number? b) (= a b)) 0)
+        ((and (=number? a 0) (number? b)) (- b))
+        (else (list a '- b))))
+
+;; Not only creates a sum, but simplifies it if possible.
+(define (make-sum a b)
+  (cond ((=number? a 0) b)
+        ((=number? b 0) a)
+        ((and (number? a) (number? b)) (+ a b))
+        (else (list a '+ b))))
+
+;; Not only creates a product, but simplifies
+(define (make-product a b)
+  (cond ((or (=number? b 0) (=number? a 0)) 0)
+        ((=number? a 1) b)
+        ((=number? b 1) a)
+        ((and (number? a) (number? b)) (* a b))
+        (else (list a '* b))))
+
+; Also simplifies
+(define (make-expt b e)
+  (cond ((and (number? e) (number? b)) (expt b e))
+        ((=number? e 0) 1)
+        ((=number? e 1) b)
+        ((=number? b 1) 1)
+        ((=number? b 0) 0)
+        (else (list b 'expt e))))
+
+(define (operation exp)
+  (cond ((sum? exp) make-sum)
+        ((product? exp) make-product)
+        ((exponentiation? exp) make-expt)))
+
+(define (first exp)
+  (cond ((not (pair? exp)) exp)
+        ((not (pair? (car exp))) (car exp))
+        (else (let ((f (car exp)))
+                ((operation f) (first f) (second f))))))
+
+(define (second exp)
+  (cond ((not (pair? exp)) "none")
+        ((not (pair? (caddr exp))) (caddr exp))
+        (else (let ((s (caddr exp)))
+                ((operation s) (first s) (second s))))))
+
+(define (sum? s)
+  (and (pair? s)
+       (symbol-eq? (cadr s) '+)))
+
+(define (product? p)
+  (and (pair? p)
+       (symbol-eq? (cadr p) '*)))
+
+(define (exponentiation? e)
+  (and (pair? e)
+       (symbol-eq? (cadr e) 'expt)))
+
+(define (addend s) (first s))
+(define (augend s) (second s))
+(define (multiplier p) (first p))
+(define (multiplicand p) (second p))
+(define (base e) (first e))
+(define (exponent e) (second e))
+
+(define e '(x + ((3 + (2 + 1)) + 1)))
+(define se (caddr e))
+(define fe (car e))
+
+(display (second e))
+
+=================/../common.ss/===================
+(define (square x)
+  (* x x))
+
+(define (inc x)
+  (+ x 1))
+
+(define (dec x)
+  (- x 1))
+
+(define nil '())
+
+(define (fold-left op initial sequence)
+  (define (iter result rest)
+    (if (null? rest)
+        result
+        (iter (op result (car rest))
+               (cdr rest))))
+  (iter initial sequence))
+
+(define (accumulate op initial sequence)
+  (if (null? sequence)
+      initial
+      (op (car sequence)
+          (accumulate op initial (cdr sequence)))))
+
+(define fold-right accumulate)
+
+(define (accumulate-n op init seqs)
+  (if (null? (car seqs))
+      nil
+      (cons (accumulate op init (map (lambda (item) (car item)) seqs))
+            (accumulate-n op init (map (lambda (item) (cdr item)) seqs)))))
+
+(define (filter pred seq)
+  (cond ((null? seq) nil)
+        ((pred (car seq)) (cons (car seq) (filter pred (cdr seq))))
+        (else (filter pred (cdr seq)))))
+
+(define (pow b i) ;should use (expt) instead of this
+    (define (pow-iter b i a)
+        (cond ((= i 0) a)
+              ((even? i) (pow-iter (square b) (/ i 2) a))
+              (else (pow-iter b (- i 1) (* b a)))))
+
+    (pow-iter b i 1))
+
+(define (prime? n)
+    (define (smallest-divisor n)
+      (find-divisor n 2))
+    
+    (define (find-divisor n test-divisor)
+      (cond ((> (square test-divisor) n) n)
+            ((divides? test-divisor n) test-divisor)
+            (else (find-divisor n (+ test-divisor 1)))))
+    
+    (define (divides? a b)
+      (= (remainder b a) 0))
+
+    (= n (smallest-divisor n)))
+
+(define (enumerate-interval beg end)
+  (if (> beg end)
+      nil
+      (cons beg (enumerate-interval (inc beg) end))))
+
+(define (flatmap proc seq)
+  (accumulate append nil (map proc seq)))
+
+(define (sum seq)
+  (accumulate + 0 seq))
+
+(define (fill-list value n)
+  (if (= 0 n)
+      nil
+      (cons value
+            (fill-list value (dec n)))))
+
+(define (zeroed-list n)
+  (fill-list 0 n))
+
+(define (symbol-eq? sym . rest)
+  (define (true-comparison sym rest)
+    (if (null? rest) 
+        #t
+        (and (symbol? sym)
+             (symbol? (car rest))
+             (eq? sym (car rest))
+             (true-comparison sym (cdr rest)))))
+  (true-comparison sym rest))
+
+(define (=number? a b)
+  (and (number? a)
+       (number? b)
+       (= a b)))
+
+(define (** a b)
+  (expt a b))
+>How-To-Repeat:
+Just run the code (mzscheme -f e2.58.ss)
+>Fix:
+>Audit-Trail:
+From: Pedro Henrique Antunes de Oliveira <phao1989@gmail.com>
+To: bugs@plt-scheme.org, phao.1989@gmail.com
+Cc: 
+Subject: Re: all/10824: mzscheme isn't producing expected results in 
+	evaluating scheme in quoted expressions
+Date: Tue, 16 Mar 2010 09:15:10 -0300
+
+ Hi.
+ 
+ I'm the person who posted the bug.
+ 
+ After talking to people in #scheme@irc.freenode.com, we found out that
+ the problem is in the use of names. I'm using the names "first" and
+ "second" in those procedures, and they're already being used for
+ primitives of mzscheme.
+ 
+ > (define (first x) (if (null? x) "hi" (first (cdr x))))
+ > (first '(a b c))
+ b
+ 
+ Inside my definition of first, the primitive first is being used. That
+ is exactly what is happening in my code.
+ 
+ Without using names used by other primitives, I get what I consider
+ normal behavior.
+ 
+ > (define (mf x) (if (null? x) "hi" (mf (cdr x))))
+ > (mf '(a b c))
+ "hi"
+
+Responsible changed from "nobody" to "eli" by eli at Tue, 16 Mar 2010 11:24:45 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Tue, 16 Mar 2010 11:24:45 -0400
+Reason>>> This is a result of using `mzscheme -f' -- I've explained 
+the
+problem on the #scheme channel, and you can catch me there
+if you have more questions about it.
+
+From: John Clements <clements@brinckerhoff.org>
+To: phao.1989@gmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10824: mzscheme isn't producing expected results in evaluating scheme in quoted expressions
+Date: Tue, 16 Mar 2010 09:30:25 -0700
+
+ On Mar 16, 2010, at 3:48 AM, phao.1989@gmail.com wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10824
+ >=20
+ > Reported by Pedro Henrique for release: MzScheme v4.2.4 [3m]
+ >=20
+ > *** Description:
+ > mzscheme isn't evaluating a piece of code I did correctly. I thought I =
+ had it wrongly, but no one in #scheme@irc.freenode.com was able to find =
+ the problem with the code. Also, it runs in mit-scheme.
+ >=20
+ > When I run e2.58.ss, I get=20
+ >=20
+ > ((3 + +) + +)
+ >=20
+ > as output. mit-scheme gives me
+ >=20
+ > 7
+ >=20
+ > as output.
+ 
+ Yikes! That's a lot of code.  I bet you'd get a more effective response =
+ if you narrowed it down a bit...
+ 
+ John Clements
+ 
+ 
+From: John Clements <clements@brinckerhoff.org>
+To: phao.1989@gmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10824: mzscheme isn't producing expected results in evaluating scheme in quoted expressions
+Date: Tue, 16 Mar 2010 09:30:25 -0700
+
+ On Mar 16, 2010, at 3:48 AM, phao.1989@gmail.com wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10824
+ >=20
+ > Reported by Pedro Henrique for release: MzScheme v4.2.4 [3m]
+ >=20
+ > *** Description:
+ > mzscheme isn't evaluating a piece of code I did correctly. I thought I =
+ had it wrongly, but no one in #scheme@irc.freenode.com was able to find =
+ the problem with the code. Also, it runs in mit-scheme.
+ >=20
+ > When I run e2.58.ss, I get=20
+ >=20
+ > ((3 + +) + +)
+ >=20
+ > as output. mit-scheme gives me
+ >=20
+ > 7
+ >=20
+ > as output.
+ 
+ Yikes! That's a lot of code.  I bet you'd get a more effective response =
+ if you narrowed it down a bit...
+ 
+ John Clements
+ 
+ 
+ From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: phao.1989@gmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10824: mzscheme isn't producing expected results in evaluating scheme in quoted expressions
+Date: Tue, 16 Mar 2010 19:46:24 -0400
+
+ What language do you expect to run this in?=20
+ 
+ 
+ On Mar 16, 2010, at 6:48 AM, phao.1989@gmail.com wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10824
+ >=20
+ > Reported by Pedro Henrique for release: MzScheme v4.2.4 [3m]
+ >=20
+ > *** Description:
+ > mzscheme isn't evaluating a piece of code I did correctly. I thought I =
+ had it wrongly, but no one in #scheme@irc.freenode.com was able to find =
+ the problem with the code. Also, it runs in mit-scheme.
+ >=20
+ > When I run e2.58.ss, I get=20
+ >=20
+ > ((3 + +) + +)
+ >=20
+ > as output. mit-scheme gives me
+ >=20
+ > 7
+ >=20
+ > as output.
+ >=20
+ > =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D/e2.58.ss/=3D=3D=3D=3D=3D=3D=3D=
+ =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+ > (load "../common.ss")
+ >=20
+ > (define (deriv exp var)
+ >  (cond ((number? exp) 0)
+ >        ((variable? exp) (if (same-variable? exp var) 1 0))
+ >        ((sum? exp) (make-sum (deriv (addend exp) var)
+ >                              (deriv (augend exp) var)))
+ >        ((product? exp) (make-sum (make-product (multiplier exp)
+ >                                                (deriv (multiplicand =
+ exp) var))
+ >                                  (make-product (deriv (multiplier exp) =
+ var)
+ >                                                (multiplicand exp))))
+ >        ((exponentiation? exp) (make-product (exponent exp)
+ >                                             (make-product (make-expt =
+ (base exp)
+ >                                                                      =
+ (make-sub (exponent exp) 1))
+ >                                                           (deriv (base =
+ exp) var))))
+ >        (else (error "unknown expression type -- DERIV" exp))))
+ >=20
+ > (define (variable? x)
+ >  (symbol? x))
+ >=20
+ > (define (same-variable? x y)
+ >  (symbol-eq? x y))
+ >=20
+ > (define (make-sub a b)
+ >  (cond ((=3Dnumber? b 0) a)
+ >        ((and (number? a) (number? b) (=3D a b)) 0)
+ >        ((and (=3Dnumber? a 0) (number? b)) (- b))
+ >        (else (list a '- b))))
+ >=20
+ > ;; Not only creates a sum, but simplifies it if possible.
+ > (define (make-sum a b)
+ >  (cond ((=3Dnumber? a 0) b)
+ >        ((=3Dnumber? b 0) a)
+ >        ((and (number? a) (number? b)) (+ a b))
+ >        (else (list a '+ b))))
+ >=20
+ > ;; Not only creates a product, but simplifies
+ > (define (make-product a b)
+ >  (cond ((or (=3Dnumber? b 0) (=3Dnumber? a 0)) 0)
+ >        ((=3Dnumber? a 1) b)
+ >        ((=3Dnumber? b 1) a)
+ >        ((and (number? a) (number? b)) (* a b))
+ >        (else (list a '* b))))
+ >=20
+ > ; Also simplifies
+ > (define (make-expt b e)
+ >  (cond ((and (number? e) (number? b)) (expt b e))
+ >        ((=3Dnumber? e 0) 1)
+ >        ((=3Dnumber? e 1) b)
+ >        ((=3Dnumber? b 1) 1)
+ >        ((=3Dnumber? b 0) 0)
+ >        (else (list b 'expt e))))
+ >=20
+ > (define (operation exp)
+ >  (cond ((sum? exp) make-sum)
+ >        ((product? exp) make-product)
+ >        ((exponentiation? exp) make-expt)))
+ >=20
+ > (define (first exp)
+ >  (cond ((not (pair? exp)) exp)
+ >        ((not (pair? (car exp))) (car exp))
+ >        (else (let ((f (car exp)))
+ >                ((operation f) (first f) (second f))))))
+ >=20
+ > (define (second exp)
+ >  (cond ((not (pair? exp)) "none")
+ >        ((not (pair? (caddr exp))) (caddr exp))
+ >        (else (let ((s (caddr exp)))
+ >                ((operation s) (first s) (second s))))))
+ >=20
+ > (define (sum? s)
+ >  (and (pair? s)
+ >       (symbol-eq? (cadr s) '+)))
+ >=20
+ > (define (product? p)
+ >  (and (pair? p)
+ >       (symbol-eq? (cadr p) '*)))
+ >=20
+ > (define (exponentiation? e)
+ >  (and (pair? e)
+ >       (symbol-eq? (cadr e) 'expt)))
+ >=20
+ > (define (addend s) (first s))
+ > (define (augend s) (second s))
+ > (define (multiplier p) (first p))
+ > (define (multiplicand p) (second p))
+ > (define (base e) (first e))
+ > (define (exponent e) (second e))
+ >=20
+ > (define e '(x + ((3 + (2 + 1)) + 1)))
+ > (define se (caddr e))
+ > (define fe (car e))
+ >=20
+ > (display (second e))
+ >=20
+ > =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D/../common.ss/=3D=3D=3D=
+ =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+ > (define (square x)
+ >  (* x x))
+ >=20
+ > (define (inc x)
+ >  (+ x 1))
+ >=20
+ > (define (dec x)
+ >  (- x 1))
+ >=20
+ > (define nil '())
+ >=20
+ > (define (fold-left op initial sequence)
+ >  (define (iter result rest)
+ >    (if (null? rest)
+ >        result
+ >        (iter (op result (car rest))
+ >               (cdr rest))))
+ >  (iter initial sequence))
+ >=20
+ > (define (accumulate op initial sequence)
+ >  (if (null? sequence)
+ >      initial
+ >      (op (car sequence)
+ >          (accumulate op initial (cdr sequence)))))
+ >=20
+ > (define fold-right accumulate)
+ >=20
+ > (define (accumulate-n op init seqs)
+ >  (if (null? (car seqs))
+ >      nil
+ >      (cons (accumulate op init (map (lambda (item) (car item)) seqs))
+ >            (accumulate-n op init (map (lambda (item) (cdr item)) =
+ seqs)))))
+ >=20
+ > (define (filter pred seq)
+ >  (cond ((null? seq) nil)
+ >        ((pred (car seq)) (cons (car seq) (filter pred (cdr seq))))
+ >        (else (filter pred (cdr seq)))))
+ >=20
+ > (define (pow b i) ;should use (expt) instead of this
+ >    (define (pow-iter b i a)
+ >        (cond ((=3D i 0) a)
+ >              ((even? i) (pow-iter (square b) (/ i 2) a))
+ >              (else (pow-iter b (- i 1) (* b a)))))
+ >=20
+ >    (pow-iter b i 1))
+ >=20
+ > (define (prime? n)
+ >    (define (smallest-divisor n)
+ >      (find-divisor n 2))
+ >=20
+ >    (define (find-divisor n test-divisor)
+ >      (cond ((> (square test-divisor) n) n)
+ >            ((divides? test-divisor n) test-divisor)
+ >            (else (find-divisor n (+ test-divisor 1)))))
+ >=20
+ >    (define (divides? a b)
+ >      (=3D (remainder b a) 0))
+ >=20
+ >    (=3D n (smallest-divisor n)))
+ >=20
+ > (define (enumerate-interval beg end)
+ >  (if (> beg end)
+ >      nil
+ >      (cons beg (enumerate-interval (inc beg) end))))
+ >=20
+ > (define (flatmap proc seq)
+ >  (accumulate append nil (map proc seq)))
+ >=20
+ > (define (sum seq)
+ >  (accumulate + 0 seq))
+ >=20
+ > (define (fill-list value n)
+ >  (if (=3D 0 n)
+ >      nil
+ >      (cons value
+ >            (fill-list value (dec n)))))
+ >=20
+ > (define (zeroed-list n)
+ >  (fill-list 0 n))
+ >=20
+ > (define (symbol-eq? sym . rest)
+ >  (define (true-comparison sym rest)
+ >    (if (null? rest)=20
+ >        #t
+ >        (and (symbol? sym)
+ >             (symbol? (car rest))
+ >             (eq? sym (car rest))
+ >             (true-comparison sym (cdr rest)))))
+ >  (true-comparison sym rest))
+ >=20
+ > (define (=3Dnumber? a b)
+ >  (and (number? a)
+ >       (number? b)
+ >       (=3D a b)))
+ >=20
+ > (define (** a b)
+ >  (expt a b))
+ >=20
+ > *** How to repeat:
+ > Just run the code (mzscheme -f e2.58.ss)
+ >=20
+ > *** Environment:
+ > Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2) =
+ Gecko/20100207 Namoroka/3.6
+ >=20
+ 

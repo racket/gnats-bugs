@@ -1,0 +1,2300 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Nov 12 00:53:20 2014
+Received: from mail-ig0-f179.google.com (mail-ig0-f179.google.com [209.85.213.179])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id sAC5rFru029384
+	for <bugs@bugs.plt-scheme.org>; Wed, 12 Nov 2014 00:53:16 -0500
+Message-Id: <201411120553.sAC5rDJF029377@winooski.ccs.neu.edu>
+Date: Wed, 12 Nov 2014 00:53:13 -0500
+From: asumu@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: TR: the type of `sort` is unsound
+
+>Number:         14833
+>Category:       typed-scheme
+>Synopsis:       TR: the type of `sort` is unsound
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Nov 12 00:56:02 -0500 2014
+>Last-Modified:  Wed Nov 12 10:48:01 -0500 2014
+>Originator:     Asumu Takikawa
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.0.900
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+Human Language: japanese
+(current-memory-use) 233635064
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ [187 auto-installed packages not shown]
+User-specific for installation "6.1.0.900":
+ Package               Checksum                                    Source
+ drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+
+
+
+Collections:
+("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Racket\\collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+>Description:
+The type of `sort` is unsound. I'm not sure what
+the correct type should be though.
+
+The current type:
+-> sort
+- : (All (a b)
+      (case->
+       (-> (Listof a)
+           (-> a a Boolean)
+           [#:cache-keys? Boolean]
+           [#:key (-> a a)]
+           (Listof a))
+       (-> (Listof a)
+           (-> b b Boolean)
+           [#:cache-keys? Boolean]
+           [#:key (-> a b)]
+           (Listof a))))
+
+The second clause of this case-> is problematic though. Since the #:key
+argument is optional, the `b` type variable is unconstrained and therefore
+it ends up as Bottom. That admits any comparator then for the second
+argument (-> Bottom Bottom Boolean).
+
+You can see this by trying to apply it to a comparator with that exact type:
+-> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+'(hello world)
+
+A more straightforward failure is the following:
+
+->  (sort '(hello world) string<?)
+- : (Listof (U 'hello 'world))
+; string<?: contract violation
+;   expected: string?
+;   given: 'world
+;   argument position: 1st
+; [,bt for context]
+
+And for stranger results:
+
+-> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+- : (Listof (U 'hello 'world))
+#<variable-code>
+'(world hello)
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: asumu@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 11:51:20 +0000
+
+ --089e01634038ac43e30507a80387
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Can we rewrite the type to make key mandatory in the second case?
+ 
+ Sam
+ 
+ On Wed, Nov 12, 2014, 12:56 AM null <asumu@ccs.neu.edu> wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >
+ > Reported by Asumu Takikawa for release: 6.1.0.900
+ >
+ > *** Description:
+ > The type of `sort` is unsound. I'm not sure what
+ > the correct type should be though.
+ >
+ > The current type:
+ > -> sort
+ > - : (All (a b)
+ >       (case->
+ >        (-> (Listof a)
+ >            (-> a a Boolean)
+ >            [#:cache-keys? Boolean]
+ >            [#:key (-> a a)]
+ >            (Listof a))
+ >        (-> (Listof a)
+ >            (-> b b Boolean)
+ >            [#:cache-keys? Boolean]
+ >            [#:key (-> a b)]
+ >            (Listof a))))
+ >
+ > The second clause of this case-> is problematic though. Since the #:key
+ > argument is optional, the `b` type variable is unconstrained and therefore
+ > it ends up as Bottom. That admits any comparator then for the second
+ > argument (-> Bottom Bottom Boolean).
+ >
+ > You can see this by trying to apply it to a comparator with that exact
+ > type:
+ > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ > '(hello world)
+ >
+ > A more straightforward failure is the following:
+ >
+ > ->  (sort '(hello world) string<?)
+ > - : (Listof (U 'hello 'world))
+ > ; string<?: contract violation
+ > ;   expected: string?
+ > ;   given: 'world
+ > ;   argument position: 1st
+ > ; [,bt for context]
+ >
+ > And for stranger results:
+ >
+ > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3))
+ > #t))
+ > - : (Listof (U 'hello 'world))
+ > #<variable-code>
+ > '(world hello)
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m)
+ > (get-display-depth) = 32
+ > Human Language: japanese
+ > (current-memory-use) 233635064
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package              Checksum                                    Source
+ >  main-distribution    2f64ba9926157672a70499299a8af65379a86c6a
+ > (catalog main-distribution)
+ >  racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e
+ > (catalog racket-lib)
+ >  [187 auto-installed packages not shown]
+ > User-specific for installation "6.1.0.900":
+ >  Package               Checksum                                    Source
+ >  drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f
+ > (catalog drracket-solarized)
+ >
+ >
+ >
+ > Collections:
+ > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >  (non-existent-path))
+ > ("C:\\Program Files\\Racket\\collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info"
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ > "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ > "xml"))
+ >
+ > Recent Internal Errors:
+ > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t
+ > ((main) (test)) #t))
+ >
+ >
+ 
+ --089e01634038ac43e30507a80387
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Can we rewrite the type to make key mandatory in the second case?<br><br>Sa=
+ m<br><br><div class=3D"gmail_quote">On Wed, Nov 12, 2014, 12:56 AM=C2=A0nul=
+ l &lt;<a href=3D"mailto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrote:=
+ <br><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-lef=
+ t:1px #ccc solid;padding-left:1ex">A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14=
+ 833" target=3D"_blank">http://bugs.racket-lang.org/<u></u>query/?cmd=3Dview=
+ &amp;pr=3D14833</a><br>
+ <br>
+ Reported by Asumu Takikawa for release: 6.1.0.900<br>
+ <br>
+ *** Description:<br>
+ The type of `sort` is unsound. I&#39;m not sure what<br>
+ the correct type should be though.<br>
+ <br>
+ The current type:<br>
+ -&gt; sort<br>
+ - : (All (a b)<br>
+ =C2=A0 =C2=A0 =C2=A0 (case-&gt;<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; (Listof a)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; a a Boolean)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:cache-keys? Boolean]<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:key (-&gt; a a)]<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(Listof a))<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; (Listof a)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; b b Boolean)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:cache-keys? Boolean]<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:key (-&gt; a b)]<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(Listof a))))<br>
+ <br>
+ The second clause of this case-&gt; is problematic though. Since the #:key<=
+ br>
+ argument is optional, the `b` type variable is unconstrained and therefore<=
+ br>
+ it ends up as Bottom. That admits any comparator then for the second<br>
+ argument (-&gt; Bottom Bottom Boolean).<br>
+ <br>
+ You can see this by trying to apply it to a comparator with that exact type=
+ :<br>
+ -&gt; (sort &#39;(hello world) (lambda ([x : (U)] [y : (U)]) #t))<br>
+ &#39;(hello world)<br>
+ <br>
+ A more straightforward failure is the following:<br>
+ <br>
+ -&gt;=C2=A0 (sort &#39;(hello world) string&lt;?)<br>
+ - : (Listof (U &#39;hello &#39;world))<br>
+ ; string&lt;?: contract violation<br>
+ ;=C2=A0 =C2=A0expected: string?<br>
+ ;=C2=A0 =C2=A0given: &#39;world<br>
+ ;=C2=A0 =C2=A0argument position: 1st<br>
+ ; [,bt for context]<br>
+ <br>
+ And for stranger results:<br>
+ <br>
+ -&gt; (sort &#39;(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ =
+ x 3)) #t))<br>
+ - : (Listof (U &#39;hello &#39;world))<br>
+ #&lt;variable-code&gt;<br>
+ &#39;(world hello)<br>
+ <br>
+ *** How to repeat:<br>
+ <br>
+ <br>
+ *** Environment:<br>
+ windows &quot;Windows NT 6.1 (Build 7601) Service Pack 1&quot; (win32\x86_6=
+ 4\3m) (get-display-depth) =3D 32<br>
+ Human Language: japanese<br>
+ (current-memory-use) 233635064<br>
+ raco pkg (show):<br>
+ Installation-wide:<br>
+ =C2=A0Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Checksum=C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Source<br>
+ =C2=A0main-distribution=C2=A0 =C2=A0 2f64ba9926157672a70499299a8af6<u></u>5=
+ 379a86c6a=C2=A0 =C2=A0 (catalog main-distribution)<br>
+ =C2=A0racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A014fb700c2a2ac38e82=
+ 2bd4eac7321b<u></u>f276c55e8e=C2=A0 =C2=A0 (catalog racket-lib)<br>
+ =C2=A0[187 auto-installed packages not shown]<br>
+ User-specific for installation &quot;6.1.0.900&quot;:<br>
+ =C2=A0Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Checksu=
+ m=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Source<br>
+ =C2=A0drracket-solarized=C2=A0 =C2=A0 9a90657bb320d4231c85dff96ceaef<u></u>=
+ 6a835c5c4f=C2=A0 =C2=A0 (catalog drracket-solarized)<br>
+ <br>
+ <br>
+ <br>
+ Collections:<br>
+ (&quot;C:\\Users\\asumu\\AppData\\<u></u>Roaming\\Racket\\6.1.0.900\\<u></u=
+ >collects&quot;<br>
+ =C2=A0(non-existent-path))<br>
+ (&quot;C:\\Program Files\\Racket\\collects&quot;<br>
+ =C2=A0(&quot;.gitignore&quot; &quot;acks&quot; &quot;compiler&quot; &quot;d=
+ ata&quot; &quot;db&quot; &quot;dynext&quot; &quot;ffi&quot; &quot;file&quot=
+ ; &quot;info&quot; &quot;info-domain&quot; &quot;json&quot; &quot;launcher&=
+ quot; &quot;net&quot; &quot;openssl&quot; &quot;pkg&quot; &quot;planet&quot=
+ ; &quot;racket&quot; &quot;raco&quot; &quot;reader&quot; &quot;realm&quot; =
+ &quot;s-exp&quot; &quot;setup&quot; &quot;syntax&quot; &quot;unstable&quot;=
+  &quot;version&quot; &quot;xml&quot;))<br>
+ <br>
+ Recent Internal Errors:<br>
+ Computer Language: ((&quot;Determine language from source&quot;) (#(#t prin=
+ t mixed-fraction-e #f #t none) (default) #(&quot;100&quot;) &quot;#lang rac=
+ ket\n&quot; #f #t ((main) (test)) #t))<br>
+ <br>
+ </blockquote></div>
+ 
+ --089e01634038ac43e30507a80387--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: asumu@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 08:37:06 -0500
+
+ I guess if we had computations at the type level and dependencies, we might be able to say something like 
+ 
+  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean)) 
+ 
+ But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do. 
+ 
+ 
+ On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ > 
+ > Reported by Asumu Takikawa for release: 6.1.0.900
+ > 
+ > *** Description:
+ > The type of `sort` is unsound. I'm not sure what
+ > the correct type should be though.
+ > 
+ > The current type:
+ > -> sort
+ > - : (All (a b)
+ >      (case->
+ >       (-> (Listof a)
+ >           (-> a a Boolean)
+ >           [#:cache-keys? Boolean]
+ >           [#:key (-> a a)]
+ >           (Listof a))
+ >       (-> (Listof a)
+ >           (-> b b Boolean)
+ >           [#:cache-keys? Boolean]
+ >           [#:key (-> a b)]
+ >           (Listof a))))
+ > 
+ > The second clause of this case-> is problematic though. Since the #:key
+ > argument is optional, the `b` type variable is unconstrained and therefore
+ > it ends up as Bottom. That admits any comparator then for the second
+ > argument (-> Bottom Bottom Boolean).
+ > 
+ > You can see this by trying to apply it to a comparator with that exact type:
+ > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ > '(hello world)
+ > 
+ > A more straightforward failure is the following:
+ > 
+ > ->  (sort '(hello world) string<?)
+ > - : (Listof (U 'hello 'world))
+ > ; string<?: contract violation
+ > ;   expected: string?
+ > ;   given: 'world
+ > ;   argument position: 1st
+ > ; [,bt for context]
+ > 
+ > And for stranger results:
+ > 
+ > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ > - : (Listof (U 'hello 'world))
+ > #<variable-code>
+ > '(world hello)
+ > 
+ > *** How to repeat:
+ > 
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ > Human Language: japanese
+ > (current-memory-use) 233635064
+ > raco pkg (show):
+ > Installation-wide:
+ > Package              Checksum                                    Source
+ > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ > [187 auto-installed packages not shown]
+ > User-specific for installation "6.1.0.900":
+ > Package               Checksum                                    Source
+ > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ > 
+ > 
+ > 
+ > Collections:
+ > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ > (non-existent-path))
+ > ("C:\\Program Files\\Racket\\collects"
+ > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ > 
+ 
+ 
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>, asumu@ccs.neu.edu,
+        bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 13:40:09 +0000
+
+ --047d7b342decdaf5850507a988df
+ Content-Type: text/plain; charset=UTF-8
+ 
+ My suggestion expresses basically that exact type -- TR can support
+ surprising amounts of dependency given appropriate encoding (sort of like
+ Haskell). :)
+ 
+ On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu>
+ wrote:
+ 
+ >
+ > I guess if we had computations at the type level and dependencies, we
+ > might be able to say something like
+ >
+ >  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >
+ > But that's a lot of ifs. I can't see how quantifiers could do this. So
+ > yes, Sam's proposal to require the presence of #:key is the reasonable
+ > thing to do.
+ >
+ >
+ > On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >
+ > > A new problem report is waiting at
+ > >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ > >
+ > > Reported by Asumu Takikawa for release: 6.1.0.900
+ > >
+ > > *** Description:
+ > > The type of `sort` is unsound. I'm not sure what
+ > > the correct type should be though.
+ > >
+ > > The current type:
+ > > -> sort
+ > > - : (All (a b)
+ > >      (case->
+ > >       (-> (Listof a)
+ > >           (-> a a Boolean)
+ > >           [#:cache-keys? Boolean]
+ > >           [#:key (-> a a)]
+ > >           (Listof a))
+ > >       (-> (Listof a)
+ > >           (-> b b Boolean)
+ > >           [#:cache-keys? Boolean]
+ > >           [#:key (-> a b)]
+ > >           (Listof a))))
+ > >
+ > > The second clause of this case-> is problematic though. Since the #:key
+ > > argument is optional, the `b` type variable is unconstrained and
+ > therefore
+ > > it ends up as Bottom. That admits any comparator then for the second
+ > > argument (-> Bottom Bottom Boolean).
+ > >
+ > > You can see this by trying to apply it to a comparator with that exact
+ > type:
+ > > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ > > '(hello world)
+ > >
+ > > A more straightforward failure is the following:
+ > >
+ > > ->  (sort '(hello world) string<?)
+ > > - : (Listof (U 'hello 'world))
+ > > ; string<?: contract violation
+ > > ;   expected: string?
+ > > ;   given: 'world
+ > > ;   argument position: 1st
+ > > ; [,bt for context]
+ > >
+ > > And for stranger results:
+ > >
+ > > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x
+ > 3)) #t))
+ > > - : (Listof (U 'hello 'world))
+ > > #<variable-code>
+ > > '(world hello)
+ > >
+ > > *** How to repeat:
+ > >
+ > >
+ > > *** Environment:
+ > > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m)
+ > (get-display-depth) = 32
+ > > Human Language: japanese
+ > > (current-memory-use) 233635064
+ > > raco pkg (show):
+ > > Installation-wide:
+ > > Package              Checksum                                    Source
+ > > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a
+ > (catalog main-distribution)
+ > > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e
+ > (catalog racket-lib)
+ > > [187 auto-installed packages not shown]
+ > > User-specific for installation "6.1.0.900":
+ > > Package               Checksum                                    Source
+ > > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f
+ > (catalog drracket-solarized)
+ > >
+ > >
+ > >
+ > > Collections:
+ > > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ > > (non-existent-path))
+ > > ("C:\\Program Files\\Racket\\collects"
+ > > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info"
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ > "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ > "xml"))
+ > >
+ > > Recent Internal Errors:
+ > > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t
+ > ((main) (test)) #t))
+ > >
+ >
+ >
+ 
+ --047d7b342decdaf5850507a988df
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ My suggestion expresses basically that exact type -- TR can support surpris=
+ ing amounts of dependency given appropriate encoding (sort of like Haskell)=
+ . :)<br><br><div class=3D"gmail_quote">On Wed Nov 12 2014 at 8:37:15 AM Mat=
+ thias Felleisen &lt;<a href=3D"mailto:matthias@ccs.neu.edu">matthias@ccs.ne=
+ u.edu</a>&gt; wrote:<br><blockquote class=3D"gmail_quote" style=3D"margin:0=
+  0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><br>
+ I guess if we had computations at the type level and dependencies, we might=
+  be able to say something like<br>
+ <br>
+ =C2=A0(if (arg-exists? #:key) (-&gt; b b Boolean) (-&gt; a a Boolean))<br>
+ <br>
+ But that&#39;s a lot of ifs. I can&#39;t see how quantifiers could do this.=
+  So yes, Sam&#39;s proposal to require the presence of #:key is the reasona=
+ ble thing to do.<br>
+ <br>
+ <br>
+ On Nov 12, 2014, at 12:56 AM, <a href=3D"mailto:asumu@ccs.neu.edu" target=
+ =3D"_blank">asumu@ccs.neu.edu</a> wrote:<br>
+ <br>
+ &gt; A new problem report is waiting at<br>
+ &gt;=C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14833" target=3D"_blank">http://bugs.racket-lang.org/<u></u>query/?cmd=
+ =3Dview&amp;pr=3D14833</a><br>
+ &gt;<br>
+ &gt; Reported by Asumu Takikawa for release: 6.1.0.900<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; The type of `sort` is unsound. I&#39;m not sure what<br>
+ &gt; the correct type should be though.<br>
+ &gt;<br>
+ &gt; The current type:<br>
+ &gt; -&gt; sort<br>
+ &gt; - : (All (a b)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 (case-&gt;<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; (Listof a)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; a a Boolean)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:cache-keys? Boolean]<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:key (-&gt; a a)]<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(Listof a))<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; (Listof a)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(-&gt; b b Boolean)<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:cache-keys? Boolean]<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[#:key (-&gt; a b)]<br>
+ &gt;=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(Listof a))))<br>
+ &gt;<br>
+ &gt; The second clause of this case-&gt; is problematic though. Since the #=
+ :key<br>
+ &gt; argument is optional, the `b` type variable is unconstrained and there=
+ fore<br>
+ &gt; it ends up as Bottom. That admits any comparator then for the second<b=
+ r>
+ &gt; argument (-&gt; Bottom Bottom Boolean).<br>
+ &gt;<br>
+ &gt; You can see this by trying to apply it to a comparator with that exact=
+  type:<br>
+ &gt; -&gt; (sort &#39;(hello world) (lambda ([x : (U)] [y : (U)]) #t))<br>
+ &gt; &#39;(hello world)<br>
+ &gt;<br>
+ &gt; A more straightforward failure is the following:<br>
+ &gt;<br>
+ &gt; -&gt;=C2=A0 (sort &#39;(hello world) string&lt;?)<br>
+ &gt; - : (Listof (U &#39;hello &#39;world))<br>
+ &gt; ; string&lt;?: contract violation<br>
+ &gt; ;=C2=A0 =C2=A0expected: string?<br>
+ &gt; ;=C2=A0 =C2=A0given: &#39;world<br>
+ &gt; ;=C2=A0 =C2=A0argument position: 1st<br>
+ &gt; ; [,bt for context]<br>
+ &gt;<br>
+ &gt; And for stranger results:<br>
+ &gt;<br>
+ &gt; -&gt; (sort &#39;(hello world) (lambda ([x : (U)] [y : (U)]) (displayl=
+ n (+ x 3)) #t))<br>
+ &gt; - : (Listof (U &#39;hello &#39;world))<br>
+ &gt; #&lt;variable-code&gt;<br>
+ &gt; &#39;(world hello)<br>
+ &gt;<br>
+ &gt; *** How to repeat:<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; *** Environment:<br>
+ &gt; windows &quot;Windows NT 6.1 (Build 7601) Service Pack 1&quot; (win32\=
+ x86_64\3m) (get-display-depth) =3D 32<br>
+ &gt; Human Language: japanese<br>
+ &gt; (current-memory-use) 233635064<br>
+ &gt; raco pkg (show):<br>
+ &gt; Installation-wide:<br>
+ &gt; Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Checksum=C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Source<br>
+ &gt; main-distribution=C2=A0 =C2=A0 2f64ba9926157672a70499299a8af6<u></u>53=
+ 79a86c6a=C2=A0 =C2=A0 (catalog main-distribution)<br>
+ &gt; racket-lib=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A014fb700c2a2ac38e822=
+ bd4eac7321b<u></u>f276c55e8e=C2=A0 =C2=A0 (catalog racket-lib)<br>
+ &gt; [187 auto-installed packages not shown]<br>
+ &gt; User-specific for installation &quot;6.1.0.900&quot;:<br>
+ &gt; Package=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Checksum=
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 Source<br>
+ &gt; drracket-solarized=C2=A0 =C2=A0 9a90657bb320d4231c85dff96ceaef<u></u>6=
+ a835c5c4f=C2=A0 =C2=A0 (catalog drracket-solarized)<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; Collections:<br>
+ &gt; (&quot;C:\\Users\\asumu\\AppData\\<u></u>Roaming\\Racket\\6.1.0.900\\<=
+ u></u>collects&quot;<br>
+ &gt; (non-existent-path))<br>
+ &gt; (&quot;C:\\Program Files\\Racket\\collects&quot;<br>
+ &gt; (&quot;.gitignore&quot; &quot;acks&quot; &quot;compiler&quot; &quot;da=
+ ta&quot; &quot;db&quot; &quot;dynext&quot; &quot;ffi&quot; &quot;file&quot;=
+  &quot;info&quot; &quot;info-domain&quot; &quot;json&quot; &quot;launcher&q=
+ uot; &quot;net&quot; &quot;openssl&quot; &quot;pkg&quot; &quot;planet&quot;=
+  &quot;racket&quot; &quot;raco&quot; &quot;reader&quot; &quot;realm&quot; &=
+ quot;s-exp&quot; &quot;setup&quot; &quot;syntax&quot; &quot;unstable&quot; =
+ &quot;version&quot; &quot;xml&quot;))<br>
+ &gt;<br>
+ &gt; Recent Internal Errors:<br>
+ &gt; Computer Language: ((&quot;Determine language from source&quot;) (#(#t=
+  print mixed-fraction-e #f #t none) (default) #(&quot;100&quot;) &quot;#lan=
+ g racket\n&quot; #f #t ((main) (test)) #t))<br>
+ &gt;<br>
+ <br>
+ </blockquote></div>
+ 
+ --047d7b342decdaf5850507a988df--
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 09:36:03 -0500
+
+ WHo cares? 
+ 
+ 
+ On Nov 12, 2014, at 9:34 AM, Robby Findler <robby@eecs.northwestern.edu> wrote:
+ 
+ > Just because this has become my assigned question to ask: is this a
+ > backwards compatible type or not?
+ > 
+ > Robby
+ > 
+ > On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >> 
+ >> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >> 
+ >> 
+ >> 
+ >> 
+ >> 
+ >> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >> 
+ >>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>> 
+ >>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>> 
+ >>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>> 
+ >>> (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>> 
+ >>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>> 
+ >>> 
+ >>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>> 
+ >>>> A new problem report is waiting at
+ >>>> http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>> 
+ >>>> Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>> 
+ >>>> *** Description:
+ >>>> The type of `sort` is unsound. I'm not sure what
+ >>>> the correct type should be though.
+ >>>> 
+ >>>> The current type:
+ >>>> -> sort
+ >>>> - : (All (a b)
+ >>>>     (case->
+ >>>>      (-> (Listof a)
+ >>>>          (-> a a Boolean)
+ >>>>          [#:cache-keys? Boolean]
+ >>>>          [#:key (-> a a)]
+ >>>>          (Listof a))
+ >>>>      (-> (Listof a)
+ >>>>          (-> b b Boolean)
+ >>>>          [#:cache-keys? Boolean]
+ >>>>          [#:key (-> a b)]
+ >>>>          (Listof a))))
+ >>>> 
+ >>>> The second clause of this case-> is problematic though. Since the #:key
+ >>>> argument is optional, the `b` type variable is unconstrained and therefore
+ >>>> it ends up as Bottom. That admits any comparator then for the second
+ >>>> argument (-> Bottom Bottom Boolean).
+ >>>> 
+ >>>> You can see this by trying to apply it to a comparator with that exact type:
+ >>>> -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>> '(hello world)
+ >>>> 
+ >>>> A more straightforward failure is the following:
+ >>>> 
+ >>>> ->  (sort '(hello world) string<?)
+ >>>> - : (Listof (U 'hello 'world))
+ >>>> ; string<?: contract violation
+ >>>> ;   expected: string?
+ >>>> ;   given: 'world
+ >>>> ;   argument position: 1st
+ >>>> ; [,bt for context]
+ >>>> 
+ >>>> And for stranger results:
+ >>>> 
+ >>>> -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>> - : (Listof (U 'hello 'world))
+ >>>> #<variable-code>
+ >>>> '(world hello)
+ >>>> 
+ >>>> *** How to repeat:
+ >>>> 
+ >>>> 
+ >>>> *** Environment:
+ >>>> windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>> Human Language: japanese
+ >>>> (current-memory-use) 233635064
+ >>>> raco pkg (show):
+ >>>> Installation-wide:
+ >>>> Package              Checksum                                    Source
+ >>>> main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>> racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>> [187 auto-installed packages not shown]
+ >>>> User-specific for installation "6.1.0.900":
+ >>>> Package               Checksum                                    Source
+ >>>> drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>> 
+ >>>> 
+ >>>> 
+ >>>> Collections:
+ >>>> ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>> (non-existent-path))
+ >>>> ("C:\\Program Files\\Racket\\collects"
+ >>>> (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>> 
+ >>>> Recent Internal Errors:
+ >>>> Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>> 
+ >>> 
+ >> 
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 08:34:49 -0600
+
+ Just because this has become my assigned question to ask: is this a
+ backwards compatible type or not?
+ 
+ Robby
+ 
+ On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >
+ >
+ >
+ >
+ >
+ > On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >
+ >> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>
+ >> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>
+ >> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>
+ >>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>
+ >> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>
+ >>
+ >> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>
+ >> > A new problem report is waiting at
+ >> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >> >
+ >> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >> >
+ >> > *** Description:
+ >> > The type of `sort` is unsound. I'm not sure what
+ >> > the correct type should be though.
+ >> >
+ >> > The current type:
+ >> > -> sort
+ >> > - : (All (a b)
+ >> >      (case->
+ >> >       (-> (Listof a)
+ >> >           (-> a a Boolean)
+ >> >           [#:cache-keys? Boolean]
+ >> >           [#:key (-> a a)]
+ >> >           (Listof a))
+ >> >       (-> (Listof a)
+ >> >           (-> b b Boolean)
+ >> >           [#:cache-keys? Boolean]
+ >> >           [#:key (-> a b)]
+ >> >           (Listof a))))
+ >> >
+ >> > The second clause of this case-> is problematic though. Since the #:key
+ >> > argument is optional, the `b` type variable is unconstrained and therefore
+ >> > it ends up as Bottom. That admits any comparator then for the second
+ >> > argument (-> Bottom Bottom Boolean).
+ >> >
+ >> > You can see this by trying to apply it to a comparator with that exact type:
+ >> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >> > '(hello world)
+ >> >
+ >> > A more straightforward failure is the following:
+ >> >
+ >> > ->  (sort '(hello world) string<?)
+ >> > - : (Listof (U 'hello 'world))
+ >> > ; string<?: contract violation
+ >> > ;   expected: string?
+ >> > ;   given: 'world
+ >> > ;   argument position: 1st
+ >> > ; [,bt for context]
+ >> >
+ >> > And for stranger results:
+ >> >
+ >> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >> > - : (Listof (U 'hello 'world))
+ >> > #<variable-code>
+ >> > '(world hello)
+ >> >
+ >> > *** How to repeat:
+ >> >
+ >> >
+ >> > *** Environment:
+ >> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >> > Human Language: japanese
+ >> > (current-memory-use) 233635064
+ >> > raco pkg (show):
+ >> > Installation-wide:
+ >> > Package              Checksum                                    Source
+ >> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >> > [187 auto-installed packages not shown]
+ >> > User-specific for installation "6.1.0.900":
+ >> > Package               Checksum                                    Source
+ >> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >> >
+ >> >
+ >> >
+ >> > Collections:
+ >> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >> > (non-existent-path))
+ >> > ("C:\\Program Files\\Racket\\collects"
+ >> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >> >
+ >> > Recent Internal Errors:
+ >> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >> >
+ >>
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: asumu@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 09:34:05 -0500
+
+ I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad. 
+ 
+ 
+ 
+ 
+ 
+ On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ 
+ > My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ > 
+ > On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ > 
+ > I guess if we had computations at the type level and dependencies, we might be able to say something like
+ > 
+ >  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ > 
+ > But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ > 
+ > 
+ > On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ > 
+ > > A new problem report is waiting at
+ > >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ > >
+ > > Reported by Asumu Takikawa for release: 6.1.0.900
+ > >
+ > > *** Description:
+ > > The type of `sort` is unsound. I'm not sure what
+ > > the correct type should be though.
+ > >
+ > > The current type:
+ > > -> sort
+ > > - : (All (a b)
+ > >      (case->
+ > >       (-> (Listof a)
+ > >           (-> a a Boolean)
+ > >           [#:cache-keys? Boolean]
+ > >           [#:key (-> a a)]
+ > >           (Listof a))
+ > >       (-> (Listof a)
+ > >           (-> b b Boolean)
+ > >           [#:cache-keys? Boolean]
+ > >           [#:key (-> a b)]
+ > >           (Listof a))))
+ > >
+ > > The second clause of this case-> is problematic though. Since the #:key
+ > > argument is optional, the `b` type variable is unconstrained and therefore
+ > > it ends up as Bottom. That admits any comparator then for the second
+ > > argument (-> Bottom Bottom Boolean).
+ > >
+ > > You can see this by trying to apply it to a comparator with that exact type:
+ > > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ > > '(hello world)
+ > >
+ > > A more straightforward failure is the following:
+ > >
+ > > ->  (sort '(hello world) string<?)
+ > > - : (Listof (U 'hello 'world))
+ > > ; string<?: contract violation
+ > > ;   expected: string?
+ > > ;   given: 'world
+ > > ;   argument position: 1st
+ > > ; [,bt for context]
+ > >
+ > > And for stranger results:
+ > >
+ > > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ > > - : (Listof (U 'hello 'world))
+ > > #<variable-code>
+ > > '(world hello)
+ > >
+ > > *** How to repeat:
+ > >
+ > >
+ > > *** Environment:
+ > > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ > > Human Language: japanese
+ > > (current-memory-use) 233635064
+ > > raco pkg (show):
+ > > Installation-wide:
+ > > Package              Checksum                                    Source
+ > > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ > > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ > > [187 auto-installed packages not shown]
+ > > User-specific for installation "6.1.0.900":
+ > > Package               Checksum                                    Source
+ > > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ > >
+ > >
+ > >
+ > > Collections:
+ > > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ > > (non-existent-path))
+ > > ("C:\\Program Files\\Racket\\collects"
+ > > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > >
+ > > Recent Internal Errors:
+ > > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ > >
+ > 
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@cs.indiana.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 08:39:22 -0600
+
+ Only me apparently.
+ 
+ Robby
+ 
+ On Wed, Nov 12, 2014 at 8:36 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > WHo cares?
+ >
+ >
+ > On Nov 12, 2014, at 9:34 AM, Robby Findler <robby@eecs.northwestern.edu> wrote:
+ >
+ >> Just because this has become my assigned question to ask: is this a
+ >> backwards compatible type or not?
+ >>
+ >> Robby
+ >>
+ >> On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ >> <matthias@ccs.neu.edu> wrote:
+ >>>
+ >>> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>>
+ >>>
+ >>>
+ >>>
+ >>>
+ >>> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>>
+ >>>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>>
+ >>>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>>
+ >>>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>>
+ >>>> (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>>
+ >>>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>>
+ >>>>
+ >>>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>>
+ >>>>> A new problem report is waiting at
+ >>>>> http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>>>
+ >>>>> Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>>>
+ >>>>> *** Description:
+ >>>>> The type of `sort` is unsound. I'm not sure what
+ >>>>> the correct type should be though.
+ >>>>>
+ >>>>> The current type:
+ >>>>> -> sort
+ >>>>> - : (All (a b)
+ >>>>>     (case->
+ >>>>>      (-> (Listof a)
+ >>>>>          (-> a a Boolean)
+ >>>>>          [#:cache-keys? Boolean]
+ >>>>>          [#:key (-> a a)]
+ >>>>>          (Listof a))
+ >>>>>      (-> (Listof a)
+ >>>>>          (-> b b Boolean)
+ >>>>>          [#:cache-keys? Boolean]
+ >>>>>          [#:key (-> a b)]
+ >>>>>          (Listof a))))
+ >>>>>
+ >>>>> The second clause of this case-> is problematic though. Since the #:key
+ >>>>> argument is optional, the `b` type variable is unconstrained and therefore
+ >>>>> it ends up as Bottom. That admits any comparator then for the second
+ >>>>> argument (-> Bottom Bottom Boolean).
+ >>>>>
+ >>>>> You can see this by trying to apply it to a comparator with that exact type:
+ >>>>> -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>>> '(hello world)
+ >>>>>
+ >>>>> A more straightforward failure is the following:
+ >>>>>
+ >>>>> ->  (sort '(hello world) string<?)
+ >>>>> - : (Listof (U 'hello 'world))
+ >>>>> ; string<?: contract violation
+ >>>>> ;   expected: string?
+ >>>>> ;   given: 'world
+ >>>>> ;   argument position: 1st
+ >>>>> ; [,bt for context]
+ >>>>>
+ >>>>> And for stranger results:
+ >>>>>
+ >>>>> -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>>> - : (Listof (U 'hello 'world))
+ >>>>> #<variable-code>
+ >>>>> '(world hello)
+ >>>>>
+ >>>>> *** How to repeat:
+ >>>>>
+ >>>>>
+ >>>>> *** Environment:
+ >>>>> windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>>> Human Language: japanese
+ >>>>> (current-memory-use) 233635064
+ >>>>> raco pkg (show):
+ >>>>> Installation-wide:
+ >>>>> Package              Checksum                                    Source
+ >>>>> main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>>> racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>>> [187 auto-installed packages not shown]
+ >>>>> User-specific for installation "6.1.0.900":
+ >>>>> Package               Checksum                                    Source
+ >>>>> drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>> Collections:
+ >>>>> ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>>> (non-existent-path))
+ >>>>> ("C:\\Program Files\\Racket\\collects"
+ >>>>> (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>>>
+ >>>>> Recent Internal Errors:
+ >>>>> Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>>>
+ >>>>
+ >>>
+ >
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 09:40:18 -0500
+
+ Yes.
+ 
+ Sam
+ 
+ On Wed, Nov 12, 2014 at 9:34 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Just because this has become my assigned question to ask: is this a
+ > backwards compatible type or not?
+ >
+ > Robby
+ >
+ > On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >>
+ >> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>
+ >>
+ >>
+ >>
+ >>
+ >> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>
+ >>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>
+ >>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>
+ >>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>
+ >>>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>
+ >>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>
+ >>>
+ >>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>
+ >>> > A new problem report is waiting at
+ >>> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>> >
+ >>> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >>> >
+ >>> > *** Description:
+ >>> > The type of `sort` is unsound. I'm not sure what
+ >>> > the correct type should be though.
+ >>> >
+ >>> > The current type:
+ >>> > -> sort
+ >>> > - : (All (a b)
+ >>> >      (case->
+ >>> >       (-> (Listof a)
+ >>> >           (-> a a Boolean)
+ >>> >           [#:cache-keys? Boolean]
+ >>> >           [#:key (-> a a)]
+ >>> >           (Listof a))
+ >>> >       (-> (Listof a)
+ >>> >           (-> b b Boolean)
+ >>> >           [#:cache-keys? Boolean]
+ >>> >           [#:key (-> a b)]
+ >>> >           (Listof a))))
+ >>> >
+ >>> > The second clause of this case-> is problematic though. Since the #:key
+ >>> > argument is optional, the `b` type variable is unconstrained and therefore
+ >>> > it ends up as Bottom. That admits any comparator then for the second
+ >>> > argument (-> Bottom Bottom Boolean).
+ >>> >
+ >>> > You can see this by trying to apply it to a comparator with that exact type:
+ >>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>> > '(hello world)
+ >>> >
+ >>> > A more straightforward failure is the following:
+ >>> >
+ >>> > ->  (sort '(hello world) string<?)
+ >>> > - : (Listof (U 'hello 'world))
+ >>> > ; string<?: contract violation
+ >>> > ;   expected: string?
+ >>> > ;   given: 'world
+ >>> > ;   argument position: 1st
+ >>> > ; [,bt for context]
+ >>> >
+ >>> > And for stranger results:
+ >>> >
+ >>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>> > - : (Listof (U 'hello 'world))
+ >>> > #<variable-code>
+ >>> > '(world hello)
+ >>> >
+ >>> > *** How to repeat:
+ >>> >
+ >>> >
+ >>> > *** Environment:
+ >>> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>> > Human Language: japanese
+ >>> > (current-memory-use) 233635064
+ >>> > raco pkg (show):
+ >>> > Installation-wide:
+ >>> > Package              Checksum                                    Source
+ >>> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>> > [187 auto-installed packages not shown]
+ >>> > User-specific for installation "6.1.0.900":
+ >>> > Package               Checksum                                    Source
+ >>> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>> >
+ >>> >
+ >>> >
+ >>> > Collections:
+ >>> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>> > (non-existent-path))
+ >>> > ("C:\\Program Files\\Racket\\collects"
+ >>> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>> >
+ >>> > Recent Internal Errors:
+ >>> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>> >
+ >>>
+ >>
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 08:40:55 -0600
+
+ Thanks.
+ 
+ On Wed, Nov 12, 2014 at 8:40 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > Yes.
+ >
+ > Sam
+ >
+ > On Wed, Nov 12, 2014 at 9:34 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> Just because this has become my assigned question to ask: is this a
+ >> backwards compatible type or not?
+ >>
+ >> Robby
+ >>
+ >> On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ >> <matthias@ccs.neu.edu> wrote:
+ >>>
+ >>> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>>
+ >>>
+ >>>
+ >>>
+ >>>
+ >>> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>>
+ >>>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>>
+ >>>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>>
+ >>>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>>
+ >>>>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>>
+ >>>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>>
+ >>>>
+ >>>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>>
+ >>>> > A new problem report is waiting at
+ >>>> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>> >
+ >>>> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>> >
+ >>>> > *** Description:
+ >>>> > The type of `sort` is unsound. I'm not sure what
+ >>>> > the correct type should be though.
+ >>>> >
+ >>>> > The current type:
+ >>>> > -> sort
+ >>>> > - : (All (a b)
+ >>>> >      (case->
+ >>>> >       (-> (Listof a)
+ >>>> >           (-> a a Boolean)
+ >>>> >           [#:cache-keys? Boolean]
+ >>>> >           [#:key (-> a a)]
+ >>>> >           (Listof a))
+ >>>> >       (-> (Listof a)
+ >>>> >           (-> b b Boolean)
+ >>>> >           [#:cache-keys? Boolean]
+ >>>> >           [#:key (-> a b)]
+ >>>> >           (Listof a))))
+ >>>> >
+ >>>> > The second clause of this case-> is problematic though. Since the #:key
+ >>>> > argument is optional, the `b` type variable is unconstrained and therefore
+ >>>> > it ends up as Bottom. That admits any comparator then for the second
+ >>>> > argument (-> Bottom Bottom Boolean).
+ >>>> >
+ >>>> > You can see this by trying to apply it to a comparator with that exact type:
+ >>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>> > '(hello world)
+ >>>> >
+ >>>> > A more straightforward failure is the following:
+ >>>> >
+ >>>> > ->  (sort '(hello world) string<?)
+ >>>> > - : (Listof (U 'hello 'world))
+ >>>> > ; string<?: contract violation
+ >>>> > ;   expected: string?
+ >>>> > ;   given: 'world
+ >>>> > ;   argument position: 1st
+ >>>> > ; [,bt for context]
+ >>>> >
+ >>>> > And for stranger results:
+ >>>> >
+ >>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>> > - : (Listof (U 'hello 'world))
+ >>>> > #<variable-code>
+ >>>> > '(world hello)
+ >>>> >
+ >>>> > *** How to repeat:
+ >>>> >
+ >>>> >
+ >>>> > *** Environment:
+ >>>> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>> > Human Language: japanese
+ >>>> > (current-memory-use) 233635064
+ >>>> > raco pkg (show):
+ >>>> > Installation-wide:
+ >>>> > Package              Checksum                                    Source
+ >>>> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>> > [187 auto-installed packages not shown]
+ >>>> > User-specific for installation "6.1.0.900":
+ >>>> > Package               Checksum                                    Source
+ >>>> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>> >
+ >>>> >
+ >>>> >
+ >>>> > Collections:
+ >>>> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>> > (non-existent-path))
+ >>>> > ("C:\\Program Files\\Racket\\collects"
+ >>>> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>> >
+ >>>> > Recent Internal Errors:
+ >>>> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>> >
+ >>>>
+ >>>
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 08:41:09 -0600
+
+ (I guessed "yes" but wasn't sure.)
+ 
+ On Wed, Nov 12, 2014 at 8:40 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Thanks.
+ >
+ > On Wed, Nov 12, 2014 at 8:40 AM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ >> Yes.
+ >>
+ >> Sam
+ >>
+ >> On Wed, Nov 12, 2014 at 9:34 AM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> Just because this has become my assigned question to ask: is this a
+ >>> backwards compatible type or not?
+ >>>
+ >>> Robby
+ >>>
+ >>> On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ >>> <matthias@ccs.neu.edu> wrote:
+ >>>>
+ >>>> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>>>
+ >>>>
+ >>>>
+ >>>>
+ >>>>
+ >>>> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>>>
+ >>>>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>>>
+ >>>>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>>>
+ >>>>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>>>
+ >>>>>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>>>
+ >>>>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>>>
+ >>>>>
+ >>>>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>>>
+ >>>>> > A new problem report is waiting at
+ >>>>> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>>> >
+ >>>>> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>>> >
+ >>>>> > *** Description:
+ >>>>> > The type of `sort` is unsound. I'm not sure what
+ >>>>> > the correct type should be though.
+ >>>>> >
+ >>>>> > The current type:
+ >>>>> > -> sort
+ >>>>> > - : (All (a b)
+ >>>>> >      (case->
+ >>>>> >       (-> (Listof a)
+ >>>>> >           (-> a a Boolean)
+ >>>>> >           [#:cache-keys? Boolean]
+ >>>>> >           [#:key (-> a a)]
+ >>>>> >           (Listof a))
+ >>>>> >       (-> (Listof a)
+ >>>>> >           (-> b b Boolean)
+ >>>>> >           [#:cache-keys? Boolean]
+ >>>>> >           [#:key (-> a b)]
+ >>>>> >           (Listof a))))
+ >>>>> >
+ >>>>> > The second clause of this case-> is problematic though. Since the #:key
+ >>>>> > argument is optional, the `b` type variable is unconstrained and therefore
+ >>>>> > it ends up as Bottom. That admits any comparator then for the second
+ >>>>> > argument (-> Bottom Bottom Boolean).
+ >>>>> >
+ >>>>> > You can see this by trying to apply it to a comparator with that exact type:
+ >>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>>> > '(hello world)
+ >>>>> >
+ >>>>> > A more straightforward failure is the following:
+ >>>>> >
+ >>>>> > ->  (sort '(hello world) string<?)
+ >>>>> > - : (Listof (U 'hello 'world))
+ >>>>> > ; string<?: contract violation
+ >>>>> > ;   expected: string?
+ >>>>> > ;   given: 'world
+ >>>>> > ;   argument position: 1st
+ >>>>> > ; [,bt for context]
+ >>>>> >
+ >>>>> > And for stranger results:
+ >>>>> >
+ >>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>>> > - : (Listof (U 'hello 'world))
+ >>>>> > #<variable-code>
+ >>>>> > '(world hello)
+ >>>>> >
+ >>>>> > *** How to repeat:
+ >>>>> >
+ >>>>> >
+ >>>>> > *** Environment:
+ >>>>> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>>> > Human Language: japanese
+ >>>>> > (current-memory-use) 233635064
+ >>>>> > raco pkg (show):
+ >>>>> > Installation-wide:
+ >>>>> > Package              Checksum                                    Source
+ >>>>> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>>> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>>> > [187 auto-installed packages not shown]
+ >>>>> > User-specific for installation "6.1.0.900":
+ >>>>> > Package               Checksum                                    Source
+ >>>>> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>>> >
+ >>>>> >
+ >>>>> >
+ >>>>> > Collections:
+ >>>>> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>>> > (non-existent-path))
+ >>>>> > ("C:\\Program Files\\Racket\\collects"
+ >>>>> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>>> >
+ >>>>> > Recent Internal Errors:
+ >>>>> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>>> >
+ >>>>>
+ >>>>
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 09:46:07 -0500
+
+ Well, it'll be backwards incompatible in that the unsound program
+ Asumu wrote to demonstrate the bug won't typecheck anymore.
+ 
+ On Wed, Nov 12, 2014 at 9:41 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > (I guessed "yes" but wasn't sure.)
+ >
+ > On Wed, Nov 12, 2014 at 8:40 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> Thanks.
+ >>
+ >> On Wed, Nov 12, 2014 at 8:40 AM, Sam Tobin-Hochstadt
+ >> <samth@cs.indiana.edu> wrote:
+ >>> Yes.
+ >>>
+ >>> Sam
+ >>>
+ >>> On Wed, Nov 12, 2014 at 9:34 AM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>> Just because this has become my assigned question to ask: is this a
+ >>>> backwards compatible type or not?
+ >>>>
+ >>>> Robby
+ >>>>
+ >>>> On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ >>>> <matthias@ccs.neu.edu> wrote:
+ >>>>>
+ >>>>> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>>>>
+ >>>>>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>>>>
+ >>>>>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>>>>
+ >>>>>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>>>>
+ >>>>>>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>>>>
+ >>>>>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>>>>
+ >>>>>>
+ >>>>>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>>>>
+ >>>>>> > A new problem report is waiting at
+ >>>>>> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>>>> >
+ >>>>>> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>>>> >
+ >>>>>> > *** Description:
+ >>>>>> > The type of `sort` is unsound. I'm not sure what
+ >>>>>> > the correct type should be though.
+ >>>>>> >
+ >>>>>> > The current type:
+ >>>>>> > -> sort
+ >>>>>> > - : (All (a b)
+ >>>>>> >      (case->
+ >>>>>> >       (-> (Listof a)
+ >>>>>> >           (-> a a Boolean)
+ >>>>>> >           [#:cache-keys? Boolean]
+ >>>>>> >           [#:key (-> a a)]
+ >>>>>> >           (Listof a))
+ >>>>>> >       (-> (Listof a)
+ >>>>>> >           (-> b b Boolean)
+ >>>>>> >           [#:cache-keys? Boolean]
+ >>>>>> >           [#:key (-> a b)]
+ >>>>>> >           (Listof a))))
+ >>>>>> >
+ >>>>>> > The second clause of this case-> is problematic though. Since the #:key
+ >>>>>> > argument is optional, the `b` type variable is unconstrained and therefore
+ >>>>>> > it ends up as Bottom. That admits any comparator then for the second
+ >>>>>> > argument (-> Bottom Bottom Boolean).
+ >>>>>> >
+ >>>>>> > You can see this by trying to apply it to a comparator with that exact type:
+ >>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>>>> > '(hello world)
+ >>>>>> >
+ >>>>>> > A more straightforward failure is the following:
+ >>>>>> >
+ >>>>>> > ->  (sort '(hello world) string<?)
+ >>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>> > ; string<?: contract violation
+ >>>>>> > ;   expected: string?
+ >>>>>> > ;   given: 'world
+ >>>>>> > ;   argument position: 1st
+ >>>>>> > ; [,bt for context]
+ >>>>>> >
+ >>>>>> > And for stranger results:
+ >>>>>> >
+ >>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>> > #<variable-code>
+ >>>>>> > '(world hello)
+ >>>>>> >
+ >>>>>> > *** How to repeat:
+ >>>>>> >
+ >>>>>> >
+ >>>>>> > *** Environment:
+ >>>>>> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>>>> > Human Language: japanese
+ >>>>>> > (current-memory-use) 233635064
+ >>>>>> > raco pkg (show):
+ >>>>>> > Installation-wide:
+ >>>>>> > Package              Checksum                                    Source
+ >>>>>> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>>>> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>>>> > [187 auto-installed packages not shown]
+ >>>>>> > User-specific for installation "6.1.0.900":
+ >>>>>> > Package               Checksum                                    Source
+ >>>>>> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>>>> >
+ >>>>>> >
+ >>>>>> >
+ >>>>>> > Collections:
+ >>>>>> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>>>> > (non-existent-path))
+ >>>>>> > ("C:\\Program Files\\Racket\\collects"
+ >>>>>> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>>>> >
+ >>>>>> > Recent Internal Errors:
+ >>>>>> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>>>> >
+ >>>>>>
+ >>>>>
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 08:58:04 -0600
+
+ What I mean is: are there programs that work correctly that
+ typechecked before but now fail to type check? (And obviously the
+ answer to that is "yes", but lets restrict our attention to ones that
+ actually call "sort".)
+ 
+ Robby
+ 
+ On Wed, Nov 12, 2014 at 8:46 AM, Sam Tobin-Hochstadt
+ <samth@cs.indiana.edu> wrote:
+ > Well, it'll be backwards incompatible in that the unsound program
+ > Asumu wrote to demonstrate the bug won't typecheck anymore.
+ >
+ > On Wed, Nov 12, 2014 at 9:41 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> (I guessed "yes" but wasn't sure.)
+ >>
+ >> On Wed, Nov 12, 2014 at 8:40 AM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> Thanks.
+ >>>
+ >>> On Wed, Nov 12, 2014 at 8:40 AM, Sam Tobin-Hochstadt
+ >>> <samth@cs.indiana.edu> wrote:
+ >>>> Yes.
+ >>>>
+ >>>> Sam
+ >>>>
+ >>>> On Wed, Nov 12, 2014 at 9:34 AM, Robby Findler
+ >>>> <robby@eecs.northwestern.edu> wrote:
+ >>>>> Just because this has become my assigned question to ask: is this a
+ >>>>> backwards compatible type or not?
+ >>>>>
+ >>>>> Robby
+ >>>>>
+ >>>>> On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ >>>>> <matthias@ccs.neu.edu> wrote:
+ >>>>>>
+ >>>>>> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>>>>>
+ >>>>>>
+ >>>>>>
+ >>>>>>
+ >>>>>>
+ >>>>>> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>>>>>
+ >>>>>>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>>>>>
+ >>>>>>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>>>>>
+ >>>>>>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>>>>>
+ >>>>>>>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>>>>>
+ >>>>>>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>>>>>
+ >>>>>>>
+ >>>>>>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>>>>>
+ >>>>>>> > A new problem report is waiting at
+ >>>>>>> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>>>>> >
+ >>>>>>> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>>>>> >
+ >>>>>>> > *** Description:
+ >>>>>>> > The type of `sort` is unsound. I'm not sure what
+ >>>>>>> > the correct type should be though.
+ >>>>>>> >
+ >>>>>>> > The current type:
+ >>>>>>> > -> sort
+ >>>>>>> > - : (All (a b)
+ >>>>>>> >      (case->
+ >>>>>>> >       (-> (Listof a)
+ >>>>>>> >           (-> a a Boolean)
+ >>>>>>> >           [#:cache-keys? Boolean]
+ >>>>>>> >           [#:key (-> a a)]
+ >>>>>>> >           (Listof a))
+ >>>>>>> >       (-> (Listof a)
+ >>>>>>> >           (-> b b Boolean)
+ >>>>>>> >           [#:cache-keys? Boolean]
+ >>>>>>> >           [#:key (-> a b)]
+ >>>>>>> >           (Listof a))))
+ >>>>>>> >
+ >>>>>>> > The second clause of this case-> is problematic though. Since the #:key
+ >>>>>>> > argument is optional, the `b` type variable is unconstrained and therefore
+ >>>>>>> > it ends up as Bottom. That admits any comparator then for the second
+ >>>>>>> > argument (-> Bottom Bottom Boolean).
+ >>>>>>> >
+ >>>>>>> > You can see this by trying to apply it to a comparator with that exact type:
+ >>>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>>>>> > '(hello world)
+ >>>>>>> >
+ >>>>>>> > A more straightforward failure is the following:
+ >>>>>>> >
+ >>>>>>> > ->  (sort '(hello world) string<?)
+ >>>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>>> > ; string<?: contract violation
+ >>>>>>> > ;   expected: string?
+ >>>>>>> > ;   given: 'world
+ >>>>>>> > ;   argument position: 1st
+ >>>>>>> > ; [,bt for context]
+ >>>>>>> >
+ >>>>>>> > And for stranger results:
+ >>>>>>> >
+ >>>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>>> > #<variable-code>
+ >>>>>>> > '(world hello)
+ >>>>>>> >
+ >>>>>>> > *** How to repeat:
+ >>>>>>> >
+ >>>>>>> >
+ >>>>>>> > *** Environment:
+ >>>>>>> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>>>>> > Human Language: japanese
+ >>>>>>> > (current-memory-use) 233635064
+ >>>>>>> > raco pkg (show):
+ >>>>>>> > Installation-wide:
+ >>>>>>> > Package              Checksum                                    Source
+ >>>>>>> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>>>>> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>>>>> > [187 auto-installed packages not shown]
+ >>>>>>> > User-specific for installation "6.1.0.900":
+ >>>>>>> > Package               Checksum                                    Source
+ >>>>>>> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>>>>> >
+ >>>>>>> >
+ >>>>>>> >
+ >>>>>>> > Collections:
+ >>>>>>> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>>>>> > (non-existent-path))
+ >>>>>>> > ("C:\\Program Files\\Racket\\collects"
+ >>>>>>> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>>>>> >
+ >>>>>>> > Recent Internal Errors:
+ >>>>>>> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>>>>> >
+ >>>>>>>
+ >>>>>>
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 09:05:44 -0600
+
+ I guess the answer is "yes" here, if you have a comparator that
+ doesn't look at its arguments.
+ 
+ Man. Backwards compatibility for TR is really hard.
+ 
+ Robby
+ 
+ On Wed, Nov 12, 2014 at 8:58 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > What I mean is: are there programs that work correctly that
+ > typechecked before but now fail to type check? (And obviously the
+ > answer to that is "yes", but lets restrict our attention to ones that
+ > actually call "sort".)
+ >
+ > Robby
+ >
+ > On Wed, Nov 12, 2014 at 8:46 AM, Sam Tobin-Hochstadt
+ > <samth@cs.indiana.edu> wrote:
+ >> Well, it'll be backwards incompatible in that the unsound program
+ >> Asumu wrote to demonstrate the bug won't typecheck anymore.
+ >>
+ >> On Wed, Nov 12, 2014 at 9:41 AM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> (I guessed "yes" but wasn't sure.)
+ >>>
+ >>> On Wed, Nov 12, 2014 at 8:40 AM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>> Thanks.
+ >>>>
+ >>>> On Wed, Nov 12, 2014 at 8:40 AM, Sam Tobin-Hochstadt
+ >>>> <samth@cs.indiana.edu> wrote:
+ >>>>> Yes.
+ >>>>>
+ >>>>> Sam
+ >>>>>
+ >>>>> On Wed, Nov 12, 2014 at 9:34 AM, Robby Findler
+ >>>>> <robby@eecs.northwestern.edu> wrote:
+ >>>>>> Just because this has become my assigned question to ask: is this a
+ >>>>>> backwards compatible type or not?
+ >>>>>>
+ >>>>>> Robby
+ >>>>>>
+ >>>>>> On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ >>>>>> <matthias@ccs.neu.edu> wrote:
+ >>>>>>>
+ >>>>>>> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>>>>>>
+ >>>>>>>
+ >>>>>>>
+ >>>>>>>
+ >>>>>>>
+ >>>>>>> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>>>>>>
+ >>>>>>>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>>>>>>
+ >>>>>>>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>>>>>>
+ >>>>>>>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>>>>>>
+ >>>>>>>>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>>>>>>
+ >>>>>>>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>>>>>>
+ >>>>>>>>
+ >>>>>>>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>>>>>>
+ >>>>>>>> > A new problem report is waiting at
+ >>>>>>>> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>>>>>> >
+ >>>>>>>> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>>>>>> >
+ >>>>>>>> > *** Description:
+ >>>>>>>> > The type of `sort` is unsound. I'm not sure what
+ >>>>>>>> > the correct type should be though.
+ >>>>>>>> >
+ >>>>>>>> > The current type:
+ >>>>>>>> > -> sort
+ >>>>>>>> > - : (All (a b)
+ >>>>>>>> >      (case->
+ >>>>>>>> >       (-> (Listof a)
+ >>>>>>>> >           (-> a a Boolean)
+ >>>>>>>> >           [#:cache-keys? Boolean]
+ >>>>>>>> >           [#:key (-> a a)]
+ >>>>>>>> >           (Listof a))
+ >>>>>>>> >       (-> (Listof a)
+ >>>>>>>> >           (-> b b Boolean)
+ >>>>>>>> >           [#:cache-keys? Boolean]
+ >>>>>>>> >           [#:key (-> a b)]
+ >>>>>>>> >           (Listof a))))
+ >>>>>>>> >
+ >>>>>>>> > The second clause of this case-> is problematic though. Since the #:key
+ >>>>>>>> > argument is optional, the `b` type variable is unconstrained and therefore
+ >>>>>>>> > it ends up as Bottom. That admits any comparator then for the second
+ >>>>>>>> > argument (-> Bottom Bottom Boolean).
+ >>>>>>>> >
+ >>>>>>>> > You can see this by trying to apply it to a comparator with that exact type:
+ >>>>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>>>>>> > '(hello world)
+ >>>>>>>> >
+ >>>>>>>> > A more straightforward failure is the following:
+ >>>>>>>> >
+ >>>>>>>> > ->  (sort '(hello world) string<?)
+ >>>>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>>>> > ; string<?: contract violation
+ >>>>>>>> > ;   expected: string?
+ >>>>>>>> > ;   given: 'world
+ >>>>>>>> > ;   argument position: 1st
+ >>>>>>>> > ; [,bt for context]
+ >>>>>>>> >
+ >>>>>>>> > And for stranger results:
+ >>>>>>>> >
+ >>>>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>>>> > #<variable-code>
+ >>>>>>>> > '(world hello)
+ >>>>>>>> >
+ >>>>>>>> > *** How to repeat:
+ >>>>>>>> >
+ >>>>>>>> >
+ >>>>>>>> > *** Environment:
+ >>>>>>>> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>>>>>> > Human Language: japanese
+ >>>>>>>> > (current-memory-use) 233635064
+ >>>>>>>> > raco pkg (show):
+ >>>>>>>> > Installation-wide:
+ >>>>>>>> > Package              Checksum                                    Source
+ >>>>>>>> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>>>>>> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>>>>>> > [187 auto-installed packages not shown]
+ >>>>>>>> > User-specific for installation "6.1.0.900":
+ >>>>>>>> > Package               Checksum                                    Source
+ >>>>>>>> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>>>>>> >
+ >>>>>>>> >
+ >>>>>>>> >
+ >>>>>>>> > Collections:
+ >>>>>>>> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>>>>>> > (non-existent-path))
+ >>>>>>>> > ("C:\\Program Files\\Racket\\collects"
+ >>>>>>>> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>>>>>> >
+ >>>>>>>> > Recent Internal Errors:
+ >>>>>>>> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>>>>>> >
+ >>>>>>>>
+ >>>>>>>
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 10:15:17 -0500
+
+ On 2014-11-12 11:51:20 +0000, Sam Tobin-Hochstadt wrote:
+ >    Can we rewrite the type to make key mandatory in the second case?
+ 
+ I don't think that works. I think TR's implementation assumes that the
+ keyword arguments are the same for all the case-> branches.
+ 
+ And since case-> is an intersection type, it doesn't really make sense
+ to say that a given kw argument is *both* optional and mandatory.
+ 
+ (and I'm not sure you could write a function to inhabit that type)
+ 
+ Cheers,
+ Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 10:16:35 -0500
+
+ On Wed, Nov 12, 2014 at 10:15 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2014-11-12 11:51:20 +0000, Sam Tobin-Hochstadt wrote:
+ >>    Can we rewrite the type to make key mandatory in the second case?
+ >
+ > I don't think that works. I think TR's implementation assumes that the
+ > keyword arguments are the same for all the case-> branches.
+ >
+ > And since case-> is an intersection type, it doesn't really make sense
+ > to say that a given kw argument is *both* optional and mandatory.
+ 
+ Can we make it omitted in one, and mandatory in the other? Can we fix
+ the implementation to make the possible?
+ 
+ Certainly the underlying type of the generated function could have the
+ type we want.
+ 
+ Sam
+ 
+ >
+ > (and I'm not sure you could write a function to inhabit that type)
+ >
+ > Cheers,
+ > Asumu
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 10:17:40 -0500
+
+ Yes, it's easy to construct programs that "work" for this, but I
+ really doubt it will have any impact in practice. As you say, the
+ comparator would have to ignore its arguments.
+ 
+ Sam
+ 
+ On Wed, Nov 12, 2014 at 10:05 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > I guess the answer is "yes" here, if you have a comparator that
+ > doesn't look at its arguments.
+ >
+ > Man. Backwards compatibility for TR is really hard.
+ >
+ > Robby
+ >
+ > On Wed, Nov 12, 2014 at 8:58 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> What I mean is: are there programs that work correctly that
+ >> typechecked before but now fail to type check? (And obviously the
+ >> answer to that is "yes", but lets restrict our attention to ones that
+ >> actually call "sort".)
+ >>
+ >> Robby
+ >>
+ >> On Wed, Nov 12, 2014 at 8:46 AM, Sam Tobin-Hochstadt
+ >> <samth@cs.indiana.edu> wrote:
+ >>> Well, it'll be backwards incompatible in that the unsound program
+ >>> Asumu wrote to demonstrate the bug won't typecheck anymore.
+ >>>
+ >>> On Wed, Nov 12, 2014 at 9:41 AM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>> (I guessed "yes" but wasn't sure.)
+ >>>>
+ >>>> On Wed, Nov 12, 2014 at 8:40 AM, Robby Findler
+ >>>> <robby@eecs.northwestern.edu> wrote:
+ >>>>> Thanks.
+ >>>>>
+ >>>>> On Wed, Nov 12, 2014 at 8:40 AM, Sam Tobin-Hochstadt
+ >>>>> <samth@cs.indiana.edu> wrote:
+ >>>>>> Yes.
+ >>>>>>
+ >>>>>> Sam
+ >>>>>>
+ >>>>>> On Wed, Nov 12, 2014 at 9:34 AM, Robby Findler
+ >>>>>> <robby@eecs.northwestern.edu> wrote:
+ >>>>>>> Just because this has become my assigned question to ask: is this a
+ >>>>>>> backwards compatible type or not?
+ >>>>>>>
+ >>>>>>> Robby
+ >>>>>>>
+ >>>>>>> On Wed, Nov 12, 2014 at 8:34 AM, Matthias Felleisen
+ >>>>>>> <matthias@ccs.neu.edu> wrote:
+ >>>>>>>>
+ >>>>>>>> I guess moving #:key into the required part of the signature does the case split between the first -> and the second one. Not bad.
+ >>>>>>>>
+ >>>>>>>>
+ >>>>>>>>
+ >>>>>>>>
+ >>>>>>>>
+ >>>>>>>> On Nov 12, 2014, at 8:40 AM, Sam Tobin-Hochstadt <samth@cs.indiana.edu> wrote:
+ >>>>>>>>
+ >>>>>>>>> My suggestion expresses basically that exact type -- TR can support surprising amounts of dependency given appropriate encoding (sort of like Haskell). :)
+ >>>>>>>>>
+ >>>>>>>>> On Wed Nov 12 2014 at 8:37:15 AM Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>>>>>>>>
+ >>>>>>>>> I guess if we had computations at the type level and dependencies, we might be able to say something like
+ >>>>>>>>>
+ >>>>>>>>>  (if (arg-exists? #:key) (-> b b Boolean) (-> a a Boolean))
+ >>>>>>>>>
+ >>>>>>>>> But that's a lot of ifs. I can't see how quantifiers could do this. So yes, Sam's proposal to require the presence of #:key is the reasonable thing to do.
+ >>>>>>>>>
+ >>>>>>>>>
+ >>>>>>>>> On Nov 12, 2014, at 12:56 AM, asumu@ccs.neu.edu wrote:
+ >>>>>>>>>
+ >>>>>>>>> > A new problem report is waiting at
+ >>>>>>>>> >  http://bugs.racket-lang.org/query/?cmd=view&pr=14833
+ >>>>>>>>> >
+ >>>>>>>>> > Reported by Asumu Takikawa for release: 6.1.0.900
+ >>>>>>>>> >
+ >>>>>>>>> > *** Description:
+ >>>>>>>>> > The type of `sort` is unsound. I'm not sure what
+ >>>>>>>>> > the correct type should be though.
+ >>>>>>>>> >
+ >>>>>>>>> > The current type:
+ >>>>>>>>> > -> sort
+ >>>>>>>>> > - : (All (a b)
+ >>>>>>>>> >      (case->
+ >>>>>>>>> >       (-> (Listof a)
+ >>>>>>>>> >           (-> a a Boolean)
+ >>>>>>>>> >           [#:cache-keys? Boolean]
+ >>>>>>>>> >           [#:key (-> a a)]
+ >>>>>>>>> >           (Listof a))
+ >>>>>>>>> >       (-> (Listof a)
+ >>>>>>>>> >           (-> b b Boolean)
+ >>>>>>>>> >           [#:cache-keys? Boolean]
+ >>>>>>>>> >           [#:key (-> a b)]
+ >>>>>>>>> >           (Listof a))))
+ >>>>>>>>> >
+ >>>>>>>>> > The second clause of this case-> is problematic though. Since the #:key
+ >>>>>>>>> > argument is optional, the `b` type variable is unconstrained and therefore
+ >>>>>>>>> > it ends up as Bottom. That admits any comparator then for the second
+ >>>>>>>>> > argument (-> Bottom Bottom Boolean).
+ >>>>>>>>> >
+ >>>>>>>>> > You can see this by trying to apply it to a comparator with that exact type:
+ >>>>>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) #t))
+ >>>>>>>>> > '(hello world)
+ >>>>>>>>> >
+ >>>>>>>>> > A more straightforward failure is the following:
+ >>>>>>>>> >
+ >>>>>>>>> > ->  (sort '(hello world) string<?)
+ >>>>>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>>>>> > ; string<?: contract violation
+ >>>>>>>>> > ;   expected: string?
+ >>>>>>>>> > ;   given: 'world
+ >>>>>>>>> > ;   argument position: 1st
+ >>>>>>>>> > ; [,bt for context]
+ >>>>>>>>> >
+ >>>>>>>>> > And for stranger results:
+ >>>>>>>>> >
+ >>>>>>>>> > -> (sort '(hello world) (lambda ([x : (U)] [y : (U)]) (displayln (+ x 3)) #t))
+ >>>>>>>>> > - : (Listof (U 'hello 'world))
+ >>>>>>>>> > #<variable-code>
+ >>>>>>>>> > '(world hello)
+ >>>>>>>>> >
+ >>>>>>>>> > *** How to repeat:
+ >>>>>>>>> >
+ >>>>>>>>> >
+ >>>>>>>>> > *** Environment:
+ >>>>>>>>> > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ >>>>>>>>> > Human Language: japanese
+ >>>>>>>>> > (current-memory-use) 233635064
+ >>>>>>>>> > raco pkg (show):
+ >>>>>>>>> > Installation-wide:
+ >>>>>>>>> > Package              Checksum                                    Source
+ >>>>>>>>> > main-distribution    2f64ba9926157672a70499299a8af65379a86c6a    (catalog main-distribution)
+ >>>>>>>>> > racket-lib           14fb700c2a2ac38e822bd4eac7321bf276c55e8e    (catalog racket-lib)
+ >>>>>>>>> > [187 auto-installed packages not shown]
+ >>>>>>>>> > User-specific for installation "6.1.0.900":
+ >>>>>>>>> > Package               Checksum                                    Source
+ >>>>>>>>> > drracket-solarized    9a90657bb320d4231c85dff96ceaef6a835c5c4f    (catalog drracket-solarized)
+ >>>>>>>>> >
+ >>>>>>>>> >
+ >>>>>>>>> >
+ >>>>>>>>> > Collections:
+ >>>>>>>>> > ("C:\\Users\\asumu\\AppData\\Roaming\\Racket\\6.1.0.900\\collects"
+ >>>>>>>>> > (non-existent-path))
+ >>>>>>>>> > ("C:\\Program Files\\Racket\\collects"
+ >>>>>>>>> > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ >>>>>>>>> >
+ >>>>>>>>> > Recent Internal Errors:
+ >>>>>>>>> > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #("100") "#lang racket\n" #f #t ((main) (test)) #t))
+ >>>>>>>>> >
+ >>>>>>>>>
+ >>>>>>>>
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 10:30:07 -0500
+
+ On Wed, Nov 12, 2014 at 10:28 AM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2014-11-12 10:16:35 -0500, Sam Tobin-Hochstadt wrote:
+ >> Can we make it omitted in one, and mandatory in the other? Can we fix
+ >> the implementation to make the possible?
+ >>
+ >> Certainly the underlying type of the generated function could have the
+ >> type we want.
+ >
+ > I think you're proposing a type like
+ >
+ > -> sort
+ > - : (All (a b)
+ >       (case->
+ >        (-> (Listof a) (-> a a Boolean) [#:cache-keys? Boolean] (Listof a))
+ >        (-> (Listof a)
+ >            (-> b b Boolean)
+ >            [#:cache-keys? Boolean]
+ >            #:key (-> a b)
+ >            (Listof a))))
+ >
+ > I tried it and it doesn't seem to work since I can't apply it on correct
+ > cases now.
+ >
+ > More specifically, I don't think this will work because if the
+ > optional/mandatory arguments in the type are not exactly the same as the
+ > actual function, TR will not understand the kw application protocol.
+ >
+ > For example, this is a sample expansion of an application of sort:
+ >
+ >   (let-values (((temp5) '(hello world)) ((symbol<?6) symbol<?))
+ >     (if (#%app variable-reference-constant? (#%variable-reference sort9))
+ >       (#%app sort7 '#f '#f '#f '#f temp5 symbol<?6)
+ >       (#%app sort9 temp5 symbol<?6)))
+ >
+ > The number of booleans provided there matches the number of keywords. TR
+ > will expect the right number of keywords only if the type actually
+ > matches the function.
+ 
+ Can you give #:key the type Bottom in the first case?
+ 
+ Sam
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 10:28:12 -0500
+
+ On 2014-11-12 10:16:35 -0500, Sam Tobin-Hochstadt wrote:
+ > Can we make it omitted in one, and mandatory in the other? Can we fix
+ > the implementation to make the possible?
+ >
+ > Certainly the underlying type of the generated function could have the
+ > type we want.
+ 
+ I think you're proposing a type like
+ 
+ -> sort
+ - : (All (a b)
+       (case->
+        (-> (Listof a) (-> a a Boolean) [#:cache-keys? Boolean] (Listof a))
+        (-> (Listof a)
+            (-> b b Boolean)
+            [#:cache-keys? Boolean]
+            #:key (-> a b)
+            (Listof a))))
+ 
+ I tried it and it doesn't seem to work since I can't apply it on correct
+ cases now.
+ 
+ More specifically, I don't think this will work because if the
+ optional/mandatory arguments in the type are not exactly the same as the
+ actual function, TR will not understand the kw application protocol.
+ 
+ For example, this is a sample expansion of an application of sort:
+ 
+   (let-values (((temp5) '(hello world)) ((symbol<?6) symbol<?))
+     (if (#%app variable-reference-constant? (#%variable-reference sort9))
+       (#%app sort7 '#f '#f '#f '#f temp5 symbol<?6)
+       (#%app sort9 temp5 symbol<?6)))
+ 
+ The number of booleans provided there matches the number of keywords. TR
+ will expect the right number of keywords only if the type actually
+ matches the function.
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14833: TR: the type of `sort` is unsound
+Date: Wed, 12 Nov 2014 10:44:57 -0500
+
+ On 2014-11-12 10:30:07 -0500, Sam Tobin-Hochstadt wrote:
+ > Can you give #:key the type Bottom in the first case?
+ 
+ I tried and while it seems to reject the bad case and accept the good
+ case, I also get strange cases like:
+ 
+ -> ((inst sort Symbol String) '(hello world) string<?)
+ ; Internal Typechecker Error: bad type result: #<void>
+ ; while typechecking:
+ ; here
+ ; originally:
+ ; here
+ ; [,bt for context]
+ 
+ so it's probably broken.
+ 
+ Cheers,
+ Asumu

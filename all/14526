@@ -1,0 +1,496 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue May 27 02:49:20 2014
+Received: from mail-ob0-f175.google.com (mail-ob0-f175.google.com [209.85.214.175])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s4R6nICc031650
+	for <bugs@bugs.plt-scheme.org>; Tue, 27 May 2014 02:49:18 -0400
+Message-Id: <201405270649.s4R6nGKo031643@winooski.ccs.neu.edu>
+Date: Tue, 27 May 2014 02:49:16 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Racket optimizer misses that a procedure is always true
+
+>Number:         14526
+>Category:       all
+>Synopsis:       Racket optimizer misses that a procedure is always true
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue May 27 02:52:01 -0400 2014
+>Closed-Date:    Tue May 27 04:27:26 -0400 2014
+>Last-Modified:  Tue May 27 04:27:26 -0400 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+>Description:
+I'm trying to make TR's naive numeric for loop be as fast as racket's with in-range. Currently it is a factor of 2 slower. 
+
+Looking at the output I think that it should be easily inlined to be the same thing but the decompiled output shows that while it is inlined the test that it is a true, is left. Given that inlining happens it must know that it (arg0-107) is a procedure, so it should be able to optimize the test away.
+
+My test code is as follows:
+#lang racket
+
+
+(module r racket
+  (provide f)
+  (define (f)
+    (time
+      (for ((i (in-range 200000000)))
+        (void i)))))
+
+(module tr typed/racket
+  (provide g)
+  (define (g)
+    (time
+      (for ((i 200000000))
+        (void i)))))
+
+(require 'r 'tr)
+
+(for ((i (in-range 5)))
+  (displayln "Running f.")
+  (f)
+  (displayln "Running g.")
+  (g))
+
+
+With output:
+Running f.
+cpu time: 192 real time: 192 gc time: 0
+Running g.
+cpu time: 398 real time: 398 gc time: 0
+Running f.
+cpu time: 188 real time: 187 gc time: 0
+Running g.
+cpu time: 394 real time: 393 gc time: 0
+Running f.
+cpu time: 193 real time: 193 gc time: 0
+Running g.
+cpu time: 396 real time: 395 gc time: 0
+Running f.
+cpu time: 187 real time: 187 gc time: 0
+Running g.
+cpu time: 387 real time: 387 gc time: 0
+Running f.
+cpu time: 188 real time: 187 gc time: 0
+Running g.
+cpu time: 394 real time: 394 gc time: 0
+
+
+
+With expansion:
+
+(module tmp racket
+  (#%module-begin
+   (module configure-runtime '#%kernel
+     (#%module-begin (#%require racket/runtime-config) (#%app configure '#f)))
+   (module r racket
+     (#%module-begin
+      (module configure-runtime '#%kernel
+        (#%module-begin
+         (#%require racket/runtime-config)
+         (#%app configure '#f)))
+      (#%provide f)
+      (define-values
+       (f)
+       (lambda ()
+         (let-values (((v cpu user gc)
+                       (#%app
+                        time-apply
+                        (lambda ()
+                          (let-values (((start) '0)
+                                       ((end) '200000000)
+                                       ((inc) '1))
+                            (if (if (#%app real? start)
+                                  (if (#%app real? end) (#%app real? inc) '#f)
+                                  '#f)
+                              (#%app void)
+                              (let-values () (#%app in-range start end inc)))
+                            (#%app
+                             (letrec-values (((for-loop)
+                                              (lambda (fold-var pos)
+                                                (if (#%app unsafe-fx< pos end)
+                                                  (let-values (((i) pos))
+                                                    (if '#t
+                                                      (let-values (((fold-var)
+                                                                    (let-values (((fold-var)
+                                                                                  fold-var))
+                                                                      (let-values ()
+                                                                        (let-values ()
+                                                                          (#%app
+                                                                           void
+                                                                           i))
+                                                                        (#%app
+                                                                         void)))))
+                                                        (if '#t
+                                                          (#%app
+                                                           for-loop
+                                                           fold-var
+                                                           (#%app
+                                                            unsafe-fx+
+                                                            pos
+                                                            inc))
+                                                          fold-var))
+                                                      fold-var))
+                                                  fold-var))))
+                               for-loop)
+                             (#%app void)
+                             start)))
+                        null)))
+           (#%app
+            printf
+            '"cpu time: ~s real time: ~s gc time: ~s\n"
+            cpu
+            user
+            gc)
+           (#%app apply values v))))))
+   (module tr typed/racket
+     (#%module-begin
+      (module configure-runtime '#%kernel
+        (#%module-begin
+         (#%require racket/runtime-config)
+         (#%app configure '#f)))
+      (begin-for-syntax
+       (module*
+        #%type-decl
+        #f
+        (#%plain-module-begin
+         (#%require typed-racket/types/numeric-tower)
+         (#%require typed-racket/env/type-name-env)
+         (#%require typed-racket/env/global-env)
+         (#%require typed-racket/env/type-alias-env)
+         (#%require typed-racket/types/struct-table)
+         (#%require typed-racket/types/abbrev)
+         (#%require
+          (just-meta 0 (rename racket/private/sort raw-sort sort))
+          (only racket/private/sort))
+         (#%app
+          register-type
+          (quote-syntax g)
+          (#%app simple-> (#%app list) -Void)))))
+      (begin-for-syntax
+       (#%app
+        add-mod!
+        (#%app variable-reference->module-path-index (#%variable-reference))))
+      (define-values
+       (g)
+       (lambda ()
+         (let-values (((v cpu user gc)
+                       (#%app
+                        time-apply
+                        (lambda ()
+                          (let-values (((pos->vals
+                                         pos-next
+                                         init
+                                         pos-cont?
+                                         val-cont?
+                                         all-cont?)
+                                        (let-values (((end) '200000000))
+                                          (#%app
+                                           values
+                                           (lambda (x) x)
+                                           (lambda (x) (#%app unsafe-fx+ '1 x))
+                                           '0
+                                           (lambda (x)
+                                             (#%app unsafe-fx< x end))
+                                           (lambda (x) '#t)
+                                           (lambda (x y) '#t)))))
+                            (#%app void)
+                            (#%app
+                             (letrec-values (((for-loop)
+                                              (lambda (fold-var pos)
+                                                (if (if pos-cont?
+                                                      (#%app pos-cont? pos)
+                                                      '#t)
+                                                  (let-values (((i)
+                                                                (#%app
+                                                                 pos->vals
+                                                                 pos)))
+                                                    (if (if val-cont?
+                                                          (#%app val-cont? i)
+                                                          '#t)
+                                                      (let-values (((fold-var)
+                                                                    (let-values (((fold-var)
+                                                                                  fold-var))
+                                                                      (let-values ()
+                                                                        (let-values ()
+                                                                          (#%app
+                                                                           void
+                                                                           i))
+                                                                        (#%app
+                                                                         void)))))
+                                                        (if (if all-cont?
+                                                              (#%app
+                                                               all-cont?
+                                                               pos
+                                                               i)
+                                                              '#t)
+                                                          (#%app
+                                                           for-loop
+                                                           fold-var
+                                                           (#%app
+                                                            pos-next
+                                                            pos))
+                                                          fold-var))
+                                                      fold-var))
+                                                  fold-var))))
+                               for-loop)
+                             (#%app void)
+                             init)))
+                        null)))
+           (#%app
+            printf
+            '"cpu time: ~s real time: ~s gc time: ~s\n"
+            cpu
+            user
+            gc)
+           (#%app apply values v))))
+      (define-values
+       (blame1)
+       (#%app
+        module-name-fixup
+        (#%app variable-reference->module-source/submod (#%variable-reference))
+        (#%app list)))
+      (define-values
+       (idZ6)
+       (let-values (((g)
+                     (#%app
+                      coerce-contract
+                      'define-module-boundary-contract
+                      (let-values ()
+                        (#%app
+                         build-->
+                         '->*
+                         (#%app list)
+                         (#%app list)
+                         '()
+                         (#%app list)
+                         '()
+                         (#%app list)
+                         '#f
+                         '#f
+                         '#f
+                         '#f
+                         (lambda (blame f) (lambda (neg-party) (#%app f)))
+                         (lambda (blame f neg-party)
+                           (let-values ((() (#%app values)))
+                             (let-values (((basic-lambda284)
+                                           (lambda ()
+                                             (with-continuation-mark
+                                              contract-continuation-mark-key
+                                              (#%app cons blame neg-party)
+                                              (let-values ()
+                                                (#%app values))))))
+                               (#%app
+                                arrow:arity-checking-wrapper
+                                f
+                                (#%app blame-add-missing-party blame neg-party)
+                                basic-lambda284
+                                void
+                                '0
+                                '0
+                                '0
+                                '0
+                                '()
+                                '())))))))))
+         g))
+      (define-syntaxes
+       (g)
+       (#%app
+        make-provide/contract-arrow-transformer
+        (quote-syntax idZ6)
+        (quote-syntax g)
+        (quote-syntax idX4)
+        (quote-syntax idY5)
+        '#s(valid-app-shapes (0) () ())))
+      (define-syntaxes
+       (g)
+       (let-values (((c) (quote-syntax g)))
+         (if (#%app unbox typed-context?)
+           (#%app renamer (quote-syntax g) c)
+           (#%app renamer c))))
+      (#%provide g)
+      (#%app void)
+      (define-values
+       (idX4)
+       (#%app
+        do-partial-app
+        idZ6
+        g
+        'g
+        blame1
+        (#%app vector '#<path:/Users/endobson/tmp/tmp.rkt> '12 '11 '166 '1)))
+      (define-values
+       (idY5)
+       (#%app wrapped-extra-arg-arrow-extra-neg-party-argument idX4))))
+   (#%require 'r)
+   (#%require 'tr)
+   (define-values
+    (lifted.0)
+    (#%app
+     module-name-fixup
+     (#%app variable-reference->module-source/submod (#%variable-reference))
+     (#%app list)))
+   (#%app
+    call-with-values
+    (lambda ()
+      (let-values (((start) '0) ((end) '5) ((inc) '1))
+        (if (if (#%app real? start)
+              (if (#%app real? end) (#%app real? inc) '#f)
+              '#f)
+          (#%app void)
+          (let-values () (#%app in-range start end inc)))
+        (#%app
+         (letrec-values (((for-loop)
+                          (lambda (fold-var pos)
+                            (if (#%app unsafe-fx< pos end)
+                              (let-values (((i) pos))
+                                (if '#t
+                                  (let-values (((fold-var)
+                                                (let-values (((fold-var)
+                                                              fold-var))
+                                                  (let-values ()
+                                                    (let-values ()
+                                                      (#%app
+                                                       displayln
+                                                       '"Running f.")
+                                                      (#%app f)
+                                                      (#%app
+                                                       displayln
+                                                       '"Running g.")
+                                                      (#%app idY5 lifted.0))
+                                                    (#%app void)))))
+                                    (if '#t
+                                      (#%app
+                                       for-loop
+                                       fold-var
+                                       (#%app unsafe-fx+ pos inc))
+                                      fold-var))
+                                  fold-var))
+                              fold-var))))
+           for-loop)
+         (#%app void)
+         start)))
+    print-values)))
+
+Trimmed Decompiled output:
+Time apply in r:
+(time-apply
+  (#%closed
+   closure24
+   (lambda ()
+     '(flags: preserves-marks single-result)
+     ((#%closed
+       for-loop23
+       (lambda (arg0-41 arg1-42)
+         '#(for-loop
+            #<path:/Users/endobson/proj/racket/compile-root/6.0.1.10/Users/endobson/tmp/compiled/tmp.rkt>
+            8
+            6
+            77
+            49
+            #f)
+         '(flags: preserves-marks single-result)
+         (if (unsafe-fx< arg1-42 '200000000)
+           (begin
+             (#%sfs-clear arg0-41)
+             (let ((fixnum45
+                    (unsafe-fx+ (#%sfs-clear arg1-42) '1)))
+               (if (unsafe-fx< fixnum45 '200000000)
+                 (let ((fixnum50 (unsafe-fx+ fixnum45 '1)))
+                   (if (unsafe-fx< fixnum50 '200000000)
+                     (let ((fixnum55 (unsafe-fx+ fixnum50 '1)))
+                       (if (unsafe-fx< fixnum55 '200000000)
+                         (let ((fixnum60
+                                (unsafe-fx+ fixnum55 '1)))
+                           (if (unsafe-fx< fixnum60 '200000000)
+                             (for-loop23
+                              '#<void>
+                              (unsafe-fx+ fixnum60 '1))
+                             '#<void>))
+                         '#<void>))
+                     '#<void>))
+                 '#<void>)))
+           arg0-41)))
+      '#<void>
+      '10)))
+  '()))
+
+Time-apply in TR:
+(time-apply
+ (#%closed
+  closure28
+  (lambda ()
+    '(flags: preserves-marks single-result)
+    (let ((local100
+           (#%closed
+            closure27
+            (lambda (arg0-101)
+              '(flags: preserves-marks single-result)
+              (unsafe-fx< arg0-101 '200000000)))))
+      ((#%closed
+        for-loop26
+        (lambda (arg0-107 arg1-108 arg2-109)
+          '#(for-loop
+             #<path:/Users/endobson/proj/racket/compile-root/6.0.1.10/Users/endobson/tmp/compiled/tmp.rkt>
+             15
+             6
+             199
+             38
+             #f)
+          '(flags: preserves-marks single-result)
+          (if (if arg0-107
+                (unsafe-fx< arg2-109 '200000000)
+                '#t)
+            (let ((fixnum112 (unsafe-fx+ '1 arg2-109)))
+              (if (if arg0-107
+                    (unsafe-fx< fixnum112 '200000000)
+                    '#t)
+                (let ((fixnum117 (unsafe-fx+ '1 fixnum112)))
+                  (if (if arg0-107
+                        (unsafe-fx< fixnum117 '200000000)
+                        '#t)
+                    (let ((fixnum122
+                           (unsafe-fx+ '1 fixnum117)))
+                      (if (if arg0-107
+                            (unsafe-fx< fixnum122 '200000000)
+                            '#t)
+                        (let ((fixnum127
+                               (unsafe-fx+ '1 fixnum122)))
+                          (if (if arg0-107
+                                (unsafe-fx<
+                                 fixnum127
+                                 '200000000)
+                                '#t)
+                            (for-loop26
+                             arg0-107
+                             '#<void>
+                             (unsafe-fx+ '1 fixnum127))
+                            '#<void>))
+                        '#<void>))
+                    '#<void>))
+                '#<void>))
+            arg1-108)))
+       local100
+       '#<void>
+       '10))))
+ '())
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Tue, 27 May 2014 04:27:26 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/ec96592702
+State changed from "open" to "closed" by mflatt@racket-lang.org at Tue, 27 May 2014 04:27:26 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/ec96592702
+  | optimizer: treat known procedure bindings, etc., as #t for `if`
+  | 
+  | Closes PR 14526
+

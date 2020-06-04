@@ -1,0 +1,618 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Aug 11 03:05:30 2012
+Received: from mail-ob0-f172.google.com (mail-ob0-f172.google.com [209.85.214.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7B75Nbk023458
+	for <bugs@bugs.plt-scheme.org>; Sat, 11 Aug 2012 03:05:23 -0400
+Message-Id: <201208110705.q7B75L4Z023453@champlain.ccs.neu.edu>
+Date: Sat, 11 Aug 2012 03:05:21 -0400
+From: robby@racket-lang.org
+To: bugs@racket-lang.org
+Subject: compose and compose1 return procedures with wrong arity
+
+>Number:         13003
+>Category:       all
+>Synopsis:       compose and compose1 return procedures with wrong arity
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Aug 11 03:08:01 -0400 2012
+>Last-Modified:  Sun Nov 11 11:28:14 -0500 2012
+>Originator:     Robby Findler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.17--2012-08-09(40e5b63b/d)
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 372949672
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("C:\\Users\\robby\\AppData\\Roaming\\Racket\\5.3.0.17\\collects"
+ (non-existent-path))
+("C:\\Users\\robby\\git\\exp\\plt\\collects"
+ (".gitignore" "2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "tests" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstab!
+ le" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket/base\n" #t #t ((main) (test))))
+>Description:
+The result of this expression:
+
+(procedure-arity (compose1 (lambda (x) 0) (lambda () 0)))
+
+should be 0, but it is (arity-at-least 0).
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: bugs@racket-lang.org, Robby Findler <robby@eecs.northwestern.edu>
+Cc: erik.dominikus71@gmail.com, Racket Users List <users@racket-lang.org>,
+        bug-notification@racket-lang.org
+Subject: Re: [racket] all/13003: on the arity of the composition of procedures with
+ different arities
+Date: Fri, 9 Nov 2012 11:04:58 -0500
+
+ On Tue, Aug 7, 2012 at 10:46 PM, Erik Dominikus
+ <erik.dominikus71@gmail.com> wrote:
+ > I had this conversation with DrRacket 5.2:
+ > [...]
+ 
+ On August 7th, Robby Findler wrote:
+ > Looks like a bug in compose1 (and compose) to me.
+ 
+ The source of both `compose' and `compose1' has the place where this
+ would be fixed -- see the "here" below:
+ 
+              [(composed)
+               ;; FIXME: would be nice to use `procedure-rename',
+               ;; `procedure-reduce-arity' and `procedure-reduce-keyword-arity'
+               ;; in the places marked below, but they currently add a
+               ;; significant overhead.
+               (if (eq? 1 arity)
+                 (lambda (x) (app f (g x)))
+                 (case-lambda          ; <--- here
+                   [(x)   (app f (g x))]
+                   [(x y) (app f (g x y))]
+                   [args  (app f (apply g args))]))]
+ 
+ The reason I chose to avoid the overhead for getting a precise arity
+ is that I think that people expect function composition to be pretty
+ fast.  TBH, I'd even go to the point of defining it as a macro so that
+ simple uses like ((compose1 f g) X) expand to an explicit `lambda'
+ which would then be optimized away.
+ 
+ 
+ (This is also re PR 13003, which resulted from the above; CCed bugs.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs <bugs@racket-lang.org>, Erik Dominikus <erik.dominikus71@gmail.com>,
+        Racket Users List <users@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket] all/13003: on the arity of the composition of procedures with
+ different arities
+Date: Fri, 9 Nov 2012 10:11:12 -0600
+
+ I think the right approach is to make the function behave correctly
+ first and then find the places to optimize second.
+ 
+ In this case, using procedure-reduce-arity (or something else with the
+ same effect) is not merely "nice" but, IMO, necessary. That is, we
+ have procedure-arity in our PL and our primitives/core libraries
+ should respect that.
+ 
+ Robby
+ 
+ On Fri, Nov 9, 2012 at 10:04 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Tue, Aug 7, 2012 at 10:46 PM, Erik Dominikus
+ > <erik.dominikus71@gmail.com> wrote:
+ >> I had this conversation with DrRacket 5.2:
+ >> [...]
+ >
+ > On August 7th, Robby Findler wrote:
+ >> Looks like a bug in compose1 (and compose) to me.
+ >
+ > The source of both `compose' and `compose1' has the place where this
+ > would be fixed -- see the "here" below:
+ >
+ >              [(composed)
+ >               ;; FIXME: would be nice to use `procedure-rename',
+ >               ;; `procedure-reduce-arity' and `procedure-reduce-keyword-arity'
+ >               ;; in the places marked below, but they currently add a
+ >               ;; significant overhead.
+ >               (if (eq? 1 arity)
+ >                 (lambda (x) (app f (g x)))
+ >                 (case-lambda          ; <--- here
+ >                   [(x)   (app f (g x))]
+ >                   [(x y) (app f (g x y))]
+ >                   [args  (app f (apply g args))]))]
+ >
+ > The reason I chose to avoid the overhead for getting a precise arity
+ > is that I think that people expect function composition to be pretty
+ > fast.  TBH, I'd even go to the point of defining it as a macro so that
+ > simple uses like ((compose1 f g) X) expand to an explicit `lambda'
+ > which would then be optimized away.
+ >
+ >
+ > (This is also re PR 13003, which resulted from the above; CCed bugs.)
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                     http://barzilay.org/                   Maze is Life!
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs <bugs@racket-lang.org>, Erik Dominikus <erik.dominikus71@gmail.com>,
+        Racket Users List <users@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket] all/13003: on the arity of the composition of procedures with
+ different arities
+Date: Fri, 9 Nov 2012 11:40:27 -0500
+
+ --mX9aBFU9JX
+ Content-Type: text/plain; charset=us-ascii
+ Content-Description: message body text
+ Content-Transfer-Encoding: 7bit
+ 
+ I just measured the overhead again, to see if things changed.  The
+ attached file has the exact implementation of the compose functions,
+ and another copy with the proper reduction and renaming.  For the
+ correct function I'm getting ~5x slowdown from the current code, which
+ in turn is 20x slower than just using a lambda.  This is big enough to
+ justify a comment saying something like "don't use this if you care
+ about speed", which kind of makes the whole point of the function
+ redundant.
+ 
+ Notes:
+ 
+ 1. Yes, the docs should say that already, but still I consider jumping
+    to a slowdown of two orders of magnitude as a major problem.
+ 
+ 2. I'm not talking about a theoretical point here -- I *have* seen
+    `compose' used in tight loops, and I have personally written
+    explicit lambdas in code where I really should have just used it.
+ 
+ 3. There are definitely other cases where things like `apply' are used
+    in a way that doesn't preserve arity, so it's not like this is an
+    exceptional problem (or a new one).
+ 
+ 4. I'll shut up now.
+ 
+ 
+ 20 minutes ago, Robby Findler wrote:
+ > I think the right approach is to make the function behave correctly
+ > first and then find the places to optimize second.
+ > 
+ > In this case, using procedure-reduce-arity (or something else with
+ > the same effect) is not merely "nice" but, IMO, necessary. That is,
+ > we have procedure-arity in our PL and our primitives/core libraries
+ > should respect that.
+ 
+ 
+ --mX9aBFU9JX
+ Content-Type: application/octet-stream;
+ 	 name="x.rkt"
+ Content-Disposition: attachment;
+ 	 filename="x.rkt"
+ Content-Transfer-Encoding: base64
+ 
+ I2xhbmcgcmFja2V0L2Jhc2UKCiAgKGRlZmluZS12YWx1ZXMgW2NvbXBvc2UxIGNvbXBvc2VdCiAg
+ ICAobGV0ICgpCiAgICAgIChkZWZpbmUtc3ludGF4LXJ1bGUgKGFwcDEgRTEgRTIpIChFMSBFMikp
+ CiAgICAgIChkZWZpbmUtc3ludGF4LXJ1bGUgKGFwcCogRTEgRTIpIChjYWxsLXdpdGgtdmFsdWVz
+ IChsYW1iZGEgKCkgRTIpIEUxKSkKICAgICAgKGRlZmluZS1zeW50YXgtcnVsZSAobWstc2ltcGxl
+ LWNvbXBvc2UgYXBwIGYgZykKICAgICAgICAobGV0Ki12YWx1ZXMKICAgICAgICAgICAgKFsoYXJp
+ dHkpIChwcm9jZWR1cmUtYXJpdHkgZyldCiAgICAgICAgICAgICBbKHJlcXVpcmVkLWt3ZHMgYWxs
+ b3dlZC1rd2RzKSAocHJvY2VkdXJlLWtleXdvcmRzIGcpXQogICAgICAgICAgICAgWyhjb21wb3Nl
+ ZCkKICAgICAgICAgICAgICA7OyBGSVhNRTogd291bGQgYmUgbmljZSB0byB1c2UgYHByb2NlZHVy
+ ZS1yZW5hbWUnLAogICAgICAgICAgICAgIDs7IGBwcm9jZWR1cmUtcmVkdWNlLWFyaXR5JyBhbmQg
+ YHByb2NlZHVyZS1yZWR1Y2Uta2V5d29yZC1hcml0eScKICAgICAgICAgICAgICA7OyBpbiB0aGUg
+ cGxhY2VzIG1hcmtlZCBiZWxvdywgYnV0IHRoZXkgY3VycmVudGx5IGFkZCBhCiAgICAgICAgICAg
+ ICAgOzsgc2lnbmlmaWNhbnQgb3ZlcmhlYWQuCiAgICAgICAgICAgICAgKGlmIChlcT8gMSBhcml0
+ eSkKICAgICAgICAgICAgICAgIChsYW1iZGEgKHgpIChhcHAgZiAoZyB4KSkpCiAgICAgICAgICAg
+ ICAgICAoY2FzZS1sYW1iZGEgICAgICAgICAgOyA8LS0tIGhlcmUKICAgICAgICAgICAgICAgICAg
+ Wyh4KSAgIChhcHAgZiAoZyB4KSldCiAgICAgICAgICAgICAgICAgIFsoeCB5KSAoYXBwIGYgKGcg
+ eCB5KSldCiAgICAgICAgICAgICAgICAgIFthcmdzICAoYXBwIGYgKGFwcGx5IGcgYXJncykpXSkp
+ XSkKICAgICAgICAgIChpZiAobnVsbD8gYWxsb3dlZC1rd2RzKQogICAgICAgICAgICBjb21wb3Nl
+ ZAogICAgICAgICAgICAobWFrZS1rZXl3b3JkLXByb2NlZHVyZSAgIDsgPC0tLSBhbmQgaGVyZQog
+ ICAgICAgICAgICAgKGxhbWJkYSAoa3dzIGt3LWFyZ3MgLiB4cykKICAgICAgICAgICAgICAgKGFw
+ cCBmIChrZXl3b3JkLWFwcGx5IGcga3dzIGt3LWFyZ3MgeHMpKSkKICAgICAgICAgICAgIGNvbXBv
+ c2VkKSkpKQogICAgICAoZGVmaW5lLXN5bnRheC1ydWxlIChjYW4tY29tcG9zZSogbmFtZSBuIGcg
+ ZiBmcykKICAgICAgICAodW5sZXNzIChudWxsPyAobGV0LXZhbHVlcyAoWyhyZXEgXykgKHByb2Nl
+ ZHVyZS1rZXl3b3JkcyBnKV0pIHJlcSkpCiAgICAgICAgICAoYXBwbHkgcmFpc2UtYXJndW1lbnQt
+ ZXJyb3IgJ25hbWUgInByb2NlZHVyZS13aXRoLW5vLXJlcXVpcmVkLWtleXdvcmRzPyIKICAgICAg
+ ICAgICAgICAgICBuIGYgZnMpKSkKICAgICAgKGRlZmluZS1zeW50YXgtcnVsZSAoY2FuLWNvbXBv
+ c2UxIG5hbWUgbiBnIGYgZnMpCiAgICAgICAgKGJlZ2luICh1bmxlc3MgKHByb2NlZHVyZS1hcml0
+ eS1pbmNsdWRlcz8gZyAxKQogICAgICAgICAgICAgICAgIChhcHBseSByYWlzZS1hcmd1bWVudC1l
+ cnJvciAnbmFtZSAiKGFueS9jIC4gLT4gLiBhbnkvYykiIG4gZiBmcykpCiAgICAgICAgICAgICAg
+ IDs7IG5lZWQgdG8gY2hlY2sgdGhpcyB0b28gKHNlZSBQUiAxMTk3OCkKICAgICAgICAgICAgICAg
+ KGNhbi1jb21wb3NlKiBuYW1lIG4gZyBmIGZzKSkpCiAgICAgIChkZWZpbmUgKHBpcGVsaW5lMSBm
+ IHJmdW5zKQogICAgICAgIDs7ICh2ZXJ5KSBzbGlnaHRseSBzbG93ZXIgYWx0ZXJuYXRpdmU6CiAg
+ ICAgICAgOzsgKGlmIChudWxsPyByZnVucykKICAgICAgICA7OyAgIGYKICAgICAgICA7OyAgIChw
+ aXBlbGluZTEgKGxldCAoW2ZzdCAoY2FyIHJmdW5zKV0pIChsYW1iZGEgKHgpIChmc3QgKGYgeCkp
+ KSkKICAgICAgICA7OyAgICAgICAgICAgICAgKGNkciByZnVucykpKQogICAgICAgIChsYW1iZGEg
+ KHgpCiAgICAgICAgICAobGV0IGxvb3AgKFt4IHhdIFtmIGZdIFtyZnVucyByZnVuc10pCiAgICAg
+ ICAgICAgIChpZiAobnVsbD8gcmZ1bnMpCiAgICAgICAgICAgICAgKGYgeCkKICAgICAgICAgICAg
+ ICAobG9vcCAoZiB4KSAoY2FyIHJmdW5zKSAoY2RyIHJmdW5zKSkpKSkpCiAgICAgIChkZWZpbmUg
+ KHBpcGVsaW5lKiBmIHJmdW5zKQogICAgICAgIDs7IHVzZSB0aGUgb3RoZXIgY29tcG9zaXRpb24g
+ c3R5bGUgaW4gdGhpcyBjYXNlLCB0byBvcHRpbWl6ZSBhbgogICAgICAgIDs7IG9jY2FzaW9uYWwg
+ YXJpdHktMSBwcm9jZWR1cmUgaW4gdGhlIHBpcGVsaW5lCiAgICAgICAgKGlmIChlcXY/IDEgKHBy
+ b2NlZHVyZS1hcml0eSBmKSkKICAgICAgICAgIDs7IGlmIGBmJyBpcyBzaW5nbGUgYXJpdHksIHRo
+ ZW4gZ29pbmcgaW4gcmV2ZXJzZSB0aGV5IHdpbGwgKmFsbCogYmUKICAgICAgICAgIDs7IHNpbmds
+ ZSBhcml0aWVzCiAgICAgICAgICAobGV0IGxvb3AgKFtmIGZdIFtyZnVucyByZnVuc10pCiAgICAg
+ ICAgICAgIChpZiAobnVsbD8gcmZ1bnMpCiAgICAgICAgICAgICAgZgogICAgICAgICAgICAgIChs
+ b29wIChsZXQgKFtmc3QgKGNhciByZnVucyldKQogICAgICAgICAgICAgICAgICAgICAgKGlmIChl
+ cXY/IDEgKHByb2NlZHVyZS1hcml0eSBmc3QpKQogICAgICAgICAgICAgICAgICAgICAgICAobGFt
+ YmRhICh4KSAoZnN0IChmIHgpKSkKICAgICAgICAgICAgICAgICAgICAgICAgKGxhbWJkYSAoeCkg
+ KGFwcCogZnN0IChmIHgpKSkpKQogICAgICAgICAgICAgICAgICAgIChjZHIgcmZ1bnMpKSkpCiAg
+ ICAgICAgICA7OyBvdGhlcndpc2UsIGdvaW5nIGluIHJldmVyc2UgbWVhbnMgdGhhdCB0aGV5J3Jl
+ IGFsbCBuLWFyeSwgd2hpY2gKICAgICAgICAgIDs7IG1lYW5zIHRoYXQgdGhlIGxpc3Qgb2YgYXJn
+ dW1lbnRzIHdpbGwgYmUgYnVpbHQgZm9yIGVhY2ggc3RhZ2UsIHNvCiAgICAgICAgICA7OyB0byBh
+ dm9pZCB0aGF0IGdvIGZvcndhcmQgaW4gdGhpcyBjYXNlCiAgICAgICAgICAobGV0IChbZnVucyAo
+ cmV2ZXJzZSAoY29ucyBmIHJmdW5zKSldKQogICAgICAgICAgICAobGV0IGxvb3AgKFtmIChjYXIg
+ ZnVucyldIFtmdW5zIChjZHIgZnVucyldKQogICAgICAgICAgICAgIChpZiAobnVsbD8gZnVucykK
+ ICAgICAgICAgICAgICAgIGYKICAgICAgICAgICAgICAgIChsb29wIChsZXQgKFtmc3QgKGNhciBm
+ dW5zKV0pCiAgICAgICAgICAgICAgICAgICAgICAgIChpZiAoZXF2PyAxIChwcm9jZWR1cmUtYXJp
+ dHkgZikpCiAgICAgICAgICAgICAgICAgICAgICAgICAgKGlmIChlcXY/IDEgKHByb2NlZHVyZS1h
+ cml0eSBmc3QpKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgKGxhbWJkYSAoeCkgKGYgKGZz
+ dCB4KSkpCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAobGFtYmRhIHhzIChmIChhcHBseSBm
+ c3QgeHMpKSkpCiAgICAgICAgICAgICAgICAgICAgICAgICAgKGlmIChlcXY/IDEgKHByb2NlZHVy
+ ZS1hcml0eSBmc3QpKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgKGxhbWJkYSAoeCkgKGFw
+ cCogZiAoZnN0IHgpKSkKICAgICAgICAgICAgICAgICAgICAgICAgICAgIChsYW1iZGEgeHMgKGFw
+ cCogZiAoYXBwbHkgZnN0IHhzKSkpKSkpCiAgICAgICAgICAgICAgICAgICAgICAoY2RyIGZ1bnMp
+ KSkpKSkpCiAgICAgIChkZWZpbmUtc3ludGF4LXJ1bGUgKG1rIG5hbWUgYXBwIGNhbi1jb21wb3Nl
+ IHBpcGVsaW5lIG1rLXNpbXBsZS1jb21wb3NlKQogICAgICAgIChkZWZpbmUgbmFtZQogICAgICAg
+ ICAgKGxldCAoW3NpbXBsZS1jb21wb3NlIG1rLXNpbXBsZS1jb21wb3NlXSkKICAgICAgICAgICAg
+ KGNhc2UtbGFtYmRhCiAgICAgICAgICAgICAgWyhmKQogICAgICAgICAgICAgICAoaWYgKHByb2Nl
+ ZHVyZT8gZikgZiAocmFpc2UtYXJndW1lbnQtZXJyb3IgJ25hbWUgInByb2NlZHVyZT8iIDAgZikp
+ XQogICAgICAgICAgICAgIFsoZiBnKQogICAgICAgICAgICAgICAodW5sZXNzIChwcm9jZWR1cmU/
+ IGYpCiAgICAgICAgICAgICAgICAgKHJhaXNlLWFyZ3VtZW50LWVycm9yICduYW1lICJwcm9jZWR1
+ cmU/IiAwIGYgZykpCiAgICAgICAgICAgICAgICh1bmxlc3MgKHByb2NlZHVyZT8gZykKICAgICAg
+ ICAgICAgICAgICAocmFpc2UtYXJndW1lbnQtZXJyb3IgJ25hbWUgInByb2NlZHVyZT8iIDEgZiBn
+ KSkKICAgICAgICAgICAgICAgKGNhbi1jb21wb3NlIG5hbWUgMCBmIGYgJygpKQogICAgICAgICAg
+ ICAgICAoc2ltcGxlLWNvbXBvc2UgZiBnKV0KICAgICAgICAgICAgICBbKCkgdmFsdWVzXQogICAg
+ ICAgICAgICAgIFsoZjAgLiBmczApCiAgICAgICAgICAgICAgIChsZXQgbG9vcCAoW2YgZjBdIFtm
+ cyBmczBdIFtpIDBdIFtyZnVucyAnKCldKQogICAgICAgICAgICAgICAgICh1bmxlc3MgKHByb2Nl
+ ZHVyZT8gZikKICAgICAgICAgICAgICAgICAgIChhcHBseSByYWlzZS1hcmd1bWVudC1lcnJvciAn
+ bmFtZSAicHJvY2VkdXJlPyIgaSBmMCBmczApKQogICAgICAgICAgICAgICAgIChpZiAocGFpcj8g
+ ZnMpCiAgICAgICAgICAgICAgICAgICAoYmVnaW4gKGNhbi1jb21wb3NlIG5hbWUgaSBmIGYwIGZz
+ MCkKICAgICAgICAgICAgICAgICAgICAgICAgICAobG9vcCAoY2FyIGZzKSAoY2RyIGZzKSAoYWRk
+ MSBpKSAoY29ucyBmIHJmdW5zKSkpCiAgICAgICAgICAgICAgICAgICAoc2ltcGxlLWNvbXBvc2Ug
+ KHBpcGVsaW5lIChjYXIgcmZ1bnMpIChjZHIgcmZ1bnMpKSBmKSkpXSkpKSkKICAgICAgKG1rIGNv
+ bXBvc2UxIGFwcDEgY2FuLWNvbXBvc2UxIHBpcGVsaW5lMQogICAgICAgICAgKGxhbWJkYSAoZiBn
+ KSAobWstc2ltcGxlLWNvbXBvc2UgYXBwMSBmIGcpKSkKICAgICAgKG1rIGNvbXBvc2UgIGFwcCog
+ Y2FuLWNvbXBvc2UqIHBpcGVsaW5lKgogICAgICAgICAgKGxhbWJkYSAoZiBnKQogICAgICAgICAg
+ ICAoaWYgKGVxdj8gMSAocHJvY2VkdXJlLWFyaXR5IGYpKQogICAgICAgICAgICAgIChtay1zaW1w
+ bGUtY29tcG9zZSBhcHAxIGYgZykKICAgICAgICAgICAgICAobWstc2ltcGxlLWNvbXBvc2UgYXBw
+ KiBmIGcpKSkpCiAgICAgICh2YWx1ZXMgY29tcG9zZTEgY29tcG9zZSkpKQoKICAoZGVmaW5lLXZh
+ bHVlcyBbKmNvbXBvc2UxICpjb21wb3NlXQogICAgKGxldCAoKQogICAgICAoZGVmaW5lLXN5bnRh
+ eC1ydWxlIChhcHAxIEUxIEUyKSAoRTEgRTIpKQogICAgICAoZGVmaW5lLXN5bnRheC1ydWxlIChh
+ cHAqIEUxIEUyKSAoY2FsbC13aXRoLXZhbHVlcyAobGFtYmRhICgpIEUyKSBFMSkpCiAgICAgIChk
+ ZWZpbmUtc3ludGF4LXJ1bGUgKG1rLXNpbXBsZS1jb21wb3NlIGFwcCBmIGcpCiAgICAgICAgKGxl
+ dCotdmFsdWVzCiAgICAgICAgICAgIChbKGFyaXR5KSAocHJvY2VkdXJlLWFyaXR5IGcpXQogICAg
+ ICAgICAgICAgWyhyZXF1aXJlZC1rd2RzIGFsbG93ZWQta3dkcykgKHByb2NlZHVyZS1rZXl3b3Jk
+ cyBnKV0KICAgICAgICAgICAgIFsoY29tcG9zZWQpCiAgICAgICAgICAgICAgOzsgRklYTUU6IHdv
+ dWxkIGJlIG5pY2UgdG8gdXNlIGBwcm9jZWR1cmUtcmVuYW1lJywKICAgICAgICAgICAgICA7OyBg
+ cHJvY2VkdXJlLXJlZHVjZS1hcml0eScgYW5kIGBwcm9jZWR1cmUtcmVkdWNlLWtleXdvcmQtYXJp
+ dHknCiAgICAgICAgICAgICAgOzsgaW4gdGhlIHBsYWNlcyBtYXJrZWQgYmVsb3csIGJ1dCB0aGV5
+ IGN1cnJlbnRseSBhZGQgYQogICAgICAgICAgICAgIDs7IHNpZ25pZmljYW50IG92ZXJoZWFkLgog
+ ICAgICAgICAgICAgIChpZiAjZiA7IChlcT8gMSBhcml0eSkgOyBzbyB3ZSBjYW4gbWVhc3VyZSB1
+ c2luZyB1bmFyeSBmdW5zCiAgICAgICAgICAgICAgICAobGFtYmRhICh4KSAoYXBwIGYgKGcgeCkp
+ KQogICAgICAgICAgICAgICAgKHByb2NlZHVyZS1yZW5hbWUKICAgICAgICAgICAgICAgICAocHJv
+ Y2VkdXJlLXJlZHVjZS1rZXl3b3JkLWFyaXR5CiAgICAgICAgICAgICAgICAgIChjYXNlLWxhbWJk
+ YSAgICAgICAgICA7IDwtLS0gaGVyZQogICAgICAgICAgICAgICAgICAgIFsoeCkgICAoYXBwIGYg
+ KGcgeCkpXQogICAgICAgICAgICAgICAgICAgIFsoeCB5KSAoYXBwIGYgKGcgeCB5KSldCiAgICAg
+ ICAgICAgICAgICAgICAgW2FyZ3MgIChhcHAgZiAoYXBwbHkgZyBhcmdzKSldKQogICAgICAgICAg
+ ICAgICAgICBhcml0eQogICAgICAgICAgICAgICAgICByZXF1aXJlZC1rd2RzCiAgICAgICAgICAg
+ ICAgICAgIGFsbG93ZWQta3dkcykKICAgICAgICAgICAgICAgICAoc3RyaW5nLT5zeW1ib2wgOyBu
+ b3QgcmVhbGx5IGNvcnJlY3QKICAgICAgICAgICAgICAgICAgKGZvcm1hdCAifmE6fmEiIChvYmpl
+ Y3QtbmFtZSBmKSAob2JqZWN0LW5hbWUgZykpKSkpXSkKICAgICAgICAgIChpZiAobnVsbD8gYWxs
+ b3dlZC1rd2RzKQogICAgICAgICAgICBjb21wb3NlZAogICAgICAgICAgICAobWFrZS1rZXl3b3Jk
+ LXByb2NlZHVyZSAgIDsgPC0tLSBhbmQgaGVyZQogICAgICAgICAgICAgKGxhbWJkYSAoa3dzIGt3
+ LWFyZ3MgLiB4cykKICAgICAgICAgICAgICAgKGFwcCBmIChrZXl3b3JkLWFwcGx5IGcga3dzIGt3
+ LWFyZ3MgeHMpKSkKICAgICAgICAgICAgIGNvbXBvc2VkKSkpKQogICAgICAoZGVmaW5lLXN5bnRh
+ eC1ydWxlIChjYW4tY29tcG9zZSogbmFtZSBuIGcgZiBmcykKICAgICAgICAodW5sZXNzIChudWxs
+ PyAobGV0LXZhbHVlcyAoWyhyZXEgXykgKHByb2NlZHVyZS1rZXl3b3JkcyBnKV0pIHJlcSkpCiAg
+ ICAgICAgICAoYXBwbHkgcmFpc2UtYXJndW1lbnQtZXJyb3IgJ25hbWUgInByb2NlZHVyZS13aXRo
+ LW5vLXJlcXVpcmVkLWtleXdvcmRzPyIKICAgICAgICAgICAgICAgICBuIGYgZnMpKSkKICAgICAg
+ KGRlZmluZS1zeW50YXgtcnVsZSAoY2FuLWNvbXBvc2UxIG5hbWUgbiBnIGYgZnMpCiAgICAgICAg
+ KGJlZ2luICh1bmxlc3MgKHByb2NlZHVyZS1hcml0eS1pbmNsdWRlcz8gZyAxKQogICAgICAgICAg
+ ICAgICAgIChhcHBseSByYWlzZS1hcmd1bWVudC1lcnJvciAnbmFtZSAiKGFueS9jIC4gLT4gLiBh
+ bnkvYykiIG4gZiBmcykpCiAgICAgICAgICAgICAgIDs7IG5lZWQgdG8gY2hlY2sgdGhpcyB0b28g
+ KHNlZSBQUiAxMTk3OCkKICAgICAgICAgICAgICAgKGNhbi1jb21wb3NlKiBuYW1lIG4gZyBmIGZz
+ KSkpCiAgICAgIChkZWZpbmUgKHBpcGVsaW5lMSBmIHJmdW5zKQogICAgICAgIDs7ICh2ZXJ5KSBz
+ bGlnaHRseSBzbG93ZXIgYWx0ZXJuYXRpdmU6CiAgICAgICAgOzsgKGlmIChudWxsPyByZnVucykK
+ ICAgICAgICA7OyAgIGYKICAgICAgICA7OyAgIChwaXBlbGluZTEgKGxldCAoW2ZzdCAoY2FyIHJm
+ dW5zKV0pIChsYW1iZGEgKHgpIChmc3QgKGYgeCkpKSkKICAgICAgICA7OyAgICAgICAgICAgICAg
+ KGNkciByZnVucykpKQogICAgICAgIChsYW1iZGEgKHgpCiAgICAgICAgICAobGV0IGxvb3AgKFt4
+ IHhdIFtmIGZdIFtyZnVucyByZnVuc10pCiAgICAgICAgICAgIChpZiAobnVsbD8gcmZ1bnMpCiAg
+ ICAgICAgICAgICAgKGYgeCkKICAgICAgICAgICAgICAobG9vcCAoZiB4KSAoY2FyIHJmdW5zKSAo
+ Y2RyIHJmdW5zKSkpKSkpCiAgICAgIChkZWZpbmUgKHBpcGVsaW5lKiBmIHJmdW5zKQogICAgICAg
+ IDs7IHVzZSB0aGUgb3RoZXIgY29tcG9zaXRpb24gc3R5bGUgaW4gdGhpcyBjYXNlLCB0byBvcHRp
+ bWl6ZSBhbgogICAgICAgIDs7IG9jY2FzaW9uYWwgYXJpdHktMSBwcm9jZWR1cmUgaW4gdGhlIHBp
+ cGVsaW5lCiAgICAgICAgKGlmIChlcXY/IDEgKHByb2NlZHVyZS1hcml0eSBmKSkKICAgICAgICAg
+ IDs7IGlmIGBmJyBpcyBzaW5nbGUgYXJpdHksIHRoZW4gZ29pbmcgaW4gcmV2ZXJzZSB0aGV5IHdp
+ bGwgKmFsbCogYmUKICAgICAgICAgIDs7IHNpbmdsZSBhcml0aWVzCiAgICAgICAgICAobGV0IGxv
+ b3AgKFtmIGZdIFtyZnVucyByZnVuc10pCiAgICAgICAgICAgIChpZiAobnVsbD8gcmZ1bnMpCiAg
+ ICAgICAgICAgICAgZgogICAgICAgICAgICAgIChsb29wIChsZXQgKFtmc3QgKGNhciByZnVucyld
+ KQogICAgICAgICAgICAgICAgICAgICAgKGlmIChlcXY/IDEgKHByb2NlZHVyZS1hcml0eSBmc3Qp
+ KQogICAgICAgICAgICAgICAgICAgICAgICAobGFtYmRhICh4KSAoZnN0IChmIHgpKSkKICAgICAg
+ ICAgICAgICAgICAgICAgICAgKGxhbWJkYSAoeCkgKGFwcCogZnN0IChmIHgpKSkpKQogICAgICAg
+ ICAgICAgICAgICAgIChjZHIgcmZ1bnMpKSkpCiAgICAgICAgICA7OyBvdGhlcndpc2UsIGdvaW5n
+ IGluIHJldmVyc2UgbWVhbnMgdGhhdCB0aGV5J3JlIGFsbCBuLWFyeSwgd2hpY2gKICAgICAgICAg
+ IDs7IG1lYW5zIHRoYXQgdGhlIGxpc3Qgb2YgYXJndW1lbnRzIHdpbGwgYmUgYnVpbHQgZm9yIGVh
+ Y2ggc3RhZ2UsIHNvCiAgICAgICAgICA7OyB0byBhdm9pZCB0aGF0IGdvIGZvcndhcmQgaW4gdGhp
+ cyBjYXNlCiAgICAgICAgICAobGV0IChbZnVucyAocmV2ZXJzZSAoY29ucyBmIHJmdW5zKSldKQog
+ ICAgICAgICAgICAobGV0IGxvb3AgKFtmIChjYXIgZnVucyldIFtmdW5zIChjZHIgZnVucyldKQog
+ ICAgICAgICAgICAgIChpZiAobnVsbD8gZnVucykKICAgICAgICAgICAgICAgIGYKICAgICAgICAg
+ ICAgICAgIChsb29wIChsZXQgKFtmc3QgKGNhciBmdW5zKV0pCiAgICAgICAgICAgICAgICAgICAg
+ ICAgIChpZiAoZXF2PyAxIChwcm9jZWR1cmUtYXJpdHkgZikpCiAgICAgICAgICAgICAgICAgICAg
+ ICAgICAgKGlmIChlcXY/IDEgKHByb2NlZHVyZS1hcml0eSBmc3QpKQogICAgICAgICAgICAgICAg
+ ICAgICAgICAgICAgKGxhbWJkYSAoeCkgKGYgKGZzdCB4KSkpCiAgICAgICAgICAgICAgICAgICAg
+ ICAgICAgICAobGFtYmRhIHhzIChmIChhcHBseSBmc3QgeHMpKSkpCiAgICAgICAgICAgICAgICAg
+ ICAgICAgICAgKGlmIChlcXY/IDEgKHByb2NlZHVyZS1hcml0eSBmc3QpKQogICAgICAgICAgICAg
+ ICAgICAgICAgICAgICAgKGxhbWJkYSAoeCkgKGFwcCogZiAoZnN0IHgpKSkKICAgICAgICAgICAg
+ ICAgICAgICAgICAgICAgIChsYW1iZGEgeHMgKGFwcCogZiAoYXBwbHkgZnN0IHhzKSkpKSkpCiAg
+ ICAgICAgICAgICAgICAgICAgICAoY2RyIGZ1bnMpKSkpKSkpCiAgICAgIChkZWZpbmUtc3ludGF4
+ LXJ1bGUgKG1rIG5hbWUgYXBwIGNhbi1jb21wb3NlIHBpcGVsaW5lIG1rLXNpbXBsZS1jb21wb3Nl
+ KQogICAgICAgIChkZWZpbmUgbmFtZQogICAgICAgICAgKGxldCAoW3NpbXBsZS1jb21wb3NlIG1r
+ LXNpbXBsZS1jb21wb3NlXSkKICAgICAgICAgICAgKGNhc2UtbGFtYmRhCiAgICAgICAgICAgICAg
+ WyhmKQogICAgICAgICAgICAgICAoaWYgKHByb2NlZHVyZT8gZikgZiAocmFpc2UtYXJndW1lbnQt
+ ZXJyb3IgJ25hbWUgInByb2NlZHVyZT8iIDAgZikpXQogICAgICAgICAgICAgIFsoZiBnKQogICAg
+ ICAgICAgICAgICAodW5sZXNzIChwcm9jZWR1cmU/IGYpCiAgICAgICAgICAgICAgICAgKHJhaXNl
+ LWFyZ3VtZW50LWVycm9yICduYW1lICJwcm9jZWR1cmU/IiAwIGYgZykpCiAgICAgICAgICAgICAg
+ ICh1bmxlc3MgKHByb2NlZHVyZT8gZykKICAgICAgICAgICAgICAgICAocmFpc2UtYXJndW1lbnQt
+ ZXJyb3IgJ25hbWUgInByb2NlZHVyZT8iIDEgZiBnKSkKICAgICAgICAgICAgICAgKGNhbi1jb21w
+ b3NlIG5hbWUgMCBmIGYgJygpKQogICAgICAgICAgICAgICAoc2ltcGxlLWNvbXBvc2UgZiBnKV0K
+ ICAgICAgICAgICAgICBbKCkgdmFsdWVzXQogICAgICAgICAgICAgIFsoZjAgLiBmczApCiAgICAg
+ ICAgICAgICAgIChsZXQgbG9vcCAoW2YgZjBdIFtmcyBmczBdIFtpIDBdIFtyZnVucyAnKCldKQog
+ ICAgICAgICAgICAgICAgICh1bmxlc3MgKHByb2NlZHVyZT8gZikKICAgICAgICAgICAgICAgICAg
+ IChhcHBseSByYWlzZS1hcmd1bWVudC1lcnJvciAnbmFtZSAicHJvY2VkdXJlPyIgaSBmMCBmczAp
+ KQogICAgICAgICAgICAgICAgIChpZiAocGFpcj8gZnMpCiAgICAgICAgICAgICAgICAgICAoYmVn
+ aW4gKGNhbi1jb21wb3NlIG5hbWUgaSBmIGYwIGZzMCkKICAgICAgICAgICAgICAgICAgICAgICAg
+ ICAobG9vcCAoY2FyIGZzKSAoY2RyIGZzKSAoYWRkMSBpKSAoY29ucyBmIHJmdW5zKSkpCiAgICAg
+ ICAgICAgICAgICAgICAoc2ltcGxlLWNvbXBvc2UgKHBpcGVsaW5lIChjYXIgcmZ1bnMpIChjZHIg
+ cmZ1bnMpKSBmKSkpXSkpKSkKICAgICAgKG1rIGNvbXBvc2UxIGFwcDEgY2FuLWNvbXBvc2UxIHBp
+ cGVsaW5lMQogICAgICAgICAgKGxhbWJkYSAoZiBnKSAobWstc2ltcGxlLWNvbXBvc2UgYXBwMSBm
+ IGcpKSkKICAgICAgKG1rIGNvbXBvc2UgIGFwcCogY2FuLWNvbXBvc2UqIHBpcGVsaW5lKgogICAg
+ ICAgICAgKGxhbWJkYSAoZiBnKQogICAgICAgICAgICAoaWYgKGVxdj8gMSAocHJvY2VkdXJlLWFy
+ aXR5IGYpKQogICAgICAgICAgICAgIChtay1zaW1wbGUtY29tcG9zZSBhcHAxIGYgZykKICAgICAg
+ ICAgICAgICAobWstc2ltcGxlLWNvbXBvc2UgYXBwKiBmIGcpKSkpCiAgICAgICh2YWx1ZXMgY29t
+ cG9zZTEgY29tcG9zZSkpKQoKICAocHJpbnRmICJtYW51YWwgICAgIikKICAodGltZSAoZm9yIChb
+ aSAyMDAwMDAwXSkgKCjOuyAoeCkgKGFkZDEgKCsgKHN1YjEgKCogeCkpKSkpIGkpKSkKICAocHJp
+ bnRmICJjb21wb3NlMSAgIikKICAodGltZSAoZm9yIChbaSAyMDAwMDAwXSkgKChjb21wb3NlIGFk
+ ZDEgKyBzdWIxICopIGkpKSkKICAocHJpbnRmICIqY29tcG9zZTEgIikKICAodGltZSAoZm9yIChb
+ aSAyMDAwMDAwXSkgKCgqY29tcG9zZSBhZGQxICsgc3ViMSAqKSBpKSkpCg==
+ --mX9aBFU9JX
+ Content-Type: text/plain; charset=us-ascii
+ Content-Description: .signature
+ Content-Transfer-Encoding: 7bit
+ 
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+ --mX9aBFU9JX--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs <bugs@racket-lang.org>, Erik Dominikus <erik.dominikus71@gmail.com>,
+        Racket Users List <users@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket] all/13003: on the arity of the composition of procedures with
+ different arities
+Date: Fri, 9 Nov 2012 10:43:11 -0600
+
+ Re 3.: we should fix those, then.
+ 
+ :)
+ 
+ Robby
+ 
+ On Fri, Nov 9, 2012 at 10:40 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > I just measured the overhead again, to see if things changed.  The
+ > attached file has the exact implementation of the compose functions,
+ > and another copy with the proper reduction and renaming.  For the
+ > correct function I'm getting ~5x slowdown from the current code, which
+ > in turn is 20x slower than just using a lambda.  This is big enough to
+ > justify a comment saying something like "don't use this if you care
+ > about speed", which kind of makes the whole point of the function
+ > redundant.
+ >
+ > Notes:
+ >
+ > 1. Yes, the docs should say that already, but still I consider jumping
+ >    to a slowdown of two orders of magnitude as a major problem.
+ >
+ > 2. I'm not talking about a theoretical point here -- I *have* seen
+ >    `compose' used in tight loops, and I have personally written
+ >    explicit lambdas in code where I really should have just used it.
+ >
+ > 3. There are definitely other cases where things like `apply' are used
+ >    in a way that doesn't preserve arity, so it's not like this is an
+ >    exceptional problem (or a new one).
+ >
+ > 4. I'll shut up now.
+ >
+ >
+ > 20 minutes ago, Robby Findler wrote:
+ >> I think the right approach is to make the function behave correctly
+ >> first and then find the places to optimize second.
+ >>
+ >> In this case, using procedure-reduce-arity (or something else with
+ >> the same effect) is not merely "nice" but, IMO, necessary. That is,
+ >> we have procedure-arity in our PL and our primitives/core libraries
+ >> should respect that.
+ >
+ >
+ >
+ > --
+ >           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+ >                     http://barzilay.org/                   Maze is Life!
+ >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs <bugs@racket-lang.org>,
+        Erik Dominikus <erik.dominikus71@gmail.com>,
+        Racket Users List <users@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket] all/13003: on the arity of the composition of procedures with different arities
+Date: Fri, 9 Nov 2012 14:19:56 -0500
+
+ --Apple-Mail=_2EB8A072-9092-40C6-B9BA-3B2016C837A5
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ 
+ Eli, if compose is 20x slower than writing out the lambda,=20
+ and respect for arity costs 5%, I think we're fine.=20
+ 
+ A warning in the docs sounds good. Something like=20
+ 
+ "Warning: Using compose, instead of plain lambda, for function =
+ composition helps readability and facilitates re-coding the numerous =
+ point-free examples that appear in the literature on functional =
+ programming."=20
+ 
+ [I honestly don't see another use.]
+ 
+ 
+ 
+ On Nov 9, 2012, at 11:40 AM, Eli Barzilay wrote:
+ 
+ > I just measured the overhead again, to see if things changed.  The
+ > attached file has the exact implementation of the compose functions,
+ > and another copy with the proper reduction and renaming.  For the
+ > correct function I'm getting ~5x slowdown from the current code, which
+ > in turn is 20x slower than just using a lambda.  This is big enough to
+ > justify a comment saying something like "don't use this if you care
+ > about speed", which kind of makes the whole point of the function
+ > redundant.
+ >=20
+ > Notes:
+ >=20
+ > 1. Yes, the docs should say that already, but still I consider jumping
+ >   to a slowdown of two orders of magnitude as a major problem.
+ >=20
+ > 2. I'm not talking about a theoretical point here -- I *have* seen
+ >   `compose' used in tight loops, and I have personally written
+ >   explicit lambdas in code where I really should have just used it.
+ >=20
+ > 3. There are definitely other cases where things like `apply' are used
+ >   in a way that doesn't preserve arity, so it's not like this is an
+ >   exceptional problem (or a new one).
+ >=20
+ > 4. I'll shut up now.
+ >=20
+ >=20
+ > 20 minutes ago, Robby Findler wrote:
+ >> I think the right approach is to make the function behave correctly
+ >> first and then find the places to optimize second.
+ >>=20
+ >> In this case, using procedure-reduce-arity (or something else with
+ >> the same effect) is not merely "nice" but, IMO, necessary. That is,
+ >> we have procedure-arity in our PL and our primitives/core libraries
+ >> should respect that.
+ >=20
+ >=20
+ > --=20
+ >          ((lambda (x) (x x)) (lambda (x) (x x)))          Eli =
+ Barzilay:
+ >                    http://barzilay.org/                   Maze is =
+ Life!
+ > <x.rkt>
+ 
+ 
+ --Apple-Mail=_2EB8A072-9092-40C6-B9BA-3B2016C837A5
+ Content-Disposition: attachment;
+ 	filename=smime.p7s
+ Content-Type: application/pkcs7-signature;
+ 	name=smime.p7s
+ Content-Transfer-Encoding: base64
+ 
+ MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAQAAoIIMTDCCBVYw
+ ggQ+oAMCAQICEHbDqMitQnj5Qd81mMX31uMwDQYJKoZIhvcNAQEFBQAwgd0xCzAJBgNVBAYTAlVT
+ MRcwFQYDVQQKEw5WZXJpU2lnbiwgSW5jLjEfMB0GA1UECxMWVmVyaVNpZ24gVHJ1c3QgTmV0d29y
+ azE7MDkGA1UECxMyVGVybXMgb2YgdXNlIGF0IGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9ycGEg
+ KGMpMDkxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UEAxMuVmVyaVNpZ24g
+ Q2xhc3MgMSBJbmRpdmlkdWFsIFN1YnNjcmliZXIgQ0EgLSBHMzAeFw0xMjA3MjYwMDAwMDBaFw0x
+ MzA3MjYyMzU5NTlaMIIBGTEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlT
+ aWduIFRydXN0IE5ldHdvcmsxRjBEBgNVBAsTPXd3dy52ZXJpc2lnbi5jb20vcmVwb3NpdG9yeS9S
+ UEEgSW5jb3JwLiBieSBSZWYuLExJQUIuTFREKGMpOTgxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZh
+ bGlkYXRlZDEzMDEGA1UECxMqRGlnaXRhbCBJRCBDbGFzcyAxIC0gTmV0c2NhcGUgRnVsbCBTZXJ2
+ aWNlMRswGQYDVQQDFBJNYXR0aGlhcyBGZWxsZWlzZW4xIzAhBgkqhkiG9w0BCQEWFG1hdHRoaWFz
+ QGNjcy5uZXUuZWR1MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxoivceU706ZnD2XD
+ JfoNFd4KTbYA9AObozHkSZ6BJLC8oSGjakZu6m11azFwk5LfPOjd7dQIKw9uDhmT1e4q6jP+B1FC
+ a1qqwm7Rw9PcFhqYFBlE8MbqJUXJW53Ynw3dK2XiUNqTXFcBa2otI8XxMtrQch4f9oMUy+aIn/fZ
+ QQDbkkzuwz3884xSbm0IMDneYUC6FF1OJe2+fkMqHqEDsSgY97RFcjdgTCOB012odwGhxJ3rIGaX
+ WUs7ttjnftzyGODVILMIx8RBJpGJ+Ur4R67SJygV8Clpg1RBuRUSNaZAN0tCjO9YSkb9HfF2tAx9
+ POWmQXdTtNNjZfJPbTVnkQIDAQABo4HSMIHPMAkGA1UdEwQCMAAwRAYDVR0gBD0wOzA5BgtghkgB
+ hvhFAQcXATAqMCgGCCsGAQUFBwIBFhxodHRwczovL3d3dy52ZXJpc2lnbi5jb20vcnBhMAsGA1Ud
+ DwQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDBAYIKwYBBQUHAwIwUAYDVR0fBEkwRzBFoEOgQYY/
+ aHR0cDovL2luZGMxZGlnaXRhbGlkLWczLWNybC52ZXJpc2lnbi5jb20vSW5kQzFEaWdpdGFsSUQt
+ RzMuY3JsMA0GCSqGSIb3DQEBBQUAA4IBAQCeAXGCjjlMmU1wb3Ii4V0yNygujjQcvJstFh7IyVcM
+ oD5/5Ar7b36JL1O2tpBosTf0pVZaORKCMPAf1IfBS48CvvqSoeVyXCFG1goXDjr7Ut+ZwosuFXdr
+ 2gD6u9EftuoUy+UBdz46NcN9YC0WbX7CrRE96XxvYwPfWnGIjsoNY7WqFI4f7HLlM5dCmAOXySsw
+ EbPKpflzEGPU8aKf4FqTX9ne+hTzPbCf5CDJdzrdyn5bQkqvSzxw+P3tvQSU9lnyZkG7wZ1cibna
+ QIuSNEe+HKOKcEfeTeD50JhLa43RE24nMsaXWdX61VTiPE/2Y9woEVLxXBp+AFpMZjGYsF/yMIIG
+ 7jCCBdagAwIBAgIQcRVmBUrkkSFN6bxE+azT3DANBgkqhkiG9w0BAQUFADCByjELMAkGA1UEBhMC
+ VVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3
+ b3JrMTowOAYDVQQLEzEoYykgMTk5OSBWZXJpU2lnbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVz
+ ZSBvbmx5MUUwQwYDVQQDEzxWZXJpU2lnbiBDbGFzcyAxIFB1YmxpYyBQcmltYXJ5IENlcnRpZmlj
+ YXRpb24gQXV0aG9yaXR5IC0gRzMwHhcNMDkwNTAxMDAwMDAwWhcNMTkwNDMwMjM1OTU5WjCB3TEL
+ MAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBU
+ cnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNp
+ Z24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQD
+ Ey5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczMIIBIjANBgkq
+ hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7cRH3yooHXwGa7vXITLJbBOP6bGNQU4099oL42r6ZYgg
+ CxET6ZvgSU6Lb9UB0F8NR5GKWkx0Pj/GkQm7TDSejW6hglFi92l2WJYHr54UGAdPWr2f0jGyVBlz
+ RmoZQhHsEnMhjfXcMM3l2VYKMcU2bSkUl70t2olHGYjYSwQ967Y8Zx50ABMN0Ibak2f4MwOuGjxr
+ aXj2wCyO4YM/d/mZ//6fUlrCtIcK2GypR8FUKWVDPkrAlh/Brfd3r2yxBF6+wbaULZeQLSfSux7p
+ g2qE9sSyriMGZSalJ1grByK0b6ZiSBp38tVQJ5op05b7KPW6JHZi44xZ6/tu1ULEvkHH9QIDAQAB
+ o4ICuTCCArUwNAYIKwYBBQUHAQEEKDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC52ZXJpc2ln
+ bi5jb20wEgYDVR0TAQH/BAgwBgEB/wIBADBwBgNVHSAEaTBnMGUGC2CGSAGG+EUBBxcBMFYwKAYI
+ KwYBBQUHAgEWHGh0dHBzOi8vd3d3LnZlcmlzaWduLmNvbS9jcHMwKgYIKwYBBQUHAgIwHhocaHR0
+ cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYTA0BgNVHR8ELTArMCmgJ6AlhiNodHRwOi8vY3JsLnZl
+ cmlzaWduLmNvbS9wY2ExLWczLmNybDAOBgNVHQ8BAf8EBAMCAQYwbgYIKwYBBQUHAQwEYjBgoV6g
+ XDBaMFgwVhYJaW1hZ2UvZ2lmMCEwHzAHBgUrDgMCGgQUS2u5KJYGDLvQUjibKaxLB4shBRgwJhYk
+ aHR0cDovL2xvZ28udmVyaXNpZ24uY29tL3ZzbG9nbzEuZ2lmMC4GA1UdEQQnMCWkIzAhMR8wHQYD
+ VQQDExZQcml2YXRlTGFiZWw0LTIwNDgtMTE4MB0GA1UdDgQWBBR5R2EIQf04BKJL57XM9UP2SSsR
+ +DCB8QYDVR0jBIHpMIHmoYHQpIHNMIHKMQswCQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24s
+ IEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRydXN0IE5ldHdvcmsxOjA4BgNVBAsTMShjKSAxOTk5
+ IFZlcmlTaWduLCBJbmMuIC0gRm9yIGF1dGhvcml6ZWQgdXNlIG9ubHkxRTBDBgNVBAMTPFZlcmlT
+ aWduIENsYXNzIDEgUHVibGljIFByaW1hcnkgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkgLSBHM4IR
+ AItbdVaEVIULAM+vOEjOsaQwDQYJKoZIhvcNAQEFBQADggEBADlNz0GZgbWpBbVSOOk5hIls5DSo
+ WufYbAlMJBq6WaSHO3Mh8ZOBz79oY1pn/jWFK6HDXaNKwjoZ3TDWzE3v8dKBl8pUWkO/N4t6jhmN
+ D0OojPKvYLMVirOVnDzgnrMnmKQ1chfl/Cpdh9OKDcLRRSr4wPSsKpM61a4ScAjr+zvid+zoK2Q1
+ ds262uDRyxTWcVibvtU+fbbZ6CTFJGZMXZEfdrMXPn8NxiGJL7M3uKH/XLJtSd5lUkL7DojS7Uod
+ v0vj+Mxy+kgOZY5JyNb4mZg7t5Q+MXEGh/psWVMu198r7V9jAKwV7QO4VRaMxmgD5yKocwuxvKDa
+ UljdCg5/wYIxggSLMIIEhwIBATCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWdu
+ LCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQLEzJUZXJtcyBv
+ ZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwGA1UECxMVUGVy
+ c29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIEluZGl2aWR1YWwg
+ U3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMAkGBSsOAwIaBQCgggJtMBgGCSqG
+ SIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTEyMTEwOTE5MTk1NlowIwYJKoZI
+ hvcNAQkEMRYEFKAwS/IL6JcTgSy54IbMDOQIS1KbMIIBAwYJKwYBBAGCNxAEMYH1MIHyMIHdMQsw
+ CQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24sIEluYy4xHzAdBgNVBAsTFlZlcmlTaWduIFRy
+ dXN0IE5ldHdvcmsxOzA5BgNVBAsTMlRlcm1zIG9mIHVzZSBhdCBodHRwczovL3d3dy52ZXJpc2ln
+ bi5jb20vcnBhIChjKTA5MR4wHAYDVQQLExVQZXJzb25hIE5vdCBWYWxpZGF0ZWQxNzA1BgNVBAMT
+ LlZlcmlTaWduIENsYXNzIDEgSW5kaXZpZHVhbCBTdWJzY3JpYmVyIENBIC0gRzMCEHbDqMitQnj5
+ Qd81mMX31uMwggEFBgsqhkiG9w0BCRACCzGB9aCB8jCB3TELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
+ DlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTswOQYDVQQL
+ EzJUZXJtcyBvZiB1c2UgYXQgaHR0cHM6Ly93d3cudmVyaXNpZ24uY29tL3JwYSAoYykwOTEeMBwG
+ A1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQDEy5WZXJpU2lnbiBDbGFzcyAxIElu
+ ZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEczAhB2w6jIrUJ4+UHfNZjF99bjMA0GCSqGSIb3DQEB
+ AQUABIIBAK15i75ZWS8/DcEE3/Jblh704FG3E67uwguSpqnlzsM6bmXUrL/UBoMJS0FxYAlNKBtW
+ ieD1/ZWSkMb1eFPc4iyEhnSaLOG6G3MMdQxC4cii70mZjcr+wr/ZFWQloTKjXQNT8w5APPZXIno9
+ WaC5Wb5sa7lMus4M7OmJ4dvZatlQtj9aTgs/l/OdJ5MNujgBsbHIcJz33ozCcKmQsNP7aNvSM8Y7
+ MEzQ1IKbMdUW9qQql3TVwTYE+dzE0LoN38ngDeQCCeY3OtijLzFn2TeX5p5w/kyB2SZjbwUh+SAm
+ puautwqMo42v4SwU1xgsOrBLw+OxVQOEGDlbW0pvb/qOA2IAAAAAAAA=
+ 
+ --Apple-Mail=_2EB8A072-9092-40C6-B9BA-3B2016C837A5--

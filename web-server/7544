@@ -1,0 +1,913 @@
+From apache@plt-scheme.org Mon Aug 22 01:43:40 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j7M5hcZS027558
+	for <bugs@plt-scheme.org>; Mon, 22 Aug 2005 01:43:38 -0400
+Message-Id: <200508220543.j7M5hcVZ027556@champlain.ccs.neu.edu>
+Date: Mon, 22 Aug 2005 01:43:38 -0400
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: Semaphore bug in web-server/web-server-unit.ss under unusual exceptions
+
+>Number:         7544
+>Category:       web-server
+>Synopsis:       Semaphore bug in web-server/web-server-unit.ss under unusual exceptions
+>Class:          not-a-bug
+>Responsible:    jay
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Aug 22 01:45:00 -0400 2005
+>Last-Modified:  Tue Aug 23 13:05:01 -0400 2005
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299
+>Environment:
+unknown-platform
+>Description:
+In web-server/web-server-unit.ss, the invoke-servlet-continuation function does a little block where it does essentially:
+
+    semaphore-wait
+    bunch-of-code ...
+    semaphore-post
+
+Unfortunately, this code is not robust if the bunch-of-code raises an exception, leaving that servlet instance unusuable.  This can happen if a malicious user hammers the server with the same continuation url and forces tcp-write exceptions.
+
+
+A possible fix is to wrap the problematic mutex handling with a dynamic-wind.  This guarantee that the semaphore values are always in a valid state.  The following patch adds the wrapper:
+
+mumak:~/local/plt/collects/web-server dyoo$ svn diff web-server-unit.ss
+Index: web-server-unit.ss
+===================================================================
+--- web-server-unit.ss	(revision 615)
++++ web-server-unit.ss	(working copy)
+@@ -574,19 +574,23 @@
+                inst
+                (make-execution-context
+                 conn req (lambda () (suspend #t))))
+-              (semaphore-wait (servlet-instance-mutex inst))
+-              (let ((k*salt
+-                     (hash-table-get k-table (cadr k-ref)
+-                                     (lambda ()
+-                                       (raise
+-                                        (make-exn:servlet-continuation
+-                                         "" (current-continuation-marks)))))))
+-                (if (= (cadr k*salt) (caddr k-ref))
+-                    ((car k*salt) req)
+-                    (raise
+-                     (make-exn:servlet-continuation
+-                      "" (current-continuation-marks))))))
+-        (semaphore-post (servlet-instance-mutex inst)))))
++              (dynamic-wind
++               (lambda ()
++                 (semaphore-wait (servlet-instance-mutex inst)))
++               (lambda ()
++                 (let ((k*salt
++                        (hash-table-get k-table (cadr k-ref)
++                                        (lambda ()
++                                          (raise
++                                           (make-exn:servlet-continuation
++                                            "" (current-continuation-marks)))))))
++                   (if (= (cadr k*salt) (caddr k-ref))
++                       ((car k*salt) req)
++                       (raise
++                        (make-exn:servlet-continuation
++                         "" (current-continuation-marks))))))
++               (lambda ()
++                 (semaphore-post (servlet-instance-mutex inst))))))))
+ 
+       ;; ************************************************************
+       ;; ************************************************************
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: bugs@plt-scheme.org, <dyoo@hkn.eecs.berkeley.edu>
+Cc: 
+Subject: Re: all/7544: Semaphore bug in web-server/web-server-unit.ss under
+ unusual exceptions
+Date: Sun, 21 Aug 2005 23:24:49 -0700 (PDT)
+
+ Slight modification: I stared at the code a little more; I don't see why
+ the change to the servlet-instance-context is outside the protection of
+ the semaphore.  I've pushed that up in as well, to make sure no mutations
+ go on without holding onto the mutex.  The diff is:
+ 
+ 
+ mumak:~/local/plt/collects/web-server dyoo$ svn diff web-server-unit.ss
+ Index: web-server-unit.ss
+ ===================================================================
+ --- web-server-unit.ss	(revision 615)
+ +++ web-server-unit.ss	(working copy)
+ @@ -570,23 +570,27 @@
+                   [k-table
+                    (servlet-instance-k-table inst)])
+              (let/cc suspend
+ -              (set-servlet-instance-context!
+ -               inst
+ -               (make-execution-context
+ -                conn req (lambda () (suspend #t))))
+ -              (semaphore-wait (servlet-instance-mutex inst))
+ -              (let ((k*salt
+ -                     (hash-table-get k-table (cadr k-ref)
+ -                                     (lambda ()
+ -                                       (raise
+ -                                        (make-exn:servlet-continuation
+ -                                         ""
+ (current-continuation-marks)))))))
+ -                (if (= (cadr k*salt) (caddr k-ref))
+ -                    ((car k*salt) req)
+ -                    (raise
+ -                     (make-exn:servlet-continuation
+ -                      "" (current-continuation-marks))))))
+ -        (semaphore-post (servlet-instance-mutex inst)))))
+ +              (dynamic-wind
+ +               (lambda ()
+ +                 (semaphore-wait (servlet-instance-mutex inst)))
+ +               (lambda ()
+ +                 (set-servlet-instance-context!
+ +                  inst
+ +                  (make-execution-context
+ +                   conn req (lambda () (suspend #t))))
+ +                 (let ((k*salt
+ +                        (hash-table-get k-table (cadr k-ref)
+ +                                        (lambda ()
+ +                                          (raise
+ +                                           (make-exn:servlet-continuation
+ +                                            ""
+ (current-continuation-marks)))))))
+ +                   (if (= (cadr k*salt) (caddr k-ref))
+ +                       ((car k*salt) req)
+ +                       (raise
+ +                        (make-exn:servlet-continuation
+ +                         "" (current-continuation-marks))))))
+ +               (lambda ()
+ +                 (semaphore-post (servlet-instance-mutex inst))))))))
+ 
+        ;; ************************************************************
+        ;; ************************************************************
+ 
+ 
+ 
+ 
+ Hope this helps!
+ 
+
+Class changed from "sw-bug" to "not-a-bug" by jay at Mon, 22 Aug 2005 08:30:09 -0400
+Reason>>> It's a bit more complicated than that. There is a comment that clears up the 
+situation to the casual reader.
+
+State changed from "open" to "closed" by jay at Mon, 22 Aug 2005 08:30:09 -0400
+Reason>>> not-a-bug
+
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: bugs@plt-scheme.org
+Cc: jay@kenyamountain.com
+Subject: Re: web-server/7544 Semaphore bug in web-server/web-server-unit.ss
+ under unusual exceptions
+Date: Mon, 22 Aug 2005 16:46:26 -0700 (PDT)
+
+ On Mon, 22 Aug 2005 jay@kenyamountain.com wrote:
+ 
+ > Class changed from "sw-bug" to "not-a-bug" by jay at Mon, 22 Aug 2005
+ > 08:30:09 -0400 Reason>>> It's a bit more complicated than that. There is
+ > a comment that clears up the situation to the casual reader.
+ >
+ > State changed from "open" to "closed" by jay at Mon, 22 Aug 2005
+ > 08:30:09 -0400 Reason>>> not-a-bug
+ 
+ 
+ Hi Jay,
+ 
+ Ah, ok, I see how that's working.  But there is a problem here.  Let me
+ pull out the stack trace I'm seeing when I see deadlock occuring.  (I've
+ edited bin/web-server-text to enable errortrace display.)
+ 
+ 
+ Under heavy load, say, for example, someone holding down Control-R on
+ their web browser when visiting a continuation url, the following can be
+ triggered:
+ 
+ ##########################################################################
+ tcp-write: error writing (Broken pipe; errno=32)
+ /home/dyoo/local/plt/collects/web-server/response.ss:135:25: (display word
+ o-port)
+ /home/dyoo/local/plt/collects/web-server/response.ss:134:9: (for-each
+ (lambda (word) (display word o-port)) line)
+ /home/dyoo/local/plt/collects/web-server/response.ss:132:6: (for-each
+ (lambda (line) (for-each (lambda (word) (....)) line) (fprintf o-port
+ "\r\n")) (list* (...
+ /home/dyoo/local/plt/collects/web-server/response.ss:131:4: (let-values
+ (((o-port) (lifted conn))) (for-each (lambda (line) (for-each (....) ....)
+ (fprintf ....
+ /home/dyoo/local/plt/collects/web-server/response.ss:184:10:
+ (output-response/basic conn resp (response/full->size resp) (lambda
+ (o-port) (for-each (....) ......
+ /home/dyoo/local/plt/collects/web-server/response.ss:261:4:
+ (call-with-semaphore (lifted conn) (lambda () (output-response/method conn
+ resp meth)))
+ [unknown source]: (begin0 ((cdar l) e) (with-continuation-mark
+ break-enabled-key bpz (check-for-break)))
+ /home/dyoo/local/plt/collects/web-server/web-server-unit.ss:117:12:
+ (let-values (((host-conf) ((unbox config:virtual-hosts19) host)))
+ ((host-log-message host-conf) (...
+ #########################################################################
+ 
+ The problem initially shows up in output-response: the output socket might
+ emit a tcp error if the socket is messed up.  And that means that the
+ servlet exception handler itself might raise an exception, since it's
+ clear that make-servlet-exception-handler calls output-response/method,
+ which hits output-response.
+ 
+ 
+ So at the very least, we need to protect the call to
+ output-response/method in the exception handler:
+ 
+ dyoo@shoebox ~/local/plt/collects/web-server $ svn diff
+ Index: web-server-unit.ss
+ ===================================================================
+ --- web-server-unit.ss	(revision 633)
+ +++ web-server-unit.ss	(working copy)
+ @@ -523,10 +523,16 @@
+                                               host-info))
+                          (request-uri req)
+                          the-exn)])
+ -            (output-response/method
+ -             (execution-context-connection ctxt)
+ -             resp (request-method req))
+ +            ;; dyoo: fixme: really add to the log!
+ +            (with-handlers ([exn:fail?
+ +                             (lambda (the-exn)
+ +                               (printf "oh no! bad exception ~a~%"
+ the-exn))])
+ +              (output-response/method
+ +               (execution-context-connection ctxt)
+ +               resp (request-method req)))
+              ((execution-context-suspend ctxt)))))
+ +
+ +
+ 
+        ;; path -> path
+        ;; The actual servlet's parent directory.
+ -------
+ 
+ 
+ I checked my stderr after making this change, and do see that under heavy
+ load, my debug message does come up.
+ 
+ 
+ Hope this helps!
+ 
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: bugs@plt-scheme.org
+Cc: jay@kenyamountain.com
+Subject: Re: web-server/7544 Semaphore bug in web-server/web-server-unit.ss
+ under unusual exceptions
+Date: Tue, 23 Aug 2005 00:57:12 -0700 (PDT)
+
+   This message is in MIME format.  The first part should be readable text,
+   while the remaining parts are likely unreadable without MIME-aware tools.
+   Send mail to mime@docserver.cac.washington.edu for more info.
+ 
+ --545317935-352744452-1124783623=:13612
+ Content-Type: TEXT/PLAIN; CHARSET=US-ASCII
+ Content-ID: <Pine.LNX.4.44.0508230053461.13612@hkn.eecs.berkeley.edu>
+ 
+ 
+ 
+ > Under heavy load, say, for example, someone holding down Control-R on
+ > their web browser when visiting a continuation url, the following can be
+ > triggered:
+ 
+ [text cut]
+ 
+ Hi Jay,
+ 
+ I hope you don't mind me being so zealous about looking into these issues;
+ I just want to know that the web-server package can withstand a
+ slashdotting without fear.
+ 
+ (My environment, by the way, is Mac OS X on a Powerbook, using Safari.
+ My laptop's a little slow, which allows me to simulate stress conditions a
+ bit more easily.  *grin*)
+ 
+ I've done some more work to allow the web server to absorb socket
+ exceptions more gracefully, and will include the diff with my message.
+ The main change is to make sure that, even if exceptions occur during the
+ server loop, that the servlet instance collects the connection cleanly and
+ allows the loop to continue moving.
+ 
+ 
+ However, I'm now running into a Bus Error problem that I'm not sure how to
+ debug.  I'm using the web-server-unit.ss that I'm attaching to this
+ message, but I assume that any Bus Error should be really treated as a
+ problem with mzscheme.
+ 
+ The Bus Error occurs regardless if I'm either using the conservative
+ collector or the precise one. I'm not too familiar enough with mzscheme's
+ implementation to understand what's happening, but here's what I see on a
+ stack trace:
+ 
+ 
+ #######################################################################
+ mumak:~/work/plt/web dyoo$ gdb mzscheme
+ GNU gdb 6.1-20040303 (Apple version gdb-384) (Mon Mar 21 00:05:26 GMT
+ 2005)
+ Copyright 2004 Free Software Foundation, Inc.
+ GDB is free software, covered by the GNU General Public License, and you
+ are
+ welcome to change it and/or distribute copies of it under certain
+ conditions.
+ Type "show copying" to see the conditions.
+ There is absolutely no warranty for GDB.  Type "show warranty" for
+ details.
+ This GDB was configured as "powerpc-apple-darwin"...Reading symbols for
+ shared libraries .... done
+ 
+ (gdb) handle SIGPIPE nostop
+ Signal        Stop      Print   Pass to program Description
+ SIGPIPE       No        Yes     Yes             Broken pipe
+ 
+ (gdb) run -qmvL- text-launch.ss web-server -f configuration-table
+ Starting program: /usr/local/bin/mzscheme -qmvL- text-launch.ss web-server
+ -f configuration-table
+ 
+ ## at this point, I visit a servlet using a continuation url, and then
+ ## flood it hard with refresh.
+ 
+ Program received signal EXC_BAD_ACCESS, Could not access memory.
+ Reason: KERN_PROTECTION_FAILURE at address: 0x00000000
+ 0x0022abac in copy_out_mark_stack (p=0x1473aa8, pos=1) at ./fun.c:2504
+ 2504          memcpy(cont_mark_stack_copied + cmcount, cm,
+ sizeof(Scheme_Cont_Mark));
+ (gdb) bt
+ #0  0x0022abac in copy_out_mark_stack (p=0x1473aa8, pos=1) at ./fun.c:2504
+ #1  0x0022b380 in call_cc (argc=1, argv=0x1473aa8) at ./fun.c:2712
+ #2  0x0021dd54 in scheme_do_eval (obj=0x546e70, num_rands=1,
+ rands=0x2368dd4, get_value=1) at ./eval.c:3460
+ #3  0x0021f188 in scheme_do_eval (obj=0x20d7384, num_rands=1,
+ rands=0x2368df0, get_value=1) at ./eval.c:4305
+ #4  0x0021f188 in scheme_do_eval (obj=0x2290000, num_rands=0,
+ rands=0x311204, get_value=1) at ./eval.c:4305
+ #5  0x0021f188 in scheme_do_eval (obj=0x21e5fc0, num_rands=1,
+ rands=0x2368e04, get_value=1) at ./eval.c:4305
+ #6  0x0021f188 in scheme_do_eval (obj=0x22900a8, num_rands=1,
+ rands=0x2368df4, get_value=1) at ./eval.c:4305
+ #7  0x0021f188 in scheme_do_eval (obj=0x15dc180, num_rands=0, rands=0x0,
+ get_value=-1) at ./eval.c:4305
+ #8  0x0022a2b4 in call_with_values (argc=2, argv=0x2368e30) at
+ ./fun.c:2195
+ #9  0x0021dd54 in scheme_do_eval (obj=0x546ec4, num_rands=2,
+ rands=0x2368e30, get_value=-1) at ./eval.c:3460
+ #10 0x0022a64c in scheme_call_ec (argc=1, argv=0x2368e4c) at ./fun.c:2312
+ #11 0x0021dd54 in scheme_do_eval (obj=0x546e8c, num_rands=1,
+ rands=0x2368e4c, get_value=1) at ./eval.c:3460
+ #12 0x0021e940 in scheme_do_eval (obj=0x15def84, num_rands=0,
+ rands=0x15dde30, get_value=-1) at ./eval.c:3919
+ #13 0x0021ede0 in scheme_do_eval (obj=0x15ddd40, num_rands=22928712,
+ rands=0x1, get_value=-1) at ./eval.c:4122
+ #14 0x0022a2b4 in call_with_values (argc=2, argv=0x2368ee0) at
+ ./fun.c:2195
+ #15 0x0021dd54 in scheme_do_eval (obj=0x546ec4, num_rands=2,
+ rands=0x2368ee0, get_value=-1) at ./eval.c:3460
+ #16 0x0022a64c in scheme_call_ec (argc=1, argv=0x2368efc) at ./fun.c:2312
+ #17 0x0021dd54 in scheme_do_eval (obj=0x546e8c, num_rands=1,
+ rands=0x2368efc, get_value=1) at ./eval.c:3460
+ #18 0x0021e940 in scheme_do_eval (obj=0x15dee34, num_rands=0,
+ rands=0x15ddd20, get_value=-1) at ./eval.c:3919
+ #19 0x0021ede0 in scheme_do_eval (obj=0x15c5070, num_rands=22827136,
+ rands=0x4, get_value=-1) at ./eval.c:4122
+ #20 0x0022a2b4 in call_with_values (argc=2, argv=0x2368f68) at
+ ./fun.c:2195
+ #21 0x0021dd54 in scheme_do_eval (obj=0x546ec4, num_rands=2,
+ rands=0x2368f68, get_value=-1) at ./eval.c:3460
+ #22 0x0022a64c in scheme_call_ec (argc=1, argv=0x2368f84) at ./fun.c:2312
+ #23 0x0021dd54 in scheme_do_eval (obj=0x546e8c, num_rands=1,
+ rands=0x2368f84, get_value=1) at ./eval.c:3460
+ #24 0x0021e940 in scheme_do_eval (obj=0x15d87d4, num_rands=0,
+ rands=0x15cc9b0, get_value=-1) at ./eval.c:3919
+ #25 0x002282a8 in top_level_do (k=0x2284e8 <apply_k>, eb=3243232,
+ sj_start=0xbfff0fe8) at ./fun.c:1086
+ #26 0x002283ec in scheme_top_level_do (k=0x20d3f20, eb=1) at ./fun.c:1131
+ #27 0x002b2d44 in start_child (child=0x2338000, return_to_thread=0x0,
+ child_eval=0x23593e0) at ./thread.c:2410
+ #28 0x002b2f38 in make_subprocess (child_thunk=0x23593e0,
+ child_start=0xbfff1418, config=0x2338000, cells=0x235b910,
+ break_cell=0x549d20, mgr=0x0, normal_kill=1) at ./thread.c:2498
+ #29 0x002b305c in scheme_thread_w_details (thunk=0x23593e0, config=0x0,
+ cells=0x0, break_cell=0x0, mgr=0x0, suspend_to_kill=0) at ./thread.c:2709
+ #30 0x0021eec8 in scheme_do_eval (obj=0x15d8690, num_rands=2, rands=0x0,
+ get_value=-1) at ./eval.c:4170
+ #31 0x0021ede0 in scheme_do_eval (obj=0x15cc850, num_rands=22857816,
+ rands=0x1, get_value=-1) at ./eval.c:4122
+ #32 0x002282a8 in top_level_do (k=0x2284e8 <apply_k>, eb=3243232,
+ sj_start=0xbfff8128) at ./fun.c:1086
+ #33 0x002283ec in scheme_top_level_do (k=0x20d3f20, eb=1) at ./fun.c:1131
+ #34 0x002b2d44 in start_child (child=0x2338554, return_to_thread=0x0,
+ child_eval=0x1352680) at ./thread.c:2410
+ #35 0x002b2f38 in make_subprocess (child_thunk=0x1352680,
+ child_start=0xbfff8558, config=0x2338554, cells=0x235b960,
+ break_cell=0x549d20, mgr=0x0, normal_kill=1) at ./thread.c:2498
+ #36 0x002b305c in scheme_thread_w_details (thunk=0x1352680, config=0x0,
+ cells=0x0, break_cell=0x0, mgr=0x0, suspend_to_kill=0) at ./thread.c:2709
+ #37 0x0021dd54 in scheme_do_eval (obj=0x6062e0, num_rands=0,
+ rands=0xbfffe780, get_value=-1) at ./eval.c:3460
+ #38 0x0021dd54 in scheme_do_eval (obj=0x6069e0, num_rands=1, rands=0x0,
+ get_value=-1) at ./eval.c:3460
+ #39 0x0023cff8 in eval_module_body (menv=0x743ae0) at ./module.c:2536
+ #40 0x00241c94 in parse_requires (form=0x74bea8, base_modidx=0x3122ec,
+ env=0x552ea0, rn=0x745be0, post_ex_rn=0x745be0, ck=0x246164
+ <check_dup_require>, data=0x0, start=1, expstart=1, redef_modname=0x0,
+ unpack_kern=1, copy_vars=0, all_simple=0x0) at ./module.c:5165
+ #41 0x002463f8 in top_level_require_execute (data=0x20d3f20) at
+ ./module.c:5399
+ #42 0x0021e878 in scheme_do_eval (obj=0x772f84, num_rands=-1, rands=0x0,
+ get_value=-1) at ./eval.c:3872
+ #43 0x00220c44 in eval_k () at ./eval.c:4433
+ #44 0x002282a8 in top_level_do (k=0x220b0c <eval_k>, eb=1,
+ sj_start=0xbffff508) at ./fun.c:1086
+ #45 0x002283ec in scheme_top_level_do (k=0x20d3f20, eb=1) at ./fun.c:1131
+ #46 0x002212bc in scheme_eval_string_all (str=0x20d3f20 "", env=0x552ea0,
+ cont=3215932) at ./eval.c:5076
+ #47 0x00002edc in finish_cmd_line_run (fa=0x753520, repl=0x4240
+ <do_scheme_rep>) at ./cmdline.inc:252
+ #48 0x000040c8 in actual_main (argc=2, argv=0x753520) at ./cmdline.inc:979
+ #49 0x000031d0 in main (argc=6, argv=0xbffffa88) at ./main.c:263
+ #########################################################################
+ 
+ 
+ What else can I do to provide good debugging information?  Thanks!
+ 
+ --545317935-352744452-1124783623=:13612
+ Content-Type: TEXT/PLAIN; NAME="web-server-unit.ss.diff"
+ Content-Transfer-Encoding: BASE64
+ Content-ID: <Pine.LNX.4.44.0508230053430.13612@hkn.eecs.berkeley.edu>
+ Content-Description: 
+ Content-Disposition: ATTACHMENT; FILENAME="web-server-unit.ss.diff"
+ 
+ SW5kZXg6IHdlYi1zZXJ2ZXItdW5pdC5zcw0KPT09PT09PT09PT09PT09PT09
+ PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
+ PT09PQ0KLS0tIHdlYi1zZXJ2ZXItdW5pdC5zcwkocmV2aXNpb24gNjM1KQ0K
+ KysrIHdlYi1zZXJ2ZXItdW5pdC5zcwkod29ya2luZyBjb3B5KQ0KQEAgLTc3
+ LDcgKzc3LDIwIEBADQogICAgICAgICAgICAgICAgICAoc2VydmVyLWxvb3Ag
+ Z2V0LXBvcnRzKSkpKSkNCiAgICAgICAgICAgKGxhbWJkYSAoKQ0KICAgICAg
+ ICAgICAgIChjdXN0b2RpYW4tc2h1dGRvd24tYWxsIHRoZS1zZXJ2ZXItY3Vz
+ dG9kaWFuKSkpKQ0KKw0KICAgICAgIA0KKyAgICAgIDs7IG9uLWV4Y2VwdGlv
+ bi9jbG9zZS1jb25uOiBjb25uZWN0aW9uIChjb25uIC0+IFgpIC0+IFgNCisg
+ ICAgICA7OyBJZiBhbiBleGNlcHRpb24gb2NjdXJzIHdoaWxlIGV4ZWN1dGlu
+ ZyB0aGUgdGh1bmssIGNsb3NlcyB0aGUgY29ubmVjdGlvbiBkb3duLCANCisg
+ ICAgICA7OyBhbmQgdGhlbiByZXRocm93cyB0aHVuaw0KKyAgICAgIChkZWZp
+ bmUgKG9uLWV4Y2VwdGlvbi9jbG9zZS1jb25uIGNvbm4gZnVuY3Rpb24tY29u
+ c3VtaW5nLWNvbm4pDQorICAgICAgICAod2l0aC1oYW5kbGVycyAoW2V4bjpm
+ YWlsPyANCisgICAgICAgICAgICAgICAgICAgICAgICAgKGxhbWJkYSAoZXhu
+ KQ0KKyAgICAgICAgICAgICAgICAgICAgICAgICAgIChzZXQtY29ubmVjdGlv
+ bi1jbG9zZT8hIGNvbm4gI3QpDQorICAgICAgICAgICAgICAgICAgICAgICAg
+ ICAgKGtpbGwtY29ubmVjdGlvbiEgY29ubikNCisgICAgICAgICAgICAgICAg
+ ICAgICAgICAgICAocmFpc2UgZXhuKSldKQ0KKyAgICAgICAgICAoZnVuY3Rp
+ b24tY29uc3VtaW5nLWNvbm4gY29ubikpKQ0KKyAgICAgIA0KKyAgICAgIA0K
+ ICAgICAgIDs7IHNlcnZlci1sb29wOiAoLT4gaS1wb3J0IG8tcG9ydCkgLT4g
+ dm9pZA0KICAgICAgIDs7IHN0YXJ0IGEgdGhyZWFkIHRvIGhhbmRsZSBlYWNo
+ IGluY29taW5nIGNvbm5lY3Rpb24NCiAgICAgICAoZGVmaW5lIChzZXJ2ZXIt
+ bG9vcCBnZXQtcG9ydHMpDQpAQCAtODcsMTEgKzEwMCwxMiBAQA0KICAgICAg
+ ICAgICAgICAgKGxldC12YWx1ZXMgKFsoaXAgb3ApIChnZXQtcG9ydHMpXSkN
+ CiAgICAgICAgICAgICAgICAgKHRocmVhZA0KICAgICAgICAgICAgICAgICAg
+ KGxhbWJkYSAoKQ0KLSAgICAgICAgICAgICAgICAgICAoc2VydmUtY29ubmVj
+ dGlvbg0KKyAgICAgICAgICAgICAgICAgICAob24tZXhjZXB0aW9uL2Nsb3Nl
+ LWNvbm4NCiAgICAgICAgICAgICAgICAgICAgIChuZXctY29ubmVjdGlvbiBj
+ b25maWc6aW5pdGlhbC1jb25uZWN0aW9uLXRpbWVvdXQNCi0gICAgICAgICAg
+ ICAgICAgICAgICAgICAgICAgICAgICAgICBpcCBvcCAoY3VycmVudC1jdXN0
+ b2RpYW4pICNmKSkpKSkpDQorICAgICAgICAgICAgICAgICAgICAgICAgICAg
+ ICAgICAgICAgaXAgb3AgKGN1cnJlbnQtY3VzdG9kaWFuKSAjZikNCisgICAg
+ ICAgICAgICAgICAgICAgIHNlcnZlLWNvbm5lY3Rpb24pKSkpKQ0KICAgICAg
+ ICAgICAgIChsb29wKSkpKQ0KLSAgICAgIA0KKyAgICANCiAgICAgICA7OyBz
+ ZXJ2ZS1wb3J0cyA6IGlucHV0LXBvcnQgb3V0cHV0LXBvcnQgLT4gdm9pZA0K
+ ICAgICAgIDs7IHJldHVybnMgaW1tZWRpYXRlbHksIHNwYXduaW5nIGEgdGhy
+ ZWFkIHRvIGhhbmRsZQ0KICAgICAgIDs7IHRoZSBjb25uZWN0aW9uDQpAQCAt
+ MTA1LDkgKzExOSwxMCBAQA0KICAgICAgICAgICAgICAgICAgICAgICAgICBb
+ Y3VycmVudC1zZXJ2ZXItY3VzdG9kaWFuIHNlcnZlci1jdXN0XSkNCiAgICAg
+ ICAgICAgICAodGhyZWFkDQogICAgICAgICAgICAgIChsYW1iZGEgKCkNCi0g
+ ICAgICAgICAgICAgICAoc2VydmUtY29ubmVjdGlvbg0KKyAgICAgICAgICAg
+ ICAgIChvbi1leGNlcHRpb24vY2xvc2UtY29ubg0KICAgICAgICAgICAgICAg
+ ICAobmV3LWNvbm5lY3Rpb24gY29uZmlnOmluaXRpYWwtY29ubmVjdGlvbi10
+ aW1lb3V0DQotICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBpcCBv
+ cCBjb25uZWN0aW9uLWN1c3QgI2YpKSkpKSkpDQorICAgICAgICAgICAgICAg
+ ICAgICAgICAgICAgICAgICBpcCBvcCBjb25uZWN0aW9uLWN1c3QgI2YpDQor
+ ICAgICAgICAgICAgICAgIHNlcnZlLWNvbm5lY3Rpb24pKSkpKSkNCiAgICAg
+ ICANCiAgICAgICA7OyBzZXJ2ZS1jb25uZWN0aW9uOiBjb25uZWN0aW9uIC0+
+ IHZvaWQNCiAgICAgICA7OyByZXNwb25kIHRvIGFsbCByZXF1ZXN0cyBvbiB0
+ aGlzIGNvbm5lY3Rpb24NCkBAIC01MjMsOSArNTM4LDExIEBADQogICAgICAg
+ ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgaG9zdC1p
+ bmZvKSkNCiAgICAgICAgICAgICAgICAgICAgICAgICAocmVxdWVzdC11cmkg
+ cmVxKQ0KICAgICAgICAgICAgICAgICAgICAgICAgIHRoZS1leG4pXSkNCi0g
+ ICAgICAgICAgICAob3V0cHV0LXJlc3BvbnNlL21ldGhvZA0KLSAgICAgICAg
+ ICAgICAoZXhlY3V0aW9uLWNvbnRleHQtY29ubmVjdGlvbiBjdHh0KQ0KLSAg
+ ICAgICAgICAgICByZXNwIChyZXF1ZXN0LW1ldGhvZCByZXEpKQ0KKyAgICAg
+ ICAgICAgICh3aXRoLWhhbmRsZXJzIChbZXhuOmZhaWw/IChsYW1iZGEgKGV4
+ bikgKHZvaWQpKV0pDQorICAgICAgICAgICAgICAob3V0cHV0LXJlc3BvbnNl
+ L21ldGhvZA0KKyAgICAgICAgICAgICAgIChleGVjdXRpb24tY29udGV4dC1j
+ b25uZWN0aW9uIGN0eHQpDQorICAgICAgICAgICAgICAgcmVzcCAocmVxdWVz
+ dC1tZXRob2QgcmVxKSkpDQorICAgICAgICAgICAgDQogICAgICAgICAgICAg
+ KChleGVjdXRpb24tY29udGV4dC1zdXNwZW5kIGN0eHQpKSkpKQ0KICAgICAg
+ IA0KICAgICAgIDs7IHBhdGggLT4gcGF0aA0KQEAgLTY3Miw0ICs2ODksNCBA
+ QA0KICAgICAgICAgICAgICAgICAgW2Vsc2UNCiAgICAgICAgICAgICAgICAg
+ ICAocmFpc2UgKGZvcm1hdCAiTG9hZGluZyB+ZSBwcm9kdWNlZCB+bn5lfm4g
+ aW5zdGVhZCBvZiBhIHNlcnZsZXQuIiBhLXBhdGggcykpXSkpKSkNCiAgICAg
+ ICANCi0gICAgICApKSkNClwgTm8gbmV3bGluZSBhdCBlbmQgb2YgZmlsZQ0K
+ KyAgICAgICkpKQ0K
+ --545317935-352744452-1124783623=:13612
+ Content-Type: APPLICATION/octet-stream; name="web-server-unit.ss.gz"
+ Content-Transfer-Encoding: BASE64
+ Content-ID: <Pine.LNX.4.44.0508230057120.13612@hkn.eecs.berkeley.edu>
+ Content-Description: 
+ Content-Disposition: attachment; filename="web-server-unit.ss.gz"
+ 
+ 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
+ --545317935-352744452-1124783623=:13612--
+From: Jay McCarthy <jay@kenyamountain.com>
+To: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: web-server/7544 Semaphore bug in web-server/web-server-unit.ss under unusual exceptions
+Date: Tue, 23 Aug 2005 12:59:16 -0400
+
+ I've committed a variant of this.
+ 
+ I wasn't able to recreate the Bus Error, it seems to be an out of  
+ memory error, that isn't being caught correctly. But I'm not sure, I  
+ asked Matthew.
+ 
+ I try testing this sort of thing occasionally and particularly in the  
+ future I'll be working on performance, and thus, reliability.
+ 
+ Jay
+ 
+ ----
+ Jay McCarthy <jay@kenyamountain.com>
+ http://jay.makeoutcity.com
+ 
+ On Aug 23, 2005, at 3:57 AM, Danny Yoo wrote:
+ 
+ >> Under heavy load, say, for example, someone holding down Control-R on
+ >> their web browser when visiting a continuation url, the following  
+ >> can be
+ >> triggered:
+ >>
+ >
+ > [text cut]
+ >
+ > Hi Jay,
+ >
+ > I hope you don't mind me being so zealous about looking into these  
+ > issues;
+ > I just want to know that the web-server package can withstand a
+ > slashdotting without fear.
+ >
+ > (My environment, by the way, is Mac OS X on a Powerbook, using Safari.
+ > My laptop's a little slow, which allows me to simulate stress  
+ > conditions a
+ > bit more easily.  *grin*)
+ >
+ > I've done some more work to allow the web server to absorb socket
+ > exceptions more gracefully, and will include the diff with my message.
+ > The main change is to make sure that, even if exceptions occur  
+ > during the
+ > server loop, that the servlet instance collects the connection  
+ > cleanly and
+ > allows the loop to continue moving.
+ >
+ >
+ > However, I'm now running into a Bus Error problem that I'm not sure  
+ > how to
+ > debug.  I'm using the web-server-unit.ss that I'm attaching to this
+ > message, but I assume that any Bus Error should be really treated as a
+ > problem with mzscheme.
+ >
+ > The Bus Error occurs regardless if I'm either using the conservative
+ > collector or the precise one. I'm not too familiar enough with  
+ > mzscheme's
+ > implementation to understand what's happening, but here's what I  
+ > see on a
+ > stack trace:
+ >
+ >
+ > ###################################################################### 
+ > #
+ > mumak:~/work/plt/web dyoo$ gdb mzscheme
+ > GNU gdb 6.1-20040303 (Apple version gdb-384) (Mon Mar 21 00:05:26 GMT
+ > 2005)
+ > Copyright 2004 Free Software Foundation, Inc.
+ > GDB is free software, covered by the GNU General Public License,  
+ > and you
+ > are
+ > welcome to change it and/or distribute copies of it under certain
+ > conditions.
+ > Type "show copying" to see the conditions.
+ > There is absolutely no warranty for GDB.  Type "show warranty" for
+ > details.
+ > This GDB was configured as "powerpc-apple-darwin"...Reading symbols  
+ > for
+ > shared libraries .... done
+ >
+ > (gdb) handle SIGPIPE nostop
+ > Signal        Stop      Print   Pass to program Description
+ > SIGPIPE       No        Yes     Yes             Broken pipe
+ >
+ > (gdb) run -qmvL- text-launch.ss web-server -f configuration-table
+ > Starting program: /usr/local/bin/mzscheme -qmvL- text-launch.ss web- 
+ > server
+ > -f configuration-table
+ >
+ > ## at this point, I visit a servlet using a continuation url, and then
+ > ## flood it hard with refresh.
+ >
+ > Program received signal EXC_BAD_ACCESS, Could not access memory.
+ > Reason: KERN_PROTECTION_FAILURE at address: 0x00000000
+ > 0x0022abac in copy_out_mark_stack (p=0x1473aa8, pos=1) at ./fun.c:2504
+ > 2504          memcpy(cont_mark_stack_copied + cmcount, cm,
+ > sizeof(Scheme_Cont_Mark));
+ > (gdb) bt
+ > #0  0x0022abac in copy_out_mark_stack (p=0x1473aa8, pos=1) at ./ 
+ > fun.c:2504
+ > #1  0x0022b380 in call_cc (argc=1, argv=0x1473aa8) at ./fun.c:2712
+ > #2  0x0021dd54 in scheme_do_eval (obj=0x546e70, num_rands=1,
+ > rands=0x2368dd4, get_value=1) at ./eval.c:3460
+ > #3  0x0021f188 in scheme_do_eval (obj=0x20d7384, num_rands=1,
+ > rands=0x2368df0, get_value=1) at ./eval.c:4305
+ > #4  0x0021f188 in scheme_do_eval (obj=0x2290000, num_rands=0,
+ > rands=0x311204, get_value=1) at ./eval.c:4305
+ > #5  0x0021f188 in scheme_do_eval (obj=0x21e5fc0, num_rands=1,
+ > rands=0x2368e04, get_value=1) at ./eval.c:4305
+ > #6  0x0021f188 in scheme_do_eval (obj=0x22900a8, num_rands=1,
+ > rands=0x2368df4, get_value=1) at ./eval.c:4305
+ > #7  0x0021f188 in scheme_do_eval (obj=0x15dc180, num_rands=0,  
+ > rands=0x0,
+ > get_value=-1) at ./eval.c:4305
+ > #8  0x0022a2b4 in call_with_values (argc=2, argv=0x2368e30) at
+ > ./fun.c:2195
+ > #9  0x0021dd54 in scheme_do_eval (obj=0x546ec4, num_rands=2,
+ > rands=0x2368e30, get_value=-1) at ./eval.c:3460
+ > #10 0x0022a64c in scheme_call_ec (argc=1, argv=0x2368e4c) at ./ 
+ > fun.c:2312
+ > #11 0x0021dd54 in scheme_do_eval (obj=0x546e8c, num_rands=1,
+ > rands=0x2368e4c, get_value=1) at ./eval.c:3460
+ > #12 0x0021e940 in scheme_do_eval (obj=0x15def84, num_rands=0,
+ > rands=0x15dde30, get_value=-1) at ./eval.c:3919
+ > #13 0x0021ede0 in scheme_do_eval (obj=0x15ddd40, num_rands=22928712,
+ > rands=0x1, get_value=-1) at ./eval.c:4122
+ > #14 0x0022a2b4 in call_with_values (argc=2, argv=0x2368ee0) at
+ > ./fun.c:2195
+ > #15 0x0021dd54 in scheme_do_eval (obj=0x546ec4, num_rands=2,
+ > rands=0x2368ee0, get_value=-1) at ./eval.c:3460
+ > #16 0x0022a64c in scheme_call_ec (argc=1, argv=0x2368efc) at ./ 
+ > fun.c:2312
+ > #17 0x0021dd54 in scheme_do_eval (obj=0x546e8c, num_rands=1,
+ > rands=0x2368efc, get_value=1) at ./eval.c:3460
+ > #18 0x0021e940 in scheme_do_eval (obj=0x15dee34, num_rands=0,
+ > rands=0x15ddd20, get_value=-1) at ./eval.c:3919
+ > #19 0x0021ede0 in scheme_do_eval (obj=0x15c5070, num_rands=22827136,
+ > rands=0x4, get_value=-1) at ./eval.c:4122
+ > #20 0x0022a2b4 in call_with_values (argc=2, argv=0x2368f68) at
+ > ./fun.c:2195
+ > #21 0x0021dd54 in scheme_do_eval (obj=0x546ec4, num_rands=2,
+ > rands=0x2368f68, get_value=-1) at ./eval.c:3460
+ > #22 0x0022a64c in scheme_call_ec (argc=1, argv=0x2368f84) at ./ 
+ > fun.c:2312
+ > #23 0x0021dd54 in scheme_do_eval (obj=0x546e8c, num_rands=1,
+ > rands=0x2368f84, get_value=1) at ./eval.c:3460
+ > #24 0x0021e940 in scheme_do_eval (obj=0x15d87d4, num_rands=0,
+ > rands=0x15cc9b0, get_value=-1) at ./eval.c:3919
+ > #25 0x002282a8 in top_level_do (k=0x2284e8 <apply_k>, eb=3243232,
+ > sj_start=0xbfff0fe8) at ./fun.c:1086
+ > #26 0x002283ec in scheme_top_level_do (k=0x20d3f20, eb=1) at ./ 
+ > fun.c:1131
+ > #27 0x002b2d44 in start_child (child=0x2338000, return_to_thread=0x0,
+ > child_eval=0x23593e0) at ./thread.c:2410
+ > #28 0x002b2f38 in make_subprocess (child_thunk=0x23593e0,
+ > child_start=0xbfff1418, config=0x2338000, cells=0x235b910,
+ > break_cell=0x549d20, mgr=0x0, normal_kill=1) at ./thread.c:2498
+ > #29 0x002b305c in scheme_thread_w_details (thunk=0x23593e0,  
+ > config=0x0,
+ > cells=0x0, break_cell=0x0, mgr=0x0, suspend_to_kill=0) at ./ 
+ > thread.c:2709
+ > #30 0x0021eec8 in scheme_do_eval (obj=0x15d8690, num_rands=2,  
+ > rands=0x0,
+ > get_value=-1) at ./eval.c:4170
+ > #31 0x0021ede0 in scheme_do_eval (obj=0x15cc850, num_rands=22857816,
+ > rands=0x1, get_value=-1) at ./eval.c:4122
+ > #32 0x002282a8 in top_level_do (k=0x2284e8 <apply_k>, eb=3243232,
+ > sj_start=0xbfff8128) at ./fun.c:1086
+ > #33 0x002283ec in scheme_top_level_do (k=0x20d3f20, eb=1) at ./ 
+ > fun.c:1131
+ > #34 0x002b2d44 in start_child (child=0x2338554, return_to_thread=0x0,
+ > child_eval=0x1352680) at ./thread.c:2410
+ > #35 0x002b2f38 in make_subprocess (child_thunk=0x1352680,
+ > child_start=0xbfff8558, config=0x2338554, cells=0x235b960,
+ > break_cell=0x549d20, mgr=0x0, normal_kill=1) at ./thread.c:2498
+ > #36 0x002b305c in scheme_thread_w_details (thunk=0x1352680,  
+ > config=0x0,
+ > cells=0x0, break_cell=0x0, mgr=0x0, suspend_to_kill=0) at ./ 
+ > thread.c:2709
+ > #37 0x0021dd54 in scheme_do_eval (obj=0x6062e0, num_rands=0,
+ > rands=0xbfffe780, get_value=-1) at ./eval.c:3460
+ > #38 0x0021dd54 in scheme_do_eval (obj=0x6069e0, num_rands=1,  
+ > rands=0x0,
+ > get_value=-1) at ./eval.c:3460
+ > #39 0x0023cff8 in eval_module_body (menv=0x743ae0) at ./module.c:2536
+ > #40 0x00241c94 in parse_requires (form=0x74bea8, base_modidx=0x3122ec,
+ > env=0x552ea0, rn=0x745be0, post_ex_rn=0x745be0, ck=0x246164
+ > <check_dup_require>, data=0x0, start=1, expstart=1, redef_modname=0x0,
+ > unpack_kern=1, copy_vars=0, all_simple=0x0) at ./module.c:5165
+ > #41 0x002463f8 in top_level_require_execute (data=0x20d3f20) at
+ > ./module.c:5399
+ > #42 0x0021e878 in scheme_do_eval (obj=0x772f84, num_rands=-1,  
+ > rands=0x0,
+ > get_value=-1) at ./eval.c:3872
+ > #43 0x00220c44 in eval_k () at ./eval.c:4433
+ > #44 0x002282a8 in top_level_do (k=0x220b0c <eval_k>, eb=1,
+ > sj_start=0xbffff508) at ./fun.c:1086
+ > #45 0x002283ec in scheme_top_level_do (k=0x20d3f20, eb=1) at ./ 
+ > fun.c:1131
+ > #46 0x002212bc in scheme_eval_string_all (str=0x20d3f20 "",  
+ > env=0x552ea0,
+ > cont=3215932) at ./eval.c:5076
+ > #47 0x00002edc in finish_cmd_line_run (fa=0x753520, repl=0x4240
+ > <do_scheme_rep>) at ./cmdline.inc:252
+ > #48 0x000040c8 in actual_main (argc=2, argv=0x753520) at ./ 
+ > cmdline.inc:979
+ > #49 0x000031d0 in main (argc=6, argv=0xbffffa88) at ./main.c:263
+ > ###################################################################### 
+ > ###
+ >
+ >
+ > What else can I do to provide good debugging information?  Thanks!
+ >
+ > <web-server-unit.ss.diff>
+ > <web-server-unit.ss.gz>
+ >
+ 

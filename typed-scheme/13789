@@ -1,0 +1,488 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon May 27 19:50:47 2013
+Received: from mail-ob0-f178.google.com (mail-ob0-f178.google.com [209.85.214.178])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r4RNoiuG016679
+	for <bugs@bugs.plt-scheme.org>; Mon, 27 May 2013 19:50:44 -0400
+Message-Id: <201305272350.r4RNofTx016674@champlain.ccs.neu.edu>
+Date: Mon, 27 May 2013 19:50:41 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: TR's #{x : type} has buggy treatment of context
+
+>Number:         13789
+>Category:       typed-scheme
+>Synopsis:       TR's #{x : type} has buggy treatment of context
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon May 27 19:52:01 -0400 2013
+>Last-Modified:  Sat Jul 20 16:38:37 -0400 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+The following program shows that the type in #{x : type} is treated as having the lexical context of x, which seems wrong.
+>How-To-Repeat:
+#lang typed/racket
+
+
+(define-syntax (bar stx)
+  (syntax-case stx ()
+   ((_ a x v t)
+    #'(begin
+        (define-type a t)
+        (define #{x : a} v)))))
+
+(bar A1 x 'v Symbol)
+
+
+
+(define-syntax (foo stx)
+  (syntax-case stx ()
+   ((_ a v t)
+    #'(begin
+        (define-type a t)
+        (define #{x : a} v)))))
+
+(foo A2 'v Symbol)
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13789: TR's #{x : type} has buggy treatment of context
+Date: Mon, 27 May 2013 21:54:47 -0400
+
+ On Mon, May 27, 2013 at 7:52 PM,  <eric.n.dobson@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13789
+ >
+ > Reported by Eric Dobson for release: 5.3.2.3
+ >
+ > *** Description:
+ > The following program shows that the type in #{x : type} is treated as having the lexical context of x, which seems wrong.
+ 
+ I agree that this isn't a perfect solution, but it's a hard problem.
+ The issue is that we need to apply appropriate renamings to `type`,
+ but `type` is stored as a syntax property on `x`, so it's not marked
+ or renamed by the expander. Not doing this leads to serious problems
+ with the bindings of identifiers in the type.
+ 
+ I can think of a couple other possibilities here:
+ 
+ 1. Use delta-introducers to try to replicate a more correct context.
+ 2. Add a variety of syntax property that the expander traverses.
+ 
+ I'd like to have 2, but that requires changes to the expander.  1
+ might work, but I don't understand delta-introducers.
+ 
+ Sam
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13789: TR's #{x : type} has buggy treatment of context
+Date: Mon, 27 May 2013 22:07:48 -0400
+
+ --089e012281b6b7b5c404ddbdbd77
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Mon, May 27, 2013 at 9:54 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>wrote:
+ 
+ > On Mon, May 27, 2013 at 7:52 PM,  <eric.n.dobson@gmail.com> wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=13789
+ > >
+ > > Reported by Eric Dobson for release: 5.3.2.3
+ > >
+ > > *** Description:
+ > > The following program shows that the type in #{x : type} is treated as
+ > having the lexical context of x, which seems wrong.
+ >
+ > I agree that this isn't a perfect solution, but it's a hard problem.
+ > The issue is that we need to apply appropriate renamings to `type`,
+ > but `type` is stored as a syntax property on `x`, so it's not marked
+ > or renamed by the expander. Not doing this leads to serious problems
+ > with the bindings of identifiers in the type.
+ >
+ > I can think of a couple other possibilities here:
+ >
+ > 1. Use delta-introducers to try to replicate a more correct context.
+ > 2. Add a variety of syntax property that the expander traverses.
+ >
+ > I'd like to have 2, but that requires changes to the expander.  1
+ > might work, but I don't understand delta-introducers.
+ >
+ > Sam
+ >
+ 
+ Unless I've missed something, the problem here isn't lexical context.  The
+ error message says "Type Checker: Unbound type name a", showing that the
+ real problem is that the identifier a from the pattern isn't getting
+ substituted for a in the template because of where a is stored.  The
+ program should be looking at the types A1 and A2, not a.  Neither the
+ expander nor delta introducers can solve this; the syntax macro (and others
+ like syntax/loc and quasisyntax) would have to change to look in certain
+ syntax properties as well.
+ 
+ The real solution here is that reader syntax like this should not be used
+ in macros; the bar and foo macros should use define: to add type
+ annotations instead.
+ 
+ --Carl
+ 
+ --089e012281b6b7b5c404ddbdbd77
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">On Mon, May 27, 2013 at 9:54 PM, Sam Tobin-Hochstadt <span=
+  dir=3D"ltr">&lt;<a href=3D"mailto:samth@ccs.neu.edu" target=3D"_blank">sam=
+ th@ccs.neu.edu</a>&gt;</span> wrote:<br><div class=3D"gmail_extra"><div cla=
+ ss=3D"gmail_quote">
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-=
+ left:1px solid rgb(204,204,204);padding-left:1ex"><div class=3D"im">On Mon,=
+  May 27, 2013 at 7:52 PM, =C2=A0&lt;<a href=3D"mailto:eric.n.dobson@gmail.c=
+ om">eric.n.dobson@gmail.com</a>&gt; wrote:<br>
+ 
+ 
+ &gt; A new problem report is waiting at<br>
+ &gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13789" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D13789</a><br>
+ &gt;<br>
+ &gt; Reported by Eric Dobson for release: 5.3.2.3<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; The following program shows that the type in #{x : type} is treated as=
+  having the lexical context of x, which seems wrong.<br>
+ <br>
+ </div>I agree that this isn&#39;t a perfect solution, but it&#39;s a hard p=
+ roblem.<br>
+ The issue is that we need to apply appropriate renamings to `type`,<br>
+ but `type` is stored as a syntax property on `x`, so it&#39;s not marked<br=
+ >
+ or renamed by the expander. Not doing this leads to serious problems<br>
+ with the bindings of identifiers in the type.<br>
+ <br>
+ I can think of a couple other possibilities here:<br>
+ <br>
+ 1. Use delta-introducers to try to replicate a more correct context.<br>
+ 2. Add a variety of syntax property that the expander traverses.<br>
+ <br>
+ I&#39;d like to have 2, but that requires changes to the expander. =C2=A01<=
+ br>
+ might work, but I don&#39;t understand delta-introducers.<br>
+ <span class=3D""><font color=3D"#888888"><br>
+ Sam<br>
+ </font></span></blockquote><div>=C2=A0<br></div><div>Unless I&#39;ve missed=
+  something, the problem here isn&#39;t lexical context.=C2=A0 The error mes=
+ sage says &quot;Type Checker: Unbound type name a&quot;, showing that the r=
+ eal problem is that the identifier a from the pattern isn&#39;t getting sub=
+ stituted for a in the template because of where a is stored.=C2=A0 The prog=
+ ram should be looking at the types A1 and A2, not a.=C2=A0 Neither the expa=
+ nder nor delta introducers can solve this; the syntax macro (and others lik=
+ e syntax/loc and quasisyntax) would have to change to look in certain synta=
+ x properties as well.<br>
+ 
+ <br></div><div>The real solution here is that reader syntax like this shoul=
+ d not be used in macros; the bar and foo macros should use define: to add t=
+ ype annotations instead.<br></div><div><br></div><div>--Carl<br></div>
+ </div>
+ </div></div>
+ 
+ --089e012281b6b7b5c404ddbdbd77--
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Carl Eastlund <cce@ccs.neu.edu>
+Cc: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13789: TR's #{x : type} has buggy treatment of context
+Date: Mon, 27 May 2013 22:11:17 -0400
+
+ On Mon, May 27, 2013 at 10:07 PM, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ > On Mon, May 27, 2013 at 9:54 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ > wrote:
+ >>
+ >> On Mon, May 27, 2013 at 7:52 PM,  <eric.n.dobson@gmail.com> wrote:
+ >> > A new problem report is waiting at
+ >> >   http://bugs.racket-lang.org/query/?cmd=view&pr=13789
+ >> >
+ >> > Reported by Eric Dobson for release: 5.3.2.3
+ >> >
+ >> > *** Description:
+ >> > The following program shows that the type in #{x : type} is treated as
+ >> > having the lexical context of x, which seems wrong.
+ >>
+ >> I agree that this isn't a perfect solution, but it's a hard problem.
+ >> The issue is that we need to apply appropriate renamings to `type`,
+ >> but `type` is stored as a syntax property on `x`, so it's not marked
+ >> or renamed by the expander. Not doing this leads to serious problems
+ >> with the bindings of identifiers in the type.
+ >>
+ >> I can think of a couple other possibilities here:
+ >>
+ >> 1. Use delta-introducers to try to replicate a more correct context.
+ >> 2. Add a variety of syntax property that the expander traverses.
+ >>
+ >> I'd like to have 2, but that requires changes to the expander.  1
+ >> might work, but I don't understand delta-introducers.
+ >>
+ >> Sam
+ >
+ >
+ > Unless I've missed something, the problem here isn't lexical context.  The
+ > error message says "Type Checker: Unbound type name a", showing that the
+ > real problem is that the identifier a from the pattern isn't getting
+ > substituted for a in the template because of where a is stored.  The program
+ > should be looking at the types A1 and A2, not a.  Neither the expander nor
+ > delta introducers can solve this; the syntax macro (and others like
+ > syntax/loc and quasisyntax) would have to change to look in certain syntax
+ > properties as well.
+ >
+ > The real solution here is that reader syntax like this should not be used in
+ > macros; the bar and foo macros should use define: to add type annotations
+ > instead.
+ 
+ Unfortunately, this isn't a solution either.  If `match-define`
+ instead of `define` was used there, there's no way to do anything
+ other than use the reader macro.
+ 
+ Sam
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Carl Eastlund <cce@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13789: TR's #{x : type} has buggy treatment of context
+Date: Mon, 27 May 2013 19:18:35 -0700
+
+ If I cannot use such a form in a macro, how do I abstract over a form
+ that needs such an annotation?
+ 
+ I think that the current implementation is entirely broken given that
+ it forges lexical context and doesn't respect pattern substitution as
+ expected.
+ 
+ On Mon, May 27, 2013 at 7:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Mon, May 27, 2013 at 10:07 PM, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ >> On Mon, May 27, 2013 at 9:54 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ >> wrote:
+ >>>
+ >>> On Mon, May 27, 2013 at 7:52 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>> > A new problem report is waiting at
+ >>> >   http://bugs.racket-lang.org/query/?cmd=view&pr=13789
+ >>> >
+ >>> > Reported by Eric Dobson for release: 5.3.2.3
+ >>> >
+ >>> > *** Description:
+ >>> > The following program shows that the type in #{x : type} is treated as
+ >>> > having the lexical context of x, which seems wrong.
+ >>>
+ >>> I agree that this isn't a perfect solution, but it's a hard problem.
+ >>> The issue is that we need to apply appropriate renamings to `type`,
+ >>> but `type` is stored as a syntax property on `x`, so it's not marked
+ >>> or renamed by the expander. Not doing this leads to serious problems
+ >>> with the bindings of identifiers in the type.
+ >>>
+ >>> I can think of a couple other possibilities here:
+ >>>
+ >>> 1. Use delta-introducers to try to replicate a more correct context.
+ >>> 2. Add a variety of syntax property that the expander traverses.
+ >>>
+ >>> I'd like to have 2, but that requires changes to the expander.  1
+ >>> might work, but I don't understand delta-introducers.
+ >>>
+ >>> Sam
+ >>
+ >>
+ >> Unless I've missed something, the problem here isn't lexical context.  The
+ >> error message says "Type Checker: Unbound type name a", showing that the
+ >> real problem is that the identifier a from the pattern isn't getting
+ >> substituted for a in the template because of where a is stored.  The program
+ >> should be looking at the types A1 and A2, not a.  Neither the expander nor
+ >> delta introducers can solve this; the syntax macro (and others like
+ >> syntax/loc and quasisyntax) would have to change to look in certain syntax
+ >> properties as well.
+ >>
+ >> The real solution here is that reader syntax like this should not be used in
+ >> macros; the bar and foo macros should use define: to add type annotations
+ >> instead.
+ >
+ > Unfortunately, this isn't a solution either.  If `match-define`
+ > instead of `define` was used there, there's no way to do anything
+ > other than use the reader macro.
+ >
+ > Sam
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Carl Eastlund <cce@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13789: TR's #{x : type} has buggy treatment of context
+Date: Mon, 27 May 2013 22:30:49 -0400
+
+ On Mon, May 27, 2013 at 10:18 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > If I cannot use such a form in a macro, how do I abstract over a form
+ > that needs such an annotation?
+ 
+ You can do this by manually constructing the identifier `x` with the
+ appropriate syntax property.
+ 
+ > I think that the current implementation is entirely broken given that
+ > it forges lexical context and doesn't respect pattern substitution as
+ > expected.
+ 
+ I'm also not a big fan of the implementation, but as I pointed out,
+ it's not obvious how to do better since binding positions aren't
+ expansion positions.
+ 
+ Sam
+ 
+ >
+ > On Mon, May 27, 2013 at 7:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> On Mon, May 27, 2013 at 10:07 PM, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ >>> On Mon, May 27, 2013 at 9:54 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ >>> wrote:
+ >>>>
+ >>>> On Mon, May 27, 2013 at 7:52 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>>> > A new problem report is waiting at
+ >>>> >   http://bugs.racket-lang.org/query/?cmd=view&pr=13789
+ >>>> >
+ >>>> > Reported by Eric Dobson for release: 5.3.2.3
+ >>>> >
+ >>>> > *** Description:
+ >>>> > The following program shows that the type in #{x : type} is treated as
+ >>>> > having the lexical context of x, which seems wrong.
+ >>>>
+ >>>> I agree that this isn't a perfect solution, but it's a hard problem.
+ >>>> The issue is that we need to apply appropriate renamings to `type`,
+ >>>> but `type` is stored as a syntax property on `x`, so it's not marked
+ >>>> or renamed by the expander. Not doing this leads to serious problems
+ >>>> with the bindings of identifiers in the type.
+ >>>>
+ >>>> I can think of a couple other possibilities here:
+ >>>>
+ >>>> 1. Use delta-introducers to try to replicate a more correct context.
+ >>>> 2. Add a variety of syntax property that the expander traverses.
+ >>>>
+ >>>> I'd like to have 2, but that requires changes to the expander.  1
+ >>>> might work, but I don't understand delta-introducers.
+ >>>>
+ >>>> Sam
+ >>>
+ >>>
+ >>> Unless I've missed something, the problem here isn't lexical context.  The
+ >>> error message says "Type Checker: Unbound type name a", showing that the
+ >>> real problem is that the identifier a from the pattern isn't getting
+ >>> substituted for a in the template because of where a is stored.  The program
+ >>> should be looking at the types A1 and A2, not a.  Neither the expander nor
+ >>> delta introducers can solve this; the syntax macro (and others like
+ >>> syntax/loc and quasisyntax) would have to change to look in certain syntax
+ >>> properties as well.
+ >>>
+ >>> The real solution here is that reader syntax like this should not be used in
+ >>> macros; the bar and foo macros should use define: to add type annotations
+ >>> instead.
+ >>
+ >> Unfortunately, this isn't a solution either.  If `match-define`
+ >> instead of `define` was used there, there's no way to do anything
+ >> other than use the reader macro.
+ >>
+ >> Sam
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Carl Eastlund <cce@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13789: TR's #{x : type} has buggy treatment of context
+Date: Mon, 27 May 2013 19:38:41 -0700
+
+ Could TR find such identifiers before calling local expand and do
+ something with them? They would still be missing some of the lexical
+ context though (the part before local-expand), so maybe not.
+ 
+ I'm not sure if adding binding positions as expansion positions would
+ help. How would it interact with the pattern variables in my example?
+ 
+ Note: I'm fine with not improving the status quo, I just wanted to
+ file a bug so that it was tracked somewhere.
+ 
+ On Mon, May 27, 2013 at 7:30 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Mon, May 27, 2013 at 10:18 PM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ >> If I cannot use such a form in a macro, how do I abstract over a form
+ >> that needs such an annotation?
+ >
+ > You can do this by manually constructing the identifier `x` with the
+ > appropriate syntax property.
+ >
+ >> I think that the current implementation is entirely broken given that
+ >> it forges lexical context and doesn't respect pattern substitution as
+ >> expected.
+ >
+ > I'm also not a big fan of the implementation, but as I pointed out,
+ > it's not obvious how to do better since binding positions aren't
+ > expansion positions.
+ >
+ > Sam
+ >
+ >>
+ >> On Mon, May 27, 2013 at 7:11 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >>> On Mon, May 27, 2013 at 10:07 PM, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ >>>> On Mon, May 27, 2013 at 9:54 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ >>>> wrote:
+ >>>>>
+ >>>>> On Mon, May 27, 2013 at 7:52 PM,  <eric.n.dobson@gmail.com> wrote:
+ >>>>> > A new problem report is waiting at
+ >>>>> >   http://bugs.racket-lang.org/query/?cmd=view&pr=13789
+ >>>>> >
+ >>>>> > Reported by Eric Dobson for release: 5.3.2.3
+ >>>>> >
+ >>>>> > *** Description:
+ >>>>> > The following program shows that the type in #{x : type} is treated as
+ >>>>> > having the lexical context of x, which seems wrong.
+ >>>>>
+ >>>>> I agree that this isn't a perfect solution, but it's a hard problem.
+ >>>>> The issue is that we need to apply appropriate renamings to `type`,
+ >>>>> but `type` is stored as a syntax property on `x`, so it's not marked
+ >>>>> or renamed by the expander. Not doing this leads to serious problems
+ >>>>> with the bindings of identifiers in the type.
+ >>>>>
+ >>>>> I can think of a couple other possibilities here:
+ >>>>>
+ >>>>> 1. Use delta-introducers to try to replicate a more correct context.
+ >>>>> 2. Add a variety of syntax property that the expander traverses.
+ >>>>>
+ >>>>> I'd like to have 2, but that requires changes to the expander.  1
+ >>>>> might work, but I don't understand delta-introducers.
+ >>>>>
+ >>>>> Sam
+ >>>>
+ >>>>
+ >>>> Unless I've missed something, the problem here isn't lexical context.  The
+ >>>> error message says "Type Checker: Unbound type name a", showing that the
+ >>>> real problem is that the identifier a from the pattern isn't getting
+ >>>> substituted for a in the template because of where a is stored.  The program
+ >>>> should be looking at the types A1 and A2, not a.  Neither the expander nor
+ >>>> delta introducers can solve this; the syntax macro (and others like
+ >>>> syntax/loc and quasisyntax) would have to change to look in certain syntax
+ >>>> properties as well.
+ >>>>
+ >>>> The real solution here is that reader syntax like this should not be used in
+ >>>> macros; the bar and foo macros should use define: to add type annotations
+ >>>> instead.
+ >>>
+ >>> Unfortunately, this isn't a solution either.  If `match-define`
+ >>> instead of `define` was used there, there's no way to do anything
+ >>> other than use the reader macro.
+ >>>
+ >>> Sam
+

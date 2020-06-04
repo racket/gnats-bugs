@@ -1,0 +1,149 @@
+From apache@plt-scheme.org Thu Dec 15 16:47:58 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id jBFLlkaE002503
+	for <bugs@plt-scheme.org>; Thu, 15 Dec 2005 16:47:46 -0500
+Message-Id: <200512152147.jBFLlkK6002501@champlain.ccs.neu.edu>
+Date: Thu, 15 Dec 2005 16:47:46 -0500
+From: wr@taxupdate.com
+To: bugs@plt-scheme.org
+Subject: segmentation fault for certain exceptions
+
+>Number:         7759
+>Category:       mzscheme
+>Synopsis:       segmentation fault for certain exceptions
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Dec 15 16:50:01 -0500 2005
+>Last-Modified:  Thu Jan 05 09:13:20 -0500 2006
+>Originator:     wayne
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.400
+>Environment:
+unix "Linux server 2.4.26-gentoo-r14 #1 Fri Apr 22 08:54:45 CDT 2005 i686 AMD Sempron(TM) 2400+ AuthenticAMD GNU/Linux" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+(#<path:/home/wayne/lib/plt/collects/doc/web-server> #<path:/home/wayne/lib/plt/collects/doc/tour> #<path:/home/wayne/lib/plt/collects/doc/tools> #<path:/home/wayne/lib/plt/collects/doc/tex2page> #<path:/home/wayne/lib/plt/collects/doc/teachpack> #<path:/home/wayne/lib/plt/collects/doc/t-y-scheme> #<path:/home/wayne/lib/plt/collects/doc/swindle> #<path:/home/wayne/lib/plt/collects/doc/srfi> #<path:/home/wayne/lib/plt/collects/doc/r5rs> #<path:/home/wayne/lib/plt/collects/doc/profj-intermediate> #<path:/home/wayne/lib/plt/collects/doc/profj-beginner> #<path:/home/wayne/lib/plt/collects/doc/profj-advanced> #<path:/home/wayne/lib/plt/collects/doc/plot> #<path:/home/wayne/lib/plt/collects/doc/mzscheme> #<path:/home/wayne/lib/plt/collects/doc/mzlib> #<path:/home/wayne/lib/plt/collects/doc/mzc> #<path:/home/wayne/lib/plt/collects/doc/mrlib> #<path:/home/wayne/lib/plt/collects/doc/mred> #<path:/home/wayne/lib/plt/collects/doc/misclib> #<path:/home/wayne/lib/plt/collects/doc/intermediate-lambda> #<path:/home/wayne/lib/plt/collects/doc/intermediate> #<path:/home/wayne/lib/plt/collects/doc/insidemz> #<path:/home/wayne/lib/plt/collects/doc/help> #<path:/home/wayne/lib/plt/collects/doc/framework> #<path:/home/wayne/lib/plt/collects/doc/foreign> #<path:/home/wayne/lib/plt/collects/doc/drscheme> #<path:/home/wayne/lib/plt/collects/doc/beginning-abbr> #<path:/home/wayne/lib/plt/collects/doc/beginning> #<path:/home/wayne/lib/plt/collects/doc/advanced>)
+Collections:
+((#<path:/home/wayne/.plt-scheme/299.400/collects> "non-existent path") (#<path:/home/wayne/lib/plt/collects> (#<path:afm> #<path:algol60> #<path:browser> #<path:compiler> #<path:defaults> #<path:doc> #<path:drscheme> #<path:dynext> #<path:embedded-gui> #<path:eopl> #<path:errortrace> #<path:ffi> #<path:framework> #<path:frtime> #<path:games> #<path:graphics> #<path:help> #<path:hierlist> #<path:htdch> #<path:htdp> #<path:html> #<path:icons> #<path:lang> #<path:launcher> #<path:make> #<path:mred> #<path:mrlib> #<path:mzlib> #<path:mzscheme> #<path:mztake> #<path:net> #<path:openssl> #<path:parser-tools> #<path:planet> #<path:plot> #<path:preprocessor> #<path:profj> #<path:profjWizard> #<path:setup> #<path:sgl> #<path:slatex> #<path:slibinit> #<path:slideshow> #<path:srfi> #<path:ssax> #<path:stepper> #<path:string-constants> #<path:swindle> #<path:syntax> #<path:syntax-color> #<path:test-suite> #<path:tests> #<path:tex2page> #<path:texpict> #<path:trace> #<path:version> #<path:web-server> #<path:xml> #<path:info-domain> #<path:custom>)))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+I'm embedding mzscheme and trying to catch exceptions in interpreted
+code.  Some "undefined identifier exceptions" produce a segmentation
+fault on my machine.
+>How-To-Repeat:
+#include "scheme.h"
+
+#define MAX_SCHEME_STRING 500
+
+Scheme_Object * error_handler(int argc, Scheme_Object **argv)
+{
+   // (haven't figured out how to get length of utf-8 encoding)
+   int len = MAX_SCHEME_STRING*2;
+   unsigned char buf[len];
+   bzero(buf, len);
+   scheme_utf8_encode_all(SCHEME_CHAR_STR_VAL((argv[0])), MAX_SCHEME_STRING, buf);
+   printf("error: %s\n", buf);
+   return argv[0];
+}
+
+double eval(char * sexp, Scheme_Env * env)
+{
+   double ret = 0.0;
+   printf("computing: %s\n", sexp);
+   mz_jmp_buf *save, fresh;
+   save = scheme_current_thread->error_buf;
+   scheme_current_thread->error_buf = &fresh;
+   if (scheme_setjmp(scheme_error_buf)) {
+      /* There was an error or continuation invocation */
+      if (scheme_jumping_to_continuation) {
+	 /* It was a continuation jump */
+	 scheme_longjmp(*save, 1);
+	 /* To block the jump, instead: scheme_clear_escape(); */
+      } else {
+	 /* It was a primitive error escape */
+	 printf("caught an error escape\n");
+      }
+   } else {
+      ret = scheme_real_to_double(scheme_eval_string(sexp, env));
+   }
+   scheme_current_thread->error_buf = save;
+   printf("got %f\n\n", ret);
+   return ret;
+}
+
+int main(int argc, char ** args)
+{
+   Scheme_Env * env = scheme_basic_env();
+   scheme_add_global("handle", scheme_make_prim_w_arity(error_handler, "handle", 1, 1), env);
+   scheme_eval_string("(current-exception-handler"
+		      "    (lambda (exn) (handle (exn-message exn)) ((error-escape-handler))))",
+		      env);
+
+   // symbol works fine:
+   eval("(+ 1 'x)", env);
+
+   // undefined var is ok if 1 or 2 letters:
+   eval("(+ 1 x)", env);
+   eval("(+ 1 xx)", env);
+
+   // undefined var segfaults if 3 or more letters:
+   //eval("(+ 1 xxx)", env);
+
+   // same in calling position:
+   eval("(yy)", env);  // ok
+   //eval("(yyy)", env);  // segfault
+   
+   return 0;
+}
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: wr@taxupdate.com, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7759: segmentation fault for certain exceptions
+Date: Thu, 15 Dec 2005 15:15:23 -0700
+
+ At Thu, 15 Dec 2005 16:50:09 -0500, wr@taxupdate.com wrote:
+ > I'm embedding mzscheme and trying to catch exceptions in interpreted
+ > code.  Some "undefined identifier exceptions" produce a segmentation
+ > fault on my machine.
+ > 
+ > *** How to repeat:
+ > #include "scheme.h"
+ > 
+ > #define MAX_SCHEME_STRING 500
+ > 
+ > Scheme_Object * error_handler(int argc, Scheme_Object **argv)
+ > {
+ >    // (haven't figured out how to get length of utf-8 encoding)
+ >    int len = MAX_SCHEME_STRING*2;
+ >    unsigned char buf[len];
+ >    bzero(buf, len);
+ >    scheme_utf8_encode_all(SCHEME_CHAR_STR_VAL((argv[0])), MAX_SCHEME_STRING, 
+ > buf);
+ >    printf("error: %s\n", buf);
+ >    return argv[0];
+ > }
+ 
+ I think this is plain old buffer overflow. Since the UTF-8 encoding of
+ a character can be up to 6 bytes, encoding 500 random words of memory
+ is likely to generate an encoding longer than 1000 bytes. Hopefully the
+ example in my response for PR 7756 will help in allocating the right
+ sized buffer for decoding.
+ 
+ Alternately, scheme_utf8_encode_to_buffer() will allocate the buffer
+ for you.
+ 
+ Matthew
+ 
+
+State changed from "open" to "closed" by mflatt at Thu, 05 Jan 2006 09:13:20 -0500
+Reason>>> resolved
+

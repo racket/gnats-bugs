@@ -1,0 +1,546 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Aug  5 14:43:10 2010
+Received: from mail-gx0-f172.google.com (mail-gx0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o75Ih7PM030158
+	for <bugs@bugs.plt-scheme.org>; Thu, 5 Aug 2010 14:43:07 -0400
+Message-Id: <201008051842.o75Ignh1030144@champlain.ccs.neu.edu>
+Date: Thu, 5 Aug 2010 14:42:49 -0400
+From: ryanc@racket-lang.org
+To: bugs@racket-lang.org
+Subject: bad contract error with require triangles
+
+>Number:         11084
+>Category:       misc
+>Synopsis:       bad contract error with require triangles
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Aug 05 14:44:01 -0400 2010
+>Closed-Date:    Sat Feb 12 12:58:47 -0500 2011
+>Last-Modified:  Sat Feb 12 12:58:47 -0500 2011
+>Originator:     Ryan Culpepper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1.2--2010-08-05(500685c/g)
+>Environment:
+unix "Linux artichoke 2.6.31-22-generic #60-Ubuntu SMP Thu May 27 00:22:23 UTC 2010 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 154435316
+
+Collections:
+(("/home/ryan/.racket/5.0.1.2/collects" non-existent-path) ("/home/ryan/projects/racket/collects" "swindle" "raco" "planet" "help" "info-domain" "scheme" "repo-time-stamp" "games" "honu" "syntax" "graphics" "browser" "stepper" "mzlib" "texpict" "redex" "r6rs" "typed" "version" "meta" "macro-debugger" "mzscheme" "mred" "preprocessor" "syntax-color" "framework" "mrlib" "sirmail" "rnrs" "htdp" "tests" "lazy" "frtime" "combinator-parser" "scriblib" "srfi" "waterworld" "afm" "compiler" "2htdp" "net" "srpersist" "at-exp" "config" "schemeunit" "dynext" "defaults" "web-server" "make" "icons" "ffi" "xml" "typed-scheme" "algol60" "tex2page" "reader" "readline" "trace" "deinprogramm" "launcher" "racklog" "scribblings" "hierlist" "embedded-gui" "guibuilder" "racket" "handin-client" ".gitignore" "slatex" "profile" "datalog" "lang" "mzcom" "plai" "html" "file" "test-box-recovery" "setup" "scribble" "string-constants" "plot" "test-engine" "drracket" "unstable" "teachpack" "s-exp" "mysterx"!
+  "eopl" "r5rs" "gui-debugger" "errortrace" "mz" "parser-tools" "wxme" "rackunit" "drscheme" "handin-server" "openssl" "sgl" "slideshow"))
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+It seems that sometimes a "require triangle":
+
+A
+|\
+| B
+|/
+C
+
+confuses the contract system's attempt to reinterpret provide as provide-but-anchor-blame-here: C can violate the contract of A, but B gets involved in the blame. To be clear, C is violating the contract of a binding gotten directly from A, not something re-provided by B.
+>How-To-Repeat:
+(The modules must be in separate files, due to the way the contract system reports errors.)
+
+--- a.rkt ---
+#lang racket
+(define f add1)
+(provide/contract [f (-> number? number?)])
+
+--- b.rkt ---
+#lang racket
+(require "a.rkt")
+(provide z)
+(define z 0)
+
+--- c.rkt ---
+#lang racket
+(require "b.rkt" "a.rkt")
+(f 'foo)
+
+Running c.rkt gives the following error:
+/tmp/ryan/ctc/a.rkt: (file /tmp/ryan/ctc/b.rkt) broke the contract (-> number? number?) on f given to (file /tmp/ryan/ctc/c.rkt); expected <number?>, given: 'foo
+
+But b.rkt did nothing wrong.
+
+Switching the order of "a.rkt" and "b.rkt" in the final require line makes the problem go away.
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: ryanc@racket-lang.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11084: bad contract error with require triangles
+Date: Thu, 5 Aug 2010 15:28:02 -0400
+
+ Just for fun, I took a brief look at this.  Three notes:
+ 
+ 1. The content of "b.rkt" can be reduced to (require "a.rkt").
+ 2. When these modules are places in #lang racket/load, the *blamed
+ module* changes from b (wrong) to c (right).
+ 3. Most problematically, this seems to be the result of the macro
+ system providing wrong information about the identifier-binding of
+ indentifiers.  To see this, do the following:
+  - Open c.rkt in DrRacket
+  - Macro-step
+  - Hit step once.  The macro stepper should say:
+   "The macro lifted an expression
+    Expression:
+   (contract
+  provide/contract-contract-id-f
+  f
+  provide/contract-pos-module-source-f
+  (first-requiring-module (quote-syntax f) (quote-module-path))
+  'f
+  (quote-srcloc f))"
+ 
+ - Click on `provide/contract-contract-id-f', and View Syntax properties.
+ - Note that the "Apparent identifier binding" says "defined in:
+ "a.rkt" <=3D "b.rkt""
+ 
+ The problem is the "b.rkt", where this identifier was clearly not
+ defined (in fact, nothing was defined in "b.rkt").
+ 
+ I expect this problem can be reproduced without the contract system,
+ but I haven't managed yet.
+ 
+ sam th
+ 
+ On Thu, Aug 5, 2010 at 2:44 PM,  <ryanc@racket-lang.org> wrote:
+ > A new problem report is waiting at
+ > =A0http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11084
+ >
+ > Reported by Ryan Culpepper for release: 5.0.1.2--2010-08-05(500685c/g)
+ >
+ > *** Description:
+ > It seems that sometimes a "require triangle":
+ >
+ > A
+ > |\
+ > | B
+ > |/
+ > C
+ >
+ > confuses the contract system's attempt to reinterpret provide as provide-=
+ but-anchor-blame-here: C can violate the contract of A, but B gets involved=
+  in the blame. To be clear, C is violating the contract of a binding gotten=
+  directly from A, not something re-provided by B.
+ >
+ > *** How to repeat:
+ > (The modules must be in separate files, due to the way the contract syste=
+ m reports errors.)
+ >
+ > --- a.rkt ---
+ > #lang racket
+ > (define f add1)
+ > (provide/contract [f (-> number? number?)])
+ >
+ > --- b.rkt ---
+ > #lang racket
+ > (require "a.rkt")
+ > (provide z)
+ > (define z 0)
+ >
+ > --- c.rkt ---
+ > #lang racket
+ > (require "b.rkt" "a.rkt")
+ > (f 'foo)
+ >
+ > Running c.rkt gives the following error:
+ > /tmp/ryan/ctc/a.rkt: (file /tmp/ryan/ctc/b.rkt) broke the contract (-> nu=
+ mber? number?) on f given to (file /tmp/ryan/ctc/c.rkt); expected <number?>=
+ , given: 'foo
+ >
+ > But b.rkt did nothing wrong.
+ >
+ > Switching the order of "a.rkt" and "b.rkt" in the final require line make=
+ s the problem go away.
+ >
+ > *** Environment:
+ > unix "Linux artichoke 2.6.31-22-generic #60-Ubuntu SMP Thu May 27 00:22:2=
+ 3 UTC 2010 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) =3D 24
+ > Human Language: english
+ > (current-memory-use) 154435316
+ >
+ > Collections:
+ > (("/home/ryan/.racket/5.0.1.2/collects" non-existent-path) ("/home/ryan/p=
+ rojects/racket/collects" "swindle" "raco" "planet" "help" "info-domain" "sc=
+ heme" "repo-time-stamp" "games" "honu" "syntax" "graphics" "browser" "stepp=
+ er" "mzlib" "texpict" "redex" "r6rs" "typed" "version" "meta" "macro-debugg=
+ er" "mzscheme" "mred" "preprocessor" "syntax-color" "framework" "mrlib" "si=
+ rmail" "rnrs" "htdp" "tests" "lazy" "frtime" "combinator-parser" "scriblib"=
+  "srfi" "waterworld" "afm" "compiler" "2htdp" "net" "srpersist" "at-exp" "c=
+ onfig" "schemeunit" "dynext" "defaults" "web-server" "make" "icons" "ffi" "=
+ xml" "typed-scheme" "algol60" "tex2page" "reader" "readline" "trace" "deinp=
+ rogramm" "launcher" "racklog" "scribblings" "hierlist" "embedded-gui" "guib=
+ uilder" "racket" "handin-client" ".gitignore" "slatex" "profile" "datalog" =
+ "lang" "mzcom" "plai" "html" "file" "test-box-recovery" "setup" "scribble" =
+ "string-constants" "plot" "test-engine" "drracket" "unstable" "teachpack" "=
+ s-exp" "mysterx"!
+ > =A0"eopl" "r5rs" "gui-debugger" "errortrace" "mz" "parser-tools" "wxme" "=
+ rackunit" "drscheme" "handin-server" "openssl" "sgl" "slideshow"))
+ > Computer Language: (("Determine language from source") (#(#t print mixed-=
+ fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+ >
+ >
+ 
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: ryanc@racket-lang.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11084: bad contract error with require triangles
+Date: Thu, 05 Aug 2010 13:53:12 -0600
+
+ On 08/05/2010 01:28 PM, Sam Tobin-Hochstadt wrote:
+ > Just for fun, I took a brief look at this.  Three notes:
+ > 
+ > 1. The content of "b.rkt" can be reduced to (require "a.rkt").
+ > 2. When these modules are places in #lang racket/load, the *blamed
+ > module* changes from b (wrong) to c (right).
+ > 3. Most problematically, this seems to be the result of the macro
+ > system providing wrong information about the identifier-binding of
+ > indentifiers.  To see this, do the following:
+ >  - Open c.rkt in DrRacket
+ >  - Macro-step
+ >  - Hit step once.  The macro stepper should say:
+ >   "The macro lifted an expression
+ >    Expression:
+ >   (contract
+ >  provide/contract-contract-id-f
+ >  f
+ >  provide/contract-pos-module-source-f
+ >  (first-requiring-module (quote-syntax f) (quote-module-path))
+ >  'f
+ >  (quote-srcloc f))"
+ > 
+ > - Click on `provide/contract-contract-id-f', and View Syntax properties.
+ > - Note that the "Apparent identifier binding" says "defined in:
+ > "a.rkt" <= "b.rkt""
+ > 
+ > The problem is the "b.rkt", where this identifier was clearly not
+ > defined (in fact, nothing was defined in "b.rkt").
+ 
+ You're right about the presence of "b.rkt" being the source of the
+ problem, but that line doesn't mean what you suggest it means. The
+ arrows are just the macro stepper's way of displaying module path
+ indexes. The correct interpretation of the apparent binding information
+ is "The identifier 'f' was defined in the module required as "a.rkt" by
+ the module required as "b.rkt" relative to the enclosing module." Which
+ is true; it correctly identifies the module that defines 'f'. (And it
+ does so in a way robust in the face of collections moving around, etc.,
+ which is the point of module path indexes.) But it does not correctly
+ identify the chain of provides by which 'f' was imported into the
+ current module, and that's how the contract system is interpreting it.
+ 
+ Ryan
+ 
+ 
+ > I expect this problem can be reproduced without the contract system,
+ > but I haven't managed yet.
+ > 
+ > sam th
+ > 
+ > On Thu, Aug 5, 2010 at 2:44 PM,  <ryanc@racket-lang.org> wrote:
+ >> A new problem report is waiting at
+ >>  http://bugs.racket-lang.org/query/?cmd=view&pr=11084
+ >>
+ >> Reported by Ryan Culpepper for release: 5.0.1.2--2010-08-05(500685c/g)
+ >>
+ >> *** Description:
+ >> It seems that sometimes a "require triangle":
+ >>
+ >> A
+ >> |\
+ >> | B
+ >> |/
+ >> C
+ >>
+ >> confuses the contract system's attempt to reinterpret provide as provide-but-anchor-blame-here: C can violate the contract of A, but B gets involved in the blame. To be clear, C is violating the contract of a binding gotten directly from A, not something re-provided by B.
+ >>
+ >> *** How to repeat:
+ >> (The modules must be in separate files, due to the way the contract system reports errors.)
+ >>
+ >> --- a.rkt ---
+ >> #lang racket
+ >> (define f add1)
+ >> (provide/contract [f (-> number? number?)])
+ >>
+ >> --- b.rkt ---
+ >> #lang racket
+ >> (require "a.rkt")
+ >> (provide z)
+ >> (define z 0)
+ >>
+ >> --- c.rkt ---
+ >> #lang racket
+ >> (require "b.rkt" "a.rkt")
+ >> (f 'foo)
+ >>
+ >> Running c.rkt gives the following error:
+ >> /tmp/ryan/ctc/a.rkt: (file /tmp/ryan/ctc/b.rkt) broke the contract (-> number? number?) on f given to (file /tmp/ryan/ctc/c.rkt); expected <number?>, given: 'foo
+ >>
+ >> But b.rkt did nothing wrong.
+ >>
+ >> Switching the order of "a.rkt" and "b.rkt" in the final require line makes the problem go away.
+ >>
+ >> *** Environment:
+ >> unix "Linux artichoke 2.6.31-22-generic #60-Ubuntu SMP Thu May 27 00:22:23 UTC 2010 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+ >> Human Language: english
+ >> (current-memory-use) 154435316
+ >>
+ >> Collections:
+ >> (("/home/ryan/.racket/5.0.1.2/collects" non-existent-path) ("/home/ryan/projects/racket/collects" "swindle" "raco" "planet" "help" "info-domain" "scheme" "repo-time-stamp" "games" "honu" "syntax" "graphics" "browser" "stepper" "mzlib" "texpict" "redex" "r6rs" "typed" "version" "meta" "macro-debugger" "mzscheme" "mred" "preprocessor" "syntax-color" "framework" "mrlib" "sirmail" "rnrs" "htdp" "tests" "lazy" "frtime" "combinator-parser" "scriblib" "srfi" "waterworld" "afm" "compiler" "2htdp" "net" "srpersist" "at-exp" "config" "schemeunit" "dynext" "defaults" "web-server" "make" "icons" "ffi" "xml" "typed-scheme" "algol60" "tex2page" "reader" "readline" "trace" "deinprogramm" "launcher" "racklog" "scribblings" "hierlist" "embedded-gui" "guibuilder" "racket" "handin-client" ".gitignore" "slatex" "profile" "datalog" "lang" "mzcom" "plai" "html" "file" "test-box-recovery" "setup" "scribble" "string-constants" "plot" "test-engine" "drracket" "unstable" "teachpack" "s-exp" "myster
+ x"!
+ >>  "eopl" "r5rs" "gui-debugger" "errortrace" "mz" "parser-tools" "wxme" "rackunit" "drscheme" "handin-server" "openssl" "sgl" "slideshow"))
+ >> Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+ >>
+ >>
+ > 
+ > 
+ > 
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, ryanc@racket-lang.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11084: bad contract error with require triangles
+Date: Thu, 5 Aug 2010 16:50:32 -0400
+
+ On Aug 5, 2010, at 3:53 PM, Ryan Culpepper wrote:
+ > On 08/05/2010 01:28 PM, Sam Tobin-Hochstadt wrote:
+ >> Just for fun, I took a brief look at this.  Three notes:
+ >>=20
+ >> 1. The content of "b.rkt" can be reduced to (require "a.rkt").
+ >> 2. When these modules are places in #lang racket/load, the *blamed
+ >> module* changes from b (wrong) to c (right).
+ >> 3. Most problematically, this seems to be the result of the macro
+ >> system providing wrong information about the identifier-binding of
+ >> indentifiers.  To see this, do the following:
+ >> - Open c.rkt in DrRacket
+ >> - Macro-step
+ >> - Hit step once.  The macro stepper should say:
+ >>  "The macro lifted an expression
+ >>   Expression:
+ >>  (contract
+ >> provide/contract-contract-id-f
+ >> f
+ >> provide/contract-pos-module-source-f
+ >> (first-requiring-module (quote-syntax f) (quote-module-path))
+ >> 'f
+ >> (quote-srcloc f))"
+ >>=20
+ >> - Click on `provide/contract-contract-id-f', and View Syntax =
+ properties.
+ >> - Note that the "Apparent identifier binding" says "defined in:
+ >> "a.rkt" <=3D "b.rkt""
+ >>=20
+ >> The problem is the "b.rkt", where this identifier was clearly not
+ >> defined (in fact, nothing was defined in "b.rkt").
+ >=20
+ > You're right about the presence of "b.rkt" being the source of the
+ > problem, but that line doesn't mean what you suggest it means. The
+ > arrows are just the macro stepper's way of displaying module path
+ > indexes. The correct interpretation of the apparent binding =
+ information
+ > is "The identifier 'f' was defined in the module required as "a.rkt" =
+ by
+ > the module required as "b.rkt" relative to the enclosing module." =
+ Which
+ > is true; it correctly identifies the module that defines 'f'. (And it
+ > does so in a way robust in the face of collections moving around, =
+ etc.,
+ > which is the point of module path indexes.) But it does not correctly
+ > identify the chain of provides by which 'f' was imported into the
+ > current module, and that's how the contract system is interpreting it.
+ 
+ Well, obviously this causes problems for using that information in the =
+ way that the contract system would like to use it.  So if an identifier =
+ comes through both "b.rkt" and "a.rkt", and let's assume that "b.rkt" =
+ exports syntax that expands into uses of that identifier, then it's not =
+ the case that identifiers coming from uses of the imported syntax have =
+ different module path information than identifiers that were originally =
+ present in "a.rkt".  They all have the same information, which depends =
+ on which of "b.rkt" and "a.rkt" was first included?
+ 
+ Yep, looks so... if I change b.rkt to:
+ 
+ #lang racket
+ (require "a.rkt")
+ (provide z)
+ (define-syntax (z stx)
+   (syntax-case stx ()
+     [(_ . args)=20
+      (with-syntax ([(arg ...) #'args])
+        (syntax/loc stx
+          (f arg ...)))]))
+ 
+ and c to:
+ 
+ #lang racket
+ (require  "a.rkt" "b.rkt")
+ (z 'foo)
+ 
+ I get
+ 
+ /Users/sstrickl/a.rkt: (file /Users/sstrickl/c.rkt) broke the contract =
+ (-> number? number?) on f; expected <number?>, given: 'foo=20
+ 
+ Bah, I say.
+ 
+ Stevie=
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, ryanc@racket-lang.org,
+        bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11084: bad contract error with require triangles
+Date: Thu, 05 Aug 2010 15:31:07 -0600
+
+ On 08/05/2010 02:50 PM, Stevie Strickland wrote:
+ > On Aug 5, 2010, at 3:53 PM, Ryan Culpepper wrote:
+ >> On 08/05/2010 01:28 PM, Sam Tobin-Hochstadt wrote:
+ >>> Just for fun, I took a brief look at this.  Three notes:
+ >>>
+ >>> 1. The content of "b.rkt" can be reduced to (require "a.rkt").
+ >>> 2. When these modules are places in #lang racket/load, the *blamed
+ >>> module* changes from b (wrong) to c (right).
+ >>> 3. Most problematically, this seems to be the result of the macro
+ >>> system providing wrong information about the identifier-binding of
+ >>> indentifiers.  To see this, do the following:
+ >>> - Open c.rkt in DrRacket
+ >>> - Macro-step
+ >>> - Hit step once.  The macro stepper should say:
+ >>>  "The macro lifted an expression
+ >>>   Expression:
+ >>>  (contract
+ >>> provide/contract-contract-id-f
+ >>> f
+ >>> provide/contract-pos-module-source-f
+ >>> (first-requiring-module (quote-syntax f) (quote-module-path))
+ >>> 'f
+ >>> (quote-srcloc f))"
+ >>>
+ >>> - Click on `provide/contract-contract-id-f', and View Syntax properties.
+ >>> - Note that the "Apparent identifier binding" says "defined in:
+ >>> "a.rkt" <= "b.rkt""
+ >>>
+ >>> The problem is the "b.rkt", where this identifier was clearly not
+ >>> defined (in fact, nothing was defined in "b.rkt").
+ >>
+ >> You're right about the presence of "b.rkt" being the source of the
+ >> problem, but that line doesn't mean what you suggest it means. The
+ >> arrows are just the macro stepper's way of displaying module path
+ >> indexes. The correct interpretation of the apparent binding information
+ >> is "The identifier 'f' was defined in the module required as "a.rkt" by
+ >> the module required as "b.rkt" relative to the enclosing module." Which
+ >> is true; it correctly identifies the module that defines 'f'. (And it
+ >> does so in a way robust in the face of collections moving around, etc.,
+ >> which is the point of module path indexes.) But it does not correctly
+ >> identify the chain of provides by which 'f' was imported into the
+ >> current module, and that's how the contract system is interpreting it.
+ > 
+ > Well, obviously this causes problems for using that information in
+ > the way that the contract system would like to use it. So if an identifier
+ > comes through both "b.rkt" and "a.rkt",
+ 
+ I'm not sure if you mean anything specific by "comes through", but I
+ want to reiterate that this is not about an ambiguous import path.
+ (That's a separate problem we'll have to deal with if/when we get
+ accurate import path information.)
+ 
+ > and let's assume that "b.rkt"
+ > exports syntax that expands into uses of that identifier, then it's
+ > not the case that identifiers coming from uses of the imported syntax
+ > have different module path information than identifiers that were
+ originally
+ > present in "a.rkt". They all have the same information, which depends on
+ > which of "b.rkt" and "a.rkt" was first included?
+ > 
+ > Yep, looks so... if I change b.rkt to:
+ > 
+ > #lang racket
+ > (require "a.rkt")
+ > (provide z)
+ > (define-syntax (z stx)
+ >   (syntax-case stx ()
+ >     [(_ . args) 
+ >      (with-syntax ([(arg ...) #'args])
+ >        (syntax/loc stx
+ >          (f arg ...)))]))
+ > 
+ > and c to:
+ > 
+ > #lang racket
+ > (require  "a.rkt" "b.rkt")
+ > (z 'foo)
+ > 
+ > I get
+ > 
+ > /Users/sstrickl/a.rkt: (file /Users/sstrickl/c.rkt) broke the
+ > contract (-> number? number?) on f; expected <number?>, given: 'foo
+ > 
+ > Bah, I say.
+ 
+ Hah. Yes, the problem goes the other way too.
+ 
+ At first I thought you were talking about something else, which is that
+ when a macro contains a latent reference to a contracted name (as your z
+ macro does above), the macro's module should really be the negative
+ party in the contract. But it's never worked that way in my memory.
+ Would it be feasible to change the contract system to blame B in the
+ example above? Or perhaps it would make more sense to split the negative
+ party in a similar way to provide? For example, in
+ 
+ (module A racket
+   (define f ___)
+   (provide/contract [f (-> number? number?)]))
+ 
+ (module B racket
+   (require 'A)
+   (provide f))
+ 
+ (module C racket
+   (require 'B)
+   (provide m)
+   (define-syntax-rule (m) (f 'bad))
+ 
+ (module D racket
+   (require 'C)
+   (m))
+ 
+ we'd have the following parties:
+   positive: A
+   negative:
+     "accepted" the contract: B
+     (NEW) latent reference: C
+     actual use: D
+ 
+ Ryan
+
+Responsible changed from "nobody" to "sstrickl" by ryanc at Wed, 08 Sep 2010 18:12:04 -0400
+Reason>>> responsible
+
+
+
+State changed from "open" to "analyzed" by sstrickl at Fri, 10 Dec 2010 13:43:38 -0500
+Reason>>> I know the issue, and we don't have the right solution yet.  Work is ongoing.
+
+
+----------
+A commit by robby@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/731a754e2b
+Responsible changed from "sstrickl" to "robby" by robby@racket-lang.org at Sat, 12 Feb 2011 12:58:47 -0500
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/a8e9eabf7d
+State changed from "analyzed" to "closed" by robby@racket-lang.org at Sat, 12 Feb 2011 12:58:47 -0500
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/a8e9eabf7d

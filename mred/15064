@@ -1,0 +1,608 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu May 14 10:29:29 2015
+Received: from mail-ig0-f176.google.com (mail-ig0-f176.google.com [209.85.213.176])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t4EETISO014588
+	for <bugs@bugs.plt-scheme.org>; Thu, 14 May 2015 10:29:19 -0400
+Message-Id: <201505141429.t4EETFeR014581@winooski.ccs.neu.edu>
+Date: Thu, 14 May 2015 10:29:15 -0400
+From: michael.tiedtke@o2online.de
+To: bugs@racket-lang.org
+Subject: Wrong Card Animation Starting Position (Virtual Cards Library)
+
+>Number:         15064
+>Category:       mred
+>Synopsis:       Wrong Card Animation Starting Position (Virtual Cards Library)
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu May 14 10:32:01 -0400 2015
+>Closed-Date:    Sun May 17 12:00:04 -0400 2015
+>Last-Modified:  Sun May 17 12:00:04 -0400 2015
+>Originator:     Michael Titke
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.57.2 (KHTML, like Gecko) Version/5.1.7 Safari/534.57.2
+>Description:
+With the Virtual Cards Library you can drag cards to a region and when the drag is accepted, i.e. the region callback moves the cards into position, it creates a smooth animation from the last position of the drag onto the new positions.
+But if home-region or snap-back? is set in the card objects the animation starts from the original position of the card before the drag even though the callback (will have) moved the cards into a new position. (See card-class.rkt lines 222+). This behavior is unpleasant and tough on the eye and I don't think that the card games rely on it.
+
+The problem seems to be that in classes.rkt:after-interactive-move sends a back-to-original-location before the user callback which is queued for later execution was able to decide on the fate of the cards. I don't see any reason for this so decided to patch it and put the back-to-original-location message right after the user callback. This might animate snap-back to the original location but that is not an unexpected behavior for a user of the Virtual Cards Library.
+
+There is a proposed patch attached. It is yet untested ... do I need to recompile this or do I need a local copy or perhaps I should read the manual ... perhaps someone knows how to test without too much effort: I'm new to Dr. Racket.
+
+The patch was created with 10 lines of context ("diff -C 10 ...") to make it more human readable.
+
+*** /Applications/Racket v6.1/share/pkgs/games/cards/classes.rkt	2014-04-17 21:58:40.000000000 +0200
+--- classes.rkt	2015-05-14 15:53:48.000000000 +0200
+***************
+*** 230,259 ****
+  		 (when (< (unbox yb) rt)
+  		   (set-box! yb rt))
+  		 (when (> (unbox yb) max-y)
+  		   (set-box! yb max-y))))))])
+        (augment*
+  	[after-interactive-move
+  	 (lambda (e)
+             (when dragging?
+               (set! dragging? #f)
+               (inner (void) after-interactive-move e)
+-              (for-each-selected (lambda (snip) (send snip back-to-original-location this)))
+               (let ([cards (get-reverse-selected-list)])
+                 (only-front-selected) ; in case overlap changed
+                 (for-each
+                  (lambda (region)
+                    (when (region-hilite? region)
+                      (mred:queue-callback
+                                          ; Call it outside the current edit sequence
+                       (lambda ()
+                         ((region-callback region) cards)
+                         (unhilite-region region)))))
+                  regions))))])
+        (override*
+  	[on-default-event
+  	 (lambda (e)
+  	   (let ([click (let ([c (or (and (send e button-down? 'left) 'left)
+                                       (and (send e button-down? 'right) 'right)
+                                       (and (send e button-down? 'middle) 'middle))])
+                            (cond
+                             [(eq? c last-click) c]
+--- 230,259 ----
+  		 (when (< (unbox yb) rt)
+  		   (set-box! yb rt))
+  		 (when (> (unbox yb) max-y)
+  		   (set-box! yb max-y))))))])
+        (augment*
+  	[after-interactive-move
+  	 (lambda (e)
+             (when dragging?
+               (set! dragging? #f)
+               (inner (void) after-interactive-move e)
+               (let ([cards (get-reverse-selected-list)])
+                 (only-front-selected) ; in case overlap changed
+                 (for-each
+                  (lambda (region)
+                    (when (region-hilite? region)
+                      (mred:queue-callback
+                                          ; Call it outside the current edit sequence
+                       (lambda ()
+                         ((region-callback region) cards)
++                        (for-each-selected (lambda (snip) (send snip back-to-original-location this)))
+                         (unhilite-region region)))))
+                  regions))))])
+        (override*
+  	[on-default-event
+  	 (lambda (e)
+  	   (let ([click (let ([c (or (and (send e button-down? 'left) 'left)
+                                       (and (send e button-down? 'right) 'right)
+                                       (and (send e button-down? 'middle) 'middle))])
+                            (cond
+                             [(eq? c last-click) c]
+
+
+>How-To-Repeat:
+Drag a card from one stack to another. When home-region or snap-back-after-move is not set you will see a smooth animation of the dragged onto their new positions. Drag another card with either home-region or snap-back-after move set and the animation will start from the wrong position. One can try this easily with Flower Garden (it's on the Racket user mailing list). 
+>Fix:
+>Audit-Trail:
+From: Michael Tiedtke <michael.tiedtke@o2online.de>
+To: bugs@racket-lang.org, michael.tiedtke@o2online.de
+Cc: 
+Subject: Re: all/15064: Wrong Card Animation Starting Position (Virtual Cards Library)
+Date: Thu, 14 May 2015 21:52:46 +0200
+
+ --Apple-Mail-28-206917187
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ Testing is easy - I had to find out - and there is no need to recompile =
+ anything.
+ 
+ We abandon the usage of queued callbacks (with the lowest priority
+ on the event queue) and make use of the follwing fact:
+ 
+ ;; Card-sequences on the table% are
+ ;; unidentified strata of edit sequences on
+ ;; the pasteboard%.  So we can stop, restart
+ ;; and no one will notice ...
+ 
+ Was there any need to put the user callback onto the event queue in the =
+ first place?
+ 
+ This patch has been tested with Rummy, Spider and Flower Garden.
+ It works great but there is no guarantee for whatsoever ...
+ 
+ 
+ --Apple-Mail-28-206917187
+ Content-Disposition: attachment;
+ 	filename=classes.patch
+ Content-Type: application/octet-stream;
+ 	name="classes.patch"
+ Content-Transfer-Encoding: 7bit
+ 
+ *** classes.rkt.original.rkt	2014-04-17 21:58:40.000000000 +0200
+ --- classes.rkt	2015-05-14 21:31:02.000000000 +0200
+ ***************
+ *** 230,261 ****
+   		 (when (< (unbox yb) rt)
+   		   (set-box! yb rt))
+   		 (when (> (unbox yb) max-y)
+   		   (set-box! yb max-y))))))])
+         (augment*
+   	[after-interactive-move
+   	 (lambda (e)
+              (when dragging?
+                (set! dragging? #f)
+                (inner (void) after-interactive-move e)
+ -              (for-each-selected (lambda (snip) (send snip back-to-original-location this)))
+                (let ([cards (get-reverse-selected-list)])
+                  (only-front-selected) ; in case overlap changed
+                  (for-each
+                   (lambda (region)
+                     (when (region-hilite? region)
+ !                     (mred:queue-callback
+ !                                         ; Call it outside the current edit sequence
+ !                      (lambda ()
+ !                        ((region-callback region) cards)
+ !                        (unhilite-region region)))))
+ !                 regions))))])
+         (override*
+   	[on-default-event
+   	 (lambda (e)
+   	   (let ([click (let ([c (or (and (send e button-down? 'left) 'left)
+                                        (and (send e button-down? 'right) 'right)
+                                        (and (send e button-down? 'middle) 'middle))])
+                             (cond
+                              [(eq? c last-click) c]
+                              [(not last-click) c]
+                              ;; Move/drag event has different mouse button,
+ --- 230,263 ----
+   		 (when (< (unbox yb) rt)
+   		   (set-box! yb rt))
+   		 (when (> (unbox yb) max-y)
+   		   (set-box! yb max-y))))))])
+         (augment*
+   	[after-interactive-move
+   	 (lambda (e)
+              (when dragging?
+                (set! dragging? #f)
+                (inner (void) after-interactive-move e)
+                (let ([cards (get-reverse-selected-list)])
+                  (only-front-selected) ; in case overlap changed
+                  (for-each
+                   (lambda (region)
+                     (when (region-hilite? region)
+ ! 			;; Cards sequences are unidentified strata of
+ ! 			;; edit sequences.  So we can stop, restart
+ ! 			;; and no one will notice ...
+ ! 			(send this end-edit-sequence)
+ ! 			((region-callback region) cards)
+ ! 			(send this begin-edit-sequence)
+ ! 			(unhilite-region region)))
+ !                 regions))
+ !              (for-each-selected (lambda (snip) (send snip back-to-original-location this)))))])
+         (override*
+   	[on-default-event
+   	 (lambda (e)
+   	   (let ([click (let ([c (or (and (send e button-down? 'left) 'left)
+                                        (and (send e button-down? 'right) 'right)
+                                        (and (send e button-down? 'middle) 'middle))])
+                             (cond
+                              [(eq? c last-click) c]
+                              [(not last-click) c]
+                              ;; Move/drag event has different mouse button,
+ 
+ --Apple-Mail-28-206917187--
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: michael.tiedtke@o2online.de, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15064: Wrong Card Animation Starting Position (Virtual Cards Library)
+Date: Fri, 15 May 2015 19:18:12 -0600
+
+ I don't think this change does what you want. Dragging a card so that
+ it doesn't land in a region leaves the card where it lands --- instead
+ of snapping back to the card's home region.
+ 
+ From the docs, the intent is that a target region's interactive
+ callback should change the a card's snap behavior and home region if a
+ drag should change the card's region. (That's how other cards games
+ work.) In other words, you could use something like
+ 
+      (set-region-interactive-callback!
+       my-region
+       {lambda (finished-on-region? cards)
+        (broadcast cards snap-back-after-move (not finished-on-region?))
+        (broadcast cards home-region (and finished-on-region? my-region))})
+ 
+ in the place where Flower Garden has a commented-out use of
+ `set-region-interactive-callback!` --- which makes me think that you
+ may have been trying this already. But that change isn't quite right;
+ if the target region doesn't accept the card, then it shouldn't set the
+ home region (or it should set the card's home region back in the normal
+ callback).
+ 
+ Instead of that complication to Flower Garden, I tried some variations
+ on your patch, but I couldn't make things behave nicely and simply. I
+ suspect that I documented the interactive-callback approach because I
+ didn't because I didn't see a better strategy back then.
+ 
+ 
+ At Thu, 14 May 2015 10:32:02 -0400, michael.tiedtke@o2online.de wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15064
+ > 
+ > Reported by Michael Titke for release: 6.1
+ > 
+ > *** Description:
+ > With the Virtual Cards Library you can drag cards to a region and when the drag 
+ > is accepted, i.e. the region callback moves the cards into position, it creates 
+ > a smooth animation from the last position of the drag onto the new positions.
+ > But if home-region or snap-back? is set in the card objects the animation 
+ > starts from the original position of the card before the drag even though the 
+ > callback (will have) moved the cards into a new position. (See card-class.rkt 
+ > lines 222+). This behavior is unpleasant and tough on the eye and I don't think 
+ > that the card games rely on it.
+ > 
+ > The problem seems to be that in classes.rkt:after-interactive-move sends a 
+ > back-to-original-location before the user callback which is queued for later 
+ > execution was able to decide on the fate of the cards. I don't see any reason 
+ > for this so decided to patch it and put the back-to-original-location message 
+ > right after the user callback. This might animate snap-back to the original 
+ > location but that is not an unexpected behavior for a user of the Virtual Cards 
+ > Library.
+ > 
+ > There is a proposed patch attached. It is yet untested ... do I need to 
+ > recompile this or do I need a local copy or perhaps I should read the manual 
+ > ... perhaps someone knows how to test without too much effort: I'm new to Dr. 
+ > Racket.
+ > 
+ > The patch was created with 10 lines of context ("diff -C 10 ...") to make it 
+ > more human readable.
+ > 
+ > *** /Applications/Racket v6.1/share/pkgs/games/cards/classes.rkt	
+ > 2014-04-17 21:58:40.000000000 +0200
+ > --- classes.rkt	2015-05-14 15:53:48.000000000 +0200
+ > ***************
+ > *** 230,259 ****
+ >   		 (when (< (unbox yb) rt)
+ >   		   (set-box! yb rt))
+ >   		 (when (> (unbox yb) max-y)
+ >   		   (set-box! yb max-y))))))])
+ >         (augment*
+ >   	[after-interactive-move
+ >   	 (lambda (e)
+ >              (when dragging?
+ >                (set! dragging? #f)
+ >                (inner (void) after-interactive-move e)
+ > -              (for-each-selected (lambda (snip) (send snip 
+ > back-to-original-location this)))
+ >                (let ([cards (get-reverse-selected-list)])
+ >                  (only-front-selected) ; in case overlap changed
+ >                  (for-each
+ >                   (lambda (region)
+ >                     (when (region-hilite? region)
+ >                       (mred:queue-callback
+ >                                           ; Call it outside the current edit 
+ > sequence
+ >                        (lambda ()
+ >                          ((region-callback region) cards)
+ >                          (unhilite-region region)))))
+ >                   regions))))])
+ >         (override*
+ >   	[on-default-event
+ >   	 (lambda (e)
+ >   	   (let ([click (let ([c (or (and (send e button-down? 'left) 'left)
+ >                                        (and (send e button-down? 'right) 'right)
+ >                                        (and (send e button-down? 'middle) 
+ > 'middle))])
+ >                             (cond
+ >                              [(eq? c last-click) c]
+ > --- 230,259 ----
+ >   		 (when (< (unbox yb) rt)
+ >   		   (set-box! yb rt))
+ >   		 (when (> (unbox yb) max-y)
+ >   		   (set-box! yb max-y))))))])
+ >         (augment*
+ >   	[after-interactive-move
+ >   	 (lambda (e)
+ >              (when dragging?
+ >                (set! dragging? #f)
+ >                (inner (void) after-interactive-move e)
+ >                (let ([cards (get-reverse-selected-list)])
+ >                  (only-front-selected) ; in case overlap changed
+ >                  (for-each
+ >                   (lambda (region)
+ >                     (when (region-hilite? region)
+ >                       (mred:queue-callback
+ >                                           ; Call it outside the current edit 
+ > sequence
+ >                        (lambda ()
+ >                          ((region-callback region) cards)
+ > +                        (for-each-selected (lambda (snip) (send snip 
+ > back-to-original-location this)))
+ >                          (unhilite-region region)))))
+ >                   regions))))])
+ >         (override*
+ >   	[on-default-event
+ >   	 (lambda (e)
+ >   	   (let ([click (let ([c (or (and (send e button-down? 'left) 'left)
+ >                                        (and (send e button-down? 'right) 'right)
+ >                                        (and (send e button-down? 'middle) 
+ > 'middle))])
+ >                             (cond
+ >                              [(eq? c last-click) c]
+ > 
+ > 
+ > 
+ > *** How to repeat:
+ > Drag a card from one stack to another. When home-region or snap-back-after-move 
+ > is not set you will see a smooth animation of the dragged onto their new 
+ > positions. Drag another card with either home-region or snap-back-after move 
+ > set and the animation will start from the wrong position. One can try this 
+ > easily with Flower Garden (it's on the Racket user mailing list). 
+ > 
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.57.2 
+ > (KHTML, like Gecko) Version/5.1.7 Safari/534.57.2
+From: Michael Tiedtke <michael.tiedtke@o2online.de>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/15064: Wrong Card Animation Starting Position (Virtual Cards Library)
+Date: Sat, 16 May 2015 08:07:22 +0200
+
+ Il giorno 16/mag/2015, alle ore 03.18, Matthew Flatt ha scritto:
+ 
+ > I don't think this change does what you want. Dragging a card so that
+ > it doesn't land in a region leaves the card where it lands --- instead
+ > of snapping back to the card's home region.
+ 
+ Yes, you're right. Please see my follow up for the corrected patch - it's
+ been on the list for some days.
+ 
+ See http://bugs.racket-lang.org/query/?cmd=view&pr=15064
+ 
+ 
+ > 
+ > From the docs, the intent is that a target region's interactive
+ > callback should change the a card's snap behavior and home region if a
+ > drag should change the card's region. (That's how other cards games
+ > work.) In other words, you could use something like
+ > 
+ >     (set-region-interactive-callback!
+ >      my-region
+ >      {lambda (finished-on-region? cards)
+ >       (broadcast cards snap-back-after-move (not finished-on-region?))
+ >       (broadcast cards home-region (and finished-on-region? my-region))})
+ > 
+ > in the place where Flower Garden has a commented-out use of
+ > `set-region-interactive-callback!` --- which makes me think that you
+ > may have been trying this already. But that change isn't quite right;
+ > if the target region doesn't accept the card, then it shouldn't set the
+ > home region (or it should set the card's home region back in the normal
+ > callback).
+ 
+ Yes, I've called it drag-over because drag-over has been known to not be
+ that useful in other toolkits in the 90's. But usually you accept or reject an
+ object when the drag is the finished. With my patch this can be done in the
+ regular region callback which is called right after the drag. Snapping back
+ the cards before calling the regions callback seems like a logical error to me.
+ 
+ The interactive-region-callback is queued by the on-interactive-move handler
+ which does the animation of the cards during the drag. Using it to accept or
+ reject the drag seems like a workaround to me which is only necessary
+ because of the strange behaviour of the after-interactive-move handler.
+ 
+ For the average user of the library it makes more sense to accept or reject
+ the dragged cards by setting the home region and optionally doing the
+ layout when the drag has been finished. If the home region remains
+ unchanged the cards will snap back.
+ 
+ Pushing the user callback onto the event queue might even create yet
+ another race condition. Especially because mouse events have a higher
+ priority on the event queue than queued callbacks.
+ 
+ See also "Race Conditions / Virtual Card Library"
+ http://bugs.racket-lang.org/query/?cmd=view&pr=15065
+ 
+ 
+ > 
+ > Instead of that complication to Flower Garden, I tried some variations
+ > on your patch, but I couldn't make things behave nicely and simply. I
+ > suspect that I documented the interactive-callback approach because I
+ > didn't because I didn't see a better strategy back then.
+ 
+ The corrected version of my patch is there. It simplifies things
+ because drags can now be handled in one callback, i.e. the regular
+ region callback. Before my patch they had to divide the drag handling
+ and put it into the interactive region callback AND the region callback.
+ But both callback and up on the event queue with least priority where
+ other mouse events might already be waiting.
+ 
+ My corrected patch works with all the stock games and makes life (or
+ work) easier for those programmers to come. Perhaps I should have
+ patched the documentation, too.
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Michael Tiedtke <michael.tiedtke@o2online.de>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/15064: Wrong Card Animation Starting Position (Virtual Cards Library)
+Date: Sat, 16 May 2015 07:54:22 -0600
+
+ At Sat, 16 May 2015 08:07:22 +0200, Michael Tiedtke wrote:
+ > Il giorno 16/mag/2015, alle ore 03.18, Matthew Flatt ha scritto:
+ > 
+ > > I don't think this change does what you want. Dragging a card so that
+ > > it doesn't land in a region leaves the card where it lands --- instead
+ > > of snapping back to the card's home region.
+ > 
+ > Yes, you're right. Please see my follow up for the corrected patch - it's
+ > been on the list for some days.
+ 
+ Ah, sorry --- I didn't see that the follow up was about an updated
+ patch, as opposed to testing the original one.
+ 
+ I agree that the new patch works, but I'm uncomfortable with
+ interrupting the context's edit sequence that way. I think the
+ documentation should improve to allow/guarantee that an edit sequence
+ is in place for `after-interactive-move`, but I doubt that the protocol
+ should pinned down to make interrupting the edit sequence always
+ sensible.
+ 
+ Your patch suggests a permutation that I didn't consider yesterday,
+ though, which is to move the whole iteration over regions into a
+ callback, instead of individual regions as callbacks. Then, the
+ `back-to-original-method` can be after region callbacks.
+ 
+ There's always the chance that the change will break some program, but
+ I agree that it seems like a worthwhile risk here.
+ 
+ > Pushing the user callback onto the event queue might even create yet
+ > another race condition. Especially because mouse events have a higher
+ > priority on the event queue than queued callbacks.
+ 
+ Queued callbacks have the highest priority (unless "low priority" is
+ explicitly requested), so I don't think this approach creates races
+ with mouse events.
+ 
+ 
+ > See also "Race Conditions / Virtual Card Library"
+ > http://bugs.racket-lang.org/query/?cmd=view&pr=15065
+ 
+ I've been able to replicate half of that one (the background-selection
+ part), and I'm still looking into the other half.
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Michael Tiedtke <michael.tiedtke@o2online.de>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/15064: Wrong Card Animation Starting Position (Virtual Cards Library)
+Date: Sat, 16 May 2015 09:47:41 -0600
+
+ At Sat, 16 May 2015 08:07:22 +0200, Michael Tiedtke wrote:
+ > Il giorno 16/mag/2015, alle ore 03.18, Matthew Flatt ha scritto:
+ > 
+ > > I don't think this change does what you want. Dragging a card so that
+ > > it doesn't land in a region leaves the card where it lands --- instead
+ > > of snapping back to the card's home region.
+ > 
+ > Yes, you're right. Please see my follow up for the corrected patch - it's
+ > been on the list for some days.
+ > 
+ > See http://bugs.racket-lang.org/query/?cmd=view&pr=15064
+ 
+ Unfortunately, after further checking, I see that this patch doesn't
+ work for Go Fish. In particular, Go Fish relies on snap-back happening
+ before region callbacks.
+ 
+ The solution is probably to add an option to a card to make its snap
+ back happen after callbacks instead of before, and then Flower Garden
+ can opt in to the new behavior.
+ 
+From: Michael Tiedtke <michael.tiedtke@o2online.de>
+To: Matthew Flatt <mflatt@cs.utah.edu>, bugs@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/15064: Wrong Card Animation Starting Position (Virtual Cards Library)
+Date: Sun, 17 May 2015 10:02:07 +0200
+
+ Il giorno 16/mag/2015, alle ore 17.47, Matthew Flatt ha scritto:
+ 
+ > At Sat, 16 May 2015 08:07:22 +0200, Michael Tiedtke wrote:
+ >> Il giorno 16/mag/2015, alle ore 03.18, Matthew Flatt ha scritto:
+ >> 
+ >>> I don't think this change does what you want. Dragging a card so that
+ >>> it doesn't land in a region leaves the card where it lands --- instead
+ >>> of snapping back to the card's home region.
+ >> 
+ >> Yes, you're right. Please see my follow up for the corrected patch - it's
+ >> been on the list for some days.
+ >> 
+ >> See http://bugs.racket-lang.org/query/?cmd=view&pr=15064
+ > 
+ > Unfortunately, after further checking, I see that this patch doesn't
+ > work for Go Fish. In particular, Go Fish relies on snap-back happening
+ > before region callbacks.
+ 
+ My intention was not to break anything with my patch. As Go Fish relies
+ on the original sequence of snap-back and user callback it's probably
+ best to keep my patch out of the source tree.
+ 
+ Because when it's about making incompatible changes to the Virtual
+ Card Library I would have had more ambitious ideas but Flower Garden
+ had to be distributable as one file and run on stock installations of
+ Dr. Racket.
+ 
+ (As far as I can see Go Fish yields on a semaphore. The effect of this is
+ out of my horizon when it comes to Racket and its event dispatching.)
+ 
+ 
+ > 
+ > The solution is probably to add an option to a card to make its snap
+ > back happen after callbacks instead of before, and then Flower Garden
+ > can opt in to the new behavior.
+ > 
+ 
+ 
+ That would be nice - especially for the programmers to come. A snap back
+ to the new position could then be seen as a "snap in".
+ 
+ For more ambitious projects it might be better to subclass with card<%>
+ and alter "make-deck" to accept a prototype or class name to bring in the
+ user defined class. You could even start to work with a local copy of the
+ Virtual Card Library and adapt it to one's needs and perhaps then create
+ the Virtual Card Game Library two point zero. But not today ... 
+ 
+ 
+ > At Sat, 16 May 2015 08:07:22 +0200, Michael Tiedtke wrote:
+ >> Il giorno 16/mag/2015, alle ore 03.18, Matthew Flatt ha scritto:
+ >> 
+ >> Pushing the user callback onto the event queue might even create yet
+ >> another race condition. Especially because mouse events have a higher
+ >> priority on the event queue than queued callbacks.
+ > 
+ > Queued callbacks have the highest priority (unless "low priority" is
+ > explicitly requested), so I don't think this approach creates races
+ > with mouse events.
+ 
+ Right. I got this wrong somehow. The reference says:
+ 
+ (queue-callback callback [high-priority?]) → void?
+   callback : (-> any)
+   high-priority? : any/c = #t
+ 
+ So "high-priority?" is true by default and there shouldn't be any race conditions.
+ I'm still getting used to this kind of notation. I did "feel" a little performance boost
+ or better responsiveness with my patch but I didn't profile the program.
+ 
+ 
+
+State changed from "open" to "closed" by mflatt at Sun, 17 May 2015 12:00:04 -0400
+Reason>>> Added `snap-back-after-regions` option on cards. This new
+functionality is available in the latest snapshot:
+
+ http://www.cs.utah.edu/plt/snapshots/
+
+But it won't be in a main Racket release build until v6.2.1
+(scheduled for the end of summer 2015).
+

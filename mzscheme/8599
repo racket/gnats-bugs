@@ -1,0 +1,208 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Apr 11 00:15:31 2007
+Received: from an-out-0708.google.com (an-out-0708.google.com [209.85.132.248])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l3B4FVvr019820
+	for <bugs@bugs.plt-scheme.org>; Wed, 11 Apr 2007 00:15:31 -0400
+Message-Id: <200704110415.l3B4FQlS019814@champlain.ccs.neu.edu>
+Date: Wed, 11 Apr 2007 00:15:26 -0400
+From: init@initerm.com
+To: bugs@plt-scheme.org
+Subject: performance inconsistency of values/call-with-values
+
+>Number:         8599
+>Category:       mzscheme
+>Synopsis:       performance inconsistency of values/call-with-values
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Apr 11 00:20:01 -0400 2007
+>Closed-Date:    Mon Jan 17 19:42:26 -0500 2011
+>Last-Modified:  Mon Jan 17 19:42:26 -0500 2011
+>Originator:     Joo ChurlSoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        Mzscheme 369.9
+>Environment:
+windows-xp
+>Description:
+;;; tmp.scm
+(module tmp mzscheme
+	(provide test-v0 test-v1 test-vv0 test-vv1)
+(define-syntax dotimes
+  (syntax-rules ()
+    ((dotimes (i count) b d ...)
+     (do ((i 0 (+ i 1)))
+	 ((= i count))
+       b d ...))
+    ((dotimes count b d ...)
+     (do ((i 0 (+ i 1)))
+	 ((= i count))
+       b d ...))))
+(define v0 (lambda () (values 1 2 3)))
+(define v1 (lambda () (lambda () (values 1 2 3))))
+(define vv0 (lambda (x)
+	      (if (< x 0)
+		  (values 1 2 3)
+		  (if (= x 0)
+		      (values 4 5 6)
+		      (values 7 8 9)))))
+(define vv1 (lambda (x)
+	      (if (< x 0)
+		  (lambda () (values 1 2 3))
+		  (if (= x 0)
+		      (lambda () (values 4 5 6))
+		      (lambda () (values 7 8 9))))))
+
+(define (test-v0)
+  (dotimes (i 10000000)
+	   (call-with-values v0 (lambda (x y z) (+ i x y z)))))
+(define (test-v1)
+  (dotimes (i 10000000)
+	   (call-with-values (v1) (lambda (x y z) (+ i x y z)))))
+(define (test-vv0)
+  (dotimes (i 10000000)
+	   (call-with-values (lambda () (vv0 i))
+	     (lambda (x y z) (+ i x y z)))))
+(define (test-vv1)
+  (dotimes (i 10000000)
+	   (call-with-values (vv1 i)
+	     (lambda (x y z) (+ i x y z)))))
+)
+;;; eof
+
+Welcome to MzScheme v369.9 [3m], Copyright (c) 2004-2007 PLT Scheme Inc.
+> (load "tmp.scm")
+> (require tmp)
+> (time (test-v0))
+cpu time: 16814 real time: 18256 gc time: 670
+> (time (test-v1))
+cpu time: 6640 real time: 7180 gc time: 331
+> (time (test-vv0))
+cpu time: 3535 real time: 3626 gc time: 0
+> (time (test-vv1))
+cpu time: 15682 real time: 16815 gc time: 650
+> 
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: =?ISO-8859-1?Q?Jens_Axel_S=F8gaard?= <js@vgt.dk>
+To: bugs@plt-scheme.org, init@initerm.com
+Cc: 
+Subject: Re: all/8599: performance inconsistency of values/call-with-values
+Date: Tue, 24 Apr 2007 19:28:44 +0200
+
+ I'm a bit unsure what you mean by "perfomance inconsistency".
+ Could you elaborate a little?
+ 
+ Btw - to make the comparison fair between the four versions,
+ one needs to garbage collect before a benchmark, otherwise
+ one test pays for the garbage of the previous test.
+ 
+ Note that the timings come closer together.
+ 
+  > (begin
+      (require tmp)
+      (collect-garbage)
+      (time (test-v0))
+      (collect-garbage)
+      (time (test-v1))
+      (collect-garbage)
+      (time (test-vv0))
+      (collect-garbage)
+      (time (test-vv1)))
+ cpu time: 4671 real time: 4968 gc time: 563
+ cpu time: 5109 real time: 5516 gc time: 593
+ cpu time: 2563 real time: 2671 gc time: 0
+ cpu time: 5907 real time: 6203 gc time: 534
+ 
+ 
+ 
+ /Jens Axel
+ 
+From: <init@initerm.com>
+To: <bugs@plt-scheme.org>, <js@vgt.dk>
+Cc: 
+Subject: Re: all/8599: performance inconsistency of values/call-with-values
+Date: Wed, 25 Apr 2007 16:17:19 +0900
+
+ 1. 
+ My simple tests are still different from yours.
+ I've tested them in Windows (Mzscheme v369.9) and Debian Linux (Mzscheme
+ v369.10).
+ 
+ Welcome to MzScheme v369.9 [3m], Copyright (c) 2004-2007 PLT Scheme Inc.
+ > (begin
+      (collect-garbage)
+      (time (test-v00))		;from all/8600: performance
+ inconsistency ...
+      (collect-garbage)
+      (time (test-v0))
+      (collect-garbage)
+      (time (test-v1))
+      (collect-garbage)
+      (time (test-vv0))
+      (collect-garbage)
+      (time (test-vv1)))
+ ;; cf. Jens Axel's results
+ ;;cpu time: 4671 real time: 4968 gc time: 563   - test-v0
+ ;;cpu time: 5109 real time: 5516 gc time: 593   - test-v1
+ ;;cpu time: 2563 real time: 2671 gc time: 0     - test-vv0
+ ;;cpu time: 5907 real time: 6203 gc time: 534   - test-vv1
+ 
+ cpu time: 3384 real time: 3435 gc time: 0      ;- test-v00
+ cpu time: 15763 real time: 17185 gc time: 610  ;- test-v0
+ cpu time: 6590 real time: 7281 gc time: 331    ;- test-v1
+ cpu time: 3515 real time: 4216 gc time: 0      ;- test-vv0
+ cpu time: 15582 real time: 17024 gc time: 683  ;- test-vv1
+ > 
+ 
+ 2.
+ Mzscheme shows too much timing differences between vv0 and vv1, and
+ between v00
+ and v0 (and v1) in comparison with other implementations.
+ 
+ 3.
+ Especially, the timing diffence between v00 and v0 is notable.
+ ;;(define v0 (lambda () (values 1 2 3)))
+ I wonder what is the difference between
+   (call-with-values (lambda () (values 1 2 3))  consumer)
+   and
+   (call-with-values v0 consumer).
+ 
+ --
+ Joo ChurlSoo 
+ 
+ 
+ 
+ 
+ 
+From: "soo" <tilde@tilde.co.kr>
+To: <bugs@plt-scheme.org>, <init@initerm.com>, <js@vgt.dk>
+Cc: 
+Subject: Re: all/8599: performance inconsistency of values/call-with-values
+Date: Fri, 27 Apr 2007 13:55:38 +0900
+
+ The specification of current CALL-WITH-VLAUES of Mzscheme looks as if it
+ is
+  (call-with-values (lambda () PRODUCER)) CONSUMER), like RECEIVE.
+  
+ --
+ Joo ChurlSoo 
+ 
+ 
+ 
+ 
+ 
+
+
+
+State changed from "open" to "closed" by eli at Mon, 17 Jan 2011 19:42:26 -0500
+Reason>>> closed as "obsolete" with respect to v5.0.99.6 and later;
+either the bug is long-since fixed, the relevant code
+doesn't exist anymore, the relevant platform hasn't been
+supported recently, or a new bug report is needed if the
+problem really isn't fixed and someone actually cares
+

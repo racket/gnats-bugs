@@ -1,0 +1,201 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jun 19 08:56:32 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.236])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l5JCuWc9024631
+	for <bugs@bugs.plt-scheme.org>; Tue, 19 Jun 2007 08:56:32 -0400
+Message-Id: <200706191256.l5JCuVbk024626@champlain.ccs.neu.edu>
+Date: Tue, 19 Jun 2007 08:56:31 -0400
+From: narutocanada@gmail.com
+To: bugs@plt-scheme.org
+Subject: memory leak in plt-370? (macro or call/cc) problem in plt-360?
+
+>Number:         8761
+>Category:       mzscheme
+>Synopsis:       memory leak in plt-370? (macro or call/cc) problem in plt-360?
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          suspended
+>Confidential:   no
+>Arrival-Date:   Tue Jun 19 09:00:01 -0400 2007
+>Closed-Date:    
+>Last-Modified:  Wed Jun 20 08:20:46 -0400 2007
+>Originator:     Naruto Canada
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        plt-370 plt-360
+>Environment:
+linux-other
+>Description:
+The following code takes less than 3 seconds on petite and gambit-c. but takes forever (really forever) on mzscheme-360 and crash mzscheme-370 (out of memory).
+
+as you can see the main loop is only looping 4 to 4096:
+(amb-run
+    (let* ((n (number-between 4 4096))
+           (l (convert-to-base n 2))
+           (m (map (lambda (x) (if (zero? x) -1 1)) l))
+           (p (list-to-poly m))
+          )
+          (print (string-append "p:=" (poly-string p) ":"
+                   "if not irreduc(p) then t:=t+1:print(getcoeffs(p),factor(p)) fi:"
+          ))          
+    )
+)
+>How-To-Repeat:
+mzscheme -f bug.sc 
+cat bug.sc 
+(define (print x) (display x) (newline))
+(define-syntax (define-macro stx)
+  (syntax-case stx ()
+   ((_ (macro . args) . body)
+    (syntax (define-macro macro (lambda args . body))))
+   ((_ macro transformer)
+    (syntax
+     (define-syntax (macro stx2)
+       (let ((v (syntax-object->datum stx2)))
+         (datum->syntax-object
+          ; we need the *identifier* of the macro call  
+          ; (there is probably a smarter way of extracting that ...)
+          (syntax-case stx2 () ((name . more) (syntax name)))
+          (apply transformer (cdr v)))))))))
+(define amb-fail '*)
+(define initialize-amb-fail
+  (lambda () 
+    (set! amb-fail
+      (lambda ()
+        (error "amb tree exhausted")))))
+(define-macro amb
+  (lambda alts...
+    `(let ((+prev-amb-fail amb-fail))
+       (call/cc
+        (lambda (+sk)
+          ,@(map (lambda (alt)
+                   `(call/cc
+                     (lambda (+fk)
+                       (set! amb-fail
+                         (lambda () 
+                           (set! amb-fail +prev-amb-fail)
+                           (+fk 'fail)))
+                       (+sk ,alt))))
+                 alts...)
+          (+prev-amb-fail))))))
+(define number-between
+  (lambda (lo hi)
+    (let loop ((i lo))
+      (if (> i hi) (amb)
+          (amb i (loop (+ i 1)))))))
+(define-macro amb-run
+  (lambda (e)
+    `(let ((+prev-amb-fail amb-fail)
+           (+results 0))
+       (if (call/cc
+            (lambda (+k) 
+              (set! amb-fail (lambda () (+k #f)))
+              (let ((+v ,e))
+                ;(display +v)(newline)
+                (set! +results (+ 1 +results))
+                (+k #t))))
+           (amb-fail))
+       (set! amb-fail +prev-amb-fail)
+       ;(display (list "amb-run: " +results))
+     )))
+(define (convert-to-base x k)
+  (if (= 0 x) '()
+    (cons (remainder x k) (convert-to-base (quotient x k) k))
+  )
+)
+(define (list-to-poly l)
+  (scan-out-0-terms
+    (map (lambda (c d) (list c (list d)))
+         l (interval 0 (- (length l) 1))
+    )
+  )
+)
+(define (scan-out-0-terms p)
+  (delete eq? 'nothing (map (lambda (x) (if (= (car x) 0) 'nothing x)) p))
+)
+(define interval (lambda (a b)
+  (cond ((<= a b) (cons a (interval (+ a 1) b))) (else '()))))  
+(define (poly-string p)
+ (define x "")
+ (if (null? p) "0" (begin
+   (for-each (lambda (y) (set! x (string-append x (term-string y) "+"))
+             ) p
+   )
+   (if (equal? #\+ (string-ref x (- (string-length x) 1)))
+       (substring x 0 (- (string-length x) 1))
+       x
+   )
+ ))
+)
+(define (delete equal? x ls)
+  (define r '())
+  (map (lambda (y) (if (not (equal? x y)) (set! r (cons y r)))) ls)
+  (reverse r) ;; strange this is needed
+)                 
+(define term-map '("x"))
+(define (term-string t)
+ (define x (string-append "(" (number->string (car t)) "*" ))
+ (if (and (= 1 (car t)) (not (all-zero? (cadr t))))
+     (set! x "("))
+ (if (= 0 (car t)) (error "term-map: zero coefficient") (begin
+     (for-each (lambda (y z)
+                 (if (not (zero? z))
+                     (if (= z 1)
+                         (set! x (string-append x y "*" ))
+                         (set! x (string-append x y "^" (number->string z) "*" ))
+                     )
+                 )
+               ) term-map (cadr t)
+     )
+     (if (equal? #\* (string-ref x (- (string-length x) 1)))
+         (string-set! x (- (string-length x) 1) #\))
+         (set! x (string-append x ")"))
+     )
+     x
+ )))
+(define (all-zero? ls)
+ (call/cc (lambda (return)
+    (for-each (lambda (x) (if (not (zero? x)) (return #f))) ls)
+ #t)) 
+)   
+(print "#__________________BEGIN_BUILD")
+(print "interface(prettyprint=0):interface(screenwidth=infinity):")
+(print "interface(warnlevel=0):with(linalg):")
+(print "t:=0:")
+(amb-run
+    (let* ((n (number-between 4 4096))
+           (l (convert-to-base n 2))
+           (m (map (lambda (x) (if (zero? x) -1 1)) l))
+           (p (list-to-poly m))
+          )
+          (print (string-append "p:=" (poly-string p) ":"
+                   "if not irreduc(p) then t:=t+1:print(getcoeffs(p),factor(p)) fi:"
+          ))          
+    )
+)
+(print "t;")
+(print "#____________________END_TOKEN")
+>Fix:
+>Audit-Trail:
+State changed from "open" to "suspended" by mflatt at Wed, 20 Jun 2007 08:20:46 -0400
+Reason>>> When trying up to N numbers, the program creates up to N nested
+continuations.
+
+In version 370, there was a bug in sharing for nested continuations,
+so that the program used O(N^2) space. This much is now fixed in SVN.
+
+The program still takes forever, because invoking a continuation
+at depth N is an O(N) operation in MzScheme. So, the program takes
+O(N^2) time. Other implementations povide constant-time continuation
+application, so they can run the program in O(N) time (with smaller
+constants, too, I expect).
+
+I'm putting the bug report into "suspended" state because the
+complexity of continuation application really should be O(1),
+but we're unlikely to get there anytime soon.
+
+Thanks very much for the report!
+Matthew
+

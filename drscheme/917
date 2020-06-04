@@ -1,0 +1,168 @@
+From nobody@cs.rice.edu  Sat Mar 13 14:57:25 1999
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id OAA07224
+	for <plt-gnats@cs.rice.edu>; Sat, 13 Mar 1999 14:57:24 -0600 (CST)
+Message-Id: <199903132057.OAA23110@web.cs.rice.edu>
+Date: Sat, 13 Mar 1999 14:57:23 -0600 (CST)
+From: eli@cs.cornell.edu
+Reply-To: eli@cs.cornell.edu
+To: plt-gnats@cs.rice.edu
+Subject: A Tab bug and a problem 
+
+>Number:         917
+>Category:       drscheme
+>Synopsis:       A Tab bug and a problem
+>Confidential:   no
+>Severity:       non-critical
+>Priority:       low
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sat Mar 13 21:00:16 GMT 1999
+>Last-Modified:  Fri Apr  2 10:24:52 CST 1999
+>Originator:     Eli Barzilay
+>Organization:
+titan
+>Release:        53
+>Environment:
+unknown
+>Description:
+Tab are not handleled correctly by the position counter - it only counts
+characters.
+
+That is the only bug that I report, but I have a small request:
+
+We have an automatic submission system (written in Scheme) that restricts
+line lengths on submitted programs.  Since our environment is based on a
+complete [modified] copy of DrScheme, I tried to see if I can make their
+life simpler using this position counter, I tried to see if it is possible
+to modify the editor not to insert tabs but traced that into the do-indent
+internal function in tabify in ssmode.ss in mred.  So it looks like to
+modify this I'll have to copy the whole function which is extremely ugly.
+I tried looking for the code that shows the location but couldn't find it
+anywhere.
+
+Another thing that I tried was to modify the application so the definitions
+window will be wide enough to hold exactly 72 characters, I did manage to
+modify its size, but for some strange reason, there is a problem in
+computing the size of a single character so it is too short.  (btw, the
+same problem happened when using get-text-extent.)
+
+So if there are any ways to make any of these fixes I'll be very happy.
+
+>How-To-Repeat:
+
+>Fix:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: eli@cs.cornell.edu
+Cc: plt-gnats@cs.rice.edu, robby@cs.rice.edu
+Subject: Re: all/917: A Tab bug and a problem 
+Date: Sat, 13 Mar 1999 15:35:06 -0600 (CST)
+
+ Quoting eli@cs.cornell.edu:
+ > Tab are not handleled correctly by the position counter - it only counts
+ > characters.
+ > 
+ > [... more tab headaches ...]
+ 
+ I think we should get rid of tabs in DrScheme. As another DrScheme user
+ pointed out, tabs were useful back in the age of small storage media
+ and slow communication lines, but they're not so useful any more.
+ 
+ > Another thing that I tried was to modify the application so the definitions
+ > window will be wide enough to hold exactly 72 characters, I did manage to
+ > modify its size, but for some strange reason, there is a problem in
+ > computing the size of a single character so it is too short.  (btw, the
+ > same problem happened when using get-text-extent.)
+ 
+ Computing a size for the frame to get a character-based width in an
+ editor canvas is tricky. (Terminology note: version 53's "media
+ canvases" are called "editor canvases" in MrEd 100, and "buffers" are
+ called "editors").
+ 
+ There are several layers of margins leading to an editor wthin a frame:
+ 
+  * the frame's margin around its client area
+  * the canvas's margin for showing the border and scrollbars around
+    it's client area
+  * the editor canvas's inset for the editor within the canvas's client
+    area
+  * a right margin for the autowrap bitmap within the editor (only when
+    autowrapping is enabled)
+  * plus two more pixels to leave room for the caret
+ 
+ To further complicate the problem, methods like `get-client-size' can
+ report bogus results when the canvas is too small, which is likely if
+ the frame hasn't been shown yet (because geometry management doesn't
+ kick in until just before the frame is shown).
+ 
+ Things are slightly better in 100, because MrEd never reports bogus
+ values for client sizes. Also, there's a `set-line-count' method on
+ editor canvases to auto-size the canvas's height to match a certain
+ number of lines in the editor (a similarly tricky computation). Perhaps
+ I should add a `set-line-character-count' method.
+ 
+ I would have used a `set-line-character-count' method when I wrote a
+ mailer in MrEd. Since there wasn't one, I wrote the following MrEd 100
+ code that you might find useful. (Some of the method names or calling
+ conventions have changed, but I don't think the code below uses any
+ 100-specific features).
+ 
+   ; make-fixed-width configures an editor and its canvas for
+   ;  80 columns in a fixed width font, optionally with wrapping.
+   (define (make-fixed-width c e wrap? wrap-bm)
+     ; c is the containing canvas
+     ; e is editor
+     ; wrap-bm is the autowrap bitmap
+     (let ([s (send (send e get-style-list)
+ 		   find-named-style "Standard")])
+       (send s set-delta
+ 	    (make-object style-delta% 'change-family 'modern))
+       (send e set-tabs null 8 #f)
+       (let ([font (send s get-font)]
+ 	    [dc (send c get-dc)]
+ 	    [wbox (box 0)]
+ 	    [hbox (box 0)])
+ 	(send e get-view-size wbox hbox) ; gets current editor area in canvas
+ 	(let-values ([(w h) (send c get-size)]
+ 		     [(1w 1h d a) (send dc get-text-extent "X" font)])
+ 	  (let ([80chars (+ (* 1w 80)
+ 			    2 ; +2 for caret - yuck
+ 			    (if wrap-bm 
+ 				(send wrap-bm get-width) 
+ 				0))])
+ 	    (when wrap? 
+ 	      (when wrap-bm 
+ 		(send e set-autowrap-bitmap wrap-bm))
+ 	      (send e set-max-width 80chars))
+ 	    (send c min-width 
+ 		  (inexact->exact (round (+ 80chars (- w (unbox wbox)))))))))))
+ 
+ Somehow you have to make sure the canvas is big enough before using the
+ above code. The frame's `force-redraw' method applies geometry
+ management sizing without showing the frame. Something like the above
+ code can then set the minimum size of the canvas. Make the frame
+ non-stretchy in the horizontal direction to enforce the N-column width.
+ 
+ Hope that helps,
+ Matthew
+
+Responsible-Changed-From-To: steck->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Fri Apr  2 10:24:22 1999
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Fri Apr  2 10:24:26 1999
+State-Changed-Why:
+
+fixed for release in 100. DrScheme no longer inserts tab characters when
+tabbifing lines.
+
+ 
+>Unformatted:

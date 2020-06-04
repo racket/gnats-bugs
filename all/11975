@@ -1,0 +1,145 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jun 13 14:07:45 2011
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p5DI7hPP006799
+	for <bugs@bugs.plt-scheme.org>; Mon, 13 Jun 2011 14:07:43 -0400
+Message-Id: <201106131807.p5DI7dpp006793@champlain.ccs.neu.edu>
+Date: Mon, 13 Jun 2011 14:07:39 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Contract macros do not use the right #%app binding
+
+>Number:         11975
+>Category:       all
+>Synopsis:       Contract macros do not use the right #%app binding
+>Class:          sw-bug
+>Responsible:    sstrickl
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jun 13 14:08:01 -0400 2011
+>Closed-Date:    Thu Jun 16 14:25:16 -0400 2011
+>Last-Modified:  Thu Jun 16 14:28:01 -0400 2011
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.1.1.5--2011-06-10(9e61b3e/g)
+>Environment:
+macosx "Darwin eric-dobsons-macbook.local 10.7.0 Darwin Kernel Version 10.7.0: Sat Jan 29 15:17:16 PST 2011; root:xnu-1504.9.37~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 140982968
+
+Collections:
+("/Users/eric/Library/Racket/5.1.1.5/collects"
+ (non-existent-path))
+("/Users/eric/proj/racket/plt/collects"
+ (".gitignore" "2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "un!
+ stable" "version" "waterworld" "web-server" "wxme" "xml"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f))
+>Description:
+The contract library uses macros which add location information to uses of the protected identifier. This addition does not correctly reconstruct the input syntax to keep the binding for #%app. The following program shows how adding a contract to a value changes the meaning of the program. 
+
+I don't think this bug is limited to contracts. Any macro which 'pretends' to be a value, should have this problem unless care is taken.
+>How-To-Repeat:
+#lang racket/load
+
+(module app racket
+  (define-syntax (-app x) #''apped)
+  (provide (rename-out (-app #%app))))
+
+(module c racket
+  (define con (-> integer? symbol?))
+  (provide con))
+
+(module b racket
+  (require 'c 'app)
+
+  (define/contract (f x) con 'f)
+  (define (g x) 'g)
+
+  (f 2)
+  (g 2))
+
+(require 'b)
+
+;This program should produce 'apped twice, but produces 'f and 'apped
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11975: Contract macros do not use the right
+ #%app binding
+Date: Thu, 16 Jun 2011 06:33:18 +0800
+
+ On Tue, Jun 14, 2011 at 2:08 AM,  <eric.n.dobson@gmail.com> wrote:
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=11975
+ 
+ Stevie: I believe this is a bug in with-contract; it seems to be
+ introducing a macro for 'f' that doesn't use the right #%app binding
+ (provide/contract had this bug a few years ago, too :).
+ 
+ I think the bug is here (line 469 in region.rkt)
+ 
+          [(f arg ...)
+           (quasisyntax/loc stx
+             ((contract ctc id pos neg (quote id) (quote-srcloc id))
+              arg ...))]
+ 
+ it should instead be this:
+ 
+          [(f arg ...)
+           (with-syntax ([app (datum->syntax stx '#%app)])
+             (quasisyntax/loc stx
+               (app
+                (contract ctc id pos neg (quote id) (quote-srcloc id))
+                arg ...)))]
+ 
+ I didn't push a change, since it is a simple one and I figure you'd
+ want to look at it yourself, so I'm just replying to the PR.
+ 
+ Also: here's a simpler program to reproduce the issue that may make
+ for a better test case.
+ 
+ #lang racket/load
+ 
+ (module app racket
+  (define-syntax (-app x) #''apped)
+  (provide (rename-out (-app #%app))))
+ 
+ (module b racket
+  (require 'app)
+ 
+  (with-contract x ([f any/c]) (define (f x) 'f))
+  (define (g x) 'g)
+ 
+  (f 2)
+  (g 2))
+ 
+ (require 'b)
+ 
+ Robby
+Responsible changed from "nobody" to "sstrickl" by sstrickl@racket-lang.org at Thu, 16 Jun 2011 14:25:16 -0400
+Reason>>> A commit by sstrickl@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/649fe2f276
+State changed from "open" to "closed" by sstrickl@racket-lang.org at Thu, 16 Jun 2011 14:25:16 -0400
+Reason>>> A commit by sstrickl@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/649fe2f276
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: eric.n.dobson@gmail.com, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11975: Contract macros do not use the right #%app binding
+Date: Thu, 16 Jun 2011 14:25:47 -0400
+
+ On Jun 15, 2011, at 6:33 PM, Robby Findler wrote:
+ > Stevie: I believe this is a bug in with-contract; it seems to be
+ > introducing a macro for 'f' that doesn't use the right #%app binding
+ > (provide/contract had this bug a few years ago, too :).
+ 
+ Thanks!  I've pushed the appropriate fix and test.
+ 
+ Stevie

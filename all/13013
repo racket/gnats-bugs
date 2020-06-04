@@ -1,0 +1,243 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Aug 12 21:56:46 2012
+Received: from mail-ob0-f172.google.com (mail-ob0-f172.google.com [209.85.214.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7D1uEsa023530
+	for <bugs@bugs.plt-scheme.org>; Sun, 12 Aug 2012 21:56:14 -0400
+Message-Id: <201208130156.q7D1uCs8023525@champlain.ccs.neu.edu>
+Date: Sun, 12 Aug 2012 21:56:12 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Possible to create a recursive type not through Rec
+
+>Number:         13013
+>Category:       all
+>Synopsis:       Possible to create a recursive type not through Rec
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Aug 12 22:00:01 -0400 2012
+>Closed-Date:    Tue Mar 26 00:56:29 -0400 2013
+>Last-Modified:  Tue Mar 26 00:56:29 -0400 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_0) AppleWebKit/537.2 (KHTML, like Gecko) Chrome/22.0.1215.0 Safari/537.2
+>Description:
+Struct types allow creation of a recursive type through the typename table. This means that there can be an infinite type not guarded by a Rec.
+
+I think the solution to this is to allow what is written to be valid code. Otherwise you would have to write
+
+(define-type Box (Rec Box (BoxF Box)))
+(struct: (a) BoxF ([v : (U #f a)]))
+
+For it to be valid code I think it should expand into the above by default.
+
+I think it also works with more types
+
+(struct: Box1 ([v : (U #f Box1 Box2)]))
+(struct: Box2 ([v : (U #f Box1 Box2)]))
+
+
+This would expanded out to
+
+(define-type Box1 (Rec B (Box1F B)))
+(define-type Box2 (Rec B (Box2F B)))
+
+(struct: (a) Box1F ([v : (U #f a Box2)]))
+(struct: (a) Box2F ([v : (U #f Box1 a)]))
+
+Which at first glance also seems to salve the issue.
+>How-To-Repeat:
+#lang typed/racket
+
+(struct: Box ([v : (U #f Box)]))
+
+----
+#lang typed/racket
+
+
+(struct: Box1 ([v : (U #f Box1 Box2)]))
+(struct: Box2 ([v : (U #f Box1 Box2)]))
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13013: Possible to create a recursive type not
+ through Rec
+Date: Sun, 12 Aug 2012 22:02:48 -0400
+
+ On Sun, Aug 12, 2012 at 10:00 PM,  <eric.n.dobson@gmail.com> wrote:
+ > Struct types allow creation of a recursive type through the typename table. This means that there can be an infinite type not guarded by a Rec.
+ 
+ This is intended; struct types produce iso-recursive types, rather
+ than the equi-recursive types produced by `Rec`.  I can't tell from
+ you bug report if there's something that's not working because of
+ this, though.
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13013: Possible to create a recursive type not
+ through Rec
+Date: Sun, 12 Aug 2012 19:12:56 -0700
+
+ I'm trying to fix PR/12920, and along the way I found a breakage in
+ the printer caused by this.
+ 
+ Where the printer will try to expand such types forever.
+ 
+ The code was actually this, but I reduced it to what I thought was the
+ core issue. This example has the problem where substitution doesn't
+ work because it happens peacemeal instead of all at once.
+ 
+ ;; Iteratee
+ (define-type (Alias A D) (U #f (Main A D)))
+ 
+ (struct: (A D) Main
+   ([resume : (Alias A D)]))
+ 
+ So I think the issue is that when coming up with issues like this, I
+ don't know what is an implementation bug and what is a design
+ decision. I'll take a look at iso vs equi recursive types and see if I
+ get it.
+ 
+ 
+ On Sun, Aug 12, 2012 at 7:02 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Sun, Aug 12, 2012 at 10:00 PM,  <eric.n.dobson@gmail.com> wrote:
+ >> Struct types allow creation of a recursive type through the typename table. This means that there can be an infinite type not guarded by a Rec.
+ >
+ > This is intended; struct types produce iso-recursive types, rather
+ > than the equi-recursive types produced by `Rec`.  I can't tell from
+ > you bug report if there's something that's not working because of
+ > this, though.
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs@racket-lang.org
+Subject: Re: [racket-bug] all/13013: Possible to create a recursive type not
+ through Rec
+Date: Sun, 12 Aug 2012 22:26:19 -0400
+
+ --20cf303b3f7d451a0e04c71c6b23
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Basically, the printer should always use the struct name, which avoids the
+ infinite loop, since there is no need to print the field types.  There have
+ been plenty of printer looping bugs, though, so I wouldn't be surprised by
+ one more.
+ 
+ Sam
+ On Aug 12, 2012 10:12 PM, "Eric Dobson" <eric.n.dobson@gmail.com> wrote:
+ 
+ > I'm trying to fix PR/12920, and along the way I found a breakage in
+ > the printer caused by this.
+ >
+ > Where the printer will try to expand such types forever.
+ >
+ > The code was actually this, but I reduced it to what I thought was the
+ > core issue. This example has the problem where substitution doesn't
+ > work because it happens peacemeal instead of all at once.
+ >
+ > ;; Iteratee
+ > (define-type (Alias A D) (U #f (Main A D)))
+ >
+ > (struct: (A D) Main
+ >   ([resume : (Alias A D)]))
+ >
+ > So I think the issue is that when coming up with issues like this, I
+ > don't know what is an implementation bug and what is a design
+ > decision. I'll take a look at iso vs equi recursive types and see if I
+ > get it.
+ >
+ >
+ > On Sun, Aug 12, 2012 at 7:02 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ > wrote:
+ > > On Sun, Aug 12, 2012 at 10:00 PM,  <eric.n.dobson@gmail.com> wrote:
+ > >> Struct types allow creation of a recursive type through the typename
+ > table. This means that there can be an infinite type not guarded by a Rec.
+ > >
+ > > This is intended; struct types produce iso-recursive types, rather
+ > > than the equi-recursive types produced by `Rec`.  I can't tell from
+ > > you bug report if there's something that's not working because of
+ > > this, though.
+ > >
+ > > --
+ > > sam th
+ > > samth@ccs.neu.edu
+ >
+ 
+ --20cf303b3f7d451a0e04c71c6b23
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p dir=3D"ltr">Basically, the printer should always use the struct name, wh=
+ ich avoids the infinite loop, since there is no need to print the field typ=
+ es.=C2=A0 There have been plenty of printer looping bugs, though, so I woul=
+ dn&#39;t be surprised by one more.</p>
+ 
+ <p dir=3D"ltr">Sam</p>
+ <div class=3D"gmail_quote">On Aug 12, 2012 10:12 PM, &quot;Eric Dobson&quot=
+ ; &lt;<a href=3D"mailto:eric.n.dobson@gmail.com">eric.n.dobson@gmail.com</a=
+ >&gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" styl=
+ e=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ I&#39;m trying to fix PR/12920, and along the way I found a breakage in<br>
+ the printer caused by this.<br>
+ <br>
+ Where the printer will try to expand such types forever.<br>
+ <br>
+ The code was actually this, but I reduced it to what I thought was the<br>
+ core issue. This example has the problem where substitution doesn&#39;t<br>
+ work because it happens peacemeal instead of all at once.<br>
+ <br>
+ ;; Iteratee<br>
+ (define-type (Alias A D) (U #f (Main A D)))<br>
+ <br>
+ (struct: (A D) Main<br>
+ =C2=A0 ([resume : (Alias A D)]))<br>
+ <br>
+ So I think the issue is that when coming up with issues like this, I<br>
+ don&#39;t know what is an implementation bug and what is a design<br>
+ decision. I&#39;ll take a look at iso vs equi recursive types and see if I<=
+ br>
+ get it.<br>
+ <br>
+ <br>
+ On Sun, Aug 12, 2012 at 7:02 PM, Sam Tobin-Hochstadt &lt;<a href=3D"mailto:=
+ samth@ccs.neu.edu">samth@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt; On Sun, Aug 12, 2012 at 10:00 PM, =C2=A0&lt;<a href=3D"mailto:eric.n.d=
+ obson@gmail.com">eric.n.dobson@gmail.com</a>&gt; wrote:<br>
+ &gt;&gt; Struct types allow creation of a recursive type through the typena=
+ me table. This means that there can be an infinite type not guarded by a Re=
+ c.<br>
+ &gt;<br>
+ &gt; This is intended; struct types produce iso-recursive types, rather<br>
+ &gt; than the equi-recursive types produced by `Rec`. =C2=A0I can&#39;t tel=
+ l from<br>
+ &gt; you bug report if there&#39;s something that&#39;s not working because=
+  of<br>
+ &gt; this, though.<br>
+ &gt;<br>
+ &gt; --<br>
+ &gt; sam th<br>
+ &gt; <a href=3D"mailto:samth@ccs.neu.edu">samth@ccs.neu.edu</a><br>
+ </blockquote></div>
+ 
+ --20cf303b3f7d451a0e04c71c6b23--
+
+State changed from "open" to "closed" by endobson at Tue, 26 Mar 2013 00:56:29 -0400
+Reason>>> Not a bug
+

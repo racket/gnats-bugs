@@ -1,0 +1,180 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Apr  3 09:24:23 2009
+Received: from qw-out-2122.google.com (qw-out-2122.google.com [74.125.92.25])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n33DOE3W004154
+	for <bugs@bugs.plt-scheme.org>; Fri, 3 Apr 2009 09:24:14 -0400
+Message-Id: <200904031323.n33DNppk004138@champlain.ccs.neu.edu>
+Date: Fri, 3 Apr 2009 09:23:51 -0400
+From: samth@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: `syntax-local-value/immediate' doesn't work for rename-transformers
+
+>Number:         10173
+>Category:       mzscheme
+>Synopsis:       `syntax-local-value/immediate' doesn't work for rename-transformers
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Apr 03 09:28:01 -0400 2009
+>Last-Modified:  Sat May 09 12:35:13 -0400 2009
+>Originator:     Sam TH
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.5.3-svn27mar2009
+>Environment:
+unix "Linux hermes 2.6.24-23-386 #1 Sun Jan 25 23:32:00 UTC 2009 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 187305372
+
+Collections:
+(("/home/samth/.plt-scheme/4.1.5.3/collects" non-existent-path) ("/home/samth/sw/plt4/collects" ".svn" "tex2page" "wxme" "string-constants" "test-engine" "planet" "mzcom" "typed-scheme" "drscheme" "r6rs" "s-exp" "framework" "srpersist" "sirmail" "test-box-recovery" "scribblings" "slideshow" "syntax-color" "srfi" "algol60" "redex" "dynext" "make" "plot" "file" "lang" "web-server" "openssl" "macro-debugger" "scribble" "typed" "frtime" "combinator-parser" "mred" "guibuilder" "htdp" "graphics" "setup" "profjWizard" "afm" "scheme" "config" "gui-debugger" "defaults" "honu" "icons" "handin-client" "lazy" "texpict" "teachpack" "browser" "rnrs" "waterworld" "parser-tools" "r5rs" "games" "eopl" "tests" "html" "swindle" "handin-server" "repos-time-stamp" "compiler" "embedded-gui" "profj" "stepper" "readline" "hierlist" "sgl" "version" "preprocessor" "net" "syntax" "help" "htdch" "trace" "slatex" "xml" "launcher" "ffi" "mrlib" "errortrace" "mzscheme" "mysterx" "mzlib" "info-domain" "2ht!
+ dp" "stxclass" "at-exp" "scriblib" "foo.patch" "deinprogramm" "svn-commit.tmp" "schemeunit" "profile"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+I believe that this program should print something like #<rename-transformer>
+
+Instead, it gives the error:
+
+syntax-local-value/immediate: not defined as syntax: #<syntax:17:6>
+
+---- cut here --
+#lang scheme/load
+
+(module m scheme
+  (define-syntax s
+     (make-rename-transformer #'=))
+  (provide s))
+
+(module n scheme
+  (require 'm)
+  (define-syntax (go stx)
+    (syntax-case stx ()
+      [(_ arg)
+       (begin
+         (display (let-values ([(a b) (syntax-local-value/immediate #'arg)])
+                    a))
+         #'(begin))]))
+  (go s))
+
+(require 'n)
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Sam TH <samth@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, robby@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org,
+        sperber@deinprogramm.de
+Subject: Re: [plt-bug] all/10173: `syntax-local-value/immediate' doesn't work 
+	for rename-transformers
+Date: Wed, 8 Apr 2009 05:44:39 -0600
+
+ At Fri, 3 Apr 2009 13:51:00 -0400, Sam TH wrote:
+ > This appears to be related to the treatment of rename-transformers as
+ > renamings by the syntax system.  This program fails:
+ > 
+ > #lang scheme/load
+ > 
+ > (module m scheme
+ >   (define-syntax s (make-rename-transformer
+ >                     (syntax-property #'=
+ >                                      'not-free-identifier=? #f)))
+ >   (provide s))
+ > 
+ > (module n scheme
+ >   (require 'm)
+ >   (define-syntax (go stx)
+ >     (syntax-case stx ()
+ >       [(_ a)
+ >        (begin (syntax-local-value/immediate #'a)
+ >               #'3)]))
+ >   (go s))
+ > 
+ > 
+ > 
+ > But change #f to #t, and it succeeds.
+ 
+ Yes, this is as intended. When `provide' exports an identifier that is
+ bound to a rename transformer, then the target of the rename is
+ exported --- unless the target identifier has the 'not-free-identifier=?
+ property.
+ 
+ This is documented with `provide', and I'll add better
+ cross-referencing in the documentation for `make-rename-transformer'.
+ 
+ My impression is that Typed Scheme needs to use 'not-free-identifier=?
+ property, anyway, since the identifier is not always the same for a
+ given binding. I don't know how to make both `syntax-local-value/immediate' 
+ and `free-identifier=?' work at the same time for a module export.
+ 
+From: Sam TH <samth@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, robby@plt-scheme.org, clements@plt-scheme.org,
+        jay@plt-scheme.org, meunier@plt-scheme.org, kathyg@plt-scheme.org,
+        jacobm@plt-scheme.org, cce@plt-scheme.org, ryanc@plt-scheme.org,
+        gcooper@plt-scheme.org, sstrickl@plt-scheme.org,
+        sperber@deinprogramm.de
+Subject: Re: [plt-bug] all/10173: `syntax-local-value/immediate' doesn't work 
+	for rename-transformers
+Date: Wed, 8 Apr 2009 09:56:20 -0400
+
+ On Wed, Apr 8, 2009 at 7:44 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > At Fri, 3 Apr 2009 13:51:00 -0400, Sam TH wrote:
+ >> This appears to be related to the treatment of rename-transformers as
+ >> renamings by the syntax system. =A0This program fails:
+ >>
+ >> #lang scheme/load
+ >>
+ >> (module m scheme
+ >> =A0 (define-syntax s (make-rename-transformer
+ >> =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 (syntax-property #'=3D
+ >> =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =
+ =A0'not-free-identifier=3D? #f)))
+ >> =A0 (provide s))
+ >>
+ >> (module n scheme
+ >> =A0 (require 'm)
+ >> =A0 (define-syntax (go stx)
+ >> =A0 =A0 (syntax-case stx ()
+ >> =A0 =A0 =A0 [(_ a)
+ >> =A0 =A0 =A0 =A0(begin (syntax-local-value/immediate #'a)
+ >> =A0 =A0 =A0 =A0 =A0 =A0 =A0 #'3)]))
+ >> =A0 (go s))
+ >>
+ >>
+ >>
+ >> But change #f to #t, and it succeeds.
+ >
+ > Yes, this is as intended. When `provide' exports an identifier that is
+ > bound to a rename transformer, then the target of the rename is
+ > exported --- unless the target identifier has the 'not-free-identifier=3D=
+ ?
+ > property.
+ >
+ > This is documented with `provide', and I'll add better
+ > cross-referencing in the documentation for `make-rename-transformer'.
+ >
+ > My impression is that Typed Scheme needs to use 'not-free-identifier=3D?
+ > property, anyway, since the identifier is not always the same for a
+ > given binding.
+ 
+ Right, this didn't turn out to be an actual problem for me.
+ 
+ > I don't know how to make both `syntax-local-value/immediate'
+ > and `free-identifier=3D?' work at the same time for a module export.
+ 
+ I'm personally suspicious that this suggests that making
+ `free-identifier=3D?' work for rename transformers wasn't the right idea
+ in the first place.  But I'm not sure.
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+

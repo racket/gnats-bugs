@@ -1,0 +1,110 @@
+From apache@plt-scheme.org Sat Aug 20 20:21:44 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j7L0LgZS010288
+	for <bugs@plt-scheme.org>; Sat, 20 Aug 2005 20:21:42 -0400
+Message-Id: <200508210021.j7L0LgtC010286@champlain.ccs.neu.edu>
+Date: Sat, 20 Aug 2005 20:21:42 -0400
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: send-url in (lib "sendurl.ss" "net") does not properly quote shell metachars for custom browsers
+
+>Number:         7543
+>Category:       misc
+>Synopsis:       send-url in (lib "sendurl.ss" "net") does not properly quote shell metachars for custom browsers
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Aug 20 20:25:00 -0400 2005
+>Closed-Date:    Sat May 12 03:32:24 -0400 2007
+>Last-Modified:  Sat May 12 03:32:24 -0400 2007
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299
+>Environment:
+unix-other
+>Description:
+In send-url, when a custom browser is selected as part of the user's preferences, a command string is constructed using string-append.  Such a single-arg command appears to be interpreted as a call to the shell.  Consequently, send-url breaks if the url has shell metacharacters.  For example, the url:
+
+    "http://127.0.0.1:8000/servlets/;id116*k2-1499047059"
+
+will break badly, since semicolon is a shell metacharacter.
+
+The Right Fix is to not manually construct a single shell command, but to send in the arguments unmolested as a list of arguments.  However, this entails also fixing the Browser preference panel in DrScheme to reflect this.
+
+If it's a strong requirement that we do string-append those arguments together, then something like the following kludge should patch up common problems:
+
+
+dyoo@shoebox ~/local/plt/collects/net $ svn diff
+Index: sendurl.ss
+===================================================================
+--- sendurl.ss	(revision 620)
++++ sendurl.ss	(working copy)
+@@ -93,14 +93,36 @@
+ 	    (lambda (browser-path)
+ 	      (browser-process* browser-path url-str))]
+ 	   [(custom-browser? preferred)
++            ;; dyoo: this part feels fundamentally broken; we should
++            ;; not be trying to construct a single string here, but
++            ;; instead call browser-process* properly with a list of
++            ;; arguments.  Fixing this properly will probably involve
++            ;; modifying the preferences GUI in DrScheme too.
++            
++            ;; In any case, better do what we can with the current
++            ;; architecture...
+ 	    (let ([cmd (string-append (car preferred)
+-				      url-str
++				      (protect-shell-metachars url-str)
+ 				      (cdr preferred))])
+ 	      (browser-process cmd))]
+ 	   [else
+ 	    (error 'send-url "Couldn't find ~a to open URL: ~e" (orify unix-browser-list) url-str)]))]
+        [else (error 'send-url "don't know how to open URL on platform: ~s" (system-type))])))
++
+   
++  ;; protect-shell-metachars: string -> string
++  ;; protects characters that are special to the shell
++  (define (protect-shell-metachars s)
++    (let* ((common-metacharacters (list #\& #\` #\" #\; #\? #\* #\& #\\))
++           (protect-shell-char (lambda (ch)
++                                 (if (member ch common-metacharacters)
++                                     (string #\\ ch)
++                                     (string ch)))))
++      (apply string-append
++             (map protect-shell-char (string->list s)))))
++
++  
++  
+   ; : tst -> bool
+   (define (custom-browser? x)
+     (and (pair? x) (string? (car x)) (string? (cdr x))))
+>How-To-Repeat:
+Set Browser preferences such that the 'external-browser preference is set to a nonstandard browser like Firefox:
+
+;;; within .plt-scheme/plt-prefs.ss
+ (external-browser ("firefox " . ""))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+On Unix platforms, the following should show the problem:
+
+;;;;;;;
+(require (lib "send-url.ss" "net"))
+(send-url "http://127.0.0.1:8000/servlets/;id116*k2-1499047059")
+;;;;;;;
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "eli" by eli at Sat, 12 May 2007 03:32:24 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Sat, 12 May 2007 03:32:24 -0400
+Reason>>> The intention is for you to quote the argument, by using
+(for example) a single quote at the end of the prefix text
+and the beginning of the suffix text.  But the whole thing
+is broken in many other ways, and will be seriously revised
+in the near future.  (Finally.)
+

@@ -1,0 +1,91 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Sep  7 10:43:05 2012
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q87Eh2jH004201
+	for <bugs@bugs.plt-scheme.org>; Fri, 7 Sep 2012 10:43:02 -0400
+Message-Id: <201209071442.q87Egwr3004190@champlain.ccs.neu.edu>
+Date: Fri, 7 Sep 2012 10:42:58 -0400
+From: tobias.hammer@dlr.de
+To: bugs@racket-lang.org
+Subject: subprocess, system etc fail on qnx due to fork incompatibility
+
+>Number:         13101
+>Category:       all
+>Synopsis:       subprocess, system etc fail on qnx due to fork incompatibility
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Sep 07 10:44:01 -0400 2012
+>Closed-Date:    Fri Sep 07 11:14:28 -0400 2012
+>Last-Modified:  Fri Sep 07 11:14:28 -0400 2012
+>Originator:     Tobias Hammer
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.19--2012-08-08(-/f)
+>Environment:
+unix "Linux thoosa 2.6.32.59-0.7-pae #1 SMP 2012-07-13 15:50:56 +0200 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 140090212
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+On qnx the fork() system call is not allowed when the process has previously spawned one or more threads. Therefore it always fails in racket. That renders all functionality that depends on fork, the whole familiy of subprocess and system functions, useless.
+
+This behavior is decumented here (section caveats)
+http://www.qnx.com/developers/docs/6.3.0SP3/neutrino/lib_ref/f/fork.html
+with detailed reasons here (section "Process creation and threads")
+http://www.qnx.com/developers/docs/6.4.1/neutrino/getting_started/s1_procs.html#Threads_and_processes
+
+The error can be reproduced on qnx by
+> ./racket -l racket/base -l racket/system -e '(system "ls")'
+subprocess: fork failed
+  system error: Function not implemented; errno=89
+
+As a workaround fork() can be replaced by vfork(), see
+http://www.qnx.com/developers/docs/6.3.0SP3/neutrino/lib_ref/v/vfork.html
+that may only be used when fork is followed by an exec*, as it happens for subprocess calls.
+vfork blocks the parent process until the child executed exec. As there are usually never any guarantees that the parent is executed again before the child execs it should not be a problem, but that should be double checked by someone with more knowledge of the internals. At least on my test system it works fine.
+
+A patch with the change is attached.
+>How-To-Repeat:
+diff --git a/src/racket/src/port.c b/src/racket/src/port.c
+index a5cac57..6bc8fcd 100644
+--- a/src/racket/src/port.c
++++ b/src/racket/src/port.c
+@@ -81,6 +81,9 @@ static int mzerrno = 0;
+ extern int osk_not_console; /* set by cmd-line flag */
+ #endif
+ #include <math.h> /* for fmod , used by default_sleep */
++#if defined(__QNX__)
++#include <process.h>  /* for subprocess vfork() */
++#endif
+ 
+ #ifndef MZ_BINARY
+ # define MZ_BINARY 0
+@@ -9309,7 +9312,11 @@ static Scheme_Object *subprocess(int c, Scheme_Object *args[])
+     scheme_block_child_signals(1);
+ #endif
+ 
++#if !defined(__QNX__)
+     pid = fork();
++#else
++    pid = vfork();
++#endif
+ 
+     if (pid > 0) {
+       if (new_process_group)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 07 Sep 2012 11:14:28 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/9f8e1d792e
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 07 Sep 2012 11:14:28 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/9f8e1d792e

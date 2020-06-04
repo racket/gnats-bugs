@@ -1,0 +1,161 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Mar 11 11:17:53 2014
+Received: from mail-ob0-f178.google.com (mail-ob0-f178.google.com [209.85.214.178])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s2BFHpKv012519
+	for <bugs@bugs.plt-scheme.org>; Tue, 11 Mar 2014 11:17:52 -0400
+Message-Id: <201403111517.s2BFHnBt012511@winooski.ccs.neu.edu>
+Date: Tue, 11 Mar 2014 11:17:49 -0400
+From: greghendershott@gmail.com
+To: bugs@racket-lang.org
+Subject: Typecheck error lacks srcloc or specific "in:"
+
+>Number:         14389
+>Category:       typed-scheme
+>Synopsis:       Typecheck error lacks srcloc or specific "in:"
+>Class:          sw-bug
+>Responsible:    asumu
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Mar 11 11:20:01 -0400 2014
+>Closed-Date:    Thu May 01 16:02:37 -0400 2014
+>Last-Modified:  Thu May 01 16:25:31 -0400 2014
+>Originator:     Greg Hendershott
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.93
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10.7; rv:27.0) Gecko/20100101 Firefox/27.0
+>Description:
+#lang typed/racket/base
+(require racket/flonum)
+(module+ test
+(require typed/rackunit)
+(define (from upto)
+(for/flvector ([i (in-range from upto)])
+0.0)))
+ 
+; Type Checker: Error in macro expansion -- insufficient type information to typecheck. please add more type annotations
+; in: ((require typed/rackunit) (define (from upto) (for/flvector ((i (in-range from upto))) 0.0)))
+ 
+;;; Notice two problems:
+;;;
+;;; 1. There is no srcloc in the error message.
+;;;
+;;; 2. The "in:" expression is the entire `test` submodule contents, not
+;;; the specific piece that didn't typecheck.
+;;;
+;;; It seems to be related to using `for/flvector`.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Greg Hendershott <greghendershott@gmail.com>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14389: Typecheck error lacks srcloc or specific "in:"
+Date: Tue, 11 Mar 2014 11:25:08 -0400
+
+ p.s. Sorry about submitting this against 5.93, but on #racket Sam was
+ able to repro using HEAD.
+ 
+ p.p.s. In this distilled tiny example, the consequence of the bug may
+ seem minor. But in a test submodule of real-world length, the lack of
+ srcloc is a problem. Not only is there no line number, the "in:"
+ message will be ellided, and the offending piece is likely to be after
+ the "...". As a result it can be quite difficult to determine where
+ the typecheck source is.
+ 
+ On Tue, Mar 11, 2014 at 11:20 AM,  <bugs@racket-lang.org> wrote:
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/14389'.
+ > You can check on the status of your problem report at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14389
+ >
+ > If you wish to provide further information regarding this problem
+ > you can do so as a reply to this message.  (But please make sure
+ > that your mailer replies to both "bugs" and "bug-notification".)
+ >
+From: Greg Hendershott <greghendershott@gmail.com>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14389: Typecheck error lacks srcloc or specific "in:"
+Date: Wed, 12 Mar 2014 14:13:14 -0400
+
+ Here's what I think is a variation of the same bug.
+ 
+ It uses `for:` (my original report involved using `for/flvector`).
+ 
+ ---
+ 
+ #lang typed/racket/base
+ 
+ (module m typed/racket/base
+   (: f (Nonnegative-Real -> Float))
+   (define (f n)
+     (+ (real->double-flonum n) 10))
+   (provide f))
+ (require 'm)
+ 
+ (module+ test
+   (require typed/rackunit)
+   (for: ([k : Nonnegative-Real (list 32 70)])
+     (check-= (f k) k 0.0001)))
+ 
+ ; Type Checker: untyped identifier apply-contract imported from module
+ <private/base.rkt>
+ ;   in: ((require typed/rackunit) (for: ((k : Nonnegative-Real (list
+ 32 70))) (check-= (f k) k 0.0001)))
+ ; Type Checker: untyped identifier generated-contract2 imported from
+ module <(submod . m)>
+ ;   in: ((require typed/rackunit) (for: ((k : Nonnegative-Real (list
+ 32 70))) (check-= (f k) k 0.0001)))
+ ; Type Checker: untyped identifier f imported from module <(submod . m)>
+ ;   in: ((require typed/rackunit) (for: ((k : Nonnegative-Real (list
+ 32 70))) (check-= (f k) k 0.0001)))
+ ; Type Checker: untyped identifier blame1 imported from module <(submod . m)>
+ ;   in: ((require typed/rackunit) (for: ((k : Nonnegative-Real (list
+ 32 70))) (check-= (f k) k 0.0001)))
+ ; Type Checker: Summary: 4 errors encountered
+ 
+ ---
+ 
+ What's bizarre is that there are no errors if the definition of `f` is
+ directly in the same module. Likewise no error if the test is in the
+ same module (instead of in a `test` submodule).
+ 
+ I keep hitting this error with (module+ test) forms, to the point
+ where I've had to temporarily comment out nearly half my tests in one
+ project. (Although I could work around this by moving them to
+ dedicated test files, (a) there are dozens and (b) I _really_ prefer
+ the "inline" (module+ test) forms right below the things they test.)
+
+Responsible changed from "samth" to "asumu" by asumu@racket-lang.org at Thu, 01 May 2014 16:02:37 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/06bd5d36af
+State changed from "open" to "closed" by asumu@racket-lang.org at Thu, 01 May 2014 16:02:37 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/06bd5d36af
+  | Don't track syntax with unknown source locations
+  | 
+  | Avoids recording original syntaxes with a source or position
+  | of #f, since these are usually intermediate syntax pairs that
+  | don't correspond to actual source syntax.
+  | 
+  | For example, in a (#%module-begin . rst) in a submodule, the
+  | underlying pair may contain an identifier and a cdr that is a
+  | syntax object. That cdr will have #f source and position and also
+  | does not correspond to any source syntax.
+  | 
+  | Leaving such syntax objects in the table means there are spurious
+  | hits later when a syntax object with an unknown source location
+  | is looked up.
+  | 
+  | Closes PR 14389
+
+
+----------
+A commit by asumu@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/947343c63f
+  | Add an explanation of the test case for PR 14389
+

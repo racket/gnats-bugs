@@ -1,0 +1,272 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Sep 29 17:48:26 2013
+Received: from mail-wi0-f174.google.com (mail-wi0-f174.google.com [209.85.212.174])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id r8TLmNWm021896
+	for <bugs@bugs.plt-scheme.org>; Sun, 29 Sep 2013 17:48:23 -0400
+Message-Id: <201309292148.r8TLmKh2021887@winooski.ccs.neu.edu>
+Date: Sun, 29 Sep 2013 17:48:20 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: TR generates slow contracts
+
+>Number:         14058
+>Category:       typed-scheme
+>Synopsis:       TR generates slow contracts
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Sep 29 17:52:02 -0400 2013
+>Last-Modified:  Sat Oct 05 21:01:44 -0400 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+Typed racket should generate the contract boolean? for the type Boolean.
+
+The contract it generates is about 10x slower
+>How-To-Repeat:
+#lang racket
+
+(define N 1000000)
+;(define N 10)
+
+(define (bool? x)
+  (for/list ((i (in-range N)))
+    (boolean? x)))
+
+(define (bool2? x)
+  (for/list ((i (in-range N)))
+    ((or/c #t #f) x)))
+
+(define (bool3? x)
+  (for/list ((i (in-range N)))
+    ((or/c (flat-named-contract '#f (lambda (x) (equal? x '#f))) (flat-named-contract '#t (lambda (x) (equal? x '#t))))
+     x)))
+
+
+(void (time (bool? 1)))
+(void (time (bool2? 2)))
+(void (time (bool3? 2)))
+
+(require typed-racket/private/type-contract
+         typed-racket/types/abbrev)
+
+(syntax->datum (type->contract -Boolean (lambda () #f)))
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: "eric.n.dobson@gmail.com" <eric.n.dobson@gmail.com>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>
+Cc: Sam TH <samth0@gmail.com>, Vincent St-Amour <stamourv@ccs.neu.edu>
+Subject: Re: [racket-bug] all/14058: TR generates slow contracts
+Date: Mon, 30 Sep 2013 11:31:40 -0500
+
+ --e89a8ff24eade8ff5c04e79c5e22
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I'm think this example doesn't really measure what you're seeking to
+ measure, unfortunately. When applying a flat contract like a function, the
+ code takes a different path than it does when a contract is applied (like
+ via contract-out or something). Also, this is measuring the cost of
+ constructing the contract value, not just using it. So a start on a better
+ test is to use 'contract', eg
+ 
+   (contract boolean? x 'pos 'neg)
+ 
+ But you don't want to put that into a loop either because 'contract'
+ allocates a blame object and a bunch of other little things that aren't
+ going to be happening when this gets used somewhere real (as the contract
+ should be applied early and then the resulting value used a lot for
+ something like this to matter).
+ 
+ So I think that something like the below is a better test for this kind of
+ thing and I'm not seeing a lot of difference between these contracts.
+ 
+ Also, in case it matters at some point in the future, the contract system
+ is in a good place to be able to turn things like (or/c #f #t) into
+ boolean? (which is why I thought to take a look here).
+ 
+ hth,
+ Robby
+ 
+ #lang racket
+ 
+ (define N 1000000)
+ ;(define N 10)
+ 
+ (define f2 (contract (-> boolean? any) values 'pos 'neg))
+ (define (bool2? x)
+   (for ((i (in-range N)))
+     (f2 #t)))
+ 
+ (define f3 (contract (-> (or/c #f #t) any) values 'pos 'neg))
+ (define (bool3? x)
+   (for ((i (in-range N)))
+     (f3 #t)))
+ 
+ (define f4 (contract (-> (or/c (flat-named-contract '#f (lambda (x) (equal?
+ x '#f)))
+                                (flat-named-contract '#t (lambda (x) (equal?
+ x '#t))))
+                          any)
+                      values 'pos 'neg))
+ (define (bool4? x)
+   (for ((i (in-range N)))
+     (f4 #t)))
+ 
+ (void (time (bool2? 2)))
+ (void (time (bool3? 2)))
+ (void (time (bool4? 2)))
+ 
+ 
+ On Sunday, September 29, 2013, wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14058
+ >
+ > Reported by Eric Dobson for release: HEAD
+ >
+ > *** Description:
+ > Typed racket should generate the contract boolean? for the type Boolean.
+ >
+ > The contract it generates is about 10x slower
+ >
+ > *** How to repeat:
+ > #lang racket
+ >
+ > (define N 1000000)
+ > ;(define N 10)
+ >
+ > (define (bool? x)
+ >   (for/list ((i (in-range N)))
+ >     (boolean? x)))
+ >
+ > (define (bool2? x)
+ >   (for/list ((i (in-range N)))
+ >     ((or/c #t #f) x)))
+ >
+ > (define (bool3? x)
+ >   (for/list ((i (in-range N)))
+ >     ((or/c (flat-named-contract '#f (lambda (x) (equal? x '#f)))
+ > (flat-named-contract '#t (lambda (x) (equal? x '#t))))
+ >      x)))
+ >
+ >
+ > (void (time (bool? 1)))
+ > (void (time (bool2? 2)))
+ > (void (time (bool3? 2)))
+ >
+ > (require typed-racket/private/type-contract
+ >          typed-racket/types/abbrev)
+ >
+ > (syntax->datum (type->contract -Boolean (lambda () #f)))
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2)
+ > AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >
+ >
+ 
+ --e89a8ff24eade8ff5c04e79c5e22
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ I&#39;m think this example doesn&#39;t really measure what you&#39;re seeki=
+ ng to measure, unfortunately. When applying a flat contract like a function=
+ , the code takes a different path than it does when a contract is applied (=
+ like via contract-out or something). Also, this is measuring the cost of co=
+ nstructing the contract value, not just using it. So a start on a better te=
+ st is to use &#39;contract&#39;, eg<div>
+ <br></div><div>=C2=A0 (contract boolean? x &#39;pos &#39;neg)</div><div><br=
+ ></div><div>But you don&#39;t want to put that into a loop either because &=
+ #39;contract&#39; allocates a blame object and a bunch of other little thin=
+ gs that aren&#39;t going to be happening when this gets used somewhere real=
+  (as the contract should be applied early and then the resulting value used=
+  a lot for something like this to matter).</div>
+ <div><br></div><div>So I think that something like the below is a better te=
+ st for this kind of thing and I&#39;m not seeing a lot of difference betwee=
+ n these contracts.</div><div><br></div><div>Also, in case it matters at som=
+ e point in the future, the contract system is in a good place to be able to=
+  turn things like (or/c #f #t) into boolean? (which is why I thought to tak=
+ e a look here).</div>
+ <div><br></div><div>hth,</div><div>Robby</div><div><br></div><div><div>#lan=
+ g racket</div><div><br></div><div>(define N 1000000)</div><div>;(define N 1=
+ 0)</div><div><br></div><div>(define f2 (contract (-&gt; boolean? any) value=
+ s &#39;pos &#39;neg))</div>
+ <div>(define (bool2? x)</div><div>=C2=A0 (for ((i (in-range N)))</div><div>=
+ =C2=A0 =C2=A0 (f2 #t)))</div><div><br></div><div>(define f3 (contract (-&gt=
+ ; (or/c #f #t) any) values &#39;pos &#39;neg))</div><div>(define (bool3? x)=
+ </div><div>
+ =C2=A0 (for ((i (in-range N)))</div><div>=C2=A0 =C2=A0 (f3 #t)))</div><div>=
+ <br></div><div>(define f4 (contract (-&gt; (or/c (flat-named-contract &#39;=
+ #f (lambda (x) (equal? x &#39;#f)))=C2=A0</div><div>=C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0(flat-named-contract &#39;#t (lambda (x) (equal? x &#39;#t=
+ ))))</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0any)</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0values &#39;pos &#39;neg))</div><div>=
+ (define (bool4? x)</div><div>=C2=A0 (for ((i (in-range N)))</div><div>=C2=
+ =A0 =C2=A0 (f4 #t)))</div><div><br></div><div>(void (time (bool2? 2)))</div=
+ >
+ <div>(void (time (bool3? 2)))</div><div>(void (time (bool4? 2)))</div><div>=
+ <br></div><br>On Sunday, September 29, 2013,   wrote:<br><blockquote class=
+ =3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padd=
+ ing-left:1ex">
+ A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14=
+ 058" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14058</a><br>
+ <br>
+ Reported by Eric Dobson for release: HEAD<br>
+ <br>
+ *** Description:<br>
+ Typed racket should generate the contract boolean? for the type Boolean.<br=
+ >
+ <br>
+ The contract it generates is about 10x slower<br>
+ <br>
+ *** How to repeat:<br>
+ #lang racket<br>
+ <br>
+ (define N 1000000)<br>
+ ;(define N 10)<br>
+ <br>
+ (define (bool? x)<br>
+ =C2=A0 (for/list ((i (in-range N)))<br>
+ =C2=A0 =C2=A0 (boolean? x)))<br>
+ <br>
+ (define (bool2? x)<br>
+ =C2=A0 (for/list ((i (in-range N)))<br>
+ =C2=A0 =C2=A0 ((or/c #t #f) x)))<br>
+ <br>
+ (define (bool3? x)<br>
+ =C2=A0 (for/list ((i (in-range N)))<br>
+ =C2=A0 =C2=A0 ((or/c (flat-named-contract &#39;#f (lambda (x) (equal? x &#3=
+ 9;#f))) (flat-named-contract &#39;#t (lambda (x) (equal? x &#39;#t))))<br>
+ =C2=A0 =C2=A0 =C2=A0x)))<br>
+ <br>
+ <br>
+ (void (time (bool? 1)))<br>
+ (void (time (bool2? 2)))<br>
+ (void (time (bool3? 2)))<br>
+ <br>
+ (require typed-racket/private/type-contract<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0typed-racket/types/abbrev)<br>
+ <br>
+ (syntax-&gt;datum (type-&gt;contract -Boolean (lambda () #f)))<br>
+ <br>
+ *** Environment:<br>
+ MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.2=
+ 8 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28<br>
+ <br>
+ </blockquote></div>
+ 
+ --e89a8ff24eade8ff5c04e79c5e22--
+

@@ -1,0 +1,111 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Feb  9 14:18:06 2015
+Received: from mail-oi0-f45.google.com (mail-oi0-f45.google.com [209.85.218.45])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t19JI43D010903
+	for <bugs@bugs.plt-scheme.org>; Mon, 9 Feb 2015 14:18:05 -0500
+Message-Id: <201502091918.t19JI1Bu010892@winooski.ccs.neu.edu>
+Date: Mon, 9 Feb 2015 14:18:01 -0500
+From: lexi.lambda@gmail.com
+To: bugs@racket-lang.org
+Subject: Type annotations in the body of splicing-syntax-parameterize are ignored by the typechecker
+
+>Number:         14973
+>Category:       typed-scheme
+>Synopsis:       Type annotations in the body of splicing-syntax-parameterize are ignored by the typechecker
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Feb 09 14:20:01 -0500 2015
+>Last-Modified:  Wed Jun 10 11:59:41 -0400 2015
+>Originator:     Alexis King
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.8--2015-01-31(-/f)
+>Environment:
+macosx "Darwin jbook 14.1.0 Darwin Kernel Version 14.1.0: Mon Dec 22 23:10:38 PST 2014; root:xnu-2782.10.72~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 963787076
+raco pkg (show):
+Installation-wide:
+ Package                 Checksum           Source
+ main-distribution       67868e03...        catalog...ibution
+ main-distribution-test  ca4a870e...        catalog...on-test
+ racket-lib                                 static-link...lib
+ typed-racket-lib        787df491...        clone...acket-lib
+ [217 auto-installed packages not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/Users/Jake/Library/Racket/development/collects"
+ (non-existent-path))
+("/Users/Jake/gits/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+Due to the way splicing-syntax-parameterize expands, type annotations in its body are missed by the typechecker. I'm not sure if this should be fixed by changing splicing-syntax-parameterize or by changing something in TR, but it definitely causes unexpected behavior.
+>How-To-Repeat:
+#lang typed/racket
+(require racket/splicing)
+
+(splicing-syntax-parameterize ()
+  (: x Number)
+  (define x "apple") ; typechecks, no type error!
+  x)
+
+> (:print-type x) ; x is properly typed, but the annotation is ignored
+String
+>Fix:
+>Audit-Trail:
+From: Alexis King <lexi.lambda@gmail.com>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14973: Type annotations in the body of splicing-syntax-parameterize are ignored by the typechecker
+Date: Mon, 9 Feb 2015 11:41:17 -0800
+
+ I’ve done some investigation into this problem, and it’s due to the way splicing-syntax-parameterize expands. Each expression inside the body is lifted into a separate letrec-syntax form.
+ 
+ Therefore, this:
+ 
+ (splicing-syntax-parameterize ([foo #f])
+   (: x String))
+ 
+ Becomes this:
+ 
+ (define-values ()
+   (letrec-syntaxes ([(foo1) (syntax-local-value (quote-syntax foo12))])
+     (:-helper (: x String) #f x String)))
+ 
+ Nothing wrong so far. The problem arises when letrec-syntaxes is expanded. First, it's expanded to this:
+ 
+ (letrec-syntaxes+values
+     ([(foo1) (#%app syntax-local-value (quote-syntax foo12))])
+      ()
+   (begin (quote-syntax (:-internal x String)) (#%plain-app values)))
+ 
+ Odd, but still no real problems. The trouble is that the `begin' is spliced into the letrec-syntaxes+values body, leaving this:
+ 
+ (define-values ()
+   (letrec-syntaxes+values
+       ([(foo1) (#%app syntax-local-value (quote-syntax foo12))])
+       ()
+     (quote-syntax (:-internal x String))
+     (#%plain-app values)))
+ 
+ So we're left with that, which isn't expanded further before it's passed to the typechecker. Obviously, that blob of code doesn't match the type-declaration syntax class, so TR just never looks at it.
+ 
+ I'm not familiar enough with Racket macros to know what the problem is here. It does seem strange to me that the letrec-syntaxes+values form isn't expanded before handing it off to the typechecker, but even if it were, the problem would still remain.
+ 
+ The quick fix is to modify the definition of the internal^ syntax class in internal-forms.rkt to add the following pattern:
+ 
+ (pattern (define-values () (letrec-syntaxes+values (_ ...) () (quote-syntax value:expr) (#%plain-app values))))
+ 
+ Is that reasonable? It feels like quite the hack to me. Honestly, I don't know. I'm not familiar enough with this code to answer. Should splicing-syntax-parameterize be fixed to generate less bizarre code? Or should TR handle this better?
+

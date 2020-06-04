@@ -1,0 +1,427 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Mar 16 12:57:41 2013
+Received: from mail-oa0-f43.google.com (mail-oa0-f43.google.com [209.85.219.43])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r2GGvcmC023940
+	for <bugs@bugs.plt-scheme.org>; Sat, 16 Mar 2013 12:57:38 -0400
+Message-Id: <201303161657.r2GGva8t023935@champlain.ccs.neu.edu>
+Date: Sat, 16 Mar 2013 12:57:36 -0400
+From: norman@astro.gla.ac.uk
+To: bugs@racket-lang.org
+Subject: require/untyped-contract fails to load struct
+
+>Number:         13608
+>Category:       help-desk
+>Synopsis:       require/untyped-contract fails to load struct
+>Class:          sw-bug
+>Responsible:    ntoronto
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Mar 16 13:00:01 -0400 2013
+>Closed-Date:    Fri Apr 04 21:09:12 -0400 2014
+>Last-Modified:  Fri Apr 04 21:09:12 -0400 2014
+>Originator:     Norman Gray
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.57 Safari/537.17
+>Description:
+See description/reduction below.
+
+I originally mentioned this as part of the followup to bug 13594, which I discovered while trying to create this reduction.  However that's probably not sensible, so I'm re-reporting it as a separate bug here.
+>How-To-Repeat:
+Consider the following.
+
+I declare a struct, and a module which uses it:
+
+    % cat thing.rkt
+    #lang typed/racket
+    
+    (struct: thing ([s : String])
+      #:transparent)
+    
+    (provide thing thing?)
+    % cat f.rkt 
+    #lang typed/racket
+    
+    (require "./thing.rkt")
+    (provide f)
+    
+    (: f (case->
+          (-> thing)
+          (Input-Port -> thing)
+          (Bytes -> thing)))
+    (define (f (p #f))
+      ;(eprintf "p=~s: ~s/~s~%" p (input-port? p) (bytes? p))
+      (thing
+       (cond ((input-port? p)
+              (format "p-> ~a" (read-bytes 100 p)))
+             ((bytes? p)
+              (format "b-> ~a" p))
+             (else
+              "-> nothing"))))
+
+Then I create a main.rkt which uses these
+
+    % cat main-typed.rkt 
+    #lang typed/racket
+    (require "./thing.rkt" "./f.rkt")
+    (provide (all-from-out "./thing.rkt" "./f.rkt"))
+    % cat try-tt.rkt    
+    #lang typed/racket
+    (require "./main-typed.rkt")
+    (call-with-input-bytes #"tt" f)
+    % 
+
+That works:
+
+    % racket -t try-tt.rkt
+    (thing "-> nothing")
+    % 
+
+(well, it doesn't, actually, but the wrong answer is possibly because of a separate bug (13594); but Racket doesn't object to this).
+
+Running this from untyped Racket, however, doesn't work:
+
+    % cat try-ut.rkt                
+    #lang racket
+    (require "./main-typed.rkt")
+    
+    (call-with-input-bytes #"ut" f)
+    % racket -t try-ut.rkt          
+    try-ut.rkt:4:29: Type Checker: The type of f cannot be converted to a contract
+      in: f
+    %
+
+OK, disappointing, but I can deal with that, after reading http://lists.racket-lang.org/users/archive/2012-November/054951.html and eg collects/math/special-functions.rkt :
+
+    % cat main-untyped.rkt    
+    #lang racket/base
+    (require typed/untyped-utils)
+    (require racket/contract
+             "./thing.rkt"
+             (except-in "./f.rkt" f))
+    (require/untyped-contract "./f.rkt"
+                              (f (case->
+                                  ([#:k (U Symbol Integer False)] -> thing)
+                                  (Input-Port [#:k (U Symbol Integer False)] -> thing)
+                                  (Bytes [#:k (U Symbol Integer False)] -> thing))))
+    (provide (all-from-out "./thing.rkt" 
+                           "./f.rkt"))
+    % cat try-uu.rkt 
+    #lang racket
+    (require "./main-untyped.rkt")    
+    (call-with-input-bytes #"uu" f)
+    % racket -t try-uu.rkt          
+    Type Checker: Unbound type name thing
+      in: f2
+      context...:
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/utils/tc-utils.rkt:95:12: for-loop
+       f16
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typecheck/tc-toplevel.rkt:295:0: type-check
+       success
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typed-racket.rkt:40:4
+       standard-module-name-resolver
+       standard-module-name-resolver
+    Type Checker: Unbound type name thing
+      in: f2
+      context...:
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/utils/tc-utils.rkt:95:12: for-loop
+       f16
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typecheck/tc-toplevel.rkt:295:0: type-check
+       success
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typed-racket.rkt:40:4
+       standard-module-name-resolver
+       standard-module-name-resolver
+    Type Checker: Unbound type name thing
+      in: f2
+      context...:
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/utils/tc-utils.rkt:95:12: for-loop
+       f16
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typecheck/tc-toplevel.rkt:295:0: type-check
+       success
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typed-racket.rkt:40:4
+       standard-module-name-resolver
+       standard-module-name-resolver
+    Type Checker: Summary: 3 errors encountered
+      context...:
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typecheck/tc-toplevel.rkt:295:0: type-check
+       success
+       /Data/LocalApplications/Racket/5.3.3/collects/typed-racket/typed-racket.rkt:40:4
+       standard-module-name-resolver
+       standard-module-name-resolver
+    % 
+
+Based on the reduction I've done, it appears to be the Input-Port in the type that causes the problem with generating the contract.
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: norman@astro.gla.ac.uk, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13608: require/untyped-contract fails to load
+ struct
+Date: Sat, 16 Mar 2013 10:23:28 -0700
+
+ On 03/16/2013 10:00 AM, norman@astro.gla.ac.uk wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=13608
+ >
+ > Reported by Norman Gray for release: 5.3.3
+ >
+ > *** Description:
+ > See description/reduction below.
+ >
+ > I originally mentioned this as part of the followup to bug 13594, which I discovered while trying to create this reduction.  However that's probably not sensible, so I'm re-reporting it as a separate bug here.
+ >
+ > *** How to repeat:
+ > Consider the following.
+ >
+ > I declare a struct, and a module which uses it:
+ >
+ >      % cat thing.rkt
+ >      #lang typed/racket
+ >
+ >      (struct: thing ([s : String])
+ >        #:transparent)
+ >
+ >      (provide thing thing?)
+ >      % cat f.rkt
+ >      #lang typed/racket
+ >
+ >      (require "./thing.rkt")
+ >      (provide f)
+ >
+ >      (: f (case->
+ >            (-> thing)
+ >            (Input-Port -> thing)
+ >            (Bytes -> thing)))
+ >      (define (f (p #f))
+ >        ;(eprintf "p=~s: ~s/~s~%" p (input-port? p) (bytes? p))
+ >        (thing
+ >         (cond ((input-port? p)
+ >                (format "p-> ~a" (read-bytes 100 p)))
+ >               ((bytes? p)
+ >                (format "b-> ~a" p))
+ >               (else
+ >                "-> nothing"))))
+ >
+ > Then I create a main.rkt which uses these
+ >
+ >      % cat main-typed.rkt
+ >      #lang typed/racket
+ >      (require "./thing.rkt" "./f.rkt")
+ >      (provide (all-from-out "./thing.rkt" "./f.rkt"))
+ >      % cat try-tt.rkt
+ >      #lang typed/racket
+ >      (require "./main-typed.rkt")
+ >      (call-with-input-bytes #"tt" f)
+ >      %
+ >
+ > That works:
+ >
+ >      % racket -t try-tt.rkt
+ >      (thing "-> nothing")
+ >      %
+ >
+ > (well, it doesn't, actually, but the wrong answer is possibly because of a separate bug (13594); but Racket doesn't object to this).
+ >
+ > Running this from untyped Racket, however, doesn't work:
+ >
+ >      % cat try-ut.rkt
+ >      #lang racket
+ >      (require "./main-typed.rkt")
+ >
+ >      (call-with-input-bytes #"ut" f)
+ >      % racket -t try-ut.rkt
+ >      try-ut.rkt:4:29: Type Checker: The type of f cannot be converted to a contract
+ >        in: f
+ >      %
+ >
+ > OK, disappointing, but I can deal with that, after reading http://lists.racket-lang.org/users/archive/2012-November/054951.html and eg collects/math/special-functions.rkt :
+ >
+ >      % cat main-untyped.rkt
+ >      #lang racket/base
+ >      (require typed/untyped-utils)
+ >      (require racket/contract
+ >               "./thing.rkt"
+ >               (except-in "./f.rkt" f))
+ >      (require/untyped-contract "./f.rkt"
+ >                                (f (case->
+ >                                    ([#:k (U Symbol Integer False)] -> thing)
+ >                                    (Input-Port [#:k (U Symbol Integer False)] -> thing)
+ >                                    (Bytes [#:k (U Symbol Integer False)] -> thing))))
+ >      (provide (all-from-out "./thing.rkt"
+ >                             "./f.rkt"))
+ >      % cat try-uu.rkt
+ >      #lang racket
+ >      (require "./main-untyped.rkt")
+ >      (call-with-input-bytes #"uu" f)
+ >      % racket -t try-uu.rkt
+ >      Type Checker: Unbound type name thing
+ >      [...]
+ 
+ I agree that this is disappointing. Unfortunately, allowing type 
+ declarations access to the bindings outside the 
+ `require/untyped-contract' form isn't possible right now.
+ 
+ There's a workaround. If the first subform of a 
+ `require/untyped-contract' matches (begin ...), all the `begin' 
+ subexpressions are evaluated first, in the lexical context of the type 
+ declarations. So, for example, this works fine:
+ 
+    (require/untyped-contract
+     (begin (require 'thing))
+     'f
+     (f (case->
+         ([#:k (U Symbol Integer False)] -> thing)
+         (Input-Port [#:k (U Symbol Integer False)] -> thing)
+         (Bytes [#:k (U Symbol Integer False)] -> thing))))
+ 
+ It's ugly, but it's the best I could do. :/
+ 
+ I'll mark this as a documentation bug.
+ 
+ Neil ⊥
+ 
+
+Responsible changed from "nobody" to "ntoronto" by ntoronto at Sat, 16 Mar 2013 13:25:46 -0400
+Reason>>> typed/untyped-utils
+
+From: Norman Gray <norman@astro.gla.ac.uk>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13608: require/untyped-contract fails to load struct
+Date: Wed, 20 Mar 2013 20:39:06 +0000
+
+ Neil, hello.
+ 
+ (I'm keeping the cc-list unchanged -- minus nobody@racket-lang.org -- should I take this back onto the users list?)
+ 
+ On 2013 Mar 16, at 17:23, Neil Toronto <neil.toronto@gmail.com> wrote:
+ 
+ > There's a workaround. If the first subform of a `require/untyped-contract' matches (begin ...), all the `begin' subexpressions are evaluated first, in the lexical context of the type declarations. So, for example, this works fine:
+ > 
+ >  (require/untyped-contract
+ >   (begin (require 'thing))
+ >   'f
+ >   (f (case->
+ >       ([#:k (U Symbol Integer False)] -> thing)
+ >       (Input-Port [#:k (U Symbol Integer False)] -> thing)
+ >       (Bytes [#:k (U Symbol Integer False)] -> thing))))
+ > 
+ > It's ugly, but it's the best I could do. :/
+ 
+ Thanks for this; it works.
+ 
+ However I discovered quite by accident (which is to say, flailing around randomly with the contracts) that the problem evaporates if I change the contract.
+ 
+ coricopat:test/untyped-test> cat f2.rkt
+ #lang typed/racket
+ 
+ (provide f3 f4)
+ 
+ (: f3 (case->
+        (-> String)
+        ((U Bytes Input-Port) -> String)))
+ (define (f3 (p #f))
+   (cond ((input-port? p)
+          (format "p-> ~a" (read-bytes 100 p)))
+         ((bytes? p)
+          (format "b-> ~a" p))
+         (else
+          "-> nothing")))
+ 
+ (: f4 (case->
+        (-> String)
+        (Bytes -> String)
+        (Input-Port -> String)))
+ (define f4 f3)
+ coricopat:test/untyped-test> cat main2-untyped.rkt 
+ #lang racket/base
+ (require "./f2.rkt")
+ (provide (all-from-out "./f2.rkt"))
+ coricopat:test/untyped-test> cat try2.rkt 
+ #lang racket
+ (require "./main2-untyped.rkt")
+ (f3 #"hello")
+ (f4 #"hello")
+ coricopat:test/untyped-test> racket try2.rkt
+ try2.rkt:4:0: Type Checker: The type of f4 cannot be converted to a contract
+   in: (f4 #"hello")
+   context...:
+    /Data/LocalApplications/Racket/5.3.3/collects/racket/private/modbeg.rkt:46:4
+    standard-module-name-resolver
+ coricopat:test/untyped-test> 
+ 
+ 
+ I would naively have thought that the types of f3 and f4 would be equivalent, but it seems that the f3 type can be converted to a contract, but the f4 one can't.
+ 
+ Is this completely obvious (ie facepalm), do you know, or is it unexpected?
+ 
+ All the best,
+ 
+ Norman
+ (who has _one_ more typed/racket perplexity to resolve, and who will then back away from typed/racket, and stop pestering the list, for a while....)
+ 
+ 
+ -- 
+ Norman Gray  :  http://nxg.me.uk
+ SUPA School of Physics and Astronomy, University of Glasgow, UK
+ 
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Norman Gray <norman@astro.gla.ac.uk>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13608: require/untyped-contract fails to load struct
+Date: Wed, 20 Mar 2013 16:45:22 -0400
+
+ On Wed, Mar 20, 2013 at 4:39 PM, Norman Gray <norman@astro.gla.ac.uk> wrote:
+ >
+ > I would naively have thought that the types of f3 and f4 would be equivalent, but it seems that the f3 type can be converted to a contract, but the f4 one can't.
+ 
+ Typed Racket can't currently handle generating contracts for
+ overloading based on type rather than on arity.  In this case, the two
+ types are equivalent, but there are many such types that aren't.  We
+ plan to support generating contracts for the type of `f4`, and
+ hopefully more, in the future.
+ 
+ Sam
+From: Norman Gray <norman@astro.gla.ac.uk>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13608: require/untyped-contract fails to load struct
+Date: Wed, 20 Mar 2013 20:48:14 +0000
+
+ Sam, hello.
+ 
+ On 2013 Mar 20, at 20:45, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ 
+ >> I would naively have thought that the types of f3 and f4 would be equivalent, but it seems that the f3 type can be converted to a contract, but the f4 one can't.
+ > 
+ > Typed Racket can't currently handle generating contracts for
+ > overloading based on type rather than on arity.  In this case, the two
+ > types are equivalent, but there are many such types that aren't.  We
+ > plan to support generating contracts for the type of `f4`, and
+ > hopefully more, in the future.
+ 
+ Righto Sam -- thanks.
+ 
+ All the best,
+ 
+ Norman
+ 
+ 
+ -- 
+ Norman Gray  :  http://nxg.me.uk
+ SUPA School of Physics and Astronomy, University of Glasgow, UK
+ 
+ 
+
+State changed from "open" to "closed" by ntoronto at Fri, 04 Apr 2014 21:09:12 -0400
+Reason>>> Confusion caused by lack of documentation. Fixed by commit
+d687865556.
+

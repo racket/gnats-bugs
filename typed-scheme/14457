@@ -1,0 +1,221 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Apr 19 19:09:43 2014
+Received: from mail-ob0-f174.google.com (mail-ob0-f174.google.com [209.85.214.174])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s3JN9gCb009919
+	for <bugs@bugs.plt-scheme.org>; Sat, 19 Apr 2014 19:09:42 -0400
+Message-Id: <201404192309.s3JN9dCl009913@winooski.ccs.neu.edu>
+Date: Sat, 19 Apr 2014 19:09:39 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: Types wrongly unnarrowed by `rest` and wrongly widened by `cons`
+
+>Number:         14457
+>Category:       typed-scheme
+>Synopsis:       Types wrongly unnarrowed by `rest` and wrongly widened by `cons`
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Apr 19 19:12:01 -0400 2014
+>Last-Modified:  Tue Apr 29 14:16:03 -0400 2014
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1.1--2014-04-13(1ad9b4fd/d)
+>Environment:
+unix "Linux woodstock 3.11.0-19-generic #33-Ubuntu SMP Tue Mar 11 18:48:34 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 431993928
+raco pkg (show):
+/home/neil/plt/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [213 auto-installed packages not shown]
+Installation-wide:
+ Package               Checksum                                    Source
+ nonplussed            f6c069990eb6b0b3356f872fcce82a3fb2fe805a    (url git://github.com/ntoronto/nonplussed)
+ optimization-coach    be5f7908939c31a68d5c7dc9202315ffa8863180    (catalog optimization-coach)
+ rsound                4f5d4d154eb7585b96b24298b79e3381bab8f1a5    (catalog rsound)
+ [1 auto-installed package not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/development/collects"
+ (non-existent-path))
+("/home/neil/plt/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((test) (main)) #t))
+>Description:
+Reproduction steps contains a program with 12 functions that should typecheck, but 7 fail. I think the failures are due to bad handling of case types in which some cases don't use all the type variables.
+
+Here's what I see:
+
+1. If vs : (Listof Index), then (empty? vs) and (empty? (rest vs)) correctly narrow the type of `vs` in each branch, but (empty? (rest (rest vs))) doesn't narrow the type of `vs`. However, (empty? (cdr (cdr vs))) correctly narrows the type.
+
+2. When v1 : Index and vs : (Listof+2 Index), almost always (cons v1 vs) : (Listof Index), which is too wide. Apparently, the only case in which (cons v1 vs) correctly has type (Listof+3 Index) is when a monomorphic function expects it as a (Listof+3 Index) argument.
+
+3. When v1 : Index and vs : (Listof+2 Index), the type of (cons v1 vs) can be narrowed using
+
+  (ann (cons v1 vs) (Listof+3 Index))
+
+Monomorphic functions that expect a (Listof+3 Index) probably do something equivalent. But the type can apparently never be narrowed using
+
+  ((inst cons Index (Listof+2 Index)) v1 vs)
+
+In fact, using `inst` like this causes the type to be widened to (Listof Index); see `make-mono-polygon3`.
+
+#2 and #3 are probably arise from the same error.
+>How-To-Repeat:
+#lang typed/racket
+
+(define-type (Listof+1 A) (Pair A (Listof A)))
+(define-type (Listof+2 A) (Pair A (Listof+1 A)))
+(define-type (Listof+3 A) (Pair A (Listof+2 A)))
+
+;; ===================================================================================================
+;; Polymorphic polygon struct type
+
+(struct (D) polygon ([data : D] [vertices : (Listof+3 Index)]) #:transparent)
+
+(: make-polygon1 (All (D) (-> D (Listof Index) (polygon D))))
+(define (make-polygon1 data vs)
+  (if (or (empty? vs) (empty? (rest vs)) (empty? (rest (rest vs))))
+      (error 'bad)
+;; Type Checker: Polymorphic function `polygon1' could not be applied to arguments: [...]
+;; Argument 2:
+;;   Expected: (Pairof Index (Pairof Index (Pairof Index (Listof Index))))
+;;   Given:    (Pairof Index (Pairof Index (Listof Index)))
+      (polygon data vs)))
+
+(: make-polygon2 (All (D) (-> D (Listof Index) (polygon D))))
+(define (make-polygon2 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+;; Type Checker: Polymorphic function `polygon1' could not be applied to arguments: [...]
+;; Argument 2:
+;;   Expected: (Pairof Index (Pairof Index (Pairof Index (Listof Index))))
+;;   Given:    (Listof Index)
+            (polygon data (cons v1 vs))))))
+
+(: make-polygon3 (All (D) (-> D (Listof Index) (polygon D))))
+(define (make-polygon3 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+;; Type Checker: Polymorphic function `polygon1' could not be applied to arguments: [...]
+;; Argument 2:
+;;   Expected: (Pairof Index (Pairof Index (Pairof Index (Listof Index))))
+;;   Given:    (Listof Index)
+            (polygon data ((inst cons Index (Listof+2 Index)) v1 vs))))))
+
+(: make-polygon4 (All (D) (-> D (Listof Index) (polygon D))))
+(define (make-polygon4 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+            (let ([vs  (cons v1 vs)])
+;; Type Checker: Polymorphic function `polygon1' could not be applied to arguments: [...]
+;; Argument 2:
+;;   Expected: (Pairof Index (Pairof Index (Pairof Index (Listof Index))))
+;;   Given:    (Listof Index)
+              (polygon data vs))))))
+
+(: make-polygon5 (All (D) (-> D (Listof Index) (polygon D))))
+(define (make-polygon5 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+;; Passes:
+            (polygon data (ann (cons v1 vs) (Listof+3 Index)))))))
+
+(: make-polygon6 (All (D) (-> D (Listof Index) (polygon D))))
+(define (make-polygon6 data vs)
+  (if (or (empty? vs) (empty? (cdr vs)) (empty? (cdr (cdr vs))))
+      (error 'bad)
+;; Passes:
+      (polygon data vs)))
+
+;; ===================================================================================================
+;; Monomorphic polygon struct type
+
+(struct mono-polygon ([data : Any] [vertices : (Listof+3 Index)]) #:transparent)
+
+(: make-mono-polygon1 (-> Any (Listof Index) mono-polygon))
+(define (make-mono-polygon1 data vs)
+  (if (or (empty? vs) (empty? (rest vs)) (empty? (rest (rest vs))))
+      (error 'bad)
+;; Type Checker: type mismatch
+;;   expected: (Pairof Index (Pairof Index (Pairof Index (Listof Index))))
+;;   given: (Pairof Index (Pairof Index (Listof Index))) in: vs
+      (mono-polygon data vs)))
+
+(: make-mono-polygon2 (-> Any (Listof Index) mono-polygon))
+(define (make-mono-polygon2 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+;; Passes:
+            (mono-polygon data (cons v1 vs))))))
+
+(: make-mono-polygon3 (-> Any (Listof Index) mono-polygon))
+(define (make-mono-polygon3 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+;; Type Checker: type mismatch
+;;   expected: (Pairof Index (Pairof Index (Pairof Index (Listof Index))))
+;;   given: (Listof Index) in: ((inst cons Index (Listof+2 Index)) v1 vs)
+            (mono-polygon data ((inst cons Index (Listof+2 Index)) v1 vs))))))
+
+(: make-mono-polygon4 (-> Any (Listof Index) mono-polygon))
+(define (make-mono-polygon4 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+            (let ([vs  (cons v1 vs)])
+;; Type Checker: type mismatch
+;;   expected: (Pairof Index (Pairof Index (Pairof Index (Listof Index))))
+;;   given: (Listof Index) in: vs
+              (mono-polygon data vs))))))
+
+(: make-mono-polygon5 (-> Any (Listof Index) mono-polygon))
+(define (make-mono-polygon5 data vs)
+  (if (or (empty? vs) (empty? (rest vs)))
+      (error 'bad)
+      (let-values ([(v1 vs)  (values (first vs) (rest vs))])
+        (if (or (empty? vs) (empty? (rest vs)))
+            (error 'bad)
+;; Passes:
+            (mono-polygon data (ann (cons v1 vs) (Listof+3 Index)))))))
+
+(: make-mono-polygon6 (-> Any (Listof Index) mono-polygon))
+(define (make-mono-polygon6 data vs)
+  (if (or (empty? vs) (empty? (cdr vs)) (empty? (cdr (cdr vs))))
+      (error 'bad)
+;; Passes:
+      (mono-polygon data vs)))
+>Fix:

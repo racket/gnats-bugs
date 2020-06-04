@@ -1,0 +1,148 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Apr 25 18:22:42 2007
+Received: from ik-out-1112.google.com (ik-out-1112.google.com [66.249.90.180])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l3PMMgZa023835
+	for <bugs@bugs.plt-scheme.org>; Wed, 25 Apr 2007 18:22:42 -0400
+Message-Id: <200704252222.l3PMMb6i023829@champlain.ccs.neu.edu>
+Date: Wed, 25 Apr 2007 18:22:37 -0400
+From: farr@mit.edu
+To: bugs@plt-scheme.org
+Subject: Possible (but unlikely) bug in foreign.ss (_f64vector o n) and (_f32vector o n) custom _fun types
+
+>Number:         8629
+>Category:       misc
+>Synopsis:       Possible (but unlikely) bug in foreign.ss (_f64vector o n) and (_f32vector o n) custom _fun types
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Apr 25 18:25:01 -0400 2007
+>Closed-Date:    Fri Feb 15 21:58:09 -0500 2008
+>Last-Modified:  Fri Feb 15 22:00:01 -0500 2008
+>Originator:     Will M. Farr
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.10-svn24apr2007
+>Environment:
+macosx "Darwin csr-dyn-69.mit.edu 8.9.0 Darwin Kernel Version 8.9.0: Thu Feb 22 20:54:07 PST 2007; root:xnu-792.17.14~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/farr/Documents/code/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 304372132
+
+Collections:
+(("/Users/farr/Library/PLT Scheme/369.10/collects" non-existent-path) ("/Users/farr/Documents/code/plt/collects" ".svn" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+The (_f64vector o n) and (_f32vector o n) custom _fun types from foreign.ss have a bug, which won't happen often.  As written, these simply malloc an atomic pointer to a suitably-sized memory region and pass this pointer to the foreign routine.  However, it is possible that the memory region (which is not initialized) could contain bit patters which would be interpreted as a floating-point nan or inf.  This is inconvenient, for example, when wrapping BLAS multiplication routines, such as 
+
+y <- alpha*Ax + beta*y
+
+where the output vector y can be a freshly allocated vector full of junk on input if beta = 0.0 *provided that y contains no nans or infs*.  y cannot contain nans and infs because these do not give 0.0 when multiplied by 0.0: (0.0*nan) = nan and (0.0*inf) = nan.  If y contains a nan or inf, the result will be nan, while y "shouldn't" have affected the output at all because beta=0.0.
+
+The following patch (against current SVN) memsets the newly-allocated data region to 0 (= 0.0 bit pattern) for all (_TAGvector o n) SRFI-4 types.  This eliminates the possibility of nan or inf bit patterns in the floating-point SRFI-4 vectors, and costs very little in terms of efficiency because 1) the memset command is very efficient and 2) the output vector would be iterated over by the C routine anyway.
+
+Index: foreign.ss
+===================================================================
+--- foreign.ss  (revision 6035)
++++ foreign.ss  (working copy)
+@@ -1095,7 +1095,9 @@
+                       (syntax-id-rules (i o io)
+                         [(_ i   ) _TAG*]
+                         [(_ o  n) (type: _pointer
+-                                         pre:  (malloc n type)
++                                         pre: (let ((p (malloc n type 'atomic)))
++                                                (memset p 0 n type)
++                                                p)
+                                          post: (x => (make-TAG x n)))]
+                         [(_ io  ) (type: _cvector*
+                                          bind: tmp
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: farr@mit.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8629: Possible (but unlikely) bug in foreign.ss (_f64vector o n) and (_f32vector o n) custom _fun types
+Date: Sat, 12 May 2007 02:44:15 -0400
+
+ On Apr 25, farr@mit.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8629
+ > 
+ > Reported by Will M. Farr for release: 369.10-svn24apr2007
+ > 
+ > *** Description:
+ > The (_f64vector o n) and (_f32vector o n) custom _fun types from
+ > foreign.ss have a bug, which won't happen often.  As written, these
+ > simply malloc an atomic pointer to a suitably-sized memory region
+ > and pass this pointer to the foreign routine.  However, it is
+ > possible that the memory region (which is not initialized) could
+ > contain bit patters which would be interpreted as a floating-point
+ > nan or inf.  This is inconvenient, for example, when wrapping BLAS
+ > multiplication routines, such as
+ > 
+ > y <- alpha*Ax + beta*y
+ > 
+ > where the output vector y can be a freshly allocated vector full of
+ > junk on input if beta = 0.0 *provided that y contains no nans or
+ > infs*.  y cannot contain nans and infs because these do not give 0.0
+ > when multiplied by 0.0: (0.0*nan) = nan and (0.0*inf) = nan.  If y
+ > contains a nan or inf, the result will be nan, while y "shouldn't"
+ > have affected the output at all because beta=0.0.
+ 
+ I've read this several times now, and I don't see where the problem
+ is.  In the situation that you're talking about, `y' is not only an
+ output value -- it's also an input value.  So it looks to me like you
+ shouldn't be using an `o' mode anyway.  (Initializing vectors (or any
+ block) to some known value is a different issue, of course.  I just
+ don't see the argument in this case.)
+ 
+ 
+ > The following patch (against current SVN) memsets the
+ > newly-allocated data region to 0 (= 0.0 bit pattern) for all
+ > (_TAGvector o n) SRFI-4 types.  This eliminates the possibility of
+ > nan or inf bit patterns in the floating-point SRFI-4 vectors, and
+ > costs very little in terms of efficiency because 1) the memset
+ > command is very efficient and 2) the output vector would be iterated
+ > over by the C routine anyway.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+Responsible changed from "nobody" to "eli" by eli at Fri, 15 Feb 2008 21:58:09 -0500
+Reason>>> foreign
+
+State changed from "open" to "closed" by eli at Fri, 15 Feb 2008 21:58:09 -0500
+Reason>>> see log
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Will M Farr <farr@MIT.EDU>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/8629: Possible (but unlikely) bug in foreign.ss (_f64vector o n) and (_f32vector o n) custom _fun types
+Date: Fri, 15 Feb 2008 21:57:42 -0500
+
+ On May 13, Will M Farr wrote:
+ > Eli,
+ > 
+ > > I've read this several times now, and I don't see where the problem
+ > > is.  In the situation that you're talking about, `y' is not only an
+ > > output value -- it's also an input value.  So it looks to me like you
+ > > shouldn't be using an `o' mode anyway.  (Initializing vectors (or any
+ > > block) to some known value is a different issue, of course.  I just
+ > > don't see the argument in this case.)
+ > 
+ > You're completely correct; I should have been more clear in my bug  
+ > report.  I've since thought about this issue, and decided that the  
+ > request is unreasonable, since I'm not using it strictly for output.   
+ > Go ahead and mark this one closed, if you are happy with it.
+ 
+ (Closing, finally -- and CCing bugs to register the reply.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!

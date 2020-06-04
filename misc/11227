@@ -1,0 +1,465 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Sep 18 14:13:27 2010
+Received: from mail-gx0-f172.google.com (mail-gx0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o8IIDPiB004472
+	for <bugs@bugs.plt-scheme.org>; Sat, 18 Sep 2010 14:13:25 -0400
+Message-Id: <201009181813.o8IIDMnX004463@champlain.ccs.neu.edu>
+Date: Sat, 18 Sep 2010 14:13:22 -0400
+From: sstrickl@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: procedure-rename interacts badly with proxies/chaperones
+
+>Number:         11227
+>Category:       misc
+>Synopsis:       procedure-rename interacts badly with proxies/chaperones
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Sep 18 14:16:01 -0400 2010
+>Last-Modified:  Thu Sep 23 10:20:01 -0400 2010
+>Originator:     Stevie Strickland
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1.6 (git commit 3325350026)
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_4; en-us) AppleWebKit/533.18.1 (KHTML, like Gecko) Version/5.0.2 Safari/533.18.5
+>Description:
+`procedure-rename' is not a transparent operation when used on procedure chaperones or proxies.  This causes problems for operations that inspect proxy properties like `has-contract?' or `value-contract'.  This PR is related to PRs 11221 and 11222.
+>How-To-Repeat:
+#lang racket
+
+(define ctc any/c)
+(define f
+ (chaperone-procedure
+  values
+  (lambda args (apply values args))
+  proxy-prop:contracted ctc))
+(has-contract? f) ;; returns #t
+(has-contract? (procedure-rename f 'g)) ;; returns #f
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "robby" by ryanc at Thu, 23 Sep 2010 03:36:02 -0400
+Reason>>> contracts
+
+
+Responsible changed from "robby" to "mflatt" by robby at Thu, 23 Sep 2010 06:42:02 -0400
+Reason>>> not contracts.
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: bugs@racket-lang.org
+Cc: robby@racket-lang.org, eli@racket-lang.org, sstrickl@ccs.neu.edu
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 06:51:59 -0600
+
+ Should a renamed procedure be `equal?' to the original procedure?
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, robby@racket-lang.org, eli@racket-lang.org,
+        sstrickl@ccs.neu.edu
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 07:58:44 -0500
+
+ I would guess not. Does that cause problems?
+ 
+ Robby
+ 
+ On Thu, Sep 23, 2010 at 7:51 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > Should a renamed procedure be `equal?' to the original procedure?
+ >
+ >
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, robby@racket-lang.org, eli@racket-lang.org
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 09:00:29 -0400
+
+ On Sep 23, 2010, at 8:51 AM, Matthew Flatt wrote:
+ > Should a renamed procedure be `equal?' to the original procedure?
+ 
+ I don't see why not.  The name of a procedure need not be considered =
+ part of its intrinsic being, and being able to reflectively get at it =
+ through just a reference to the object is an operation that I don't =
+ think needs to return the same thing for `equal?' values.
+ 
+ Stevie=
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@racket-lang.org,
+        robby@racket-lang.org, eli@racket-lang.org
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 09:03:03 -0400
+
+ On Sep 23, 2010, at 8:58 AM, Robby Findler wrote:
+ > I would guess not. Does that cause problems?
+ 
+ Well, then using `procedure-rename' when generating contracted values =
+ would be a major problem, so I really think you want the answer to be =
+ "yes" here if you want the name accessible via the object to reflect the =
+ exported name.
+ 
+ And if we want flat contract application to always return the original =
+ value (which has been the expectation in the past), we should start =
+ checking for that before calling procedure-rename inside the contract =
+ form (which would remove the problem Ryan ran into recently).
+ 
+ Stevie=
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@racket-lang.org,
+        robby@racket-lang.org, eli@racket-lang.org
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 08:20:50 -0500
+
+ On Thu, Sep 23, 2010 at 8:03 AM, Stevie Strickland <sstrickl@ccs.neu.edu> w=
+ rote:
+ > On Sep 23, 2010, at 8:58 AM, Robby Findler wrote:
+ >> I would guess not. Does that cause problems?
+ >
+ > Well, then using `procedure-rename' when generating contracted values wou=
+ ld be a major problem, so I really think you want the answer to be "yes" he=
+ re if you want the name accessible via the object to reflect the exported n=
+ ame.
+ 
+ Why would that be a problem? If I use a chaperone on a procedure it
+ shouldn't get renamed because the chaperone takes care of that.
+ 
+ If I make a wrapper procedure then it wasn't equal anyways.
+ 
+ (But maybe I'm missing something?)
+ 
+ > And if we want flat contract application to always return the original va=
+ lue (which has been the expectation in the past), we should start checking =
+ for that before calling procedure-rename inside the contract form (which wo=
+ uld remove the problem Ryan ran into recently).
+ 
+ Right. But that seems fine. Flat contracts should not be renaming. The
+ renaming should really only happen when there is a wrapper procedure
+ involved.
+ 
+ Another problem with the fix I did is that when you have contracts like thi=
+ s:
+ 
+  f : (-> (-> a b) (-> c d))
+ 
+ then in the body of f, the argument to f will have a different name
+ than it does outside.
+ 
+ This suggests that the call to procedure rename shoudl move into the
+ -> combinators instead of being where it is.
+ 
+ (Do you agree?)
+ 
+ Robby
+From: sstrickl@ccs.neu.edu
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "robby@racket-lang.org" <robby@racket-lang.org>,
+        "eli@racket-lang.org" <eli@racket-lang.org>
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 09:31:27 -0400 (EDT)
+
+ On Sep 23, 2010, at 9:20 AM, Robby Findler <robby@eecs.northwestern.edu> wr=
+ ote:
+ > On Thu, Sep 23, 2010 at 8:03 AM, Stevie Strickland <sstrickl@ccs.neu.edu>=
+  wrote:
+ >> On Sep 23, 2010, at 8:58 AM, Robby Findler wrote:
+ >>> I would guess not. Does that cause problems?
+ >>=20
+ >> Well, then using `procedure-rename' when generating contracted values wo=
+ uld be a major problem, so I really think you want the answer to be "yes" h=
+ ere if you want the name accessible via the object to reflect the exported =
+ name.
+ >=20
+ > Why would that be a problem? If I use a chaperone on a procedure it
+ > shouldn't get renamed because the chaperone takes care of that.
+ 
+ Chaperones (currently) don't offer any ability to rename. I have suggested =
+ recently that perhaps they should, so that the result of renaming doesn't c=
+ hange how a value acts, but currently they don't.
+ 
+ (And if they do, I'd prefer procedure-rename create a copy of the outermost=
+  chaperone/proxy layer with the name handling changed, instead of introduci=
+ ng a fresh chaperone/proxy layer, but this is to keep the proxy properties =
+ available.)
+ 
+ > If I make a wrapper procedure then it wasn't equal anyways.
+ 
+ Right, but in the new world, we'd (at least attempt) to use chaperone-/prox=
+ y-procedure in all function contracts, so there wouldn't be any function co=
+ mbinators that wrap in a fresh lambda as they currently do.
+ 
+ > (But maybe I'm missing something?)
+ >=20
+ >> And if we want flat contract application to always return the original v=
+ alue (which has been the expectation in the past), we should start checking=
+  for that before calling procedure-rename inside the contract form (which w=
+ ould remove the problem Ryan ran into recently).
+ >=20
+ > Right. But that seems fine. Flat contracts should not be renaming. The
+ > renaming should really only happen when there is a wrapper procedure
+ > involved.
+ 
+ > Another problem with the fix I did is that when you have contracts like t=
+ his:
+ >=20
+ > f : (-> (-> a b) (-> c d))
+ >=20
+ > then in the body of f, the argument to f will have a different name
+ > than it does outside.
+ >=20
+ > This suggests that the call to procedure rename shoudl move into the
+ > -> combinators instead of being where it is.
+ >=20
+ > (Do you agree?)
+ 
+ Can you give me an example? I'm not seeing what name the argument should be=
+  getting there.
+ 
+ Stevie
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: sstrickl@ccs.neu.edu, "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "robby@racket-lang.org" <robby@racket-lang.org>,
+        "eli@racket-lang.org" <eli@racket-lang.org>
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 08:38:54 -0500
+
+ Only in the wrapper-creating world. The contract'd procedure gets the
+ name of the wrapper so there is a procedure-rename call in there to
+ rename the wrapper to the original procedure's name.
+ 
+ Robby
+ 
+ On Thu, Sep 23, 2010 at 8:37 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > I'm missing a piece of the puzzle. Does adding a contract to a
+ > procedure involve renaming the procedure? If so, why?
+ >
+ >
+ >
+ >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: sstrickl@ccs.neu.edu
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "robby@racket-lang.org" <robby@racket-lang.org>,
+        "eli@racket-lang.org" <eli@racket-lang.org>
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 07:37:53 -0600
+
+ I'm missing a piece of the puzzle. Does adding a contract to a
+ procedure involve renaming the procedure? If so, why?
+ 
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: sstrickl@ccs.neu.edu
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "robby@racket-lang.org" <robby@racket-lang.org>,
+        "eli@racket-lang.org" <eli@racket-lang.org>
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 08:40:12 -0500
+
+ On Thu, Sep 23, 2010 at 8:31 AM,  <sstrickl@ccs.neu.edu> wrote:
+ > On Sep 23, 2010, at 9:20 AM, Robby Findler <robby@eecs.northwestern.edu> =
+ wrote:
+ >> On Thu, Sep 23, 2010 at 8:03 AM, Stevie Strickland <sstrickl@ccs.neu.edu=
+ > wrote:
+ >>> On Sep 23, 2010, at 8:58 AM, Robby Findler wrote:
+ >>>> I would guess not. Does that cause problems?
+ >>>
+ >>> Well, then using `procedure-rename' when generating contracted values w=
+ ould be a major problem, so I really think you want the answer to be "yes" =
+ here if you want the name accessible via the object to reflect the exported=
+  name.
+ >>
+ >> Why would that be a problem? If I use a chaperone on a procedure it
+ >> shouldn't get renamed because the chaperone takes care of that.
+ >
+ > Chaperones (currently) don't offer any ability to rename. I have suggeste=
+ d recently that perhaps they should, so that the result of renaming doesn't=
+  change how a value acts, but currently they don't.
+ 
+ I can't parse this. I think that a chaperone'd procedure should have
+ the same name as the original. And then we have no problems here,
+ right?
+ 
+ > (And if they do, I'd prefer procedure-rename create a copy of the outermo=
+ st chaperone/proxy layer with the name handling changed, instead of introdu=
+ cing a fresh chaperone/proxy layer, but this is to keep the proxy propertie=
+ s available.)
+ >
+ >> If I make a wrapper procedure then it wasn't equal anyways.
+ >
+ > Right, but in the new world, we'd (at least attempt) to use chaperone-/pr=
+ oxy-procedure in all function contracts, so there wouldn't be any function =
+ combinators that wrap in a fresh lambda as they currently do.
+ 
+ So, it is fine for a different name to count as not equal?.
+ 
+ >> (But maybe I'm missing something?)
+ >>
+ >>> And if we want flat contract application to always return the original =
+ value (which has been the expectation in the past), we should start checkin=
+ g for that before calling procedure-rename inside the contract form (which =
+ would remove the problem Ryan ran into recently).
+ >>
+ >> Right. But that seems fine. Flat contracts should not be renaming. The
+ >> renaming should really only happen when there is a wrapper procedure
+ >> involved.
+ >
+ >> Another problem with the fix I did is that when you have contracts like =
+ this:
+ >>
+ >> f : (-> (-> a b) (-> c d))
+ >>
+ >> then in the body of f, the argument to f will have a different name
+ >> than it does outside.
+ >>
+ >> This suggests that the call to procedure rename shoudl move into the
+ >> -> combinators instead of being where it is.
+ >>
+ >> (Do you agree?)
+ >
+ > Can you give me an example? I'm not seeing what name the argument should =
+ be getting there.
+ 
+ Remove the contract from this and the result changes (to be correct).
+ 
+ 
+ #lang racket
+ ((contract (-> (-> integer? integer?)
+                any)
+            (=CE=BB (f)
+              (object-name f))
+            'pos
+            'neg)
+  (let ([x (lambda (y) (add1 (* y y)))])
+    x))
+From: sstrickl@ccs.neu.edu
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "robby@racket-lang.org" <robby@racket-lang.org>,
+        "eli@racket-lang.org" <eli@racket-lang.org>
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 09:46:13 -0400 (EDT)
+
+ If this is what's intended, then I don't think what you're doing in the 'co=
+ ntract' form is what you think. Chaperones do currently ensure the chaperon=
+ ed procedure has the same name as the original procedure. However, sometime=
+ s you're trying to add a name that wasn't the original procedure's name (ma=
+ ybe related to no name on the original procedure?), which is what's causing=
+  the failing test.
+ 
+ 
+ On Sep 23, 2010, at 9:39 AM, Robby Findler <robby@eecs.northwestern.edu> wr=
+ ote:
+ 
+ > Only in the wrapper-creating world. The contract'd procedure gets the
+ > name of the wrapper so there is a procedure-rename call in there to
+ > rename the wrapper to the original procedure's name.
+ >=20
+ > Robby
+ >=20
+ > On Thu, Sep 23, 2010 at 8:37 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote=
+ :
+ >> I'm missing a piece of the puzzle. Does adding a contract to a
+ >> procedure involve renaming the procedure? If so, why?
+ >>=20
+ >>=20
+ >>=20
+ >>=20
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: sstrickl@ccs.neu.edu
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "robby@racket-lang.org" <robby@racket-lang.org>,
+        "eli@racket-lang.org" <eli@racket-lang.org>
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 09:59:27 -0400
+
+ On Sep 23, 2010, at 9:46 AM, sstrickl@ccs.neu.edu wrote:
+ > If this is what's intended, then I don't think what you're doing in =
+ the 'contract' form is what you think. Chaperones do currently ensure =
+ the chaperoned procedure has the same name as the original procedure. =
+ However, sometimes you're trying to add a name that wasn't the original =
+ procedure's name (maybe related to no name on the original procedure?), =
+ which is what's causing the failing test.
+ 
+ Just to make it more precise, when the contract form is called with 4 =
+ (not 6) arguments, the name used by the contract  (for example, in the =
+ blame object) is discovered by using `syntax-local-infer-name'.  Inside =
+ `apply-contract', you check:
+ 
+       (if (and name=20
+                (not (parameter? new-val))  ;; when PR 11221 is fixed, =
+ remove this line
+                (procedure? new-val)
+                (not (eq? name (object-name new-val))))
+ 
+ using the name found above, _not_ the original name of the object (i.e., =
+ `(object-name val)').
+ 
+ So that's the fix we need to make, if all you want is the name of the =
+ resulting procedure to match the original procedure's name.  I've just =
+ been assuming you've wanted something different because of getting your =
+ intent from the code, not from you.  Sorry, I should have asked you more =
+ explicitly what this code was attempting to do.
+ 
+ Stevie=
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "robby@racket-lang.org" <robby@racket-lang.org>,
+        "eli@racket-lang.org" <eli@racket-lang.org>
+Subject: Re: [racket-bug] misc/11227 procedure-rename interacts badly with proxies/chaperones
+Date: Thu, 23 Sep 2010 09:17:37 -0500
+
+ On Thu, Sep 23, 2010 at 8:59 AM, Stevie Strickland <sstrickl@ccs.neu.edu> w=
+ rote:
+ > On Sep 23, 2010, at 9:46 AM, sstrickl@ccs.neu.edu wrote:
+ >> If this is what's intended, then I don't think what you're doing in the =
+ 'contract' form is what you think. Chaperones do currently ensure the chape=
+ roned procedure has the same name as the original procedure. However, somet=
+ imes you're trying to add a name that wasn't the original procedure's name =
+ (maybe related to no name on the original procedure?), which is what's caus=
+ ing the failing test.
+ >
+ > Just to make it more precise, when the contract form is called with 4 (no=
+ t 6) arguments, the name used by the contract =C2=A0(for example, in the bl=
+ ame object) is discovered by using `syntax-local-infer-name'. =C2=A0Inside =
+ `apply-contract', you check:
+ >
+ > =C2=A0 =C2=A0 =C2=A0(if (and name
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (not (parameter? new-val=
+ )) =C2=A0;; when PR 11221 is fixed, remove this line
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (procedure? new-val)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (not (eq? name (object-n=
+ ame new-val))))
+ >
+ > using the name found above, _not_ the original name of the object (i.e., =
+ `(object-name val)').
+ 
+ Are you suggesting that name in the last line should be (object-name
+ v) instead?
+ 
+ If so, I agree.
+ 
+ > So that's the fix we need to make, if all you want is the name of the res=
+ ulting procedure to match the original procedure's name. =C2=A0I've just be=
+ en assuming you've wanted something different because of getting your inten=
+ t from the code, not from you. =C2=A0Sorry, I should have asked you more ex=
+ plicitly what this code was attempting to do.
+ 
+ I agree with what I think is the larger point, namely that this code
+ should go away from here when chaperone-based contracts are in place.
+ 
+ Robby

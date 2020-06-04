@@ -1,0 +1,69 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Aug 14 16:10:18 2013
+Received: from mail-ob0-f177.google.com (mail-ob0-f177.google.com [209.85.214.177])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r7EKAFWF002435
+	for <bugs@bugs.plt-scheme.org>; Wed, 14 Aug 2013 16:10:15 -0400
+Message-Id: <201308142010.r7EKACKD002428@champlain.ccs.neu.edu>
+Date: Wed, 14 Aug 2013 16:10:12 -0400
+From: pj_roberts@cantshootfs.cjb.net
+To: bugs@racket-lang.org
+Subject: JSON object keys containing characters outside the BMP are encoded incorrectly
+
+>Number:         13966
+>Category:       all
+>Synopsis:       JSON object keys containing characters outside the BMP are encoded incorrectly
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Aug 14 16:12:01 -0400 2013
+>Closed-Date:    Wed Aug 14 16:51:41 -0400 2013
+>Last-Modified:  Wed Aug 14 16:51:41 -0400 2013
+>Originator:     Phil Roberts
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.5
+>Environment:
+linux-ubuntu
+>Description:
+(I've given the version and platform of my main system, but I was also able to reproduce this bug on a Windows XP VM running v5.3.6)
+
+The documentation for Racket's built-in JSON library states "that characters in the range of U+10000 and above are encoded as two \uHHHH escapes".  This is not true for object keys: they are not encoded using the write-json-string method the library defines, but with plain (write (symbol->string k)).  As a result characters in object keys that are outside the Basic Multilingual Plane are rendered as \Uxxxxxxxx escapes, which are not valid JSON according to the RFC.
+
+I believe the following patch against main.rkt will generate the correct behavior:
+
+--- /usr/racket/collects/json/main.rkt	2013-06-18 08:07:58.000000000 +0100
++++ json.rkt	2013-08-14 20:08:37.083625904 +0100
+@@ -80,7 +80,7 @@
+              (unless (symbol? k)
+                (raise-type-error 'write-json "legal JSON key value" k))
+              (if first? (set! first? #f) (write-bytes #"," o))
+-             (write (symbol->string k) o) ; no `printf' => proper escapes
++             (write-json-string (symbol->string k))
+              (write-bytes #":" o)
+              (loop v))
+            (write-bytes #"}" o)]
+>How-To-Repeat:
+(require json)
+(write-json (string->jsexpr "{\"\\ud83d\\udf22\": \"\"}"))
+
+This will write {"\U0001F722":""}.  It should write {"\ud83d\udf22": ""} (or a representation with U+1F722 in the object key in the appropriate encoding)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "eli" by eli@racket-lang.org at Wed, 14 Aug 2013 16:51:41 -0400
+Reason>>> A commit by eli@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c069b8e51c
+State changed from "open" to "closed" by eli@racket-lang.org at Wed, 14 Aug 2013 16:51:41 -0400
+Reason>>> A commit by eli@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c069b8e51c
+  | Fix output of keys.
+  | 
+  | They need to be encoded in the same way that strings are
+  | encoded.  (Report and fixed by Phil Roberts.)
+  | 
+  | Also added a FIXME about leftover occurrences of \U in the output.
+  | 
+  | Closes PR 13966.
+

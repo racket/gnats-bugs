@@ -1,0 +1,514 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jan  7 12:17:49 2010
+Received: from mail-yx0-f176.google.com (mail-yx0-f176.google.com [209.85.210.176])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id o07HHj3K024701
+	for <bugs@bugs.plt-scheme.org>; Thu, 7 Jan 2010 12:17:45 -0500
+Message-Id: <201001071717.o07HHgY2024694@champlain.ccs.neu.edu>
+Date: Thu, 7 Jan 2010 12:17:42 -0500
+From: cce@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: compile error with DrScheme, populate compiled directories, and planet development links
+
+>Number:         10685
+>Category:       drscheme
+>Synopsis:       compile error with DrScheme, populate compiled directories, and planet development links
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Jan 07 12:20:01 -0500 2010
+>Closed-Date:    
+>Last-Modified:  Tue Oct 04 13:17:48 -0400 2011
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.3.9-svn6jan2010
+>Environment:
+macosx "Darwin Kauai.ccs.neu.edu 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 22:54:29 PDT 2009; root:xnu-1228.12.14~1/RELEASE_PPC Power Macintosh" (ppc-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 141771940
+
+Collections:
+(("/Users/cce/svn/2010-01-06/dist/add-on/4.2.3.9/collects" non-existent-path) ("/Users/cce/svn/2010-01-06/dist/collects" ".svn" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "reader" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace"!
+  "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+Running the program below, in DrScheme, with "populate compiled/ directories" enabled, with the planet package loaded as a development link, fails with this error:
+
+link: module mismatch, probably from old bytecode whose dependencies have changed: variable not provided (directly or indirectly and at the expected position) from module: "/Users/cce/Desktop/bug/package/internal.ss" accessed from module: "/Users/cce/Desktop/bug/package/external.ss" at source phase level: 0 in: provide/contract-contract-id-thing.2
+
+If I run it from MzScheme, or disable "populate compiled/ directories", or install the planet package from file instead of by development link, it works fine.  It also seems to require that 'thing' (the identifier provided and required for-syntax in the planet package) must be exported via provide/contract to trigger this bug; a normal provide of either a value or macro does not trigger the bug.
+>How-To-Repeat:
+Create a directory for a planet package (we will call it $PACKAGE).  Run:
+
+planet link cce package.plt 1 0 $PACKAGE
+
+Create the following three files:
+
+$PACKAGE/internal.ss
+--------------------
+#lang scheme/base
+(require scheme/contract)
+(define thing void)
+(provide/contract [thing any/c])
+--------------------
+
+$PACKAGE/external.ss
+--------------------
+#lang scheme/base
+(require (for-syntax scheme/base "internal.ss"))
+(define-for-syntax (stuff) thing)
+--------------------
+
+entry.ss [anywhere, not in $PACKAGE]
+--------------------
+#lang scheme/base
+(require (planet cce/package:1/external))
+--------------------
+
+Run:
+
+setup-plt -D -P cce package.plt 1 0
+
+Open entry.ss in DrScheme, in the Module language, with default settings (make sure "populate compiled/ directories" is enabled).  Run the program.
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: cce@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10685: compile error with DrScheme, populate 
+	compiled directories, and planet development links
+Date: Thu, 25 Feb 2010 15:23:18 -0600
+
+ Thanks for the excellent test case!
+ 
+ I've looked into it a little bit and found how to make it happen
+ outside of DrScheme. Start with the planet setup, as below. Then,
+ instead of the entry.ss file that Carl suggests, use this file:
+ 
+ ------
+ #lang scheme/load
+ (require compiler/cm planet/config)
+ (use-compiled-file-paths
+  (cons (build-path "compiled" "drscheme" "errortrace")
+        (use-compiled-file-paths)))
+ (current-load/use-compiled (make-compilation-manager-load/use-compiled-hand=
+ ler))
+ (manager-skip-file-handler
+  (=CE=BB (p)
+    (file-date-in-paths
+     p
+     (cons (CACHE-DIR) (current-library-collection-paths)))))
+ (module m scheme/base
+   (require (planet cce/package:1/external)))
+ (require 'm)
+ ------
+ 
+ 
+ On Thu, Jan 7, 2010 at 11:20 AM,  <cce@ccs.neu.edu> wrote:
+ > A new problem report is waiting at
+ > =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10685
+ >
+ > Reported by Carl Eastlund for release: 4.2.3.9-svn6jan2010
+ >
+ > *** Description:
+ > Running the program below, in DrScheme, with "populate compiled/ director=
+ ies" enabled, with the planet package loaded as a development link, fails w=
+ ith this error:
+ >
+ > link: module mismatch, probably from old bytecode whose dependencies have=
+  changed: variable not provided (directly or indirectly and at the expected=
+  position) from module: "/Users/cce/Desktop/bug/package/internal.ss" access=
+ ed from module: "/Users/cce/Desktop/bug/package/external.ss" at source phas=
+ e level: 0 in: provide/contract-contract-id-thing.2
+ >
+ > If I run it from MzScheme, or disable "populate compiled/ directories", o=
+ r install the planet package from file instead of by development link, it w=
+ orks fine. =C2=A0It also seems to require that 'thing' (the identifier prov=
+ ided and required for-syntax in the planet package) must be exported via pr=
+ ovide/contract to trigger this bug; a normal provide of either a value or m=
+ acro does not trigger the bug.
+ >
+ > *** How to repeat:
+ > Create a directory for a planet package (we will call it $PACKAGE). =C2=
+ =A0Run:
+ >
+ > planet link cce package.plt 1 0 $PACKAGE
+ >
+ > Create the following three files:
+ >
+ > $PACKAGE/internal.ss
+ > --------------------
+ > #lang scheme/base
+ > (require scheme/contract)
+ > (define thing void)
+ > (provide/contract [thing any/c])
+ > --------------------
+ >
+ > $PACKAGE/external.ss
+ > --------------------
+ > #lang scheme/base
+ > (require (for-syntax scheme/base "internal.ss"))
+ > (define-for-syntax (stuff) thing)
+ > --------------------
+ >
+ > entry.ss [anywhere, not in $PACKAGE]
+ > --------------------
+ > #lang scheme/base
+ > (require (planet cce/package:1/external))
+ > --------------------
+ >
+ > Run:
+ >
+ > setup-plt -D -P cce package.plt 1 0
+ >
+ > Open entry.ss in DrScheme, in the Module language, with default settings =
+ (make sure "populate compiled/ directories" is enabled). =C2=A0Run the prog=
+ ram.
+ >
+ > *** Environment:
+ > macosx "Darwin Kauai.ccs.neu.edu 9.7.0 Darwin Kernel Version 9.7.0: Tue M=
+ ar 31 22:54:29 PDT 2009; root:xnu-1228.12.14~1/RELEASE_PPC Power Macintosh"=
+  (ppc-macosx/3m) (get-display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 141771940
+ >
+ > Collections:
+ > (("/Users/cce/svn/2010-01-06/dist/add-on/4.2.3.9/collects" non-existent-p=
+ ath) ("/Users/cce/svn/2010-01-06/dist/collects" ".svn" "2htdp" "afm" "algol=
+ 60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "=
+ deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" =
+ "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" =
+ "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "ico=
+ ns" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "=
+ mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-=
+ tools" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "reader" "rea=
+ dline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scr=
+ ibble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow=
+ " "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "synta=
+ x-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "=
+ texpict" "trace"!
+ > =C2=A0"typed" "typed-scheme" "unstable" "version" "waterworld" "web-serve=
+ r" "wxme" "xml"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) =
+ (default) #() "#lang scheme\n" #t))
+ >
+ >
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/10685: compile error with DrScheme, populate 
+	compiled directories, and planet development links
+Date: Fri, 5 Mar 2010 15:18:44 -0500
+
+ Robby,
+ 
+ What's the status of this bug?  Are you still working on it, has it
+ fallen by the wayside, or should it be handed off to someone else now
+ that it's not DrScheme specific?  I'm still unable to use "populate
+ compiled/ directories"; it would be nice to get that feature back.
+ Thanks.
+ 
+ Carl Eastlund
+ 
+ On Thu, Feb 25, 2010 at 4:23 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Thanks for the excellent test case!
+ >
+ > I've looked into it a little bit and found how to make it happen
+ > outside of DrScheme. Start with the planet setup, as below. Then,
+ > instead of the entry.ss file that Carl suggests, use this file:
+ >
+ > ------
+ > #lang scheme/load
+ > (require compiler/cm planet/config)
+ > (use-compiled-file-paths
+ > =A0(cons (build-path "compiled" "drscheme" "errortrace")
+ > =A0 =A0 =A0 (use-compiled-file-paths)))
+ > (current-load/use-compiled (make-compilation-manager-load/use-compiled-ha=
+ ndler))
+ > (manager-skip-file-handler
+ > =A0(=EB (p)
+ > =A0 (file-date-in-paths
+ > =A0 =A0p
+ > =A0 =A0(cons (CACHE-DIR) (current-library-collection-paths)))))
+ > (module m scheme/base
+ > =A0(require (planet cce/package:1/external)))
+ > (require 'm)
+ > ------
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Carl Eastlund <cce@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/10685: compile error with DrScheme, populate 
+	compiled directories, and planet development links
+Date: Fri, 5 Mar 2010 16:07:19 -0600
+
+ I think it needs someone to investigate further. If you had time for
+ that, that would be fantastic.
+ 
+ Robby
+ 
+ On Friday, March 5, 2010, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ > Robby,
+ >
+ > What's the status of this bug? =C2=A0Are you still working on it, has it
+ > fallen by the wayside, or should it be handed off to someone else now
+ > that it's not DrScheme specific? =C2=A0I'm still unable to use "populate
+ > compiled/ directories"; it would be nice to get that feature back.
+ > Thanks.
+ >
+ > Carl Eastlund
+ >
+ > On Thu, Feb 25, 2010 at 4:23 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> Thanks for the excellent test case!
+ >>
+ >> I've looked into it a little bit and found how to make it happen
+ >> outside of DrScheme. Start with the planet setup, as below. Then,
+ >> instead of the entry.ss file that Carl suggests, use this file:
+ >>
+ >> ------
+ >> #lang scheme/load
+ >> (require compiler/cm planet/config)
+ >> (use-compiled-file-paths
+ >> =C2=A0(cons (build-path "compiled" "drscheme" "errortrace")
+ >> =C2=A0 =C2=A0 =C2=A0 (use-compiled-file-paths)))
+ >> (current-load/use-compiled (make-compilation-manager-load/use-compiled-h=
+ andler))
+ >> (manager-skip-file-handler
+ >> =C2=A0(=CE=BB (p)
+ >> =C2=A0 (file-date-in-paths
+ >> =C2=A0 =C2=A0p
+ >> =C2=A0 =C2=A0(cons (CACHE-DIR) (current-library-collection-paths)))))
+ >> (module m scheme/base
+ >> =C2=A0(require (planet cce/package:1/external)))
+ >> (require 'm)
+ >> ------
+ >
+
+State changed from "open" to "closed" by robby at Wed, 28 Sep 2011 21:49:05 -0400
+Reason>>> 
+this seems to have been fixed somewhere along the way
+
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: bugs@racket-lang.org
+Cc: robby@racket-lang.org
+Subject: Re: [racket-bug] drscheme/10685 compile error with DrScheme, populate
+ compiled directories, and planet development links
+Date: Thu, 29 Sep 2011 16:42:12 -0400
+
+ It doesn't look fixed on my end, using recent git sources (updated
+ last night).  What behavior are you seeing, Robby?
+ 
+ Carl Eastlund
+ 
+ On Wed, Sep 28, 2011 at 9:49 PM,  <robby@racket-lang.org> wrote:
+ >
+ > State changed from "open" to "closed" by robby at Wed, 28 Sep 2011 21:49:05 -0400
+ > Reason>>>
+ > this seems to have been fixed somewhere along the way
+ >
+ > View:
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=10685
+ 
+
+State changed from "closed" to "open" by cce at Fri, 30 Sep 2011 17:46:38 -0400
+Reason>>> not fixed on my end; still seeing the same behavior
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Carl Eastlund <cce@ccs.neu.edu>, bugs@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] drscheme/10685 compile error with DrScheme, populate
+ compiled directories, and planet development links
+Date: Fri, 30 Sep 2011 16:51:04 -0500
+
+ Sorry for the delay in replying. I thought I set up the same
+ environment from the PR and did what it said and got no error. I'll
+ try again.
+ 
+ Robby
+ 
+ On Thu, Sep 29, 2011 at 3:48 PM, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ > The following reply was made to PR drscheme/10685 (noted by Gnats).
+ >
+ > View this PR at:
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=10685
+ >
+ > ====================
+ > From: Carl Eastlund <cce@ccs.neu.edu>
+ > To: bugs@racket-lang.org
+ > Cc: robby@racket-lang.org
+ > Subject: Re: [racket-bug] drscheme/10685 compile error with DrScheme, populate
+ >  compiled directories, and planet development links
+ > Date: Thu, 29 Sep 2011 16:42:12 -0400
+ >
+ >  It doesn't look fixed on my end, using recent git sources (updated
+ >  last night).  What behavior are you seeing, Robby?
+ >
+ >  Carl Eastlund
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Carl Eastlund <cce@ccs.neu.edu>, bugs@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] drscheme/10685 compile error with DrScheme, populate
+ compiled directories, and planet development links
+Date: Sun, 2 Oct 2011 07:10:33 -0500
+
+ Yes, you're right. I'm able to make it happen after all. I'll keep
+ poking around. (It seems like my code to make it happen outside of
+ DrRacket doesn't trigger the bug anymore, tho.)
+ 
+ Robby
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] drscheme/10685 compile error with DrScheme, populate
+ compiled directories, and planet development links
+Date: Sun, 2 Oct 2011 11:59:13 -0400
+
+ On Sun, Oct 2, 2011 at 8:10 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Yes, you're right. I'm able to make it happen after all. I'll keep
+ > poking around. (It seems like my code to make it happen outside of
+ > DrRacket doesn't trigger the bug anymore, tho.)
+ >
+ > Robby
+ 
+ Huh.  I tried that, too, and it triggered the bug for me.  I had to
+ change file-date-in-collections to file-stamp-in-collections, but
+ otherwise, it was exactly the same.
+ 
+ --Carl
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Carl Eastlund <cce@ccs.neu.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] drscheme/10685 compile error with DrScheme, populate
+ compiled directories, and planet development links
+Date: Sun, 2 Oct 2011 11:11:33 -0500
+
+ On Sun, Oct 2, 2011 at 10:59 AM, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ > On Sun, Oct 2, 2011 at 8:10 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> Yes, you're right. I'm able to make it happen after all. I'll keep
+ >> poking around. (It seems like my code to make it happen outside of
+ >> DrRacket doesn't trigger the bug anymore, tho.)
+ >>
+ >> Robby
+ >
+ > Huh.  I tried that, too, and it triggered the bug for me.  I had to
+ > change file-date-in-collections to file-stamp-in-collections, but
+ > otherwise, it was exactly the same.
+ 
+ Did you delete the .zo files before trying it?
+ 
+ I think that was the mistake I made originally -- when the .zo files
+ aren't there, it creates them, but when they are there, it just uses
+ them and something about the context in drracket is causing them to be
+ created wrongly.
+ 
+ ... maybe. I still haven't had time to really look carefully.
+ 
+ Robby
+ 
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] drscheme/10685 compile error with DrScheme, populate
+ compiled directories, and planet development links
+Date: Sun, 2 Oct 2011 12:18:26 -0400
+
+ On Sun, Oct 2, 2011 at 12:11 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Sun, Oct 2, 2011 at 10:59 AM, Carl Eastlund <cce@ccs.neu.edu> wrote:
+ >> On Sun, Oct 2, 2011 at 8:10 AM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> Yes, you're right. I'm able to make it happen after all. I'll keep
+ >>> poking around. (It seems like my code to make it happen outside of
+ >>> DrRacket doesn't trigger the bug anymore, tho.)
+ >>>
+ >>> Robby
+ >>
+ >> Huh.  I tried that, too, and it triggered the bug for me.  I had to
+ >> change file-date-in-collections to file-stamp-in-collections, but
+ >> otherwise, it was exactly the same.
+ >
+ > Did you delete the .zo files before trying it?
+ >
+ > I think that was the mistake I made originally -- when the .zo files
+ > aren't there, it creates them, but when they are there, it just uses
+ > them and something about the context in drracket is causing them to be
+ > created wrongly.
+ >
+ > ... maybe. I still haven't had time to really look carefully.
+ >
+ > Robby
+ 
+ Oops, I made two mistakes.  I didn't delete the .zo files, and I'm
+ pretty sure I ran it from inside DrRacket, which somewhat defeats the
+ purpose of the second test.  Anyway, it runs without error on my
+ system as well when I set it up properly.
+ 
+ --Carl
+ 
+
+Responsible changed from "robby" to "mflatt" by robby at Tue, 04 Oct 2011 13:17:48 -0400
+Reason>>> This is something that's not really in DrRacket's control.
+I've been able to reproduce it outside of DrRacket now
+properly, with a little bit more care. Here's how.
+
+Create the files mentioned in the PR except external.rkt and
+do the planet link and raco setup commands.
+
+At this point, you should have these .zo files in the place
+where you set up the planet package:
+
+$ find . -name \*.zo -print
+./compiled/external_rkt.zo
+./compiled/internal_rkt.zo
+
+Now, run this file from Racket:
+
+#lang scheme/load
+(require compiler/cm planet/config)
+(require errortrace)
+(use-compiled-file-paths
+ (cons (build-path "compiled" "drracket" "errortrace")
+       (use-compiled-file-paths)))
+(current-load/use-compiled 
+ (make-compilation-manager-load/use-compiled-handler))
+(manager-skip-file-handler
+ (&#955; (p)
+   (file-stamp-in-paths
+    p
+    (cons (CACHE-DIR) (current-library-collection-paths)))))
+(module m scheme/base
+  (require (planet cce/package:1/external)))
+(require 'm)
+
+At this point, you should get this error:
+
+link: module mismatch, probably from old bytecode whose
+dependencies have changed: variable not provided (directly or in
+directly and at the expected position) from module:
+"C:\Users\robby\x\internal.rkt" accessed from module:
+"C:\Users\robb
+y\x\external.rkt" at source phase level: 0 in:
+provide/contract-contract-id-thing.2
+
+
+ === context ===
+C:\Users\robby\x\external.rkt: [running expand-time body]
+C:\Users\robby\git\plt\collects\errortrace\errortrace-lib.rkt:399:2:
+errortrace-annotate
+C:\Users\robby\git\plt\collects\errortrace\errortrace-lib.rkt:438:4
+C:\Users\robby\entry2.rkt: [running body]
+
+And there should also be one more .zo file:
+
+$ find . -name \*.zo -print
+./compiled/drracket/errortrace/internal_rkt.zo
+./compiled/external_rkt.zo
+./compiled/internal_rkt.zo
+

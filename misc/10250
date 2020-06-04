@@ -1,0 +1,357 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed May 20 22:08:31 2009
+Received: from mail-qy0-f107.google.com (mail-qy0-f107.google.com [209.85.221.107])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n4L28MOQ003169
+	for <bugs@bugs.plt-scheme.org>; Wed, 20 May 2009 22:08:22 -0400
+Message-Id: <200905210208.n4L28L0B003163@champlain.ccs.neu.edu>
+Date: Wed, 20 May 2009 22:08:21 -0400
+From: meunier@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: opening a contracted signatures makes the contracts go away
+
+>Number:         10250
+>Category:       misc
+>Synopsis:       opening a contracted signatures makes the contracts go away
+>Class:          sw-bug
+>Responsible:    sstrickl
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed May 20 22:12:01 -0400 2009
+>Closed-Date:    Thu May 21 12:37:14 -0400 2009
+>Last-Modified:  Fri Feb 05 23:10:38 -0500 2010
+>Originator:     Philippe
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.5.3-svn23mar2009
+>Environment:
+unix "OpenBSD akpatok.james.bay 4.4 GENERIC#9 i386" (i386-openbsd/3m) (get-display-depth) = 24
+Human Language: french
+(current-memory-use) 148933396
+
+Collections:
+(("/home/meunier/.plt-scheme/4.1.5.3/collects" non-existent-path) ("/home/meunier/plt/collects" ".svn" "tex2page" "wxme" "string-constants" "test-engine" "planet" "mzcom" "typed-scheme" "drscheme" "r6rs" "s-exp" "framework" "srpersist" "at-exp" "sirmail" "slideshow" "scribblings" "test-box-recovery" "syntax-color" "srfi" "algol60" "redex" "dynext" "make" "plot" "file" "lang" "web-server" "openssl" "macro-debugger" "scribble" "typed" "frtime" "combinator-parser" "mred" "guibuilder" "htdp" "graphics" "setup" "profjWizard" "afm" "stxclass" "scheme" "config" "gui-debugger" "defaults" "honu" "icons" "handin-client" "lazy" "texpict" "teachpack" "browser" "rnrs" "scriblib" "waterworld" "parser-tools" "r5rs" "games" "eopl" "tests" "html" "swindle" "handin-server" "repos-time-stamp" "compiler" "embedded-gui" "profj" "2htdp" "stepper" "readline" "hierlist" "deinprogramm" "sgl" "version" "preprocessor" "net" "syntax" "help" "htdch" "trace" "slatex" "xml" "launcher" "ffi" "mrlib" "error!
+ trace" "mzscheme" "mysterx" "mzlib" "info-domain" "tdb"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #t #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+Consider the following code:
+
+; u-sig.ss
+#lang scheme
+(provide u^)
+(define-signature u^
+  ((contracted
+    (u (integer? . -> . u?)))))
+
+; u-unit.ss
+#lang scheme/unit
+(require "u-sig.ss")
+(import)
+(export u^)
+(define (u x) x)
+
+; main.ss
+#lang scheme
+(require "u-sig.ss" "u-unit.ss")
+(define-values/invoke-unit u@ (import) (export u^))
+(u 33)
+
+Running main.ss correctly gives:
+
+u-sig.ss:5:24: expand: unbound identifier in module in: u?
+
+since u^ does not list the predicate u? used in the contract of u.
+
+Now change u-sig.ss to use a second signature that opens the
+original, contracted one:
+
+#lang scheme
+(provide u^)
+(define-signature original-u^
+  ((contracted
+    (u (integer? . -> . u?)))))
+
+(define-signature u^
+  ((open original-u^)))
+
+Note how u? in original-u^ is still unbound.
+
+Run main.ss again and there is no error anymore.  Apparently when
+original-u^ is opened inside the definition of u^, the contracts
+in original-u^ are forgotten.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: meunier@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, cce@plt-scheme.org,
+        samth@plt-scheme.org, ryanc@plt-scheme.org, gcooper@plt-scheme.org,
+        sstrickl@plt-scheme.org, sperber@deinprogramm.de
+Subject: Re: [plt-bug] all/10250: opening a contracted signatures makes the contracts go away
+Date: Wed, 20 May 2009 22:40:29 -0400
+
+ In a sense the bug is really in the first program, because u? should  
+ be bound in u^ and it isn't. And indeed, when I run this module
+ 
+ 
+ > #lang scheme/signature
+ > ; u?
+ > (contracted (u (integer? . -> . u?)))
+ 
+ I get this error:
+ 
+ > Welcome to DrScheme, version 4.2.0.2-svn19may2009 [3m].
+ > Language: Module.
+ > . contracted: misuse of define-signature keyword in: (contracted (u  
+ > (-> integer? u?)))
+ > >
+ 
+ NOT THAT I KNOW WHAT IT MEANS. (STEVIE?)
+ 
+ ;; ---
+ 
+ When you uncomment u?, it works fine as a signature.
+ 
+ 
+ 
+ 
+ On May 20, 2009, at 10:12 PM, meunier@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=10250
+ >
+ > Reported by Philippe for release: 4.1.5.3-svn23mar2009
+ >
+ > *** Description:
+ > Consider the following code:
+ >
+ > ; u-sig.ss
+ > #lang scheme
+ > (provide u^)
+ > (define-signature u^
+ >   ((contracted
+ >     (u (integer? . -> . u?)))))
+ >
+ > ; u-unit.ss
+ > #lang scheme/unit
+ > (require "u-sig.ss")
+ > (import)
+ > (export u^)
+ > (define (u x) x)
+ >
+ > ; main.ss
+ > #lang scheme
+ > (require "u-sig.ss" "u-unit.ss")
+ > (define-values/invoke-unit u@ (import) (export u^))
+ > (u 33)
+ >
+ > Running main.ss correctly gives:
+ >
+ > u-sig.ss:5:24: expand: unbound identifier in module in: u?
+ >
+ > since u^ does not list the predicate u? used in the contract of u.
+ >
+ > Now change u-sig.ss to use a second signature that opens the
+ > original, contracted one:
+ >
+ > #lang scheme
+ > (provide u^)
+ > (define-signature original-u^
+ >   ((contracted
+ >     (u (integer? . -> . u?)))))
+ >
+ > (define-signature u^
+ >   ((open original-u^)))
+ >
+ > Note how u? in original-u^ is still unbound.
+ >
+ > Run main.ss again and there is no error anymore.  Apparently when
+ > original-u^ is opened inside the definition of u^, the contracts
+ > in original-u^ are forgotten.
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > unix "OpenBSD akpatok.james.bay 4.4 GENERIC#9 i386" (i386-openbsd/ 
+ > 3m) (get-display-depth) = 24
+ > Human Language: french
+ > (current-memory-use) 148933396
+ >
+ > Collections:
+ > (("/home/meunier/.plt-scheme/4.1.5.3/collects" non-existent-path)  
+ > ("/home/meunier/plt/collects" ".svn" "tex2page" "wxme" "string- 
+ > constants" "test-engine" "planet" "mzcom" "typed-scheme" "drscheme"  
+ > "r6rs" "s-exp" "framework" "srpersist" "at-exp" "sirmail"  
+ > "slideshow" "scribblings" "test-box-recovery" "syntax-color" "srfi"  
+ > "algol60" "redex" "dynext" "make" "plot" "file" "lang" "web-server"  
+ > "openssl" "macro-debugger" "scribble" "typed" "frtime" "combinator- 
+ > parser" "mred" "guibuilder" "htdp" "graphics" "setup" "profjWizard"  
+ > "afm" "stxclass" "scheme" "config" "gui-debugger" "defaults" "honu"  
+ > "icons" "handin-client" "lazy" "texpict" "teachpack" "browser"  
+ > "rnrs" "scriblib" "waterworld" "parser-tools" "r5rs" "games" "eopl"  
+ > "tests" "html" "swindle" "handin-server" "repos-time-stamp"  
+ > "compiler" "embedded-gui" "profj" "2htdp" "stepper" "readline"  
+ > "hierlist" "deinprogramm" "sgl" "version" "preprocessor" "net"  
+ > "syntax" "help" "htdch" "trace" "slatex" "xml" "launcher" "ffi"  
+ > "mrlib" "error!
+ >  trace" "mzscheme" "mysterx" "mzlib" "info-domain" "tdb"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #t #t  
+ > debug) (default) #() "#lang scheme\n" #t))
+ >
+ 
+From: Philippe Meunier <meunier@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, cce@plt-scheme.org,
+        samth@plt-scheme.org, ryanc@plt-scheme.org, gcooper@plt-scheme.org,
+        sstrickl@plt-scheme.org, sperber@deinprogramm.de
+Subject: Re: [plt-bug] all/10250: opening a contracted signatures makes the
+	contracts go away
+Date: Wed, 20 May 2009 23:56:40 -0400
+
+ Matthias Felleisen wrote:
+ > #lang scheme/signature
+ > ; u?
+ > (contracted (u (integer? . -> . u?)))
+ 
+ By the way, is the grammar for scheme/signature in the "Reference: PLT
+ Scheme" manual correct?  It says:
+ 
+ module-body = (require require-spec ...) ... sig-spec ...
+ 
+ Shouldn't that be:
+ 
+ module-body = (require require-spec ...) ... sig-elem ...
+ 
+ instead?
+ 
+ Philippe
+ 
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Philippe Meunier <meunier@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org, eli@plt-scheme.org,
+        matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        robby@plt-scheme.org, clements@plt-scheme.org, jay@plt-scheme.org,
+        meunier@plt-scheme.org, kathyg@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, samth@plt-scheme.org, ryanc@plt-scheme.org,
+        gcooper@plt-scheme.org, sstrickl@plt-scheme.org,
+        sperber@deinprogramm.de
+Subject: Re: [plt-bug] all/10250: opening a contracted signatures makes the contracts go away
+Date: Thu, 21 May 2009 11:30:34 -0400
+
+ I wasn't sure about this either.
+ 
+ Plus I couldn't get
+ 
+   #lang scheme/load
+   (module a scheme/signature
+     ...)
+ 
+ to work. It can't find the language.
+ 
+ 
+ 
+ On May 20, 2009, at 11:56 PM, Philippe Meunier wrote:
+ 
+ > Matthias Felleisen wrote:
+ >> #lang scheme/signature
+ >> ; u?
+ >> (contracted (u (integer? . -> . u?)))
+ >
+ > By the way, is the grammar for scheme/signature in the "Reference: PLT
+ > Scheme" manual correct?  It says:
+ >
+ > module-body = (require require-spec ...) ... sig-spec ...
+ >
+ > Shouldn't that be:
+ >
+ > module-body = (require require-spec ...) ... sig-elem ...
+ >
+ > instead?
+ >
+ > Philippe
+ >
+ >
+ 
+From: Carl Eastlund <cce@plt-scheme.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Philippe Meunier <meunier@ccs.neu.edu>, bugs@plt-scheme.org,
+        nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org,
+        sperber@deinprogramm.de
+Subject: Re: [plt-bug] all/10250: opening a contracted signatures makes the 
+	contracts go away
+Date: Thu, 21 May 2009 11:32:58 -0400
+
+ #lang FOO
+ 
+ bears no actual relationship to
+ 
+ (module m FOO ...)
+ 
+ --Carl
+ 
+ On Thu, May 21, 2009 at 11:30 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > I wasn't sure about this either.
+ >
+ > Plus I couldn't get
+ >
+ > =A0#lang scheme/load
+ > =A0(module a scheme/signature
+ > =A0 ...)
+ >
+ > to work. It can't find the language.
+From: Carl Eastlund <cce@plt-scheme.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Philippe Meunier <meunier@ccs.neu.edu>, bugs@plt-scheme.org,
+        nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        kathyg@plt-scheme.org, jacobm@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org, gcooper@plt-scheme.org, sstrickl@plt-scheme.org,
+        sperber@deinprogramm.de
+Subject: Re: [plt-bug] all/10250: opening a contracted signatures makes the 
+	contracts go away
+Date: Thu, 21 May 2009 11:33:08 -0400
+
+ #lang FOO
+ 
+ bears no actual relationship to
+ 
+ (module m FOO ...)
+ 
+ --Carl
+ 
+ On Thu, May 21, 2009 at 11:30 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > I wasn't sure about this either.
+ >
+ > Plus I couldn't get
+ >
+ > =A0#lang scheme/load
+ > =A0(module a scheme/signature
+ > =A0 ...)
+ >
+ > to work. It can't find the language.
+
+Responsible changed from "nobody" to "sstrickl" by sstrickl at Thu, 21 May 2009 12:37:14 -0400
+Reason>>> contract-related unit bug
+
+State changed from "open" to "closed" by sstrickl at Thu, 21 May 2009 12:37:14 -0400
+Reason>>> Fixed in svn, r14902.
+
+

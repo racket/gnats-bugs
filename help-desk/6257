@@ -1,0 +1,106 @@
+From neil@neilvandyke.org  Thu May  8 23:23:06 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id XAA09609
+	for <bugs>; Thu, 8 May 2003 23:23:05 -0400
+Message-Id: <200305090323.XAA09609@champlain.ccs.neu.edu>
+Date: Thu, 8 May 2003 23:23:05 -0400
+From: "Neil W. Van Dyke" <neil@neilvandyke.org>
+To: bugs@plt-scheme.org
+Subject: refresh-manuals.ss and possible gc issue
+
+>Number:         6257
+>Category:       help-desk
+>Synopsis:       refresh-manuals.ss and possible gc issue
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu May 08 23:25:00 -0400 2003
+>Closed-Date:    Thu Jul 06 15:20:19 -0400 2006
+>Last-Modified:  Thu Jul 06 15:20:19 -0400 2006
+>Originator:     Neil W. Van Dyke
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        204
+>Environment:
+unix "Linux winona 2.2.20 #1 Wed May 29 05:19:18 EDT 2002 i686 unknown unknown GNU/Linux" (i386-linux) (get-display-depth) = 16
+Docs Installed:
+("advanced" "beginning-abbr" "CVS" "beginning" "drscheme" "framework" "insidemz" "intermediate" "intermediate-lambda" "misclib" "mred" "mzc" "mzlib" "mzscheme" "r5rs" "t-y-scheme" "tex2page" "tools" "tour" "help")
+Collections: 
+
+ 
+Human Language: english
+ 
+>Description:
+About a month ago, the "refresh all manuals" feature caused "mred"
+process to grow to a huge size, causing major swapping and disk I/O
+contention.  I wasn't able to file a bug report at that time, and forgot
+about it.  But glancing at refresh-manuals.ss just now, I wonder if part
+of the cause could've been that the read-string in download-doc
+generates lots of garbage that doesn't get collected very often.
+
+One of my current programs makes a really simple-minded use of
+read-string-avail! and write-string-avail for a similar purpose (just
+read a block into a buffer, keep writing from buffer until it's empty,
+repeat).  I haven't evaluated this beyond observing that it's downloaded
+a few thousand small (<100KB) files from Httper to disk accurately.
+
+(define (port-copy in out)
+  ;; Note: This may write lots of suboptimal block sizes.
+  ;; Note: Input port closed on EOF, but output port is never closed.
+  (let ((buf (make-string 1024)))
+    (let do-read ()
+      (let ((read-count (read-string-avail!/enable-break buf in)))
+        (cond ((eof-object? read-count)
+               (close-input-port in))
+              ((equal? read-count 0)
+               (sleep 0)
+               ;; TODO: poll?
+               (do-read))
+              (else
+               (let do-write ((start-k 0))
+                 (let ((write-count (write-string-avail/enable-break
+                                     buf out start-k read-count)))
+                   (cond ((equal? write-count 0)
+                          (sleep 0)
+                          ;; TODO: poll?
+                          (do-write start-k))
+                         ((equal? write-count (- read-count start-k))
+                          (do-read))
+                         (else (do-write (+ start-k write-count))))))))))))
+>How-To-Repeat:
+>Fix:
+>Release-Note:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Neil W. Van Dyke" <neil@neilvandyke.org>
+Cc: bugs@plt-scheme.org, robby@cs.uchicago.edu
+Subject: Re: all/6257: refresh-manuals.ss and possible gc issue
+Date: Fri, 9 May 2003 07:06:26 -0600
+
+ At Thu, 8 May 2003 23:23:05 -0400, "Neil W. Van Dyke" wrote:
+ > (define (port-copy in out)
+ 
+ JFYI, almost the exact same code implements `copy-port' in '(lib
+ "thread.ss")'. Well, it was almost exactly the same until I generalized
+ `copy-port' for multiple output ports.
+ 
+ `download-doc' should certainly use `copy-port'. I'll change it.
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Tue May 13 08:55:46 2003
+Responsible-Changed-Why:
+    rbf
+Responsible changed from "robby" to "mflatt" by robby at Sat, 12 Mar 2005 08:00:25 -0500
+Reason>>> this appears to actually be yours
+
+State changed from "open" to "closed" by mflatt at Thu, 06 Jul 2006 15:20:19 -0400
+Reason>>> Fixed long ago, I think
+
+>Unformatted:

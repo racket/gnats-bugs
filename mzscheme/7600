@@ -1,0 +1,100 @@
+From: Jay@kenyamountain.com
+Reply-To: Jay@kenyamountain.com
+To: bugs
+Cc:
+Subject: Language levels and recursive functions
+X-Send-Pr-Version: gnatsweb-4.00 (1.1)
+X-GNATS-Notify:
+
+>Number:         7600
+>Category:       mzscheme
+>Synopsis:       Language levels and recursive functions
+>Class:          sw-bug
+>Responsible:    mflatt
+>Notify-List:    
+>Severity:       critical
+>Priority:       high
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Sep 22 22:12:41 -0400 2005
+>Last-Modified:  Thu Sep 29 23:28:01 -0400 2005
+>Originator:     Jay@kenyamountain.com (Jay McCarthy)
+>Organization:
+Suppose I have the module language,
+
+(module lang mzscheme
+  (require (lib "etc.ss")
+           (lib "contract.ss")
+           (lib "list.ss"))
+  (provide
+   (rename and@ and)
+   (rename or@ or)
+   (rename cons@ cons))
+  (provide/contract
+   [assert ((boolean?) (string?) . opt-> . void)])
+  (provide empty empty?)
+  (provide exn:fail:assert?)
+  (provide (all-from-except mzscheme and or cons))
+
+  (define (cons@ element list-tail)
+    (unless (list? list-tail)
+      (raise (error 'cons "Expects list, given ~S" list-tail)))
+    (cons element list-tail))
+
+  ; Do not short circuit evaluation
+  (define-syntax and@
+    (syntax-rules ()
+      [(_ expr ...)
+       (and (let ([b expr])
+              (unless (boolean? b)
+                (raise (error 'and "Expects boolean, given ~S" b)))
+              b)
+            ...)]))
+   (define-syntax or@
+    (syntax-rules ()
+      [(_ expr ...)
+       (or (let ([b expr])
+              (unless (boolean? b)
+                (raise (error 'or "Expects boolean, given ~S" b)))
+              b)
+            ...)]))
+
+  (define-struct (exn:fail:assert exn) ())
+  (define assert
+    (opt-lambda (b-expr [message "Assertion violation"] [marks (current-continuation-marks)])
+      (when (not b-expr)
+        (raise (make-exn:fail:assert
+                (string->immutable-string message)
+                marks))))))
+
+The specifics are not important, the only thing to note is that it reexports mzscheme minus some definitions.
+
+When I write the program
+
+(define max
+  (lambda (lst)
+    (if (empty? ((cdr lst))
+        (car lst)
+        (if (> (car lst) (max (cdr lst)))
+            (car lst)
+            (max (cdr lst))))))
+
+(max '(1 2 8 4 6))
+
+The definition is not recursive and the inner 'max's refer to the original max on numbers.
+
+This seems bizarre because, of course, MzScheme does not have this problem on its own.
+
+Jay
+>Submitter-Id:   unknown
+>Release:        
+>Environment:
+>Description:
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by jay at Thu, 29 Sep 2005 23:28:01 -0400
+Reason>>> It is necessary to use 'namespace-require/copy' to avoid this behaviour. This 
+cannot be done only through info.ss. See EoPL for an example.
+
+>Unformatted:

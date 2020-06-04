@@ -1,0 +1,186 @@
+From robby@cs.rice.edu  Mon Nov 23 13:21:23 1998
+Received: from australia.cs.rice.edu (australia.cs.rice.edu [128.42.1.176])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id NAA20931
+	for <plt-gnats@cs.rice.edu>; Mon, 23 Nov 1998 13:21:23 -0600 (CST)
+Message-Id: <199811231921.NAA04624@australia.cs.rice.edu>
+Date: Mon, 23 Nov 1998 13:21:22 -0600 (CST)
+From: Robert Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: canvas call-as-current-owner doesn't report errors
+X-Send-Pr-Version: 3.101
+
+>Number:         828
+>Category:       mred
+>Synopsis:       canvas call-as-current-owner doesn't report errors
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon Nov 23 14:30:01 -0500 1998
+>Last-Modified:  Sun Mar 28 02:37:50 -0500 2004
+>Originator:     Robert Findler
+>Release:        unknown
+>Organization:
+titan
+>Environment:
+	
+>Description:
+
+Any error raised during a call to call-as-primary-owner is swallowed.
+
+If possible, it would be nice for call-as-primary-owner to propogate errors
+from inside the lambda to the outside, rather than just printing them out
+and continuing.
+
+>How-To-Repeat:
+
+(define f (make-object frame% "frame"))
+(define c (make-object editor-canvas% f))
+(send c call-as-primary-owner
+      (lambda ()
+	(printf "before~n")
+	(car)                   ;; the error message is never seen
+	(printf "after~n")))    ;; neither is this
+(printf "after.2~n")            ;; this is, however
+
+
+>Fix:
+	
+>Release-Note:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Nov 23 21:16:43 1998
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: mflatt
+State-Changed-When: Mon Nov 23 21:16:51 1998
+State-Changed-Why:
+
+See incoming mail...
+
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/828: canvas call-as-current-owner doesn't report errors
+Date: Mon, 23 Nov 1998 21:16:20 -0600 (CST)
+
+ Quoting Robert Findler:
+ > (define f (make-object frame% "frame"))
+ > (define c (make-object editor-canvas% f))
+ > (send c call-as-primary-owner
+ >       (lambda ()
+ > 	(printf "before~n")
+ > 	(car)                   ;; the error message is never seen
+ > 	(printf "after~n")))    ;; neither is this
+ > (printf "after.2~n")            ;; this is, however
+ 
+ There were two problems, here. The problem that callbacks from C++
+ block continuation jumps is well known. But the error should still
+ have been printed if the above code is executed from the command-line
+ (with -f, say), because the default exception handler prints an error message before jumping.
+ 
+ The compounding bug was a mistake in the thread-safety locking, such
+ that the exception handler during the call to call-as-primary-owner's
+ argument was the not default exception handler, and that exception
+ handler ate the error message.
+ 
+ The message-eating bug is fixed. Furthermore, call-as-primary-owner is
+ a rare case where it's easy to reason about exceptions jumping through
+ the C++ code (because the C++ code was written expressly to work with
+ a Scheme procedure argument). 
+ 
+ In the next release,
+ 
+  (define f (make-object frame% "frame"))
+  (define c (make-object editor-canvas% f))
+  (with-handlers ([void (lambda (x) (printf "exn~n"))])
+    (send c call-as-primary-owner
+ 	 (lambda ()
+ 	   (printf "before~n")
+ 	   (car)
+ 	   (printf "after~n"))))
+  (printf "after.2~n")
+ 
+ prints
+ 
+  before
+  exn
+  after.2
+ 
+ 
+ Matthew
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/828: canvas call-as-current-owner doesn't report errors
+Date: Mon, 23 Nov 1998 21:54:42 -0600
+
+ Great; that's exactly what I was hoping you'd say. 
+ 
+ Thanks!
+ 
+ Robby
+ 
+ Matthew Flatt wrote:
+ > 
+ > Quoting Robert Findler:
+ > > (define f (make-object frame% "frame"))
+ > > (define c (make-object editor-canvas% f))
+ > > (send c call-as-primary-owner
+ > >       (lambda ()
+ > >       (printf "before~n")
+ > >       (car)                   ;; the error message is never seen
+ > >       (printf "after~n")))    ;; neither is this
+ > > (printf "after.2~n")            ;; this is, however
+ > 
+ > There were two problems, here. The problem that callbacks from C++
+ > block continuation jumps is well known. But the error should still
+ > have been printed if the above code is executed from the command-line
+ > (with -f, say), because the default exception handler prints an error message before jumping.
+ > 
+ > The compounding bug was a mistake in the thread-safety locking, such
+ > that the exception handler during the call to call-as-primary-owner's
+ > argument was the not default exception handler, and that exception
+ > handler ate the error message.
+ > 
+ > The message-eating bug is fixed. Furthermore, call-as-primary-owner is
+ > a rare case where it's easy to reason about exceptions jumping through
+ > the C++ code (because the C++ code was written expressly to work with
+ > a Scheme procedure argument).
+ > 
+ > In the next release,
+ > 
+ >  (define f (make-object frame% "frame"))
+ >  (define c (make-object editor-canvas% f))
+ >  (with-handlers ([void (lambda (x) (printf "exn~n"))])
+ >    (send c call-as-primary-owner
+ >          (lambda ()
+ >            (printf "before~n")
+ >            (car)
+ >            (printf "after~n"))))
+ >  (printf "after.2~n")
+ > 
+ > prints
+ > 
+ >  before
+ >  exn
+ >  after.2
+ > 
+ > Matthew
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Dec 11 20:05:42 1998
+State-Changed-Why:
+
+>Unformatted:

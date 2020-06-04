@@ -1,0 +1,604 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun May 25 13:55:35 2014
+Received: from mail-oa0-f52.google.com (mail-oa0-f52.google.com [209.85.219.52])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s4PHtXbd008495
+	for <bugs@bugs.plt-scheme.org>; Sun, 25 May 2014 13:55:33 -0400
+Message-Id: <201405251755.s4PHtU5Q008488@winooski.ccs.neu.edu>
+Date: Sun, 25 May 2014 13:55:30 -0400
+From: dalev321@gmail.com
+To: bugs@racket-lang.org
+Subject: JIT bug related to fixnum operations
+
+>Number:         14523
+>Category:       all
+>Synopsis:       JIT bug related to fixnum operations
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun May 25 13:56:02 -0400 2014
+>Closed-Date:    Sun May 25 16:45:49 -0400 2014
+>Last-Modified:  Sun May 25 18:04:01 -0400 2014
+>Originator:     Dale Vaillancourt
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1
+>Environment:
+macosx "Darwin hawthorn.local 13.2.0 Darwin Kernel Version 13.2.0: Thu Apr 17 23:03:13 PDT 2014; root:xnu-2422.100.13~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 273947224
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    b5541888d9afdeea2addc1986e17b0ca3b8533d7    (catalog main-distribution)
+ racket-lib           4e0ce39bb85789f0012f962eaf7027f0977b2b83    (catalog racket-lib)
+ [177 auto-installed packages not shown]
+User-specific for installation "6.0.1":
+ Package        Checksum    Source
+ racket-core    #f          (dir /Users/dalev/hacking/racket-core)
+
+
+
+Collections:
+("/Users/dalev/Library/Racket/6.0.1/collects"
+ (non-existent-path))
+("/Applications/Racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) (main)) #t))
+>Description:
+#|
+The two expressions at the bottom of this module should evaluate to the same 
+answer.  With the JIT turned off, this is the case.  With the JIT on, this
+is not the case:
+
+    $ racket racket-jit-bug.rkt
+    'e
+    'c
+
+    $ racket -j racket-jit-bug.rkt
+    'c
+    'c
+
+With the JIT on, there are a couple of modifications that we can make below
+that cause the expressions to evaluate to the same value.  Hopefully this will
+help track down the issue.
+
+(1) If we replace (fxrshift n 1) with (arithmetic-shift n -1), then the
+expressions produce the same values whether or not the JIT is used.
+
+(2) Alternatively, if we replace fx- (the only occurrence below) with - 
+then the expressions produce the same values whether or not the JIT is
+used.
+
+Note that I am the "Mac OS X (Intel 64-bit)" distribution of Racket 6.0.1 on OS
+X 10.9.3. 
+
+For the curious, the code in this module was part of a skew binary random
+access list implementation that I was working on, but I've eviscerated it 
+for bug report purposes.  It's not necessary to understand the data structure
+to see the problem.
+|# 
+
+#lang racket/base 
+(require racket/fixnum racket/match) 
+(provide (all-defined-out))
+
+(struct bral-empty () #:transparent)
+(struct bral-node (weight tree rest) #:transparent)
+
+(struct node (val even odd) #:transparent)
+
+(struct var (name idx) #:transparent)
+
+
+(define (half n) (fxrshift n 1))
+;(define (half n) (arithmetic-shift n -1))
+
+(define (lookup-tree w i t)
+  (if (node? t)
+    (if (zero? i) 
+      (node-val t)
+      (let [(w/2 (half w))]
+        (if (<= i w/2)
+          (lookup-tree w/2 (fx- i 1) (node-even t))
+          (lookup-tree w/2 (- (- i 1) w/2) (node-odd t)))))
+    (if (zero? i) t #f)))
+
+(define (lookup i ls)
+  (match ls 
+    [(bral-empty) #f]
+    [(bral-node weight tree ls*)
+     (if (< i weight)
+       (lookup-tree weight i tree)
+       (lookup (- i weight) ls*))]))
+
+(define a-node
+  (bral-node
+    15
+    (node
+      'a
+      (node 'b (node 'c 'd 'e) (node 'f 'g 'h))
+      (node 'i (node 'j 'k 'l) (node 'm 'n 'o)))
+    (bral-empty)))
+
+#| The below expressions should evaluate to the same answer
+   (lookup 2 a-node)
+   = (lookup-tree (bral-node-weight a-node) 2 (bral-node-tree a-node))
+   = (lookup-tree 15 2 (bral-node-tree a-node))
+|#
+(lookup 2 a-node)
+(lookup-tree 15 2 (bral-node-tree a-node))
+>How-To-Repeat:
+See comments in the module I pasted above.
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sun, 25 May 2014 16:45:49 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0e9f468d3f
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sun, 25 May 2014 16:45:49 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0e9f468d3f
+  | repair JIT bug
+  | 
+  | The bug incorrectly tracks the value that is available in virtual
+  | register R0 --- only in the case that some value was known to be ready
+  | in R0, and some other value was known to be ready in R1, and a value
+  | is moved from R1 to R0.
+  | 
+  | Closes PR 14523
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "dalev321@gmail.com" <dalev321@gmail.com>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/14523: JIT bug related to fixnum operations
+Date: Sun, 25 May 2014 21:48:01 +0100
+
+ Thanks for the report and the big head start tracking down the problem!
+ 
+ > On May 25, 2014, at 6:56 PM, dalev321@gmail.com wrote:
+ > 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=14523
+ > 
+ > Reported by Dale Vaillancourt for release: 6.0.1
+ > 
+ > *** Description:
+ > #|
+ > The two expressions at the bottom of this module should evaluate to the same 
+ > answer.  With the JIT turned off, this is the case.  With the JIT on, this
+ > is not the case:
+ > 
+ >    $ racket racket-jit-bug.rkt
+ >    'e
+ >    'c
+ > 
+ >    $ racket -j racket-jit-bug.rkt
+ >    'c
+ >    'c
+ > 
+ > With the JIT on, there are a couple of modifications that we can make below
+ > that cause the expressions to evaluate to the same value.  Hopefully this will
+ > help track down the issue.
+ > 
+ > (1) If we replace (fxrshift n 1) with (arithmetic-shift n -1), then the
+ > expressions produce the same values whether or not the JIT is used.
+ > 
+ > (2) Alternatively, if we replace fx- (the only occurrence below) with - 
+ > then the expressions produce the same values whether or not the JIT is
+ > used.
+ > 
+ > Note that I am the "Mac OS X (Intel 64-bit)" distribution of Racket 6.0.1 on OS
+ > X 10.9.3. 
+ > 
+ > For the curious, the code in this module was part of a skew binary random
+ > access list implementation that I was working on, but I've eviscerated it 
+ > for bug report purposes.  It's not necessary to understand the data structure
+ > to see the problem.
+ > |# 
+ > 
+ > #lang racket/base 
+ > (require racket/fixnum racket/match) 
+ > (provide (all-defined-out))
+ > 
+ > (struct bral-empty () #:transparent)
+ > (struct bral-node (weight tree rest) #:transparent)
+ > 
+ > (struct node (val even odd) #:transparent)
+ > 
+ > (struct var (name idx) #:transparent)
+ > 
+ > 
+ > (define (half n) (fxrshift n 1))
+ > ;(define (half n) (arithmetic-shift n -1))
+ > 
+ > (define (lookup-tree w i t)
+ >  (if (node? t)
+ >    (if (zero? i) 
+ >      (node-val t)
+ >      (let [(w/2 (half w))]
+ >        (if (<= i w/2)
+ >          (lookup-tree w/2 (fx- i 1) (node-even t))
+ >          (lookup-tree w/2 (- (- i 1) w/2) (node-odd t)))))
+ >    (if (zero? i) t #f)))
+ > 
+ > (define (lookup i ls)
+ >  (match ls 
+ >    [(bral-empty) #f]
+ >    [(bral-node weight tree ls*)
+ >     (if (< i weight)
+ >       (lookup-tree weight i tree)
+ >       (lookup (- i weight) ls*))]))
+ > 
+ > (define a-node
+ >  (bral-node
+ >    15
+ >    (node
+ >      'a
+ >      (node 'b (node 'c 'd 'e) (node 'f 'g 'h))
+ >      (node 'i (node 'j 'k 'l) (node 'm 'n 'o)))
+ >    (bral-empty)))
+ > 
+ > #| The below expressions should evaluate to the same answer
+ >   (lookup 2 a-node)
+ >   = (lookup-tree (bral-node-weight a-node) 2 (bral-node-tree a-node))
+ >   = (lookup-tree 15 2 (bral-node-tree a-node))
+ > |#
+ > (lookup 2 a-node)
+ > (lookup-tree 15 2 (bral-node-tree a-node))
+ > 
+ > *** How to repeat:
+ > See comments in the module I pasted above.
+ > 
+ > *** Environment:
+ > macosx "Darwin hawthorn.local 13.2.0 Darwin Kernel Version 13.2.0: Thu Apr 17 23:03:13 PDT 2014; root:xnu-2422.100.13~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 273947224
+ > raco pkg (show):
+ > Installation-wide:
+ > Package              Checksum                                    Source
+ > main-distribution    b5541888d9afdeea2addc1986e17b0ca3b8533d7    (catalog main-distribution)
+ > racket-lib           4e0ce39bb85789f0012f962eaf7027f0977b2b83    (catalog racket-lib)
+ > [177 auto-installed packages not shown]
+ > User-specific for installation "6.0.1":
+ > Package        Checksum    Source
+ > racket-core    #f          (dir /Users/dalev/hacking/racket-core)
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/Users/dalev/Library/Racket/6.0.1/collects"
+ > (non-existent-path))
+ > ("/Applications/Racket/collects"
+ > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) (main)) #t))
+ > 
+ 
+From: Dale Vaillancourt <dalev321@gmail.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: "bugs@racket-lang.org" <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/14523: JIT bug related to fixnum operations
+Date: Sun, 25 May 2014 18:03:13 -0400
+
+ --089e0139fe6203e7df04fa40a135
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Thanks for the fast fix!  -Dale
+ 
+ 
+ On Sun, May 25, 2014 at 4:48 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > Thanks for the report and the big head start tracking down the problem!
+ >
+ > > On May 25, 2014, at 6:56 PM, dalev321@gmail.com wrote:
+ > >
+ > > A new problem report is waiting at
+ > >  http://bugs.racket-lang.org/query/?cmd=view&pr=14523
+ > >
+ > > Reported by Dale Vaillancourt for release: 6.0.1
+ > >
+ > > *** Description:
+ > > #|
+ > > The two expressions at the bottom of this module should evaluate to the
+ > same
+ > > answer.  With the JIT turned off, this is the case.  With the JIT on,
+ > this
+ > > is not the case:
+ > >
+ > >    $ racket racket-jit-bug.rkt
+ > >    'e
+ > >    'c
+ > >
+ > >    $ racket -j racket-jit-bug.rkt
+ > >    'c
+ > >    'c
+ > >
+ > > With the JIT on, there are a couple of modifications that we can make
+ > below
+ > > that cause the expressions to evaluate to the same value.  Hopefully
+ > this will
+ > > help track down the issue.
+ > >
+ > > (1) If we replace (fxrshift n 1) with (arithmetic-shift n -1), then the
+ > > expressions produce the same values whether or not the JIT is used.
+ > >
+ > > (2) Alternatively, if we replace fx- (the only occurrence below) with -
+ > > then the expressions produce the same values whether or not the JIT is
+ > > used.
+ > >
+ > > Note that I am the "Mac OS X (Intel 64-bit)" distribution of Racket
+ > 6.0.1 on OS
+ > > X 10.9.3.
+ > >
+ > > For the curious, the code in this module was part of a skew binary random
+ > > access list implementation that I was working on, but I've eviscerated it
+ > > for bug report purposes.  It's not necessary to understand the data
+ > structure
+ > > to see the problem.
+ > > |#
+ > >
+ > > #lang racket/base
+ > > (require racket/fixnum racket/match)
+ > > (provide (all-defined-out))
+ > >
+ > > (struct bral-empty () #:transparent)
+ > > (struct bral-node (weight tree rest) #:transparent)
+ > >
+ > > (struct node (val even odd) #:transparent)
+ > >
+ > > (struct var (name idx) #:transparent)
+ > >
+ > >
+ > > (define (half n) (fxrshift n 1))
+ > > ;(define (half n) (arithmetic-shift n -1))
+ > >
+ > > (define (lookup-tree w i t)
+ > >  (if (node? t)
+ > >    (if (zero? i)
+ > >      (node-val t)
+ > >      (let [(w/2 (half w))]
+ > >        (if (<= i w/2)
+ > >          (lookup-tree w/2 (fx- i 1) (node-even t))
+ > >          (lookup-tree w/2 (- (- i 1) w/2) (node-odd t)))))
+ > >    (if (zero? i) t #f)))
+ > >
+ > > (define (lookup i ls)
+ > >  (match ls
+ > >    [(bral-empty) #f]
+ > >    [(bral-node weight tree ls*)
+ > >     (if (< i weight)
+ > >       (lookup-tree weight i tree)
+ > >       (lookup (- i weight) ls*))]))
+ > >
+ > > (define a-node
+ > >  (bral-node
+ > >    15
+ > >    (node
+ > >      'a
+ > >      (node 'b (node 'c 'd 'e) (node 'f 'g 'h))
+ > >      (node 'i (node 'j 'k 'l) (node 'm 'n 'o)))
+ > >    (bral-empty)))
+ > >
+ > > #| The below expressions should evaluate to the same answer
+ > >   (lookup 2 a-node)
+ > >   = (lookup-tree (bral-node-weight a-node) 2 (bral-node-tree a-node))
+ > >   = (lookup-tree 15 2 (bral-node-tree a-node))
+ > > |#
+ > > (lookup 2 a-node)
+ > > (lookup-tree 15 2 (bral-node-tree a-node))
+ > >
+ > > *** How to repeat:
+ > > See comments in the module I pasted above.
+ > >
+ > > *** Environment:
+ > > macosx "Darwin hawthorn.local 13.2.0 Darwin Kernel Version 13.2.0: Thu
+ > Apr 17 23:03:13 PDT 2014; root:xnu-2422.100.13~1/RELEASE_X86_64 x86_64"
+ > (x86_64-macosx/3m) (get-display-depth) = 32
+ > > Human Language: english
+ > > (current-memory-use) 273947224
+ > > raco pkg (show):
+ > > Installation-wide:
+ > > Package              Checksum                                    Source
+ > > main-distribution    b5541888d9afdeea2addc1986e17b0ca3b8533d7
+ >  (catalog main-distribution)
+ > > racket-lib           4e0ce39bb85789f0012f962eaf7027f0977b2b83
+ >  (catalog racket-lib)
+ > > [177 auto-installed packages not shown]
+ > > User-specific for installation "6.0.1":
+ > > Package        Checksum    Source
+ > > racket-core    #f          (dir /Users/dalev/hacking/racket-core)
+ > >
+ > >
+ > >
+ > > Collections:
+ > > ("/Users/dalev/Library/Racket/6.0.1/collects"
+ > > (non-existent-path))
+ > > ("/Applications/Racket/collects"
+ > > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info"
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket"
+ > "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version"
+ > "xml"))
+ > >
+ > > Recent Internal Errors:
+ > > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test)
+ > (main)) #t))
+ > >
+ >
+ 
+ --089e0139fe6203e7df04fa40a135
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Thanks for the fast fix! =C2=A0-Dale</div><div class=3D"gm=
+ ail_extra"><br><br><div class=3D"gmail_quote">On Sun, May 25, 2014 at 4:48 =
+ PM, Matthew Flatt <span dir=3D"ltr">&lt;<a href=3D"mailto:mflatt@cs.utah.ed=
+ u" target=3D"_blank">mflatt@cs.utah.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">Thanks for the report and the big head start=
+  tracking down the problem!<br>
+ <br>
+ &gt; On May 25, 2014, at 6:56 PM, <a href=3D"mailto:dalev321@gmail.com">dal=
+ ev321@gmail.com</a> wrote:<br>
+ &gt;<br>
+ &gt; A new problem report is waiting at<br>
+ &gt; =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14523" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D14523</a><br>
+ &gt;<br>
+ &gt; Reported by Dale Vaillancourt for release: 6.0.1<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; #|<br>
+ &gt; The two expressions at the bottom of this module should evaluate to th=
+ e same<br>
+ &gt; answer. =C2=A0With the JIT turned off, this is the case. =C2=A0With th=
+ e JIT on, this<br>
+ &gt; is not the case:<br>
+ &gt;<br>
+ &gt; =C2=A0 =C2=A0$ racket racket-jit-bug.rkt<br>
+ &gt; =C2=A0 =C2=A0&#39;e<br>
+ &gt; =C2=A0 =C2=A0&#39;c<br>
+ &gt;<br>
+ &gt; =C2=A0 =C2=A0$ racket -j racket-jit-bug.rkt<br>
+ &gt; =C2=A0 =C2=A0&#39;c<br>
+ &gt; =C2=A0 =C2=A0&#39;c<br>
+ &gt;<br>
+ &gt; With the JIT on, there are a couple of modifications that we can make =
+ below<br>
+ &gt; that cause the expressions to evaluate to the same value. =C2=A0Hopefu=
+ lly this will<br>
+ &gt; help track down the issue.<br>
+ &gt;<br>
+ &gt; (1) If we replace (fxrshift n 1) with (arithmetic-shift n -1), then th=
+ e<br>
+ &gt; expressions produce the same values whether or not the JIT is used.<br=
+ >
+ &gt;<br>
+ &gt; (2) Alternatively, if we replace fx- (the only occurrence below) with =
+ -<br>
+ &gt; then the expressions produce the same values whether or not the JIT is=
+ <br>
+ &gt; used.<br>
+ &gt;<br>
+ &gt; Note that I am the &quot;Mac OS X (Intel 64-bit)&quot; distribution of=
+  Racket 6.0.1 on OS<br>
+ &gt; X 10.9.3.<br>
+ &gt;<br>
+ &gt; For the curious, the code in this module was part of a skew binary ran=
+ dom<br>
+ &gt; access list implementation that I was working on, but I&#39;ve eviscer=
+ ated it<br>
+ &gt; for bug report purposes. =C2=A0It&#39;s not necessary to understand th=
+ e data structure<br>
+ &gt; to see the problem.<br>
+ &gt; |#<br>
+ &gt;<br>
+ &gt; #lang racket/base<br>
+ &gt; (require racket/fixnum racket/match)<br>
+ &gt; (provide (all-defined-out))<br>
+ &gt;<br>
+ &gt; (struct bral-empty () #:transparent)<br>
+ &gt; (struct bral-node (weight tree rest) #:transparent)<br>
+ &gt;<br>
+ &gt; (struct node (val even odd) #:transparent)<br>
+ &gt;<br>
+ &gt; (struct var (name idx) #:transparent)<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; (define (half n) (fxrshift n 1))<br>
+ &gt; ;(define (half n) (arithmetic-shift n -1))<br>
+ &gt;<br>
+ &gt; (define (lookup-tree w i t)<br>
+ &gt; =C2=A0(if (node? t)<br>
+ &gt; =C2=A0 =C2=A0(if (zero? i)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(node-val t)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(let [(w/2 (half w))]<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0(if (&lt;=3D i w/2)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lookup-tree w/2 (fx- i 1) (node-eve=
+ n t))<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(lookup-tree w/2 (- (- i 1) w/2) (no=
+ de-odd t)))))<br>
+ &gt; =C2=A0 =C2=A0(if (zero? i) t #f)))<br>
+ &gt;<br>
+ &gt; (define (lookup i ls)<br>
+ &gt; =C2=A0(match ls<br>
+ &gt; =C2=A0 =C2=A0[(bral-empty) #f]<br>
+ &gt; =C2=A0 =C2=A0[(bral-node weight tree ls*)<br>
+ &gt; =C2=A0 =C2=A0 (if (&lt; i weight)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 (lookup-tree weight i tree)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 (lookup (- i weight) ls*))]))<br>
+ &gt;<br>
+ &gt; (define a-node<br>
+ &gt; =C2=A0(bral-node<br>
+ &gt; =C2=A0 =C2=A015<br>
+ &gt; =C2=A0 =C2=A0(node<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0&#39;a<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(node &#39;b (node &#39;c &#39;d &#39;e) (node &#3=
+ 9;f &#39;g &#39;h))<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(node &#39;i (node &#39;j &#39;k &#39;l) (node &#3=
+ 9;m &#39;n &#39;o)))<br>
+ &gt; =C2=A0 =C2=A0(bral-empty)))<br>
+ &gt;<br>
+ &gt; #| The below expressions should evaluate to the same answer<br>
+ &gt; =C2=A0 (lookup 2 a-node)<br>
+ &gt; =C2=A0 =3D (lookup-tree (bral-node-weight a-node) 2 (bral-node-tree a-=
+ node))<br>
+ &gt; =C2=A0 =3D (lookup-tree 15 2 (bral-node-tree a-node))<br>
+ &gt; |#<br>
+ &gt; (lookup 2 a-node)<br>
+ &gt; (lookup-tree 15 2 (bral-node-tree a-node))<br>
+ &gt;<br>
+ &gt; *** How to repeat:<br>
+ &gt; See comments in the module I pasted above.<br>
+ &gt;<br>
+ &gt; *** Environment:<br>
+ &gt; macosx &quot;Darwin hawthorn.local 13.2.0 Darwin Kernel Version 13.2.0=
+ : Thu Apr 17 23:03:13 PDT 2014; root:xnu-2422.100.13~1/RELEASE_X86_64 x86_6=
+ 4&quot; (x86_64-macosx/3m) (get-display-depth) =3D 32<br>
+ &gt; Human Language: english<br>
+ &gt; (current-memory-use) 273947224<br>
+ &gt; raco pkg (show):<br>
+ &gt; Installation-wide:<br>
+ &gt; Package =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Checksum =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Source<br>
+ &gt; main-distribution =C2=A0 =C2=A0b5541888d9afdeea2addc1986e17b0ca3b8533d=
+ 7 =C2=A0 =C2=A0(catalog main-distribution)<br>
+ &gt; racket-lib =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 4e0ce39bb85789f0012f962e=
+ af7027f0977b2b83 =C2=A0 =C2=A0(catalog racket-lib)<br>
+ &gt; [177 auto-installed packages not shown]<br>
+ &gt; User-specific for installation &quot;6.0.1&quot;:<br>
+ &gt; Package =C2=A0 =C2=A0 =C2=A0 =C2=A0Checksum =C2=A0 =C2=A0Source<br>
+ &gt; racket-core =C2=A0 =C2=A0#f =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(dir /Us=
+ ers/dalev/hacking/racket-core)<br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; Collections:<br>
+ &gt; (&quot;/Users/dalev/Library/Racket/6.0.1/collects&quot;<br>
+ &gt; (non-existent-path))<br>
+ &gt; (&quot;/Applications/Racket/collects&quot;<br>
+ &gt; (&quot;.gitignore&quot; &quot;acks&quot; &quot;compiler&quot; &quot;da=
+ ta&quot; &quot;db&quot; &quot;dynext&quot; &quot;ffi&quot; &quot;file&quot;=
+  &quot;info&quot; &quot;info-domain&quot; &quot;json&quot; &quot;launcher&q=
+ uot; &quot;net&quot; &quot;openssl&quot; &quot;pkg&quot; &quot;planet&quot;=
+  &quot;racket&quot; &quot;raco&quot; &quot;reader&quot; &quot;realm&quot; &=
+ quot;s-exp&quot; &quot;setup&quot; &quot;syntax&quot; &quot;unstable&quot; =
+ &quot;version&quot; &quot;xml&quot;))<br>
+ 
+ &gt;<br>
+ &gt; Recent Internal Errors:<br>
+ &gt; Computer Language: ((&quot;Determine language from source&quot;) (#(#t=
+  print mixed-fraction-e #f #t none) (default) #() &quot;#lang racket\n&quot=
+ ; #f #f ((test) (main)) #t))<br>
+ &gt;<br>
+ </blockquote></div><br></div>
+ 
+ --089e0139fe6203e7df04fa40a135--

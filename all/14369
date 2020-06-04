@@ -1,0 +1,331 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Feb 25 10:38:46 2014
+Received: from mail-oa0-f47.google.com (mail-oa0-f47.google.com [209.85.219.47])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s1PFcfZF008782
+	for <bugs@bugs.plt-scheme.org>; Tue, 25 Feb 2014 10:38:41 -0500
+Message-Id: <201402251538.s1PFcbko008774@winooski.ccs.neu.edu>
+Date: Tue, 25 Feb 2014 10:38:37 -0500
+From: dvanhorn@cs.umd.edu
+To: bugs@racket-lang.org
+Subject: big-bang key events interfere with random numbers
+
+>Number:         14369
+>Category:       all
+>Synopsis:       big-bang key events interfere with random numbers
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Feb 25 10:40:01 -0500 2014
+>Closed-Date:    Tue Feb 25 11:56:34 -0500 2014
+>Last-Modified:  Tue Feb 25 12:42:44 -0500 2014
+>Originator:     David Van Horn
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.0.2--2014-02-04(755998ba/d)
+>Environment:
+macosx "Darwin octagon.local 13.0.0 Darwin Kernel Version 13.0.0: Thu Sep 19 22:22:27 PDT 2013; root:xnu-2422.1.72~6/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 532055160
+Links: (links) = (); (links #:user? #f) = ("pcf"); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+/Users/dvanhorn/git/racket/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [207 auto-installed packages not shown]
+Installation-wide:
+ Package    Checksum                                    Source
+ pcf        ec6d701c6935c002b6d2565b9ae553a59880ae4c    (catalog pcf)
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/Users/dvanhorn/Library/Racket/development/collects"
+ (non-existent-path))
+("/Users/dvanhorn/git/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #f ((test) (main)) #t))
+>Description:
+The big-bang system seems to mutate the random number
+ generator (probably by calling random) in a way that 
+is visible to big-bang programs.  Oddly, this comes up 
+when there are keyboard events.
+
+Here is a program that demonstrates the problem:
+
+#lang racket
+(require 2htdp/universe 2htdp/image)
+(random-seed 1324)
+(big-bang 0 
+          (on-tick (λ _ (printf "~a " (random 10))) 1)
+          (to-draw (λ _ (empty-scene 100 100)))
+          (on-key (λ _ 0)))
+
+If you mash on the keys while it runs, then run it again 
+and mash again, you'll see a different sequence of numbers 
+printed, despite the explicit seeding.
+
+A work around is the following:
+
+#lang racket
+(require 2htdp/universe 2htdp/image)
+(define r (make-pseudo-random-generator))
+(parameterize ((current-pseudo-random-generator r))
+  (random-seed 1324))
+
+(big-bang 0 
+          (on-tick (λ _ (printf "~a " (random 10 r))) 1)
+          (to-draw (λ _ (empty-scene 100 100)))
+          (on-key (λ _ 0)))
+
+But I would expect big-bang to do the jumping through hoops to 
+maintain its own internal state.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "matthias" by matthias at Tue, 25 Feb 2014 10:47:34 -0500
+Reason>>> .
+
+State changed from "open" to "analyzed" by matthias at Tue, 25 Feb 2014 10:47:34 -0500
+Reason>>> .
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: dvanhorn@cs.umd.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14369: big-bang key events interfere with random numbers
+Date: Tue, 25 Feb 2014 10:52:16 -0500
+
+ That is correct. BB's semantics is probabilistic. It actually does not render and display large graphical images every time the clock ticks. I guess I can use the parameterize trick internally to fix this. Thanks. 
+ 
+ (p.s. You really don't want BB expressions in the def window. Define a function.) 
+ 
+ 
+ 
+ On Feb 25, 2014, at 10:40 AM, dvanhorn@cs.umd.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=14369
+ > 
+ > Reported by David Van Horn for release: 6.0.0.2--2014-02-04(755998ba/d)
+ > 
+ > *** Description:
+ > The big-bang system seems to mutate the random number
+ > generator (probably by calling random) in a way that 
+ > is visible to big-bang programs.  Oddly, this comes up 
+ > when there are keyboard events.
+ > 
+ > Here is a program that demonstrates the problem:
+ > 
+ > #lang racket
+ > (require 2htdp/universe 2htdp/image)
+ > (random-seed 1324)
+ > (big-bang 0 
+ >          (on-tick (λ _ (printf "~a " (random 10))) 1)
+ >          (to-draw (λ _ (empty-scene 100 100)))
+ >          (on-key (λ _ 0)))
+ > 
+ > If you mash on the keys while it runs, then run it again 
+ > and mash again, you'll see a different sequence of numbers 
+ > printed, despite the explicit seeding.
+ > 
+ > A work around is the following:
+ > 
+ > #lang racket
+ > (require 2htdp/universe 2htdp/image)
+ > (define r (make-pseudo-random-generator))
+ > (parameterize ((current-pseudo-random-generator r))
+ >  (random-seed 1324))
+ > 
+ > (big-bang 0 
+ >          (on-tick (λ _ (printf "~a " (random 10 r))) 1)
+ >          (to-draw (λ _ (empty-scene 100 100)))
+ >          (on-key (λ _ 0)))
+ > 
+ > But I would expect big-bang to do the jumping through hoops to 
+ > maintain its own internal state.
+ > 
+ > *** How to repeat:
+ > 
+ > 
+ > *** Environment:
+ > macosx "Darwin octagon.local 13.0.0 Darwin Kernel Version 13.0.0: Thu Sep 19 22:22:27 PDT 2013; root:xnu-2422.1.72~6/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 532055160
+ > Links: (links) = (); (links #:user? #f) = ("pcf"); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+ > raco pkg (show):
+ > /Users/dvanhorn/git/racket/racket/share/devel-pkgs:
+ > Package              Checksum    Source
+ > main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ > plt-services         #f          (static-link ../../../pkgs/plt-services)
+ > racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ > [207 auto-installed packages not shown]
+ > Installation-wide:
+ > Package    Checksum                                    Source
+ > pcf        ec6d701c6935c002b6d2565b9ae553a59880ae4c    (catalog pcf)
+ > User-specific for installation "development":
+ > [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/Users/dvanhorn/Library/Racket/development/collects"
+ > (non-existent-path))
+ > ("/Users/dvanhorn/git/racket/racket/collects"
+ > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #f ((test) (main)) #t))
+ > 
+ 
+ 
+Responsible changed from "matthias" to "robby" by robby@racket-lang.org at Tue, 25 Feb 2014 11:56:34 -0500
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/381bdfb32a
+State changed from "analyzed" to "closed" by robby@racket-lang.org at Tue, 25 Feb 2014 11:56:34 -0500
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/381bdfb32a
+  | use private pseudo-random-generator
+  | 
+  | closes PR 14369
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: bugs@racket-lang.org
+Cc: robby@racket-lang.org, matthias@racket-lang.org,
+        bug-notification@racket-lang.org, dvanhorn@cs.umd.edu
+Subject: Re: [racket-bug] all/14369: big-bang key events interfere with random numbers
+Date: Tue, 25 Feb 2014 12:21:47 -0500
+
+ I was just about to do this after I had written a test. I'll add the test in after checking it against your implementation. 
+ 
+ 
+ On Feb 25, 2014, at 11:56 AM, robby@racket-lang.org wrote:
+ 
+ > 
+ > Responsible changed from "matthias" to "robby" by robby@racket-lang.org at Tue, 25 Feb 2014 11:56:34 -0500
+ > Reason>>> A commit by robby@racket-lang.org has resolved this report
+ >  http://git.racket-lang.org/plt/commit/381bdfb32a
+ > State changed from "analyzed" to "closed" by robby@racket-lang.org at Tue, 25 Feb 2014 11:56:34 -0500
+ > Reason>>> A commit by robby@racket-lang.org has resolved this report
+ >  http://git.racket-lang.org/plt/commit/381bdfb32a
+ >  | use private pseudo-random-generator
+ >  | 
+ >  | closes PR 14369
+ > 
+ > 
+ > View:
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=14369
+ > 
+ 
+ 
+From: Robby Findler <robby@racket-lang.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>,
+        "matthias@racket-lang.org" <matthias@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        David Van Horn <dvanhorn@cs.umd.edu>
+Subject: Re: [racket-bug] all/14369: big-bang key events interfere with random numbers
+Date: Tue, 25 Feb 2014 11:28:12 -0600
+
+ --001a11368448a68e3204f33e6953
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Thanks.
+ 
+ Robby
+ 
+ 
+ On Tue, Feb 25, 2014 at 11:21 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu>wrote:
+ 
+ >
+ > I was just about to do this after I had written a test. I'll add the test
+ > in after checking it against your implementation.
+ >
+ >
+ > On Feb 25, 2014, at 11:56 AM, robby@racket-lang.org wrote:
+ >
+ > >
+ > > Responsible changed from "matthias" to "robby" by robby@racket-lang.orgat Tue, 25 Feb 2014 11:56:34 -0500
+ > > Reason>>> A commit by robby@racket-lang.org has resolved this report
+ > >  http://git.racket-lang.org/plt/commit/381bdfb32a
+ > > State changed from "analyzed" to "closed" by robby@racket-lang.org at
+ > Tue, 25 Feb 2014 11:56:34 -0500
+ > > Reason>>> A commit by robby@racket-lang.org has resolved this report
+ > >  http://git.racket-lang.org/plt/commit/381bdfb32a
+ > >  | use private pseudo-random-generator
+ > >  |
+ > >  | closes PR 14369
+ > >
+ > >
+ > > View:
+ > >  http://bugs.racket-lang.org/query/?cmd=view&pr=14369
+ > >
+ >
+ >
+ 
+ --001a11368448a68e3204f33e6953
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Thanks.<div><br>Robby</div></div><div class=3D"gmail_extra=
+ "><br><br><div class=3D"gmail_quote">On Tue, Feb 25, 2014 at 11:21 AM, Matt=
+ hias Felleisen <span dir=3D"ltr">&lt;<a href=3D"mailto:matthias@ccs.neu.edu=
+ " target=3D"_blank">matthias@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><br>
+ I was just about to do this after I had written a test. I&#39;ll add the te=
+ st in after checking it against your implementation.<br>
+ <div class=3D"HOEnZb"><div class=3D"h5"><br>
+ <br>
+ On Feb 25, 2014, at 11:56 AM, <a href=3D"mailto:robby@racket-lang.org">robb=
+ y@racket-lang.org</a> wrote:<br>
+ <br>
+ &gt;<br>
+ &gt; Responsible changed from &quot;matthias&quot; to &quot;robby&quot; by =
+ <a href=3D"mailto:robby@racket-lang.org">robby@racket-lang.org</a> at Tue, =
+ 25 Feb 2014 11:56:34 -0500<br>
+ &gt; Reason&gt;&gt;&gt; A commit by <a href=3D"mailto:robby@racket-lang.org=
+ ">robby@racket-lang.org</a> has resolved this report<br>
+ &gt; =C2=A0<a href=3D"http://git.racket-lang.org/plt/commit/381bdfb32a" tar=
+ get=3D"_blank">http://git.racket-lang.org/plt/commit/381bdfb32a</a><br>
+ &gt; State changed from &quot;analyzed&quot; to &quot;closed&quot; by <a hr=
+ ef=3D"mailto:robby@racket-lang.org">robby@racket-lang.org</a> at Tue, 25 Fe=
+ b 2014 11:56:34 -0500<br>
+ &gt; Reason&gt;&gt;&gt; A commit by <a href=3D"mailto:robby@racket-lang.org=
+ ">robby@racket-lang.org</a> has resolved this report<br>
+ &gt; =C2=A0<a href=3D"http://git.racket-lang.org/plt/commit/381bdfb32a" tar=
+ get=3D"_blank">http://git.racket-lang.org/plt/commit/381bdfb32a</a><br>
+ &gt; =C2=A0| use private pseudo-random-generator<br>
+ &gt; =C2=A0|<br>
+ &gt; =C2=A0| closes PR 14369<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; View:<br>
+ &gt; =C2=A0<a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14369" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D14369</a><br>
+ &gt;<br>
+ <br>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a11368448a68e3204f33e6953--
+
+----------
+A commit by matthias@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/9753aa4cf9
+  | including test for PR 14369 in xtest
+
+
+----------
+A commit by matthias@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/5475dcaaf9
+  | a test for PR 14369
+

@@ -1,0 +1,105 @@
+From apache@plt-scheme.org Sat Jan  7 02:22:30 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k077MSJT001119
+	for <bugs@plt-scheme.org>; Sat, 7 Jan 2006 02:22:28 -0500
+Message-Id: <200601070722.k077MS7H001117@champlain.ccs.neu.edu>
+Date: Sat, 7 Jan 2006 02:22:28 -0500
+From: jacobm@cs.uchicago.edu
+To: bugs@plt-scheme.org
+Subject: Under Windows, mzc -k doesn't delete the bad .zo file if a compilation error occurs
+
+>Number:         7811
+>Category:       mzscheme
+>Synopsis:       Under Windows, mzc -k doesn't delete the bad .zo file if a compilation error occurs
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Jan 07 02:25:00 -0500 2006
+>Last-Modified:  Fri Feb 24 15:54:44 -0500 2006
+>Originator:     Jacob Matthews
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        300
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(#<path:C:\Program Files\PLT\collects\doc\web-server> #<path:C:\Program Files\PLT\collects\doc\tour> #<path:C:\Program Files\PLT\collects\doc\tools> #<path:C:\Program Files\PLT\collects\doc\tex2page> #<path:C:\Program Files\PLT\collects\doc\teachpack> #<path:C:\Program Files\PLT\collects\doc\t-y-scheme> #<path:C:\Program Files\PLT\collects\doc\swindle> #<path:C:\Program Files\PLT\collects\doc\srfi> #<path:C:\Program Files\PLT\collects\doc\r5rs> #<path:C:\Program Files\PLT\collects\doc\profj-intermediate> #<path:C:\Program Files\PLT\collects\doc\profj-beginner> #<path:C:\Program Files\PLT\collects\doc\profj-advanced> #<path:C:\Program Files\PLT\collects\doc\plot> #<path:C:\Program Files\PLT\collects\doc\mzscheme> #<path:C:\Program Files\PLT\collects\doc\mzlib> #<path:C:\Program Files\PLT\collects\doc\mzc> #<path:C:\Program Files\PLT\collects\doc\mrlib> #<path:C:\Program Files\PLT\collects\doc\mred> #<path:C:\Program Files\PLT\collects\doc\misclib> #<path:C:\Program Files\PLT\collects\doc\intermediate-lambda> #<path:C:\Program Files\PLT\collects\doc\intermediate> #<path:C:\Program Files\PLT\collects\doc\insidemz> #<path:C:\Program Files\PLT\collects\doc\help> #<path:C:\Program Files\PLT\collects\doc\framework> #<path:C:\Program Files\PLT\collects\doc\foreign> #<path:C:\Program Files\PLT\collects\doc\drscheme> #<path:C:\Program Files\PLT\collects\doc\beginning-abbr> #<path:C:\Program Files\PLT\collects\doc\beginning> #<path:C:\Program Files\PLT\collects\doc\advanced>)
+Collections:
+((#<path:C:\Documents and Settings\Raymond\Application Data\PLT Scheme\300\collects> "non-existent path") (#<path:C:\Program Files\PLT\collects> (#<path:afm> #<path:algol60> #<path:browser> #<path:compiler> #<path:defaults> #<path:doc> #<path:drscheme> #<path:dynext> #<path:embedded-gui> #<path:eopl> #<path:errortrace> #<path:ffi> #<path:framework> #<path:frtime> #<path:games> #<path:graphics> #<path:help> #<path:hierlist> #<path:htdp> #<path:html> #<path:icons> #<path:info-domain> #<path:lang> #<path:launcher> #<path:make> #<path:mred> #<path:mrlib> #<path:mysterx> #<path:mzcom> #<path:mzlib> #<path:mzscheme> #<path:mztake> #<path:net> #<path:openssl> #<path:parser-tools> #<path:planet> #<path:plot> #<path:preprocessor> #<path:profj> #<path:profjBoxes> #<path:r5rs> #<path:setup> #<path:sgl> #<path:slatex> #<path:slibinit> #<path:slideshow> #<path:srfi> #<path:ssax> #<path:stepper> #<path:string-constants> #<path:swindle> #<path:syntax> #<path:syntax-color> #<path:test-suite> #<path:tex2page> #<path:texpict> #<path:trace> #<path:version> #<path:web-server> #<path:xml>)))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+Under Linux and Mac OS X, if you do mzc -k file1.ss,
+file1.ss requires file2.ss, and file2.ss fails to compile,
+then compiled/file2.zo will not exist when all is finished
+and file1.zo might get compiled into a file1.zo file.
+Under Windows, a 0-length file2.zo will still exist when
+the manager compiles file1.ss, resulting in an error message.
+
+It appears that the relevant line may be collects/mzlib/cm.ss:98,
+which sets up an exception handler that swallows filesystem
+errors during deletion of a file's .zo equivalent (called if
+compilation fails). Under Windows, if I set that exception
+handler to print out the message of any exception it catches,
+I get:
+
+delete-file: cannot-delete file: "...[the file's path]..." (Permission denied; errno=13)
+>How-To-Repeat:
+In file1.ss, put
+(module file1 mzscheme (require "file2.ss"))
+
+In file2.ss, put
+
+(module file2 mzscheme
+  (define-syntax (oops stx)
+    (syntax-case stx ()
+      [(_ v) #`'#,(datum->syntax-object stx (build-path "oops"))]))
+  (define a (oops b))
+  (provide a))
+
+Then run mzc -k file1.ss and see the error message: 
+default-load-handler: expected a `module' declaration for `file2', but found end-of-file in: #<path:...the file's path>
+
+But only in Windows.
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@cs.uchicago.edu>
+To: jacobm@cs.uchicago.edu, bugs@plt-scheme.org
+Cc: mflatt@cs.utah.edu
+Subject: Re: all/7811: Under Windows, mzc -k doesn't delete the bad .zo file if a compilation error occurs
+Date: Sat, 7 Jan 2006 06:44:20 -0600
+
+ Am I correct in understanding that this compounded the schemeunit bug,
+ making schemeunit unusable under windows? Whereas, under other os's, it
+ merely just did not have .zo file equivalents, so it still worked?
+ 
+ Robby
+From: Jacob Matthews <jacobm@cs.uchicago.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org, mflatt@cs.utah.edu
+Subject: Re: all/7811: Under Windows, mzc -k doesn't delete the bad .zo file if a compilation error occurs
+Date: Sat, 7 Jan 2006 10:23:52 -0600
+
+ That's correct.
+ 
+ -jacob
+ 
+ On Jan 7, 2006, at 6:44 AM, Robby Findler wrote:
+ 
+ > Am I correct in understanding that this compounded the schemeunit bug,
+ > making schemeunit unusable under windows? Whereas, under other  
+ > os's, it
+ > merely just did not have .zo file equivalents, so it still worked?
+ >
+ > Robby
+ >
+ 
+
+State changed from "open" to "closed" by mflatt at Fri, 24 Feb 2006 15:54:44 -0500
+Reason>>> Finally fixed.
+

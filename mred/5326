@@ -1,0 +1,165 @@
+From nobody@champlain.ccs.neu.edu  Fri Mar 22 17:08:17 2002
+Received: (from nobody@localhost)
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) id RAA27977
+	for bugs@plt-scheme.org; Fri, 22 Mar 2002 17:08:17 -0500
+Message-Id: <200203222208.RAA27977@champlain.ccs.neu.edu>
+Date: Fri, 22 Mar 2002 17:08:17 -0500
+From: robby@cs.rice.edu
+To: bugs@plt-scheme.org
+Cc:
+Subject: unexpected scrolling with clickbacks, editor-snips% and scroll-to
+
+>Number:         5326
+>Category:       mred
+>Synopsis:       unexpected scrolling with clickbacks, editor-snips% and scroll-to
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Mar 22 17:10:00 -0500 2002
+>Closed-Date:    Sat Nov 25 19:56:43 -0500 2006
+>Last-Modified:  Sun Nov 26 19:15:01 -0500 2006
+>Originator:     Robert Bruce Findler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        200alphaXX
+>Environment:
+linux-other
+>Description:
+Run the program below.
+click the button
+now click on the first five letters in the embedded editor
+  (invoking a clickback)
+see the visible portion of the editor change, but it shouldn't.
+>How-To-Repeat:
+(define str 
+  (let loop ([n 30])
+    (cond
+      [(zero? n) ""]
+      [else (string-append
+             (format "~aabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\n"
+                     n)
+             (loop (- n 1)))])))
+
+(define f (make-object frame% "frame" #f 300 300))
+(define t (make-object text%))
+(define ec (make-object editor-canvas% f t))
+
+(define t2 (make-object text%))
+(define ec2 (make-object editor-canvas% f t2))
+(send t2 insert str)
+(send t2 set-position 0 0)
+
+(send f show #t)
+
+(send ec2 focus)
+
+(define (fun)
+  (define it1 (make-object text%))
+  (define es1 (make-object editor-snip% it1))
+  (define it2 (make-object text%))
+  (define es2 (make-object editor-snip% it2))
+  (define it3 (make-object text%))
+  (define es3 (make-object editor-snip% it3))
+
+  (send t begin-edit-sequence)
+  (send t erase)
+  (send t insert es1)
+  (send t insert es2)
+  (send t insert es3)
+  (send it1 insert str)
+  (send it1 set-clickback 0 5
+        (lambda (x y z)
+          (send t2 set-position (send t2 last-position) (send t2 last-position))
+          (send t2 set-caret-owner #f 'global)))
+  (send it2 insert str)
+  (send it3 insert str)
+  (send t end-edit-sequence)
+  (send ec scroll-to 0 0 1 1 #t 'start))
+
+(define button (make-object button% "button" f (lambda (x z) (fun))))
+>Fix:
+>Release-Note:
+>Audit-Trail:
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Apr 21 19:40:26 2002
+Responsible-Changed-Why:
+    r
+State changed from "open" to "closed" by mflatt at Sat, 25 Nov 2006 19:56:43 -0500
+Reason>>> Fixed in SVN.
+
+Some notes on the example:
+ - es2 and es3 are not needed to demonstrate
+   the problem
+ - if you remove the explicit `scroll-to' call,
+   then the canvas doesn't scroll to the insertion
+   of the most recent esX, and it should
+
+The problem is that scroll requests from an embedded editor
+were half-way dropped when the embedding editor has an
+edit sequence. The embedded editor didn't report the scroll
+request, but it also didn't forget it. Later, when you click
+on the clickback, the embedded would report "by the way,
+please scroll to position X, because I forgot to ask a long
+time ago".
+
+The repair was to make sure that the scroll request is
+reported. This means that more work is performed than
+needed, since the scroll request is replaced by another
+before the enclosing editor is displayed. In other words,
+the repair weakens the already-weak effect of edit
+sequences on embedded editors. This could cause
+performance problems in code that was not otherwise
+affected by the bug, but I think probably it won't.
+
+A better solution would be to extend the editor protocol
+to that the embedded editor can say "I have a scroll request;
+if you ever become interested, send me back this information
+and I'll turn it into a normal scroll request". Maybe one day.
+
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] mred/5326 unexpected scrolling with clickbacks, editor-snips% and scroll-to
+Date: Sat, 25 Nov 2006 20:45:04 -0600
+
+ Great!
+ 
+ Any chance this fix will help with the mysterious scrolling when a  
+ file containing lots of embedded editors is opened?
+ 
+ Robby
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] mred/5326 unexpected scrolling with clickbacks, editor-snips% and scroll-to
+Date: Mon, 27 Nov 2006 06:58:42 0800
+
+ At Sat, 25 Nov 2006 20:45:04 -0600, Robby Findler wrote:
+ > Any chance this fix will help with the mysterious scrolling when a  
+ > file containing lots of embedded editors is opened?
+ 
+ Well, how about that... it does.
+ 
+ Matthew
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] mred/5326 unexpected scrolling with clickbacks, editor-snips% and scroll-to
+Date: Sun, 26 Nov 2006 18:11:11 -0600
+
+ At Mon, 27 Nov 2006 06:58:42 0800, Matthew Flatt wrote:
+ > At Sat, 25 Nov 2006 20:45:04 -0600, Robby Findler wrote:
+ > > Any chance this fix will help with the mysterious scrolling when a  
+ > > file containing lots of embedded editors is opened?
+ > 
+ > Well, how about that... it does.
+ 
+ Excellent! :)
+>Unformatted:

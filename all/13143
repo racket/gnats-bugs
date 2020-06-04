@@ -1,0 +1,154 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Sep 27 09:26:37 2012
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q8RDQX9V026801
+	for <bugs@bugs.plt-scheme.org>; Thu, 27 Sep 2012 09:26:33 -0400
+Message-Id: <201209271326.q8RDQRYk026794@champlain.ccs.neu.edu>
+Date: Thu, 27 Sep 2012 09:26:27 -0400
+From: tobias.hammer@dlr.de
+To: bugs@racket-lang.org
+Subject: ffi finalizers never running
+
+>Number:         13143
+>Category:       all
+>Synopsis:       ffi finalizers never running
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Sep 27 09:28:01 -0400 2012
+>Closed-Date:    Thu Sep 27 10:13:04 -0400 2012
+>Last-Modified:  Thu Sep 27 10:13:04 -0400 2012
+>Originator:     Tobias Hammer
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.19--2012-08-08(-/f)
+>Environment:
+unix "Linux thoosa 2.6.32.59-0.7-pae #1 SMP 2012-07-13 15:50:56 +0200 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 156346004
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/baeuml/epackages/racket/racket/linux-intel-gcc4/collects"
+ (".gitignore" "2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "images" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax-color" "syntax" "teachpack" "test-engine" "tests" "texpict" "trace" "typed-racket" "typed-scheme" "typed" "unstable" "version" !
+ "web-server" "wxme" "xml" "xrepl" "info-domain"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+Hi,
+
+i tried to register a finalizer for a malloced cpointer (see code). The version with will-register works without problems and i always get the appropriate message. The version with will-register instead never prints anything.
+
+Checking the register-finalizer implementation in ffi/unsafe.rkt, i noticed that the killer thread thunk is never executed. If i replace the thread-cells parameter 'no-cell' with #f it suddenly works. 
+
+Tested with 5.3.0.24 on 32bit Linux.
+
+Tobias
+>How-To-Repeat:
+;; working:
+(define we (make-will-executor))
+(define we-th (thread (lambda ()
+                        (let loop ()
+                          (will-execute we)
+                          (loop)))))
+
+(let ([a (malloc _int 10)])
+  (will-register we a (lambda (ign) (printf "will finalize\n"))))
+(sleep .5) (collect-garbage) (collect-garbage) (sleep .5)
+
+;; NOT working:
+(let ([a (malloc _int 10)])  
+  (register-finalizer a (lambda (ign) (printf "ffi finalize\n"))))
+(sleep .5) (collect-garbage) (collect-garbage) (sleep .5)
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: tobias.hammer@dlr.de, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13143: ffi finalizers never running
+Date: Thu, 27 Sep 2012 07:35:39 -0600
+
+ Use `log-error' instead of `printf'.
+ 
+ The `printf' function isn't generally safe from a finalizer context.
+ And, as you've noticed, the finalizer-running thread is configured in a
+ way that essentially defeats printing.
+ 
+ At Thu, 27 Sep 2012 09:28:02 -0400, tobias.hammer@dlr.de wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13143
+ > 
+ > Reported by Tobias Hammer for release: 5.3.0.19--2012-08-08(-/f)
+ > 
+ > *** Description:
+ > Hi,
+ > 
+ > i tried to register a finalizer for a malloced cpointer (see code). The version 
+ > with will-register works without problems and i always get the appropriate 
+ > message. The version with will-register instead never prints anything.
+ > 
+ > Checking the register-finalizer implementation in ffi/unsafe.rkt, i noticed 
+ > that the killer thread thunk is never executed. If i replace the thread-cells 
+ > parameter 'no-cell' with #f it suddenly works. 
+ > 
+ > Tested with 5.3.0.24 on 32bit Linux.
+ > 
+ > Tobias
+ > 
+ > *** How to repeat:
+ > ;; working:
+ > (define we (make-will-executor))
+ > (define we-th (thread (lambda ()
+ >                         (let loop ()
+ >                           (will-execute we)
+ >                           (loop)))))
+ > 
+ > (let ([a (malloc _int 10)])
+ >   (will-register we a (lambda (ign) (printf "will finalize\n"))))
+ > (sleep .5) (collect-garbage) (collect-garbage) (sleep .5)
+ > 
+ > ;; NOT working:
+ > (let ([a (malloc _int 10)])  
+ >   (register-finalizer a (lambda (ign) (printf "ffi finalize\n"))))
+ > (sleep .5) (collect-garbage) (collect-garbage) (sleep .5)
+ > 
+ > *** Environment:
+ > unix "Linux thoosa 2.6.32.59-0.7-pae #1 SMP 2012-07-13 15:50:56 +0200 i686 i686 
+ > i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 156346004
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links 
+ > #:user? #f #:root? #t) = ()
+ > 
+ > 
+ > Collections:
+ > ("/home/baeuml/epackages/racket/racket/linux-intel-gcc4/collects"
+ >  (".gitignore" "2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" 
+ > "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" 
+ > "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" 
+ > "future-visualizer" "games" "graphics" "gui-debugger" "handin-client" 
+ > "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "images" "json" 
+ > "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" 
+ > "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" 
+ > "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" 
+ > "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" 
+ > "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" 
+ > "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "stepper" 
+ > "string-constants" "swindle" "syntax-color" "syntax" "teachpack" "test-engine" 
+ > "tests" "texpict" "trace" "typed-racket" "typed-scheme" "typed" "unstable" 
+ > "version" !
+ >  "web-server" "wxme" "xml" "xrepl" "info-domain"))
+ > 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t ((main) 
+ > (test))))
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Thu, 27 Sep 2012 10:13:04 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/3f59309634
+State changed from "open" to "closed" by mflatt@racket-lang.org at Thu, 27 Sep 2012 10:13:04 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/3f59309634

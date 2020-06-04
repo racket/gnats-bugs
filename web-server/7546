@@ -1,0 +1,83 @@
+From apache@plt-scheme.org Tue Aug 23 14:47:19 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j7NIlHZS004589
+	for <bugs@plt-scheme.org>; Tue, 23 Aug 2005 14:47:17 -0400
+Message-Id: <200508231847.j7NIlHpe004587@champlain.ccs.neu.edu>
+Date: Tue, 23 Aug 2005 14:47:17 -0400
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: Multiple threads in web-server/configuration.ss gen-log-message can leak the log file object
+
+>Number:         7546
+>Category:       web-server
+>Synopsis:       Multiple threads in web-server/configuration.ss gen-log-message can leak the log file object
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Aug 23 14:50:00 -0400 2005
+>Last-Modified:  Tue Aug 23 18:25:32 -0400 2005
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299
+>Environment:
+linux-other
+>Description:
+The gen-log-message caches an instance of a log file in memory using
+
+    (let ((outsem (make-semaphore 1))
+          (log-p (make-parameter #f)))
+       ...
+
+However, this means that different threads that enter gen-log-message will have their own versions of the log-p parameter.  Consequently, the log file has the potential of being reopened several times.  The mutex does the proper mutual exclusion anyway, so the fix is to make it a regular variable, and just allow all threads to share the same log-p.
+
+[dyoo@shoebox web-server]$ svn diff
+Index: configuration.ss
+===================================================================
+--- configuration.ss    (revision 638)
++++ configuration.ss    (working copy)
+@@ -246,24 +246,24 @@
+   ; to produce a string that is displayed into the log file
+   (define (gen-log-message log-format log-path)
+     (let ([outsem (make-semaphore 1)]
+-          [log-p (make-parameter #f)])
++          [log-p #f])
+       (lambda (host-ip client-ip method uri host)
+         (call-with-semaphore
+          outsem
+          (lambda ()
+-           (with-handlers ([exn? (lambda (e) (log-p #f))])
+-             (unless (and (log-p) (file-exists? log-path))
+-               (unless (eq? (log-p) #f)
+-                 (close-output-port (log-p)))
+-               (log-p (open-output-file log-path 'append))
+-               (file-stream-buffer-mode (log-p) 'line))
++           (with-handlers ([exn? (lambda (e) (set! log-p #f))])
++             (unless (and log-p (file-exists? log-path))
++               (unless (eq? log-p #f)
++                 (close-output-port log-p))
++               (set! log-p (open-output-file log-path 'append))
++               (file-stream-buffer-mode log-p 'line))
+              ; do the display all at once by formating first
+-             (when (log-p)
++             (when log-p
+                (display
+                 (format "~s~n"
+                         (list 'from client-ip 'to host-ip 'for (url->string uri) 'at
+                               (date->string (seconds->date (current-seconds)) #t)))
+-                (log-p)))))))))
++                log-p))))))))
+
+   ; ignore-log : sym str -> str str sym url str -> str
+   (define (ignore-log log-format log-path) void)
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by jay at Tue, 23 Aug 2005 18:25:32 -0400
+Reason>>> Modified, when call-with-semaphore was added, the log cache was put in a 
+parameter as well for good measure.
+

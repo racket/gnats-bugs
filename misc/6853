@@ -1,0 +1,129 @@
+From sigurd@12move.de Mon May 10 16:23:23 2004
+Received: from localhost (p62.246.57.139.tisdip.tiscali.de [62.246.57.139])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id i4AKNJ1W028180
+	for <bugs>; Mon, 10 May 2004 16:23:21 -0400
+Message-Id: <200405102023.i4AKNJ1W028180@champlain.ccs.neu.edu>
+Date: Mon, 10 May 2004 16:23:19 -0400
+From: Karl Pflästerer <sigurd@12move.de>
+To: bugs@plt-scheme.org
+Subject: nntp lib problem: sending commands to server
+
+>Number:         6853
+>Category:       misc
+>Synopsis:       nntp lib problem: sending commands to server
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon May 10 16:25:01 -0400 2004
+>Last-Modified:  Tue May 11 12:33:53 -0400 2004
+>Originator:     Karl Pflästerer
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        206p1
+>Environment:
+windows "Windows 9x 4.90 (Build 3000)" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+("E:\\Scheme\\PLT\\collects\\doc\\tour" "E:\\Scheme\\PLT\\collects\\doc\\tools" "E:\\Scheme\\PLT\\collects\\doc\\tex2page" "E:\\Scheme\\PLT\\collects\\doc\\teachpack" "E:\\Scheme\\PLT\\collects\\doc\\t-y-scheme" "E:\\Scheme\\PLT\\collects\\doc\\srfi" "E:\\Scheme\\PLT\\collects\\doc\\r5rs" "E:\\Scheme\\PLT\\collects\\doc\\profj-intermediate" "E:\\Scheme\\PLT\\collects\\doc\\profj-beginner" "E:\\Scheme\\PLT\\collects\\doc\\profj-advanced" "E:\\Scheme\\PLT\\collects\\doc\\mzscheme" "E:\\Scheme\\PLT\\collects\\doc\\mzlib" "E:\\Scheme\\PLT\\collects\\doc\\mzc" "E:\\Scheme\\PLT\\collects\\doc\\mred" "E:\\Scheme\\PLT\\collects\\doc\\misclib" "E:\\Scheme\\PLT\\collects\\doc\\intermediate-lambda" "E:\\Scheme\\PLT\\collects\\doc\\intermediate" "E:\\Scheme\\PLT\\collects\\doc\\insidemz" "E:\\Scheme\\PLT\\collects\\doc\\help" "E:\\Scheme\\PLT\\collects\\doc\\framework" "E:\\Scheme\\PLT\\collects\\doc\\drscheme" "E:\\Scheme\\PLT\\collects\\doc\\beginning-abbr" "E:\\Scheme\\PLT\\collects\\doc\\beginning" "E:\\Scheme\\PLT\\collects\\doc\\advanced")
+Collections: 
+(("C:\\WINDOWS\\Anwendungsdaten\\PLT Scheme\\206p1\\collects" ("readline")) ("E:\\Scheme\\PLT\\collects" ("afm" "algol60" "browser" "compiler" "defaults" "doc" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "preprocessor" "profj" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "syntax" "syntax-color" "test-suite" "tex2page" "texpict" "version" "web-server" "xml")))
+ 
+Human Language: english
+ 
+>Description:
+Hi,
+
+motivated through a Usenet discussion (cf. 
+<skd65cacbh.fsf@mojave.cs.cornell.edu> and
+<m3ad0g9uii.fsf@hamster.pflaesterer.de>) I wanted to try the nntp lib of
+PLT and see how to connect to a NNTP server.
+
+Connection Problem
+==================
+
+The server here is Hamster (a news and mail server; very RfC conform;
+see http://www.tglsoft.de; it's a widely used OS server (written in
+Delphi))
+
+I can make a TCP connection but can't send any commands to the server so
+he times out after some seconds.
+
+The problem seems to be with the procedure `send-to-server' (in
+nntp-unit.ss).  It uses fprintf to format the command and closes the
+with `~n' as format string.  That looks like only a newline (ASCII #10)
+to me but the server needs crlf (ASCII #13#10).
+
+If you establish a TCP connection with the procedure `tcp-connect' you
+can see the problem (see below for an example).
+
+Login question
+==============
+
+Not directly related to that problem but I saw together with it: why is
+there no login procedure in the nntp lib?
+
+>How-To-Repeat:
+;; Running that program with mzscheme -f filename gives these results:
+
+(require (lib "nntp.ss" "net"))
+
+;; will not work connection times out
+;; displays an error message (here caught)
+;; regexp-match: expects type <string or input-port> as 2nd argument, given: #<eof>
+   ; other arguments were: #rx"([0-9]+) (.*)"
+;; server never sees group command therefore closes connection and Scheme only reads
+;; #<eof>
+
+(display "Testing nntp lib procedure") (newline)
+(let ((comm (connect-to-server "127.0.0.1")))
+  (with-handlers ((exn:application:type?
+		   (lambda (exn) (display "Not recogniced by server\n"))))
+    (open-news-group comm "internal.misc")))
+
+
+;; will work; will display "480 Authentication needed"
+;; since the user didn't log in first
+
+(display "Testing writing with \\r\\n as end") (newline)
+(call-with-values
+(lambda () (tcp-connect "127.0.0.1" 119))
+(lambda (in out)
+  (if (char-ready? in) (read-line in))
+  (display "group internal.misc\r\n" out)
+  (cond ((char-ready? in)
+	  (display (read-line in)) (newline))
+	(else
+	  (display "No response")
+	  (newline)))))
+
+;; will work; looged in first; sent all commands with \r\n ending
+
+(let* ((comm (connect-to-server "127.0.0.1"))
+       (out  (communicator-sender comm))
+       (in   (communicator-receiver comm)))
+  (display "authinfo user testeins\r\n" out)
+  (display (read-line in)) (newline)
+  (display "authinfo pass test\r\n" out)
+  (display (read-line in)) (newline)
+  ;(open-news-group comm "comp.lang.scheme")
+  (display "group comp.lang.scheme\r\n" out)
+  (display (read-line in)) (newline)
+  (display "quit\r\n" out)
+  (display (read-line in)) (newline))
+
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "eli" by eli at Tue, 11 May 2004 12:33:53 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Tue, 11 May 2004 12:33:53 -0400
+Reason>>> I've fixed the \r\n thing, hope nothing else breaks because
+of it.
+I also added an authenticate-user function that can be used
+to athenticate a user.  I'm not sure that I covered all the
+possible cases properly, and it just uses the original nntp
+authinfo thing -- nothing fancy.
+

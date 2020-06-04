@@ -1,0 +1,228 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Aug 15 14:56:07 2009
+Received: from mail-yw0-f187.google.com (mail-yw0-f187.google.com [209.85.211.187])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n7FIu15P025158
+	for <bugs@bugs.plt-scheme.org>; Sat, 15 Aug 2009 14:56:01 -0400
+Message-Id: <200908151855.n7FItwL6025147@champlain.ccs.neu.edu>
+Date: Sat, 15 Aug 2009 14:55:58 -0400
+From: jmj@fellowhuman.com
+To: bugs@plt-scheme.org
+Subject: scheme:text-balanced? has questionable results
+
+>Number:         10406
+>Category:       framework
+>Synopsis:       scheme:text-balanced? has questionable results
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Aug 15 15:00:01 -0400 2009
+>Closed-Date:    Sun Aug 16 05:57:48 -0400 2009
+>Last-Modified:  Sun Aug 16 06:00:01 -0400 2009
+>Originator:     Jordan Johnson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.1.5-svn10aug2009
+>Environment:
+macosx "Darwin whiz.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 171583276
+
+Collections:
+(("/Users/jteach/Library/PLT Scheme/4.2.1.5/collects" non-existent-path) ("/Applications/PLT Scheme v4.2.1.5/collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+In the framework, scheme:text-balanced? does not behave as documented.  Specifically, it fails to return #f for an unbalanced s-expression that is missing an open-parenthesis at the beginning, e.g. "foo)".  Also, it returns #t for an empty range.  Here's a possible solution (for the def at framework/private/scheme.ss line 41):
+;; ---
+
+(require test-engine/scheme-tests)
+
+;; true iff the given range in the given text contains exactly one
+;; expression with matched parentheses (i.e., a single datum as produced
+;; by `read').
+(define text-balanced?
+  (lambda (text [start 0] [in-end #f])
+    (let* ([end (or in-end (send text last-position))]
+           [port (open-input-text-editor text start end)])
+      (with-handlers ([exn:fail:read:eof? (λ (x) #f)]
+                      [exn:fail:read? (λ (x) #f)])
+        (let ([s (read port)])
+          (and (not (eof-object? s))
+               (eof-object? (read port))))))))
+
+;; true iff the given range in the given editor contains a
+;; (possibly empty) sequence of expressions with matched parentheses.
+(define text-balanced-sequence?
+  (lambda (text [start 0] [in-end #f])
+    (let* ([end (or in-end (send text last-position))]
+           [port (open-input-text-editor text start end)])
+      (with-handlers ([exn:fail:read:eof? (λ (x) #f)]
+                      [exn:fail:read? (λ (x) #f)])
+        (let loop ()
+          (let ([s (read port)])
+            (or (eof-object? s)
+                (loop))))))))
+
+;; tests the above procedures with the given string and expected answers
+(define-syntax test-one-st
+  (syntax-rules ()
+    [(_ s ans1 ans2)
+     (begin
+       (define st (new scheme:text%))
+       (unless (equal? s "")
+         (send st insert s))
+       (check-expect (text-balanced? st) ans1)
+       (check-expect (text-balanced-sequence? st) ans2))]))
+  
+;; empty string; current behavior of scheme:text-balanced? is #t.
+(test-one-st "" #f #t)
+;; whitespace-only; current behavior of scheme:text-balanced? is #t.
+(test-one-st "  \n " #f #t)
+(test-one-st "foo)" #f #f)
+(test-one-st "(foo" #f #f)
+(test-one-st "(foo)" #t #t)
+(test-one-st "(foo 'bar))" #f #f)
+(test-one-st "(foo) bar ([buz])" #f #t)
+(test-one-st "(foo]" #f #f)
+(test-one-st "{foo} ((bar) [5.9])" #f #t)
+
+(test)
+>How-To-Repeat:
+;; Evaluate the following:
+(require framework)
+(define st (new scheme:text%))
+(send st insert "foo)")
+(scheme:text-balanced? st)
+>Fix:
+As in the description, except that I made the function insist on there being at least one sexpression.
+>Release-Note:
+This was not a contract violation, nor was it a type error. The exception handler returned the wrong boolean and it only checked the first expression, not all of them.
+>Audit-Trail:
+State changed from "open" to "closed" by robby at Sun, 16 Aug 2009 05:57:48 -0400
+Reason>>> fixed and released to SVN.
+
+Thanks for the report! 
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: jmj@fellowhuman.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10406: scheme:text-balanced? has questionable 
+	results
+Date: Sun, 16 Aug 2009 04:57:55 -0500
+
+ Thanks for the report!
+ 
+ As you probably know, this function is used to determine whether or
+ not DrScheme treats the return key in the REPL as submitting the
+ current expression or not, so I went with a version that checks to
+ make sure there is at least one expression in the range and that all
+ of the expressions have matched parens.
+ 
+ Robby
+ 
+ On Sat, Aug 15, 2009 at 2:00 PM, <jmj@fellowhuman.com> wrote:
+ > A new problem report is waiting at
+ > =C2=A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10406
+ >
+ > Reported by Jordan Johnson for release: 4.2.1.5-svn10aug2009
+ >
+ > *** Description:
+ > In the framework, scheme:text-balanced? does not behave as documented. =
+ =C2=A0Specifically, it fails to return #f for an unbalanced s-expression th=
+ at is missing an open-parenthesis at the beginning, e.g. "foo)". =C2=A0Also=
+ , it returns #t for an empty range. =C2=A0Here's a possible solution (for t=
+ he def at framework/private/scheme.ss line 41):
+ > ;; ---
+ >
+ > (require test-engine/scheme-tests)
+ >
+ > ;; true iff the given range in the given text contains exactly one
+ > ;; expression with matched parentheses (i.e., a single datum as produced
+ > ;; by `read').
+ > (define text-balanced?
+ > =C2=A0(lambda (text [start 0] [in-end #f])
+ > =C2=A0 =C2=A0(let* ([end (or in-end (send text last-position))]
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 [port (open-input-text-editor text sta=
+ rt end)])
+ > =C2=A0 =C2=A0 =C2=A0(with-handlers ([exn:fail:read:eof? (=CE=BB (x) #f)]
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0[exn:fail:read? (=CE=BB (x) #f)])
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0(let ([s (read port)])
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(and (not (eof-object? s))
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (eof-object? (read port)=
+ )))))))
+ >
+ > ;; true iff the given range in the given editor contains a
+ > ;; (possibly empty) sequence of expressions with matched parentheses.
+ > (define text-balanced-sequence?
+ > =C2=A0(lambda (text [start 0] [in-end #f])
+ > =C2=A0 =C2=A0(let* ([end (or in-end (send text last-position))]
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 [port (open-input-text-editor text sta=
+ rt end)])
+ > =C2=A0 =C2=A0 =C2=A0(with-handlers ([exn:fail:read:eof? (=CE=BB (x) #f)]
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0[exn:fail:read? (=CE=BB (x) #f)])
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0(let loop ()
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(let ([s (read port)])
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(or (eof-object? s)
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(loop))))))))
+ >
+ > ;; tests the above procedures with the given string and expected answers
+ > (define-syntax test-one-st
+ > =C2=A0(syntax-rules ()
+ > =C2=A0 =C2=A0[(_ s ans1 ans2)
+ > =C2=A0 =C2=A0 (begin
+ > =C2=A0 =C2=A0 =C2=A0 (define st (new scheme:text%))
+ > =C2=A0 =C2=A0 =C2=A0 (unless (equal? s "")
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 (send st insert s))
+ > =C2=A0 =C2=A0 =C2=A0 (check-expect (text-balanced? st) ans1)
+ > =C2=A0 =C2=A0 =C2=A0 (check-expect (text-balanced-sequence? st) ans2))]))
+ >
+ > ;; empty string; current behavior of scheme:text-balanced? is #t.
+ > (test-one-st "" #f #t)
+ > ;; whitespace-only; current behavior of scheme:text-balanced? is #t.
+ > (test-one-st " =C2=A0\n " #f #t)
+ > (test-one-st "foo)" #f #f)
+ > (test-one-st "(foo" #f #f)
+ > (test-one-st "(foo)" #t #t)
+ > (test-one-st "(foo 'bar))" #f #f)
+ > (test-one-st "(foo) bar ([buz])" #f #t)
+ > (test-one-st "(foo]" #f #f)
+ > (test-one-st "{foo} ((bar) [5.9])" #f #t)
+ >
+ > (test)
+ >
+ > *** How to repeat:
+ > ;; Evaluate the following:
+ > (require framework)
+ > (define st (new scheme:text%))
+ > (send st insert "foo)")
+ > (scheme:text-balanced? st)
+ >
+ > *** Environment:
+ > macosx "Darwin whiz.local 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 2=
+ 2:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386 i386" (i386-macos=
+ x/3m) (get-display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 171583276
+ >
+ > Collections:
+ > (("/Users/jteach/Library/PLT Scheme/4.2.1.5/collects" non-existent-path) =
+ ("/Applications/PLT Scheme v4.2.1.5/collects" "2htdp" "afm" "algol60" "at-e=
+ xp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogr=
+ amm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "f=
+ ramework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htd=
+ ch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-deb=
+ ugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "op=
+ enssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5r=
+ s" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "sc=
+ ribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" =
+ "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "=
+ teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "=
+ typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) =
+ (default) #() "#lang scheme\n" #t))
+ >
+ >

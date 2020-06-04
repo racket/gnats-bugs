@@ -1,0 +1,92 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Aug 17 19:02:29 2014
+Received: from mail-ig0-f178.google.com (mail-ig0-f178.google.com [209.85.213.178])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s7HN2Sk6029933
+	for <bugs@bugs.plt-scheme.org>; Sun, 17 Aug 2014 19:02:28 -0400
+Message-Id: <201408172302.s7HN2Q5N029922@winooski.ccs.neu.edu>
+Date: Sun, 17 Aug 2014 19:02:26 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: `register-finalizer` doesn't unwrap impersonators/chaperones
+
+>Number:         14690
+>Category:       all
+>Synopsis:       `register-finalizer` doesn't unwrap impersonators/chaperones
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Aug 17 19:04:01 -0400 2014
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1.6--2014-04-27(35cfa0ad/d)
+>Environment:
+unix "Linux woodstock 3.11.0-23-generic #40-Ubuntu SMP Wed Jun 4 21:05:23 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 239981184
+raco pkg (show):
+/home/neil/plt/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [213 auto-installed packages not shown]
+Installation-wide:
+ Package               Checksum                                    Source
+ disassemble           cf0ee3a5f8463e0867eba4c964d742a29325a996    (catalog disassemble)
+ nonplussed            f6c069990eb6b0b3356f872fcce82a3fb2fe805a    (url git://github.com/ntoronto/nonplussed)
+ optimization-coach    be5f7908939c31a68d5c7dc9202315ffa8863180    (catalog optimization-coach)
+ rsound                4f5d4d154eb7585b96b24298b79e3381bab8f1a5    (catalog rsound)
+ slideshow-latex       9275fecbaaac14c6168f42cae73ed4c0cb7b2037    (catalog slideshow-latex)
+ [1 auto-installed package not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/development/collects"
+ (non-existent-path))
+("/home/neil/plt/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+In the program in reproduction steps, the finalizer is attached to a chaperone. The external module points at the wrapped value, though, so the finalizer is run early.
+
+It's easier to provoke this error in Typed Racket by using `require/typed` to import `register-finalizer`. Almost every use of `register-finalizer` fails in this way.
+>How-To-Repeat:
+#lang racket
+
+(module resource racket
+  (require (only-in ffi/unsafe register-finalizer))
+  
+  (provide
+   (contract-out
+    [connect-os-resource (-> (struct/c os-resource-wrapper real?) void?)])
+   get-os-resource
+   (struct-out os-resource-wrapper))
+  
+  (struct os-resource-wrapper (x) #:mutable)
+  
+  (define os-resource 0)
+  (define (get-os-resource) os-resource)
+  
+  (define (connect-os-resource w)
+    (set! os-resource (add1 os-resource))
+    (printf "impersonator? ~v  chaperone? ~v~n" (impersonator? w) (chaperone? w))
+    (register-finalizer w (λ (w) (set! os-resource (sub1 os-resource))))))
+
+(require (submod "." resource))
+
+(define w (os-resource-wrapper 1))
+(connect-os-resource w)
+(printf "os-resource = ~v~n" (get-os-resource))
+(collect-garbage)
+(sleep 1)  ; give finalizers a chance to run
+(printf "os-resource = ~v~n" (get-os-resource))
+>Fix:

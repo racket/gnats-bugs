@@ -1,0 +1,119 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jul 13 08:49:41 2008
+Received: from fk-out-0910.google.com (fk-out-0910.google.com [209.85.128.187])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m6DCnXtA023557
+	for <bugs@bugs.plt-scheme.org>; Sun, 13 Jul 2008 08:49:33 -0400
+Message-Id: <200807131249.m6DCnPqB023550@champlain.ccs.neu.edu>
+Date: Sun, 13 Jul 2008 08:49:25 -0400
+From: not_read@spam.la
+To: bugs@plt-scheme.org
+Subject: regexp-replace very slow; problem may be due to backtracking in regex
+
+>Number:         9602
+>Category:       mzscheme
+>Synopsis:       regexp-replace very slow; problem may be due to backtracking in regex
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jul 13 08:52:01 -0400 2008
+>Last-Modified:  Sun Jul 13 18:13:48 -0400 2008
+>Originator:     Anonymous
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0.1
+>Environment:
+unix "Linux comet 2.6.18-6-686 #1 SMP Fri Jun 6 22:22:11 UTC 2008 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 71798544
+
+Collections:
+(("/home/ronan/.plt-scheme/4.0.1/collects" non-existent-path) ("/usr/local/plt/4.0.1/lib/plt/collects" "algol60" "ffi" "teachpack" "plot" "texpict" "r5rs" "tests" "htdp" "scribble" "r6rs" "s-exp" "mysterx" "html" "mred" "compiler" "net" "htdch" "mzcom" "typed-scheme" "setup" "slideshow" "xml" "help" "test-box-recovery" "sgl" "macro-debugger" "test-engine" "afm" "dynext" "trace" "scheme" "tex2page" "version" "preprocessor" "config" "make" "openssl" "file" "lang" "framework" "stepper" "icons" "rnrs" "hierlist" "mzscheme" "profj" "syntax-color" "string-constants" "swindle" "combinator-parser" "info-domain" "embedded-gui" "games" "errortrace" "srfi" "launcher" "frtime" "defaults" "parser-tools" "web-server" "syntax" "planet" "lazy" "eopl" "gui-debugger" "drscheme" "mrlib" "slatex" "scribblings" "graphics" "browser" "mzlib" "wxme" "readline"))
+Computer Language: (("Legacy Languages" "Pretty Big (includes MrEd and Advanced Student)") #(#t write mixed-fraction-e #f #t debug #t))
+>Description:
+>How-To-Repeat:
+Run this program:
+
+--------------------------------
+#!/usr/bin/env mzscheme
+
+#lang scheme
+
+(regexp-replace #px"(.*)(<[Pp]\\b.*)" (make-string 4661 #\a) "")
+--------------------------------
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: not_read@spam.la, bugs@plt-scheme.org
+Cc: matthias@plt-scheme.org, sk@plt-scheme.org, mflatt@plt-scheme.org,
+        robby@plt-scheme.org, clements@plt-scheme.org, jay@plt-scheme.org,
+        meunier@plt-scheme.org, kathyg@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, samth@plt-scheme.org, ryanc@plt-scheme.org,
+        gcooper@plt-scheme.org
+Subject: Re: [plt-bug] all/9602: regexp-replace very slow; problem may be due to backtracking in regex
+Date: Sun, 13 Jul 2008 09:33:47 -0400
+
+ On Jul 13, not_read@spam.la wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=9602
+ > 
+ > Reported by Anonymous for release: 4.0.1
+ > 
+ > *** Description:
+ > 
+ > 
+ > *** How to repeat:
+ > Run this program:
+ > 
+ > --------------------------------
+ > #!/usr/bin/env mzscheme
+ > 
+ > #lang scheme
+ > 
+ > (regexp-replace #px"(.*)(<[Pp]\\b.*)" (make-string 4661 #\a) "")
+ 
+ There's probably sevral ways to make it faster, like anchoring the
+ regexp with a "^" in the beginning etc.
+ 
+ But one thing that looked surprising to me is that
+ 
+    (regexp-match? #rx".*(?:z)" (make-string 10000 #\a))
+ 
+ is much slower (probably some N^2 backtracking?) than
+ 
+    (regexp-match? #rx".*z" (make-string 10000 #\a))
+ 
+ I'd expect (?:...) to be a no-op in this case, and even a plain group
+ when invoked by `regexp-match?'.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+State changed from "open" to "closed" by mflatt at Sun, 13 Jul 2008 18:13:48 -0400
+Reason>>> The sloweness was indeed from backtacking.
+
+The regexp matcher has a way around this, which is the
+same as Perl's: if it can find in the regexp a string
+that must be present in the input, and if that string
+isn't present, then the matcher can quickly give up.
+
+To speed up the example (and the one Eli noted), 
+I improved the matcher's ability to locate a
+"must" string --- "<" in the original example ---
+within a regexp. The change is committed in SVN.
+
+As with Perl, small changes can lead you back into
+backtracking. For example, given
+
+  #px"(.*)([Pp]\\b.*)"
+
+then neither Perl nor PLT Scheme will check for
+"P" or "p" before trying to match with backtracking.
+The difference is that there are two possibilities,
+instead of just one. (Perl and PLT Scheme behave so
+similarly because the regexp implementations are both
+based on Spencer's matcher.)
+

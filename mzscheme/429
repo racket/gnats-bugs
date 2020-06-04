@@ -1,0 +1,159 @@
+From nobody@cs.rice.edu  Fri Jan 30 13:43:27 1998
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+          by cs.rice.edu (8.8.5/8.8.4) with ESMTP
+	  id NAA29736 for <plt-gnats@cs.rice.edu>; Fri, 30 Jan 1998 13:43:26 -0600 (CST)
+Message-Id: <199801301943.NAA25831@web.cs.rice.edu>
+Date: Fri, 30 Jan 1998 13:43:26 -0600 (CST)
+From: blake@edge.net
+Reply-To: blake@edge.net
+To: plt-gnats@cs.rice.edu
+Subject: Need to get error messages in embedded systems 
+
+>Number:         429
+>Category:       mzscheme
+>Synopsis:       Need to get error messages in embedded systems
+>Confidential:   no
+>Severity:       critical
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Jan 30 19:45:02 GMT 1998
+>Last-Modified:  Fri Feb  6 11:09:31 CST 1998
+>Originator:     Blake McBride
+>Organization:
+titan
+>Release:        50
+>Environment:
+MS Windows NT
+>Description:
+I'm using MzScheme as an embedded interpreter to my C app.
+I am able to execute scheme code and catch errors however,
+when I catch an error I need to be able to display the error
+message associated with the exception.  How can I get it?
+>How-To-Repeat:
+	global_env = scheme_basic_env();
+	memcpy(&jb, &scheme_error_buf, sizeof scheme_error_buf);
+	if (scheme_setjmp(scheme_error_buf)) {
+                              I want to display the error message here;
+                              exit(0);
+                 }
+                 scheme_eval_string(str, global_env);
+	memcpy(&scheme_error_buf, &jb, sizeof scheme_error_buf);
+
+>Fix:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Jan 30 19:27:26 1998
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-feedback
+State-Changed-By: mflatt
+State-Changed-When: Fri Jan 30 22:33:12 1998
+State-Changed-Why:
+
+You need to set the excpetion handler to grab the error, instead of
+letting the default exception handler print the error to stdout.
+The easiest way to do this is to mix some Scheme code with C
+code.
+
+The following example code has been added to "Inside PLT MzScheme".
+The function _apply_thunk_catch_exceptions is the starting point for
+what you want. Below that is eval_string_or_get_exn_message, an
+example of how to use _apply_thunk_catch_exceptions to catch
+exceptions while evaluating a string.
+
+----------------------------------------------------------------------
+
+static Scheme_Object *exn_catching_apply, *exn_p, *exn_message;
+
+static void init_exn_catching_apply()
+{
+  if (!exn_catching_apply) {
+    char *e = 
+      "(#%lambda (thunk) "
+	"(#%with-handlers ([#%void (#%lambda (exn) (#%cons #f exn))]) "
+	  "(#%cons #t (thunk))))";
+    /* make sure we have a namespace with the standard syntax: */
+    Scheme_Env *env = (Scheme_Env *)scheme_make_namespace(0, NULL);
+
+#if !SCHEME_DIRECT_EMBEDDED
+    scheme_register_extension_global(&exn_catching_apply, sizeof(Scheme_Object *));
+    scheme_register_extension_global(&exn_p, sizeof(Scheme_Object *));
+    scheme_register_extension_global(&exn_message, sizeof(Scheme_Object *));
+#endif
+    
+    exn_catching_apply = scheme_eval_string(e, env);
+    exn_p = scheme_lookup_global(scheme_intern_symbol("exn?"), env);
+    exn_message = scheme_lookup_global(scheme_intern_symbol("exn-message"), env);
+  }
+}
+
+/* This function applies a thunk, returning the Scheme value if there's no exception, 
+   otherwise returning NULL and setting *exn to the raised value (usually an exn 
+   structure). */
+Scheme_Object *_apply_thunk_catch_exceptions(Scheme_Object *f, Scheme_Object **exn)
+{
+  Scheme_Object *v;
+
+  init_exn_catching_apply();
+  
+  v = _scheme_apply(exn_catching_apply, 1, &f);
+  /* v is a pair: (cons #t value) or (cons #f exn) */
+
+  if (SCHEME_TRUEP(SCHEME_CAR(v)))
+    return SCHEME_CDR(v);
+  else {
+    *exn = SCHEME_CDR(v);
+    return NULL;
+  }
+}
+
+Scheme_Object *extract_exn_message(Scheme_Object *v)
+{
+  init_exn_catching_apply();
+
+  if (SCHEME_TRUEP(_scheme_apply(exn_p, 1, &v)))
+    return _scheme_apply(exn_message, 1, &v);
+  else
+    return NULL; /* Not an exn structure */
+}
+
+----------------------------------------------------------------------
+
+static Scheme_Object *do_eval(void *s, int noargc, Scheme_Object **noargv)
+{
+  return scheme_eval_string((char *)s, scheme_get_env(scheme_config));
+}
+
+static Scheme_Object *eval_or_get_exn_message(char *s)
+{
+  Scheme_Object *v, *exn;
+
+  v = _apply_thunk_catch_exceptions(scheme_make_closed_prim(do_eval, s), &exn);
+  /* Got a value? */
+  if (v)
+    return v;
+
+  v = extract_exn_message(exn);
+  /* Got an exn? */
+  if (v)
+    return v;
+
+  /* `raise' was called on some arbitrary value */
+  return exn;
+}
+
+----------------------------------------------------------------------
+
+State-Changed-From-To: feedback-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Feb  6 11:09:19 1998
+State-Changed-Why:
+Manual updated.
+
+>Unformatted:

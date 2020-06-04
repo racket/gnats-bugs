@@ -1,0 +1,213 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Dec 28 19:56:44 2010
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id oBT0ufZk026990
+	for <bugs@bugs.plt-scheme.org>; Tue, 28 Dec 2010 19:56:42 -0500
+Message-Id: <201012290056.oBT0uaiO026978@champlain.ccs.neu.edu>
+Date: Tue, 28 Dec 2010 19:56:36 -0500
+From: robby@eecs.northwestern.edu
+To: bugs@racket-lang.org
+Subject: get-argb-pixels can raise bytes-set! error
+
+>Number:         11572
+>Category:       all
+>Synopsis:       get-argb-pixels can raise bytes-set! error
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Dec 28 20:00:01 -0500 2010
+>Closed-Date:    Tue Dec 28 22:04:45 -0500 2010
+>Last-Modified:  Tue Dec 28 22:04:45 -0500 2010
+>Originator:     Robby Findler
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.99.5--2010-12-28(5eec85a5/d)
+>Environment:
+windows "Windows NT 6.1 (Build 7600)" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 158753240
+
+Collections:
+("C:\\Users\\Administrator\\AppData\\Roaming\\Racket\\5.0.99.5\\collects"
+ (non-existent-path))
+("C:\\Users\\Administrator\\git\\exp\\plt\\collects"
+ (".gitignore" "2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "wa!
+ terworld" "web-server" "wxme" "xml"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+The program below raises the error
+
+bytes-set!: expects type <exact integer in [0,255]> as 3rd argument, given: 452; other arguments were: #"\0\377\377\377\
+0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\... 2847
+
+ === context ===
+C:\Users\Administrator\git\plt\collects\racket\draw\private\bitmap.rkt:610:18: for-loop
+C:\Users\Administrator\git\plt\collects\racket\draw\private\bitmap.rkt:607:14: for-loop
+C:\Users\Administrator\git\plt\collects\racket\draw\private\bitmap.rkt:586:4: do-get-argb-pixels method in bitmap%
+C:\tmp.rkt: [running body]
+>How-To-Repeat:
+#lang racket/gui
+(define w 100)
+(define h 20)
+(define bm (make-bitmap w h))
+(define bdc (make-object bitmap-dc% bm))
+(send bdc set-smoothing 'aligned)
+(send bdc set-text-foreground (send the-color-database find-color "blue"))
+(send bdc draw-text "ab" 0 0)
+(define the-bytes (make-bytes (* w h 4)))
+(send bm get-argb-pixels 0 0 w h the-bytes)
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/11572: get-argb-pixels can raise bytes-set! error
+Date: Tue, 28 Dec 2010 19:06:21 -0600
+
+ I'm not sure what the code is supposed to be doing, but if v = 197 and
+ a = 111, then this (in bitmap.rkt):
+ 
+   (unsafe-fxquotient (fx* v 255) a)
+ 
+ produces 452.
+ 
+ I would have thought the proper computation there would be:
+ 
+   v/255 * (1 - a/255)
+ 
+ which is also this:
+ 
+   (v * (255 - a)) / 255
+ 
+ but maybe I got a minus sign wrong and the above should really be this?
+ 
+   (unsafe-fxquotient (fx* v a) 255)
+ 
+ Or maybe it really should be this:
+ 
+   (unsafe-fxquotient (fx* v (- 255 a)) 255)
+ 
+ with the (- 255 a) lifted out, of course?
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/11572: get-argb-pixels can raise bytes-set! error
+Date: Tue, 28 Dec 2010 19:15:10 -0600
+
+ On Tue, Dec 28, 2010 at 7:13 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > At Tue, 28 Dec 2010 19:06:21 -0600, Robby Findler wrote:
+ >> I'm not sure what the code is supposed to be doing, but if v =3D 197 and
+ >> a =3D 111, then this (in bitmap.rkt):
+ >>
+ >> =C2=A0 (unsafe-fxquotient (fx* v 255) a)
+ >>
+ >> produces 452.
+ >
+ > The problem is that v =3D 197 and a =3D 111 makes no sense for
+ > pre-multiplied alpha ARGB. A should always be at least as large as R,
+ > G, and B in a pre-multiplied ARGB, right?
+ 
+ Ah.  I didn't understand the representation. Perhaps, then, the font
+ drawing code is not putting the right values in, then?
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/11572: get-argb-pixels can raise bytes-set! error
+Date: Tue, 28 Dec 2010 18:13:32 -0700
+
+ At Tue, 28 Dec 2010 19:06:21 -0600, Robby Findler wrote:
+ > I'm not sure what the code is supposed to be doing, but if v = 197 and
+ > a = 111, then this (in bitmap.rkt):
+ > 
+ >   (unsafe-fxquotient (fx* v 255) a)
+ > 
+ > produces 452.
+ 
+ The problem is that v = 197 and a = 111 makes no sense for
+ pre-multiplied alpha ARGB. A should always be at least as large as R,
+ G, and B in a pre-multiplied ARGB, right?
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@eecs.northwestern.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11572: get-argb-pixels can raise bytes-set! error
+Date: Tue, 28 Dec 2010 18:18:55 -0700
+
+ At Tue, 28 Dec 2010 20:00:02 -0500, robby@eecs.northwestern.edu wrote:
+ > #lang racket/gui
+ > (define w 100)
+ > (define h 20)
+ > (define bm (make-bitmap w h))
+ > (define bdc (make-object bitmap-dc% bm))
+ > (send bdc set-smoothing 'aligned)
+ > (send bdc set-text-foreground (send the-color-database find-color "blue"))
+ > (send bdc draw-text "ab" 0 0)
+ > (define the-bytes (make-bytes (* w h 4)))
+ > (send bm get-argb-pixels 0 0 w h the-bytes)
+ 
+ I'm not getting the error. Do you get it when running with a fresh
+ DrRacket or Racket?
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11572: get-argb-pixels can raise bytes-set! error
+Date: Tue, 28 Dec 2010 19:34:14 -0600
+
+ On Tue, Dec 28, 2010 at 7:18 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > At Tue, 28 Dec 2010 20:00:02 -0500, robby@eecs.northwestern.edu wrote:
+ >> #lang racket/gui
+ >> (define w 100)
+ >> (define h 20)
+ >> (define bm (make-bitmap w h))
+ >> (define bdc (make-object bitmap-dc% bm))
+ >> (send bdc set-smoothing 'aligned)
+ >> (send bdc set-text-foreground (send the-color-database find-color "blue"))
+ >> (send bdc draw-text "ab" 0 0)
+ >> (define the-bytes (make-bytes (* w h 4)))
+ >> (send bm get-argb-pixels 0 0 w h the-bytes)
+ >
+ > I'm not getting the error. Do you get it when running with a fresh
+ > DrRacket or Racket?
+ 
+ Racket. Perhaps only under windows?
+ 
+ Robby
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11572: get-argb-pixels can raise bytes-set! error
+Date: Tue, 28 Dec 2010 19:35:00 -0600
+
+ Here's the trace:
+ 
+ C:\Users\Administrator\git\exp\plt>Racket C:\tmp.rkt
+ bytes-set!: expects type <exact integer in [0,255]> as 3rd argument,
+ given: 452; other arguments were: #"\0\377\377\377\
+ 0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\377\0\377\377\...
+ 2847
+ 
+  === context ===
+ C:\Users\Administrator\git\exp\plt\collects\racket\draw\private\bitmap.rkt:610:18:
+ for-loop
+ C:\Users\Administrator\git\exp\plt\collects\racket\draw\private\bitmap.rkt:607:14:
+ for-loop
+ C:\Users\Administrator\git\exp\plt\collects\racket\draw\private\bitmap.rkt:586:4:
+ do-get-argb-pixels method in bitmap%
+ C:\tmp.rkt: [running body]
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Tue, 28 Dec 2010 22:04:45 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0476ab4fc4
+State changed from "open" to "closed" by mflatt@racket-lang.org at Tue, 28 Dec 2010 22:04:45 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0476ab4fc4

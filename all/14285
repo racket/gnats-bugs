@@ -1,0 +1,171 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jan 13 22:38:38 2014
+Received: from mail-ob0-f170.google.com (mail-ob0-f170.google.com [209.85.214.170])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s0E3cXRa020452
+	for <bugs@bugs.plt-scheme.org>; Mon, 13 Jan 2014 22:38:33 -0500
+Message-Id: <201401140338.s0E3cUO7020444@winooski.ccs.neu.edu>
+Date: Mon, 13 Jan 2014 22:38:30 -0500
+From: asumu@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: TR: opaque types allow code to bypass Any contract protection
+
+>Number:         14285
+>Category:       all
+>Synopsis:       TR: opaque types allow code to bypass Any contract protection
+>Class:          duplicate
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jan 13 22:40:01 -0500 2014
+>Closed-Date:    Tue Jan 14 00:22:08 -0500 2014
+>Last-Modified:  Tue Jan 14 00:24:01 -0500 2014
+>Originator:     Asumu Takikawa
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.0.1--2014-01-12(d202f415/d)
+>Environment:
+unix "Linux porco 3.11-2-amd64 #1 SMP Debian 3.11.10-1 (2013-12-04) x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 484110176
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = (#<path:/home/asumu/plt/racket-git/racket/share/pkgs/raco-find-collection>)
+raco pkg (show):
+/home/asumu/plt/racket-git/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [204 auto-installed packages not shown]
+Installation-wide:
+ Package                 Checksum                                    Source
+ raco-find-collection    696da0430a89f681a4f679abcdf2489c2f7d135a    (catalog raco-find-collection)
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/asumu/plt/racket-git/add-on/development/collects"
+ (non-existent-path))
+("/home/asumu/plt/racket-git/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default "/home/asumu") #() "#lang racket\n" #f #t ((main) (test)) #t))
+>Description:
+Opaque types can be used to construct an Any type that doesn't have
+the contract protection that the real Any type has for higher-order
+values.
+
+Example:
+
+#lang racket
+
+(module un racket
+  ;; predicate for opaque type
+  (define (any x) #t)
+  (define (mutate vec)
+    (vector-set! vec 0 "not a float"))
+  (provide any mutate))
+
+(module ty typed/racket
+  (require/typed (submod ".." un)
+                 [#:opaque Any* any] ; unprotected Any
+                 [mutate (Any* -> Void)])
+  (: v (Vectorof Float))
+  (define v (vector 1.0 2.0 3.0))
+  (mutate (cast v Any*))
+  ;; could cause a segfault here
+  (vector-ref v 0))
+
+(require 'ty)
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org, asumu@ccs.neu.edu
+Cc: 
+Subject: Re: all/14285: TR: opaque types allow code to bypass Any contract protection
+Date: Mon, 13 Jan 2014 20:58:03 -0800
+
+ This just looks like the known bug in cast that we don't generate the
+ protection needed for the type of the expression being casted.
+ 
+ http://bugs.racket-lang.org/query/?cmd=view%20audit-trail&pr=13626
+ 
+ Can you duplicate without using cast?
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/14285: TR: opaque types allow code to bypass Any contract
+ protection
+Date: Tue, 14 Jan 2014 00:13:05 -0500
+
+ On 2014-01-13 20:58:03 -0800, Eric Dobson wrote:
+ > This just looks like the known bug in cast that we don't generate the
+ > protection needed for the type of the expression being casted.
+ >
+ > http://bugs.racket-lang.org/query/?cmd=view%20audit-trail&pr=13626
+ >
+ > Can you duplicate without using cast?
+ 
+ Replacing `(cast v Any*)` with `(assert v any)` will work. Without
+ assertions or occurrence typing, probably not.
+ 
+ Cheers,
+ Asumu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: all/14285: TR: opaque types allow code to bypass Any contract protection
+Date: Mon, 13 Jan 2014 21:18:38 -0800
+
+ This sounds similar to pr/13961. I think the solution of wrapping with
+ parametric contracts will close the hole here as well.
+ 
+ On Mon, Jan 13, 2014 at 9:13 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2014-01-13 20:58:03 -0800, Eric Dobson wrote:
+ >> This just looks like the known bug in cast that we don't generate the
+ >> protection needed for the type of the expression being casted.
+ >>
+ >> http://bugs.racket-lang.org/query/?cmd=view%20audit-trail&pr=13626
+ >>
+ >> Can you duplicate without using cast?
+ >
+ > Replacing `(cast v Any*)` with `(assert v any)` will work. Without
+ > assertions or occurrence typing, probably not.
+ >
+ > Cheers,
+ > Asumu
+
+Class changed from "sw-bug" to "duplicate" by asumu at Tue, 14 Jan 2014 00:22:08 -0500
+Reason>>> Solving both 13626 and 13961 should solve this bug.
+
+State changed from "open" to "closed" by asumu at Tue, 14 Jan 2014 00:22:08 -0500
+Reason>>> Effectively a dup of two known bugs.
+
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: all/14285: TR: opaque types allow code to bypass Any contract
+ protection
+Date: Tue, 14 Jan 2014 00:20:33 -0500
+
+ On 2014-01-14 00:13:05 -0500, Asumu Takikawa wrote:
+ > Replacing `(cast v Any*)` with `(assert v any)` will work. Without
+ > assertions or occurrence typing, probably not.
+ 
+ Ah, sorry in that case it's just an instance of PR 13961 instead. The
+ predicate shouldn't return #t for vectors:
+   http://bugs.racket-lang.org/query/?cmd=view&pr=13961
+ 
+ I'll re-file this as a duplicate of those two bugs if I can't think of a
+ different way to reproduce it.
+ 
+ Cheers,
+ Asumu

@@ -1,0 +1,204 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Aug 25 13:06:14 2008
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.231])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m7PH67nl023372
+	for <bugs@bugs.plt-scheme.org>; Mon, 25 Aug 2008 13:06:07 -0400
+Message-Id: <200808251705.m7PH5qx0023366@champlain.ccs.neu.edu>
+Date: Mon, 25 Aug 2008 13:05:52 -0400
+From: czhu@cs.utah.edu
+To: bugs@plt-scheme.org
+Subject: unit error
+
+>Number:         9709
+>Category:       mzscheme
+>Synopsis:       unit error
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Aug 25 13:08:01 -0400 2008
+>Closed-Date:    Mon Mar 16 08:43:53 -0400 2009
+>Last-Modified:  Mon Mar 16 08:43:53 -0400 2009
+>Originator:     plt-match error on hash table
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0.1
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 102085256
+
+Collections:
+(("C:\\Documents and Settings\\Chongkai Zhu\\Application Data\\PLT Scheme\\4.0.1\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #()))
+>Description:
+errer message:
+define-values/invoke-unit: result of unit expression was not a unit: #<undefined>
+>How-To-Repeat:
+#lang scheme
+
+(provide a-sig)
+(provide f-functor)
+(define-signature sig1 (a-struct))
+(define-signature sig2 (z))
+(provide a-struct)
+(provide c-struct)
+(define-signature sig3 (a-struct))
+(define-signature a-sig (x))
+(define (f-functor _id10542-struct)
+  (let ()
+    (define-values/invoke-unit _id10542-struct (import) (export sig1))
+    (match-let
+        ((z
+          (let ()
+            (define-values/invoke-unit a-struct (import) (export a-sig))
+            x)))
+      (unit-from-context sig2))))
+(define a-struct (match-let ((x 1)) (unit-from-context a-sig)))
+(define c-struct
+  (f-functor
+   (let ()
+     (define-values/invoke-unit
+       (let ((a-struct a-struct)) (unit-from-context sig3))
+       (import)
+       (export sig3))
+     (unit-from-context sig1))))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: czhu@cs.utah.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9709: unit error
+Date: Mon, 25 Aug 2008 11:29:23 -0600
+
+ Here's a simpler variant:
+ 
+  #lang scheme
+ 
+  (define-signature sig3 (a-struct))
+  (define-signature a-sig (x))
+ 
+  #;
+  (define a-struct 
+    (unit (import) (export a-sig) (define x 1)))
+ 
+  (let ()
+    (define-values/invoke-unit
+      (let ((a-struct a-struct)) 
+        (printf "~s\n" a-struct) ;; prints #<undefined>
+        a-struct)
+      (import)
+      (export sig3))
+    (void))
+ 
+ The problem is the the `define-values/invoke-unit' form is trying to
+ define `a-struct', which shadows the top-level `a-struct' definition
+ (if any; I've commented it out above).
+ 
+ Going back to the original program, to make it work, you need something
+ like
+ 
+  (define c-struct
+    (f-functor
+     (let ([a-struct-prime a-struct])
+       (define-values/invoke-unit
+         (let ((a-struct a-struct-prime)) (unit-from-context sig3))
+         (import)
+         (export sig3))
+       (unit-from-context sig1))))
+ 
+ 
+ Matthew
+ 
+From: Chongkai Zhu <czhu@cs.utah.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9709: unit error
+Date: Mon, 25 Aug 2008 11:42:53 -0600
+
+ I see the problem. Using check-syntax, the second a-struct in `(let 
+ ((a-struct a-struct))' is bound from sig3 instead of the a-struct that 
+ is `define'd. But I still think this is a bug of 
+ define-values/invoke-unit: it should evaluate the unit expression given 
+ to it in the context of the whole define-values/invoke-unit expression, 
+ instead of in the context that includes the signature gives to it, right?
+ 
+ Chongkai
+ 
+ 
+ Matthew Flatt wrote:
+ > The problem is the the `define-values/invoke-unit' form is trying to
+ > define `a-struct', which shadows the top-level `a-struct' definition
+ > (if any; I've commented it out above).
+ >
+ >
+ > Matthew
+ >
+ >   
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Chongkai Zhu <czhu@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9709: unit error
+Date: Mon, 25 Aug 2008 12:32:43 -0600
+
+ No, it's outside the control of `define-values/invoke-unit'.
+ 
+ Imagine you have
+ 
+  (let ()
+    (MY-DEFINE y (box y))
+    (list y))
+ 
+ There's no expansion of `MY-DEFINE' that both binds `y' for use the in
+ `(list y)' expression and also evaluates `(box y)' outside of that
+ binding.
+ 
+ The only solution I see is analogous to
+ 
+  (MY-LET ()
+    (MY-DEFINE y (box y) )
+    (list y))
+ 
+ where `MY-LET' is responsible for detecting `MY-DEFINE' and lifting the
+ `(box y)' expression out.
+ 
+ 
+ At Mon, 25 Aug 2008 11:42:53 -0600, Chongkai Zhu wrote:
+ > I see the problem. Using check-syntax, the second a-struct in `(let 
+ > ((a-struct a-struct))' is bound from sig3 instead of the a-struct that 
+ > is `define'd. But I still think this is a bug of 
+ > define-values/invoke-unit: it should evaluate the unit expression given 
+ > to it in the context of the whole define-values/invoke-unit expression, 
+ > instead of in the context that includes the signature gives to it, right?
+ > 
+ > Chongkai
+ > 
+ > 
+ > Matthew Flatt wrote:
+ > > The problem is the the `define-values/invoke-unit' form is trying to
+ > > define `a-struct', which shadows the top-level `a-struct' definition
+ > > (if any; I've commented it out above).
+ > >
+ > >
+ > > Matthew
+ > >
+ > >   
+
+Responsible changed from "nobody" to "mflatt" by eli at Mon, 16 Mar 2009 05:07:29 -0400
+Reason>>> units
+
+
+State changed from "open" to "closed" by mflatt at Mon, 16 Mar 2009 08:43:53 -0400
+Reason>>> Not a bug. The example program has
+
+    (define-values/invoke-unit
+     (let ((a-struct a-struct))
+       (unit-from-context sig3))
+     (import)
+     (export sig3))
+
+where `sig3' includes `a-struct'.
+

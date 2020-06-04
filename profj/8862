@@ -1,0 +1,181 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Aug 11 13:03:04 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.226])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l7BH336J006568
+	for <bugs@bugs.plt-scheme.org>; Sat, 11 Aug 2007 13:03:03 -0400
+Message-Id: <200708111702.l7BH2xAo006563@champlain.ccs.neu.edu>
+Date: Sat, 11 Aug 2007 13:02:59 -0400
+From: clklein@cs.uchicago.edu
+To: bugs@plt-scheme.org
+Subject: ProfessorJ: field access double-evals referent expression
+
+>Number:         8862
+>Category:       profj
+>Synopsis:       ProfessorJ: field access double-evals referent expression
+>Class:          sw-bug
+>Responsible:    kathyg
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Aug 11 13:05:01 -0400 2007
+>Closed-Date:    Wed Sep 26 10:31:24 -0400 2007
+>Last-Modified:  Wed Sep 26 10:31:24 -0400 2007
+>Originator:     Casey Klein
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        371-svn9aug2007
+>Environment:
+unix "Linux everglades.cs.uchicago.edu 2.4.27-3-686-smp #1 SMP Thu Sep 14 07:44:00 UTC 2006 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/tmp/plt/share/plt/doc" "help" "guide" "quick" "reference" "release-notes" "scribble"))
+Human Language: english
+(current-memory-use) 112981816
+
+Collections:
+(("/home/clklein/.plt-scheme/371/collects" non-existent-path) ("/tmp/plt/lib/plt/collects" "afm" "big" "ffi" "net" "sgl" "xml" "eopl" "help" "htdp" "html" "lang" "lazy" "make" "r5rs" "mred" "plot" "srfi" "wxme" "framework" "teachpack" "handin-client" "mzscheme" "games" "icons" "htdch" "mrlib" "mzcom" "mzlib" "graphics" "profj" "setup" "tests" "trace" "xelda" "combinator-parser" "waterworld" "preprocessor" "sirmail" "test-box-recovery" "skipper" "handin-server" "tex2page" "texpict" "scribblings" "profjWizard" "stepper" "scribble" "web-server" "config" "compiler" "swindle" "dynext" "hierlist" "macro-debugger" "frtime" "defaults" "guibuilder" "drscheme" "syntax-color" "mrflow" "srpersist" "mztake" "planet" "mysterx" "errortrace" "slatex" "syntax" "version" "algol60" "honu-module" "parser-tools" "openssl" "embedded-gui" "slideshow" "repos-time-stamp" "info-domain" "readline" "launcher" "string-constants" "browser"))
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+The translation of field references (translate-access in collects/profj/to-schem
+e.ss) evaluates the referent expression twice, when that expression may evaluate
+ to null (which is incorrect, if this evaluation has side-effects).
+
+This seems to fix it:
+
+--- to-scheme.ss        2007-08-06 16:17:21.000000000 -0500
++++ to-scheme.ss.fixed  2007-08-11 11:56:11.000000000 -0500
+@@ -2517,9 +2517,10 @@
+                       (if cant-be-null?
+                           (make-syntax #f `(,id ,expr) (build-src src))
+                           (make-syntax #f
+-                                       `(if (null? ,expr)
+-                                            (javaRuntime:nullError 'field)
+-                                            (,id ,expr))
++                                       `(let ([obj ,expr])
++                                          (if (null? obj)
++                                              (javaRuntime:nullError 'field)
++                                              (,id obj)))
+                                        (build-src src)))))
+                 (if (dynamic-val? type)
+                    (let ((access-syntax (cond
+>How-To-Repeat:
+class Foo {
+  int x;
+
+  Foo() {
+    this.x = mth().x;
+  }
+
+  Foo mth() {
+    this.x = this.x + 1;
+    return this;
+  }
+}
+
+Welcome to DrScheme, version 371-svn9aug2007 [3m].
+Language: ProfessorJ: Intermediate custom.
+> new Foo() // expect Foo(x = 1)
+Foo(x = 2)
+>Fix:
+>Audit-Trail:
+From: Kathy Gray <kathyg@cs.utah.edu>
+To: clklein@cs.uchicago.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/8862: ProfessorJ: field access double-evals referent expression
+Date: Sat, 11 Aug 2007 18:59:52 +0100
+
+ Thanks! It's in svn now.
+ -Kathy
+ 
+ 
+ On Aug 11, 2007, at 6:05 PM, clklein@cs.uchicago.edu wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8862
+ >
+ > Reported by Casey Klein for release: 371-svn9aug2007
+ >
+ > *** Description:
+ > The translation of field references (translate-access in collects/ 
+ > profj/to-schem
+ > e.ss) evaluates the referent expression twice, when that expression  
+ > may evaluate
+ >  to null (which is incorrect, if this evaluation has side-effects).
+ >
+ > This seems to fix it:
+ >
+ > --- to-scheme.ss        2007-08-06 16:17:21.000000000 -0500
+ > +++ to-scheme.ss.fixed  2007-08-11 11:56:11.000000000 -0500
+ > @@ -2517,9 +2517,10 @@
+ >                        (if cant-be-null?
+ >                            (make-syntax #f `(,id ,expr) (build-src  
+ > src))
+ >                            (make-syntax #f
+ > -                                       `(if (null? ,expr)
+ > -                                            (javaRuntime:nullError  
+ > 'field)
+ > -                                            (,id ,expr))
+ > +                                       `(let ([obj ,expr])
+ > +                                          (if (null? obj)
+ > +                                               
+ > (javaRuntime:nullError 'field)
+ > +                                              (,id obj)))
+ >                                         (build-src src)))))
+ >                  (if (dynamic-val? type)
+ >                     (let ((access-syntax (cond
+ >
+ > *** How to repeat:
+ > class Foo {
+ >   int x;
+ >
+ >   Foo() {
+ >     this.x = mth().x;
+ >   }
+ >
+ >   Foo mth() {
+ >     this.x = this.x + 1;
+ >     return this;
+ >   }
+ > }
+ >
+ > Welcome to DrScheme, version 371-svn9aug2007 [3m].
+ > Language: ProfessorJ: Intermediate custom.
+ >> new Foo() // expect Foo(x = 1)
+ > Foo(x = 2)
+ >
+ > *** Environment:
+ > unix "Linux everglades.cs.uchicago.edu 2.4.27-3-686-smp #1 SMP Thu  
+ > Sep 14 07:44:00 UTC 2006 i686 GNU/Linux" (i386-linux/3m) (get- 
+ > display-depth) = 24
+ > Docs Installed:
+ > (("/tmp/plt/share/plt/doc" "help" "guide" "quick" "reference"  
+ > "release-notes" "scribble"))
+ > Human Language: english
+ > (current-memory-use) 112981816
+ >
+ > Collections:
+ > (("/home/clklein/.plt-scheme/371/collects" non-existent-path) ("/ 
+ > tmp/plt/lib/plt/collects" "afm" "big" "ffi" "net" "sgl" "xml"  
+ > "eopl" "help" "htdp" "html" "lang" "lazy" "make" "r5rs" "mred"  
+ > "plot" "srfi" "wxme" "framework" "teachpack" "handin-client"  
+ > "mzscheme" "games" "icons" "htdch" "mrlib" "mzcom" "mzlib"  
+ > "graphics" "profj" "setup" "tests" "trace" "xelda" "combinator- 
+ > parser" "waterworld" "preprocessor" "sirmail" "test-box-recovery"  
+ > "skipper" "handin-server" "tex2page" "texpict" "scribblings"  
+ > "profjWizard" "stepper" "scribble" "web-server" "config" "compiler"  
+ > "swindle" "dynext" "hierlist" "macro-debugger" "frtime" "defaults"  
+ > "guibuilder" "drscheme" "syntax-color" "mrflow" "srpersist"  
+ > "mztake" "planet" "mysterx" "errortrace" "slatex" "syntax"  
+ > "version" "algol60" "honu-module" "parser-tools" "openssl"  
+ > "embedded-gui" "slideshow" "repos-time-stamp" "info-domain"  
+ > "readline" "launcher" "string-constants" "browser"))
+ > Computer Language: (("Professional Languages" "(module ...)") (#6 
+ > (#t write mixed-fraction-e #f #t debug) (default) #0()))
+ 
+State changed from "open" to "closed" by kathyg at Wed, 26 Sep 2007 10:31:24 -0400
+Reason>>> Had applied the fix in svn, but forgot to close the report
+
+>Unformatted:
+ ProfessorJ: field access double-evals referent expression
+ ProfessorJ: field access double-evals referent expression
+ ProfessorJ: field access double-evals referent expression

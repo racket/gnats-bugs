@@ -1,0 +1,115 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jun 12 09:02:04 2014
+Received: from mail-oa0-f50.google.com (mail-oa0-f50.google.com [209.85.219.50])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s5CD1uxW027018
+	for <bugs@bugs.plt-scheme.org>; Thu, 12 Jun 2014 09:01:56 -0400
+Message-Id: <201406121301.s5CD1qrw027010@winooski.ccs.neu.edu>
+Date: Thu, 12 Jun 2014 09:01:52 -0400
+From: jensaxel@soegaard.net
+To: bugs@racket-lang.org
+Subject: Error reported from wrap-modbeg rather than the user program
+
+>Number:         14565
+>Category:       all
+>Synopsis:       Error reported from wrap-modbeg rather than the user program
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Jun 12 09:04:01 -0400 2014
+>Originator:     Jens Axel Søgaard
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1.11--2014-05-31(10cc76f2/d)
+>Environment:
+macosx "Darwin mba-5.local 13.1.0 Darwin Kernel Version 13.1.0: Thu Jan 16 19:40:37 PST 2014; root:xnu-2422.90.20~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 573487240
+raco pkg (show):
+/Users/soegaard/racket-april-2014/racket/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [215 auto-installed packages not shown]
+Installation-wide:
+ Package    Checksum                                    Source
+ frog       e044c60655bdf3ffacfa2d67e75eca4fac71277c    (catalog frog)
+ memoize    69a4d4cc133de81409991442bf90576d9867bff4    (catalog memoize)
+ pollen     1afd2516e85b6ed01dcb985418e012d59e688e27    (catalog pollen)
+ [8 auto-installed packages not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/Users/soegaard/Library/Racket/development/collects"
+ ("info-domain" "installed-teachpacks" "pyret" "ragg" "whalesong"))
+("/Users/soegaard/racket-april-2014/racket/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+The program below provokes an error report from wrap-modbeg.rkt rather han the program.
+
+The error message is:
+racket-april-2014/racket/racket/collects/syntax/wrap-modbeg.rkt:46:4: equations: undefined;
+ cannot reference an identifier before its definition
+  phase: 1
+>How-To-Repeat:
+#lang racket
+(require (for-syntax racket/stxparam)
+         racket/splicing)
+
+(begin-for-syntax
+  (define global-equations '(47)))
+
+(define-syntax-parameter equations (lambda (stx) (datum->syntax #'here global-equations)))
+
+(define-syntax (let-equation stx)
+  (syntax-case stx ()
+    [(_ () body)
+     #'(let () body)]
+    [(_ (eq eqs ...) body)
+     (let ([local-equations (cons (syntax->datum #'eq) equations)])
+       #'(syntax-parameterize ([equations (λ (stx) (datum->syntax #'here local-equations))])
+                              (let-equation (eqs ...) body)))]))
+
+equations
+(let-equation (3) equations)
+equations
+(let-equation (3) 
+              (let-equation (4) equations))
+equations
+(let-equation (5 6) equations)
+equations
+
+(define-syntax (declare-in-internal-definition-context stx)
+  (syntax-case stx ()
+    [(_ eq)
+     #'(set! equations (cons eq equations))]))
+
+
+(define-syntax (declare stx)
+  (syntax-case stx ()
+    [(_ eq)
+     (let ()
+       (define ctx (syntax-local-context))
+       (displayln ctx)
+       (set! equations (cons eq equations))
+       #'equations)]))
+
+;(begin
+;   (declare 41)
+;   (let ()
+;     (declare 42)
+;     (declare 43)
+;     (display equations)
+;     equations)
+;   (declare 44)
+;   equations)
+>Fix:

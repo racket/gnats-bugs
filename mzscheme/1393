@@ -1,0 +1,118 @@
+From cobbe@alumni.rice.edu  Sun Mar 12 14:23:02 2000
+Received: from localhost (t3-static5-198.adsl.directlink.net [63.68.139.198])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id OAA22012
+	for <plt-gnats>; Sun, 12 Mar 2000 14:23:01 -0600 (CST)
+Message-Id: <200003122023.OAA22012@cs.rice.edu>
+Date: Sun, 12 Mar 2000 14:23:01 -0600 (CST)
+From: cobbe@alumni.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: symlink-&-race-condition bug in (open-output-file "foo" 'error)
+
+>Number:         1393
+>Category:       mzscheme
+>Synopsis:       symlink-&-race-condition bug in (open-output-file "foo" 'error)
+>Confidential:   no
+>Severity:       serious
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sun Mar 12 20:30:03 GMT 2000
+>Last-Modified:  Tue Mar 28 07:44:08 CST 2000
+>Originator:     Richard Cobbe
+>Organization:
+titan
+>Release:        101
+>Environment:
+unix (i386-linux)
+Tools: ("syncheck" "stepper" "unit-bundle")
+Docs Installed:
+("help" "mzscheme" "r5rs" "icons" "drscheme" "teachpack" "misclib" "mred")
+Collections:
+(("/opt/plt/collects" ("browser" "afm" "cogen" "compiler" "drscheme" "graphics" "stepper" "hierlist" "icons" "make" "mzlib" "mred" "games" "mzscheme" "net" "help" "zodiac" "userspce" "dynext" "launcher" "drscheme-jr" "errortrace" "framework" "slibinit" "xml" "htdp" "doc")))
+>Description:
+After reading Matthew's response to bug 1337, I took a look at
+do_open_output_file and scheme_file_exists (in src/mzscheme/src/{port,file}.c).
+It appears that the implementation of (open-output-file "foo" 'error) is
+vulnerable to the standard race-condition-and-symlink
+security hole, as the check-and-open operation isn't atomic.
+
+At least, this is true on Unix-like systems;
+I'd guess it's true on Win32 & Mac as well, but I
+don't know much about those fs interfaces.
+
+Now, this is only a really big vulnerability if mzscheme is running
+as root, which may not be that likely, but....
+
+(Why, yes, I have been reading BUGTRAQ recently.  How did you guess?)
+>How-To-Repeat:
+Standard steps, really.
+
+As root,
+(open-output-file "/tmp/foo" 'error)
+
+Context-switch away (!) from mzscheme right after it
+determines that /tmp/foo does not already exist.  Before
+mzscheme gets scheduled again, 
+ln -s /etc/passwd /tmp/foo
+
+Write to the port returned by open-output-file
+and proceed to clobber your password file.  Have a nice day!
+
+Fix (for UNIX systems and non-NFS filesystems):
+
+rather than 
+
+if (!file_exists())
+{
+    /* a context switch here will kill you */
+    fopen(.....);
+}
+
+do
+
+int fd = open(file, O_CREAT | O_EXCL | O_RDWR);
+if (fd < 0)
+{
+    /* error.  In particular, errno == EEXIST
+       if the file already exists. */
+}
+
+FILE *f = fdopen(fd, "r+");
+
+or whatever.  Check your fopen(3) and open(2)
+manpages for details.  This is, unfortunately, broken on NFS systems.
+Complain to Sun.
+>Fix:
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: cobbe@alumni.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1393: symlink-&-race-condition bug in (open-output-file "foo" 'error)
+Date: Sun, 12 Mar 2000 14:05:34 -0800
+
+ Quoting cobbe@alumni.rice.edu:
+ > It appears that the implementation of (open-output-file "foo" 'error) is
+ > vulnerable to the standard race-condition-and-symlink
+ > security hole, as the check-and-open operation isn't atomic.
+ 
+ Yeah - I'm actually aware of the problem, but thanks for prodding me to
+ fix it.
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Tue Mar 14 08:17:33 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Tue Mar 28 07:44:02 2000
+State-Changed-Why:
+Fixed in 102/10.
+
+ 
+>Unformatted:

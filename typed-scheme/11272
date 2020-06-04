@@ -1,0 +1,643 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Sep 30 22:43:40 2010
+Received: from mail-yw0-f44.google.com (mail-yw0-f44.google.com [209.85.213.44])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o912hd5m020872
+	for <bugs@bugs.plt-scheme.org>; Thu, 30 Sep 2010 22:43:39 -0400
+Message-Id: <201010010243.o912hb8Q020864@champlain.ccs.neu.edu>
+Date: Thu, 30 Sep 2010 22:43:37 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+
+>Number:         11272
+>Category:       typed-scheme
+>Synopsis:       Odd interaction among #:optimize/parameters/print/unsafe-fllog
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Sep 30 22:44:01 -0400 2010
+>Closed-Date:    Fri Oct 22 23:20:32 -0400 2010
+>Last-Modified:  Fri Oct 22 23:20:32 -0400 2010
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1
+>Environment:
+unix "Linux woodstock 2.6.31-22-generic #65-Ubuntu SMP Thu Sep 16 15:48:58 UTC 2010 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 381852152
+
+Collections:
+(("/home/neil/.racket/5.0.1/collects" non-existent-path) ("/usr/plt/collects" "info-domain" "file" "mrlib" "config" "stepper" "gui-debugger" "planet" "texpict" "web-server" "readline" "rackunit" "sgl" "defaults" "lazy" "rnrs" "scribble" "ffi" "eopl" "net" "srfi" "schemeunit" "preprocessor" "dynext" "afm" "swindle" "mzlib" "syntax-color" "hierlist" "icons" "typed" "setup" "raco" "redex" "test-engine" "plai" "xml" "macro-debugger" "tex2page" "drscheme" "mred" "slideshow" "wxme" "lang" "openssl" "string-constants" "racket" "teachpack" "mysterx" "embedded-gui" "mzscheme" "syntax" "reader" "make" "algol60" "combinator-parser" "trace" "plot" "slatex" "parser-tools" "frtime" "datalog" "help" "scribblings" "compiler" "browser" "html" "test-box-recovery" "profile" "racklog" "typed-scheme" "errortrace" "scriblib" "htdp" "games" "s-exp" "2htdp" "r6rs" "scheme" "r5rs" "at-exp" "drracket" "deinprogramm" "version" "mzcom" "unstable" "graphics" "launcher" "framework"))
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+>Description:
+Hard to describe. The code below returns silly answers. I can't reduce it further and still get something that breaks: it requires the parameter, the bindings for M and N1, the division, the fllog, and #:optimize. It returns different answers depending on which printfs are commented out.
+
+The weirdest thing is that I can copy this code, fully expanded and optimized, from the macro stepper into a fresh editor, require racket/unsafe/ops, run it, and get the correct answer.
+
+The unsafe ops are all getting properly typed inputs, so it seems TR's optimizer isn't messing things up, unless its bindings for unsafe ops are
+different than mine. However, if I comment out #:optimize, I get the right answer. But I replace the parameter with a literal 64.0, it also works.
+>How-To-Repeat:
+#lang typed/racket #:optimize
+
+(require racket/flonum)
+
+(define: parm : (Parameterof Float)
+  (make-parameter 64.0))
+
+(: weird (-> Float))
+(define (weird)
+  (define M (parm))
+  (printf "M = ~v~n" M)
+  (define N1 (/ M (fllog M)))
+  (printf "N1 = ~v~n" N1)
+  N1)
+
+(weird)  ; Should return 15.xxx
+
+; Actually prints and returns this:
+; M = 64.0
+; N1 = 4.3793854184724e-314
+; 4.3793854184724e-314
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Thu, 30 Sep 2010 20:54:55 -0600
+
+ Further info I got while trying a workaround: replacing (fllog M) with 
+ (real-part (log M)) causes an
+ 
+      internal error: broken unbox depth
+ 
+ in my original program. When I do the replacement in the program in the 
+ bug report, it crashes DrRacket.
+ 
+ bugs@racket-lang.org wrote:
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/11272'.
+ > You can check on the status of your problem report at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=11272
+ > 
+ > If you wish to provide further information regarding this problem
+ > you can do so as a reply to this message.  (But please make sure
+ > that your mailer replies to both "bugs" and "bug-notification".)
+ > 
+ 
+From: Vincent St-Amour <stamourv@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 01 Oct 2010 09:47:43 -0400
+
+ I tried your original example both on Mac OS / PPC and linux x86 32
+ bits, and I get the right answer each time.
+ 
+ Replacing (fllog M) with (real-part (log M)) didn't change the
+ result. Neither did turning optimization off.
+ 
+ What environment are you running this on?
+ 
+ Vincent
+ 
+ 
+ At Thu, 30 Sep 2010 20:54:55 -0600,
+ Neil Toronto wrote:
+ > 
+ > Further info I got while trying a workaround: replacing (fllog M) with 
+ > (real-part (log M)) causes an
+ > 
+ >      internal error: broken unbox depth
+ > 
+ > in my original program. When I do the replacement in the program in the 
+ > bug report, it crashes DrRacket.
+ > 
+ > bugs@racket-lang.org wrote:
+ > > Thank you very much for your problem report.
+ > > It has the internal identification `all/11272'.
+ > > You can check on the status of your problem report at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=11272
+ > > 
+ > > If you wish to provide further information regarding this problem
+ > > you can do so as a reply to this message.  (But please make sure
+ > > that your mailer replies to both "bugs" and "bug-notification".)
+ > > 
+ > 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Vincent St-Amour <stamourv@ccs.neu.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 01 Oct 2010 08:32:13 -0600
+
+ neil@woodstock:~$ uname -a
+ Linux woodstock 2.6.31-22-generic #65-Ubuntu SMP Thu Sep 16 15:48:58 UTC 
+ 2010 i686 GNU/Linux
+ 
+ Welcome to DrRacket, version 5.0.1 [3m].
+ Language: racket; memory limit: 256 MB.
+  >
+ 
+ I installed it from racket-5.0.1-bin-i386-linux-ubuntu-jaunty.sh. That's 
+ not the latest, so the problem may be fixed now, whatever it is.
+ 
+ Is there anything else about the environment that would help you?
+ 
+ I'm going to try this on my x86_64 machine when I get to school. Same 
+ installer, different arch.
+ 
+ Neil
+ 
+ Vincent St-Amour wrote:
+ > I tried your original example both on Mac OS / PPC and linux x86 32
+ > bits, and I get the right answer each time.
+ > 
+ > Replacing (fllog M) with (real-part (log M)) didn't change the
+ > result. Neither did turning optimization off.
+ > 
+ > What environment are you running this on?
+ > 
+ > Vincent
+ > 
+ > 
+ > At Thu, 30 Sep 2010 20:54:55 -0600,
+ > Neil Toronto wrote:
+ >> Further info I got while trying a workaround: replacing (fllog M) with 
+ >> (real-part (log M)) causes an
+ >>
+ >>      internal error: broken unbox depth
+ >>
+ >> in my original program. When I do the replacement in the program in the 
+ >> bug report, it crashes DrRacket.
+ >>
+ >> bugs@racket-lang.org wrote:
+ >>> Thank you very much for your problem report.
+ >>> It has the internal identification `all/11272'.
+ >>> You can check on the status of your problem report at
+ >>>   http://bugs.racket-lang.org/query/?cmd=view&pr=11272
+ >>>
+ >>> If you wish to provide further information regarding this problem
+ >>> you can do so as a reply to this message.  (But please make sure
+ >>> that your mailer replies to both "bugs" and "bug-notification".)
+ >>>
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>, bugs@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 1 Oct 2010 10:44:21 -0400
+
+ 10 minutes ago, Neil Toronto wrote:
+ > neil@woodstock:~$ uname -a
+ > Linux woodstock 2.6.31-22-generic #65-Ubuntu SMP Thu Sep 16 15:48:58 UTC 
+ > 2010 i686 GNU/Linux
+ > 
+ > Welcome to DrRacket, version 5.0.1 [3m].
+ > Language: racket; memory limit: 256 MB.
+ >  >
+ > 
+ > I installed it from
+ > racket-5.0.1-bin-i386-linux-ubuntu-jaunty.sh. That's not the latest,
+ > so the problem may be fixed now, whatever it is.
+ > 
+ > Is there anything else about the environment that would help you?
+ > 
+ > I'm going to try this on my x86_64 machine when I get to
+ > school. Same installer, different arch.
+ 
+ Did you try the nightly build?  There were several jit-level fixes
+ Matthew did.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 1 Oct 2010 09:09:45 -0600
+
+ At Fri, 01 Oct 2010 08:32:13 -0600, Neil Toronto wrote:
+ > I installed it from racket-5.0.1-bin-i386-linux-ubuntu-jaunty.sh. That's 
+ > not the latest, so the problem may be fixed now, whatever it is.
+ 
+ Yes, there have been many relevant repairs. Version 5.0.1 crashes for
+ me on your example, but it works for me with the latest.
+ 
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 01 Oct 2010 13:32:25 -0600
+
+ Matthew Flatt wrote:
+ > At Fri, 01 Oct 2010 08:32:13 -0600, Neil Toronto wrote:
+ >> I installed it from racket-5.0.1-bin-i386-linux-ubuntu-jaunty.sh. That's 
+ >> not the latest, so the problem may be fixed now, whatever it is.
+ > 
+ > Yes, there have been many relevant repairs. Version 5.0.1 crashes for
+ > me on your example, but it works for me with the latest.
+ 
+ The problem persists. Built from the latest racket-clean-tree.tgz:
+ 
+ Welcome to DrRacket, version 
+ 5.0.1.7--2010-09-29(9755d565bd03967df6be84f96b0e39a483572de1/a) [3m].
+ Language: typed/racket; memory limit: 512 MB.
+  >
+ 
+ 
+ Running Ubuntu Karmic like my computer at home, but on a different 
+ architecture:
+ 
+ neil@photon:~/install/racket/src$ uname -a
+ Linux photon 2.6.31-22-generic #63-Ubuntu SMP Thu Aug 19 00:23:50 UTC 
+ 2010 x86_64 GNU/Linux
+ 
+ 
+ Prints and returns:
+ 
+  > (weird)
+ M = 64.0
+ N1 = 1.6590647022957e-310
+ - : Float
+ 1.6590647022957e-310
+ 
+ 
+ It should return 15.38874710281561. On the plus side, this value is a 
+ little further from zero than the value I got before. :)
+ 
+ Also on the plus side, changing (fllog M) to (real-part (log M)) doesn't 
+ crash DrRacket anymore, and causes the example to return the right 
+ answer. (It also doesn't cause "broken unbox depth" errors in my 
+ original program, so I have a workaround.) As before, any of these cause 
+ the example program to work correctly:
+ 
+   - replacing (parm) with a literal 64.0
+   - replacing M with (parm) everywhere
+   - commenting out the second printf
+   - commenting out #:optimize
+ 
+ Also as before, fully expanding it in the stepper and copying it to a 
+ new buffer still makes it work:
+ 
+ #lang racket
+ 
+ (require racket/unsafe/ops)
+ 
+ (define parm (make-parameter 64.0))
+ 
+ (define-values
+    (weird)
+    (lambda ()
+      (letrec-values (((M) (#%app parm))
+                      (() (begin (#%app printf '"M = ~v~n" M)
+                                 (#%app values)))
+                      ((N1) (#%app unsafe-fl/ M (#%app unsafe-fllog M))))
+        (#%app printf '"N1 = ~v~n" N1)
+        N1)))
+ 
+  > (weird)
+ M = 64.0
+ N1 = 15.38874710281561
+ 15.38874710281561
+ 
+ 
+ I hope this helps somehow.
+ 
+ Neil T
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 01 Oct 2010 14:06:10 -0600
+
+ This is a multi-part message in MIME format.
+ --------------030006070802050305030609
+ Content-Type: text/plain; charset=UTF-8; format=flowed
+ Content-Transfer-Encoding: 7bit
+ 
+ Neil Toronto wrote:
+ > Matthew Flatt wrote:
+ >> At Fri, 01 Oct 2010 08:32:13 -0600, Neil Toronto wrote:
+ >>> I installed it from racket-5.0.1-bin-i386-linux-ubuntu-jaunty.sh. 
+ >>> That's not the latest, so the problem may be fixed now, whatever it is.
+ >>
+ >> Yes, there have been many relevant repairs. Version 5.0.1 crashes for
+ >> me on your example, but it works for me with the latest.
+ > 
+ > The problem persists. Built from the latest racket-clean-tree.tgz:
+ > *snip*
+ 
+ I spoke too soon about using real-part and log. I've attached a tiny 
+ program that crashes racket or DrRacket.
+ 
+ neil@photon:~/install/racket/src$ racket log2.0.rkt
+ SIGSEGV SI_KERNEL SI_CODE 128 fault on addr (nil) sent by kernel
+ Aborted
+ 
+ 
+ I've also attached a program that expands log2.0.rkt (I couldn't run it 
+ in the stepper), and the expanded program. The expanded one, in a 
+ shocking turn of events, also crashes. I didn't expect that somehow.
+ 
+ The problem in this case is that unsafe-flreal-part and 
+ unsafe-flimag-part are being applied to floats, where their contracts 
+ state that they can only be applied to non-real complex values. So:
+ 
+  > (require racket/unsafe/ops)
+  > (unsafe-flreal-part (log 2.0))
+ 2302209267156720887
+ 
+ Also, (unsafe-flimag-part (log 2.0)) crashes DrRacket with a SIGSEGV. 
+ #:optimize is doing something similar in log2.0-expanded.rkt.
+ 
+ I have to stress that fixing *this* bug is obviously not going to fix 
+ the one I originally reported. The original example program doesn't use 
+ real-part.
+ 
+ Neil T
+ 
+ --------------030006070802050305030609
+ Content-Type: text/plain;
+  name="log2.0.rkt"
+ Content-Transfer-Encoding: base64
+ Content-Disposition: inline;
+  filename="log2.0.rkt"
+ 
+ I2xhbmcgdHlwZWQvcmFja2V0ICM6b3B0aW1pemUKCjs7IFRoaXMgY3Jhc2hlcyB3aXRoIGEg
+ U0lHU0VHVgoKKGRlZmluZSBsb2cyLjAgKHJlYWwtcGFydCAobG9nIDIuMCkpKQo=
+ --------------030006070802050305030609
+ Content-Type: text/plain;
+  name="log2.0-expand.rkt"
+ Content-Transfer-Encoding: base64
+ Content-Disposition: inline;
+  filename="log2.0-expand.rkt"
+ 
+ I2xhbmcgcmFja2V0Cgooc3ludGF4LT5kYXR1bQogKGV4cGFuZC1zeW50YXgKICAjJyhtb2R1
+ bGUgbG9nMi4wIHR5cGVkL3JhY2tldCAjOm9wdGltaXplCiAgICAgIChkZWZpbmUgbG9nMi4w
+ IChyZWFsLXBhcnQgKGxvZyAyLjApKSkpKSkK
+ --------------030006070802050305030609
+ Content-Type: text/plain;
+  name="log2.0-expanded.rkt"
+ Content-Transfer-Encoding: base64
+ Content-Disposition: inline;
+  filename="log2.0-expanded.rkt"
+ 
+ I2xhbmcgcmFja2V0Cgo7OyBUaGlzIGNyYXNoZXMgd2l0aCBhIFNJR1NFR1YKCihyZXF1aXJl
+ IHJhY2tldC91bnNhZmUvb3BzKQoKKGRlZmluZS12YWx1ZXMKICAobG9nMi4wKQogIChsZXQt
+ dmFsdWVzICgoKHVuYm94ZWQtZ2Vuc3ltLTEpICgjJWFwcCBsb2cgJzIuMCkpKQogICAgKGxl
+ dC12YWx1ZXMgKCgodW5ib3hlZC1yZWFsLTIpCiAgICAgICAgICAgICAgICAgICgjJWFwcAog
+ ICAgICAgICAgICAgICAgICAgdW5zYWZlLWZscmVhbC1wYXJ0CiAgICAgICAgICAgICAgICAg
+ ICB1bmJveGVkLWdlbnN5bS0xKSkpCiAgICAgIChsZXQtdmFsdWVzICgoKHVuYm94ZWQtaW1h
+ Zy0zKQogICAgICAgICAgICAgICAgICAgICgjJWFwcAogICAgICAgICAgICAgICAgICAgICB1
+ bnNhZmUtZmxpbWFnLXBhcnQKICAgICAgICAgICAgICAgICAgICAgdW5ib3hlZC1nZW5zeW0t
+ MSkpKQogICAgICAgIHVuYm94ZWQtcmVhbC0yKSkpKQoKKCMlYXBwIHZvaWQpCg==
+ --------------030006070802050305030609--
+From: Vincent St-Amour <stamourv@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        Vincent St-Amour <stamourv@ccs.neu.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 01 Oct 2010 16:48:42 -0400
+
+ At Fri, 01 Oct 2010 14:06:10 -0600,
+ Neil Toronto wrote:
+ > Also, (unsafe-flimag-part (log 2.0)) crashes DrRacket with a SIGSEGV. 
+ > #:optimize is doing something similar in log2.0-expanded.rkt.
+ 
+ You're right, this causes a segfault, and TR's optimizer generates
+ this code from your example. This is a bug, and I'll fix it.
+ 
+ Vincent
+From: Vincent St-Amour <stamourv@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        Vincent St-Amour <stamourv@ccs.neu.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 01 Oct 2010 17:50:42 -0400
+
+ At Fri, 01 Oct 2010 16:48:42 -0400,
+ Vincent St-Amour wrote:
+ > At Fri, 01 Oct 2010 14:06:10 -0600,
+ > Neil Toronto wrote:
+ > > Also, (unsafe-flimag-part (log 2.0)) crashes DrRacket with a SIGSEGV. 
+ > > #:optimize is doing something similar in log2.0-expanded.rkt.
+ > 
+ > You're right, this causes a segfault, and TR's optimizer generates
+ > this code from your example. This is a bug, and I'll fix it.
+ 
+ I pushed a fix for that. I still can't reproduce the original
+ problem.
+ 
+ Vincent
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Vincent St-Amour <stamourv@ccs.neu.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 01 Oct 2010 17:34:52 -0600
+
+ Vincent St-Amour wrote:
+ > At Fri, 01 Oct 2010 16:48:42 -0400,
+ > Vincent St-Amour wrote:
+ >> At Fri, 01 Oct 2010 14:06:10 -0600,
+ >> Neil Toronto wrote:
+ >>> Also, (unsafe-flimag-part (log 2.0)) crashes DrRacket with a SIGSEGV. 
+ >>> #:optimize is doing something similar in log2.0-expanded.rkt.
+ >> You're right, this causes a segfault, and TR's optimizer generates
+ >> this code from your example. This is a bug, and I'll fix it.
+ > 
+ > I pushed a fix for that.
+ 
+ Cool.
+ 
+ > I still can't reproduce the original problem.
+ 
+ Should I try valgrind, get a core dump, or do something similar? What's 
+ the usual process for Racket's Heisenbugs?
+ 
+ Neil T
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 1 Oct 2010 16:40:18 -0700
+
+ On Fri, Oct 1, 2010 at 4:34 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >
+ >> I still can't reproduce the original problem.
+ >
+ > Should I try valgrind, get a core dump, or do something similar? What's the
+ > usual process for Racket's Heisenbugs?
+ 
+ Make a test case in plain `racket' that crashes, and give Matthew a
+ login on a machine where it happens.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Thu, 21 Oct 2010 18:36:00 -0600
+
+ Sam Tobin-Hochstadt wrote:
+ > On Fri, Oct 1, 2010 at 4:34 PM, Neil Toronto <neil.toronto@gmail.com> wrote:
+ >>> I still can't reproduce the original problem.
+ >> Should I try valgrind, get a core dump, or do something similar? What's the
+ >> usual process for Racket's Heisenbugs?
+ > 
+ > Make a test case in plain `racket' that crashes, and give Matthew a
+ > login on a machine where it happens.
+ 
+ I can't make a test case in plain `racket' that has the problem. Also, I 
+ got confused, there: the problem is not a crash. (The slightly related 
+ crash was a bug in how the optimizer unboxed complex numbers.) The 
+ problem is wrong output.
+ 
+ I don't think it's TR's optimizer's fault. The bug should be assigned to 
+ Matthew or Ryan. Here's the new evidence:
+ 
+      1. Turning off the JIT fixes it.
+      2. I have a simpler test file (see below) that needs no 
+ optimization, for which the problem shows up only when TR's optimizer 
+ runs. I altered the optimizer to output *exactly* what it receives when 
+ run on the new test file, and the problem still shows up.
+      3. TR's optimizer uses only syntax-parse and it uses syntax classes 
+ in scary-looking ways; therefore they are the culprit.
+ 
+ Okay, I'm joking about the "scary-looking" bit in #3. The real deal is 
+ that when I do anything to stop the optimizer from rebuilding 
+ #'(unsafe-fl/ M (unsafe-fllog M)), the problem goes away. If the 
+ optimizer rebuilds it (or a few expressions outward), I get the wrong 
+ output. (Recall that I made it rebuild them without altering them at 
+ all. I even made it replace #%plain-app properly.)
+ 
+ Vincent's code is pretty standard and obviously safe - he's not using 
+ unsafe ops or even mutation. Therefore, either the JIT is doing 
+ something wrong, or something deep within the bowels of syntax-parse or 
+ syntax classes is causing the JIT to do something wrong.
+ 
+ Here's the new test file:
+ 
+ 
+ #lang typed/racket ;#:no-optimize
+ (require racket/unsafe/ops)
+ (define (get-M) 64.0)
+ (define (weird)
+    (let* ([M  (get-M)]
+           [N1  (unsafe-fl/ M (unsafe-fllog M))]
+           [_  (get-M)])
+      N1))
+ (weird)  ; outputs 1.67033640796794e-310 instead of 15.38874710281561
+ 
+ 
+ There's no parameter anymore, and no printing. Turns out it was only 
+ necessary 1) for M to be the result of a function call; and 2) to call a 
+ function after computing N1. #2 needs qualifiers: calling only certain 
+ functions causes the problem. I didn't keep track, but IIRC arithmetic 
+ functions didn't, and output functions (write, display, print) did.
+ 
+ As for why it only shows up on my two Ubuntu boxes, I haven't a clue.
+ 
+ New info: the problem doesn't show up on the command-line. IIRC, Vincent 
+ uses Linux but no GUI, so that may be why he can't duplicate it.
+ 
+ Neil T
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>,
+        Matthew Flatt <mflatt@cs.utah.edu>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 22 Oct 2010 20:54:21 -0600
+
+ Sam Tobin-Hochstadt wrote:
+ > Make a test case in plain `racket' that crashes, and give Matthew a
+ > login on a machine where it happens.
+ 
+ I've set up an account. Matthew, you'll need to do a
+ 
+      ssh -Y mflatt@photon.cs.byu.edu
+ 
+ Email me for the password. You won't be able to reproduce the bug on the 
+ command line: you'll need to run DrRacket on photon. X11 over SSH should 
+ be snappy enough since we're in the same state.
+ 
+ I've cloned the repository in ~/racket, built Racket, installed it 
+ in-place, and verified that there's still a problem. The test file is 
+ ~/broken.rkt. The typical Linux build tools and dev libraries are all 
+ installed. If you need something else installed, give me a shout.
+ 
+ Anybody else who wants to give this a shot can also email me for login 
+ and password. I've got four cores, and the only things that ever use 
+ more than one are make and raco setup. :)
+ 
+ Neil T
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Neil Toronto <neil.toronto@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Vincent St-Amour <stamourv@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 22 Oct 2010 20:57:11 -0600
+
+ At Fri, 22 Oct 2010 20:54:21 -0600, Neil Toronto wrote:
+ > Sam Tobin-Hochstadt wrote:
+ > > Make a test case in plain `racket' that crashes, and give Matthew a
+ > > login on a machine where it happens.
+ > 
+ > I've set up an account. Matthew, you'll need to do a
+ 
+ Thanks! As it happens, though, in the last half hour I was able to
+ trigger the problem on my machine. I also think I see the problem,
+ though I'm not sure why it's so hard to reproduce.
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        Vincent St-Amour <stamourv@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11272: Odd interaction among #:optimize/parameters/print/unsafe-fllog
+Date: Fri, 22 Oct 2010 21:02:03 -0600
+
+ At Fri, 22 Oct 2010 20:57:11 -0600, Matthew Flatt wrote:
+ > though I'm not sure why it's so hard to reproduce.
+ 
+ Now I see. Here's a smaller example (no TR) that produces the wrong
+ answer in plain `racket':
+ 
+  #lang racket/base
+  (require racket/unsafe/ops)
+ 
+  (define weird #f)
+  (set! weird 
+        (lambda (get-M)
+          (let* ([M  (get-M)]
+                 [N1 (unsafe-fl/ M (unsafe-fllog M))])
+            (get-M) ; triggers safe-for-space clearing of M
+            N1)))
+ 
+  (weird (lambda () 64.0))
+ 
+Responsible changed from "samth" to "mflatt" by mflatt@racket-lang.org at Fri, 22 Oct 2010 23:20:32 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c512dbd6d3
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 22 Oct 2010 23:20:32 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c512dbd6d3

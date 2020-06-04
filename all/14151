@@ -1,0 +1,210 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Nov 12 11:44:41 2013
+Received: from mail-oa0-f54.google.com (mail-oa0-f54.google.com [209.85.219.54])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id rACGieAA019283
+	for <bugs@bugs.plt-scheme.org>; Tue, 12 Nov 2013 11:44:40 -0500
+Message-Id: <201311121644.rACGickg019274@winooski.ccs.neu.edu>
+Date: Tue, 12 Nov 2013 11:44:38 -0500
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: auto-nested-attributes not working (also still not documented)
+
+>Number:         14151
+>Category:       all
+>Synopsis:       auto-nested-attributes not working (also still not documented)
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Nov 12 11:48:01 -0500 2013
+>Last-Modified:  Tue Nov 12 12:56:01 -0500 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+I expect the following program to work, but instead I get:
+
+Users/endobson/tmp/tmp.rkt:14:20: attribute: not bound as a pattern variable
+  at: f.v
+  in: (attribute f.v)
+  context...:
+   /Users/endobson/proj/racket/plt/racket/collects/syntax/parse/private/residual.rkt:88:0
+>How-To-Repeat:
+#lang racket
+(require syntax/parse)
+
+(define-syntax-class foo
+  #:auto-nested-attributes
+  ;#:attributes (v)
+  (pattern :bar))
+
+(define-syntax-class bar
+  #:attributes (v)
+  (pattern v:id))
+
+(syntax-parse #'x
+  [f:foo (attribute f.v)])
+>Fix:
+>Audit-Trail:
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14151: auto-nested-attributes not working (also
+ still not documented)
+Date: Tue, 12 Nov 2013 12:40:44 -0500
+
+ That's not supposed to work. #:auto-nested-attributes only includes 
+ attributes from previously defined syntax classes, to avoid the 
+ difficulties of forward references and cyclic dependencies in 
+ definitions like this:
+ 
+ (define-syntax-class foo
+    #:auto-nested-attributes
+    (pattern (p:foo ...)))
+ 
+ Avoid #:auto-nested-attributes in new code. It's an undocumented 
+ backwards-compatibility hack.
+ 
+ Perhaps it would be better for #:auto-nested-attributes to cause any 
+ forward-or-self reference to raise an error.
+ 
+ Ryan
+ 
+ 
+ On 11/12/2013 11:48 AM, eric.n.dobson@gmail.com wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=14151
+ >
+ > Reported by Eric Dobson for release: HEAD
+ >
+ > *** Description:
+ > I expect the following program to work, but instead I get:
+ >
+ > Users/endobson/tmp/tmp.rkt:14:20: attribute: not bound as a pattern variable
+ >    at: f.v
+ >    in: (attribute f.v)
+ >    context...:
+ >     /Users/endobson/proj/racket/plt/racket/collects/syntax/parse/private/residual.rkt:88:0
+ >
+ > *** How to repeat:
+ > #lang racket
+ > (require syntax/parse)
+ >
+ > (define-syntax-class foo
+ >    #:auto-nested-attributes
+ >    ;#:attributes (v)
+ >    (pattern :bar))
+ >
+ > (define-syntax-class bar
+ >    #:attributes (v)
+ >    (pattern v:id))
+ >
+ > (syntax-parse #'x
+ >    [f:foo (attribute f.v)])
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >
+ 
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Ryan Culpepper <ryan@cs.utah.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14151: auto-nested-attributes not working (also
+ still not documented)
+Date: Tue, 12 Nov 2013 09:53:54 -0800
+
+ Can it be documented as deprecated, and the caveats be documented?
+ Moving the patterns around works for the problem that I have, but
+ without documentation I have no idea that that was the issue.
+ 
+ This is how I found about it:
+ http://lists.racket-lang.org/dev/archive/2013-August/013243.html
+ 
+ It is very useful for the case where I'm using a syntax class to just
+ move code around.
+ 
+ (define-syntax-class foo
+   (pattern <large-pattern1>)
+   (pattern <large-pattern2>))
+ 
+ =>
+ 
+ (define-syntax-class p1
+   (pattern <large-pattern1>))
+ (define-syntax-class p2
+   (pattern <large-pattern2>))
+ 
+ (define-syntax-class foo
+   #:auto-nested-attributes
+   (pattern :p1)
+   (pattern :p2))
+ 
+ 
+ And the second form is actually written:
+ (define-merged-syntax-class foo (p1 p2))
+ 
+ 
+ On Tue, Nov 12, 2013 at 9:40 AM, Ryan Culpepper <ryan@cs.utah.edu> wrote:
+ > That's not supposed to work. #:auto-nested-attributes only includes
+ > attributes from previously defined syntax classes, to avoid the difficulties
+ > of forward references and cyclic dependencies in definitions like this:
+ >
+ > (define-syntax-class foo
+ >   #:auto-nested-attributes
+ >   (pattern (p:foo ...)))
+ >
+ > Avoid #:auto-nested-attributes in new code. It's an undocumented
+ > backwards-compatibility hack.
+ >
+ > Perhaps it would be better for #:auto-nested-attributes to cause any
+ > forward-or-self reference to raise an error.
+ >
+ > Ryan
+ >
+ >
+ >
+ > On 11/12/2013 11:48 AM, eric.n.dobson@gmail.com wrote:
+ >>
+ >> A new problem report is waiting at
+ >>    http://bugs.racket-lang.org/query/?cmd=view&pr=14151
+ >>
+ >> Reported by Eric Dobson for release: HEAD
+ >>
+ >> *** Description:
+ >> I expect the following program to work, but instead I get:
+ >>
+ >> Users/endobson/tmp/tmp.rkt:14:20: attribute: not bound as a pattern
+ >> variable
+ >>    at: f.v
+ >>    in: (attribute f.v)
+ >>    context...:
+ >>
+ >> /Users/endobson/proj/racket/plt/racket/collects/syntax/parse/private/residual.rkt:88:0
+ >>
+ >> *** How to repeat:
+ >> #lang racket
+ >> (require syntax/parse)
+ >>
+ >> (define-syntax-class foo
+ >>    #:auto-nested-attributes
+ >>    ;#:attributes (v)
+ >>    (pattern :bar))
+ >>
+ >> (define-syntax-class bar
+ >>    #:attributes (v)
+ >>    (pattern v:id))
+ >>
+ >> (syntax-parse #'x
+ >>    [f:foo (attribute f.v)])
+ >>
+ >> *** Environment:
+ >> MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2)
+ >> AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+ >>
+ >

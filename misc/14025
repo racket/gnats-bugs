@@ -1,0 +1,249 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Sep 16 10:42:06 2013
+Return-Path: <apache@racket-lang.org>
+Received: by 10.180.80.71 with SMTP id p7csp83867wix;
+        Fri, 13 Sep 2013 09:00:46 -0700 (PDT)
+Message-Id: <201309131600.r8DG0hIe029861@winooski.ccs.neu.edu>
+Date: Fri, 13 Sep 2013 12:00:43 -0400
+From: dpavlov@ipa.nw.ru
+To: bugs@racket-lang.org
+Subject: sqlite3-connect does not survive raco distribute, saying "sqlite3_open: implementation not found"
+
+>Number:         14025
+>Category:       misc
+>Synopsis:       sqlite3-connect does not survive raco distribute, saying "sqlite3_open: implementation not found"
+>Class:          sw-bug
+>Responsible:    ryanc
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Sep 16 10:45:12 -0400 2013
+>Closed-Date:    Mon Sep 16 12:14:46 -0400 2013
+>Last-Modified:  Tue Oct 22 11:20:13 -0400 2013
+>Originator:     Dmitry Pavlov
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.6
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: russian
+(current-memory-use) 159794528
+Links: (links) = ("slon"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.6):
+ [none]
+
+
+
+Collections:
+("C:\\Documents and Settings\\dpavlov\\Application Data\\Racket\\5.3.6\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "math" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "pkg" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "realm" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+A program does a call to (sqlite3-connect). The program works well itself, and it works well after being translated to an executable by "raco exe", but "raco distribute" breaks it.
+
+The bug reproduces only on Windows; on Linux everything works fine.
+>How-To-Repeat:
+File mytable.rkt:
+
+#lang racket
+
+(require db)
+(define path "mytable.db")
+
+(when (file-exists? path)
+  (delete-directory/files path))
+
+(define conn (sqlite3-connect #:database path #:mode 'create))
+(query-exec conn "create table MYTABLE (n integer primary key)")
+(disconnect conn)
+
+(printf "OK\n")
+
+
+Steps to reproduce:
+
+C:\Documents and Settings\dpavlov>raco exe mytable.rkt
+
+C:\Documents and Settings\dpavlov>mytable.exe
+OK
+
+C:\Documents and Settings\dpavlov>raco distribute mytable-distr mytable.exe
+
+C:\Documents and Settings\dpavlov>mytable-distr\mytable.exe
+sqlite3_open: implementation not found; arguments: #"C:\\Documents and Settings\\dpavlov\\mytable.db" 6
+  context...:
+   c:\program files\racket\collects\db\private\sqlite3\main.rkt:11:0: sqlite3-connect13
+   #%mzc:mytable: [running body]
+   loop
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "ryanc" by ryanc at Mon, 16 Sep 2013 12:14:46 -0400
+Reason>>> db
+
+State changed from "open" to "closed" by ryanc at Mon, 16 Sep 2013 12:14:46 -0400
+Reason>>> fixed by commit 23f77a60
+
+From: Dmitry Pavlov <dpavlov@ipa.nw.ru>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14025: sqlite3-connect does not survive raco
+ distribute, saying "sqlite3_open: implementation not found"
+Date: Sun, 6 Oct 2013 02:03:22 +0400
+
+ --001a113322526e3e2e04e8059602
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Hello,
+ 
+ According to my experience with the updated version,
+ the bug actually is not fixed by commit 23f77a60.
+ I propose the following patch to collects/db/private/sqlite3/ffi.rkt
+ to fix the problem to the end:
+ 
+ 
+ diff --git a/ffi.rkt.bk b/ffi.rkt
+ index c94aefb..1f610fb 100644
+ --- a/ffi.rkt.bk
+ +++ b/ffi.rkt
+ @@ -7,17 +7,17 @@
+  (provide (all-from-out "ffi-constants.rkt")
+           (protect-out (all-defined-out)))
+ 
+ -(define sqlite-lib
+ -  (case (system-type)
+ -    [(windows) (ffi-lib "sqlite3.dll" #:fail (lambda () #f))]
+ -    [else (ffi-lib "libsqlite3" '("0" #f) #:fail (lambda () #f))]))
+ -
+  ;; raco distribute should include Racket's sqlite3 if present
+  (define-runtime-path _sqlite-lib-for-distribute
+ 
+    (case (system-type)
+      [(windows) '(so "sqlite3")]
+      [else '(so "libsqlite3")]))
+ 
+ +(define sqlite-lib
+ +  (case (system-type)
+ +    [(windows) (ffi-lib _sqlite-lib-for-distribute #:fail (lambda () #f))]
+ +    [else (ffi-lib _sqlite-lib-for-distribute '("0" #f) #:fail (lambda ()
+ #f))]))
+ +
+  (define-ffi-definer define-sqlite
+    sqlite-lib
+    #:default-make-fail make-not-available)
+ 
+ 
+ Regards,
+ 
+ Dmitry
+ 
+ 
+ 
+ Thank you very much for your problem report.
+ > It has the internal identification `all/14025'.
+ > You can check on the status of your problem report at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14025
+ >
+ 
+ --001a113322526e3e2e04e8059602
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Hello,<div><br></div><div>According to my experience with =
+ the updated version,</div><div>the bug actually is not fixed by commit=C2=
+ =A0<span style=3D"color:rgb(0,0,0)">23f77a60</span>.</div><div>I propose th=
+ e following patch to collects/db/private/sqlite3/ffi.rkt</div>
+ <div>to fix the problem to the end:</div><div><br></div><div><br></div><spa=
+ n style=3D"font-family:arial,sans-serif;font-size:13px">diff --git a/ffi.rk=
+ t.bk b/ffi.rkt</span><br style=3D"font-family:arial,sans-serif;font-size:13=
+ px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">index c94aefb..=
+ 1f610fb 100644</span><br style=3D"font-family:arial,sans-serif;font-size:13=
+ px"><span style=3D"font-family:arial,sans-serif;font-size:13px">--- a/ffi.r=
+ kt.bk</span><br style=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">+++ b/ffi.rkt</=
+ span><br style=3D"font-family:arial,sans-serif;font-size:13px"><span style=
+ =3D"font-family:arial,sans-serif;font-size:13px">@@ -7,17 +7,17 @@</span><b=
+ r style=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">=C2=A0(provide =
+ (all-from-out &quot;ffi-constants.rkt&quot;)</span><br style=3D"font-family=
+ :arial,sans-serif;font-size:13px"><span style=3D"font-family:arial,sans-ser=
+ if;font-size:13px">=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (protect-out (all-def=
+ ined-out)))</span><br style=3D"font-family:arial,sans-serif;font-size:13px"=
+ >
+ <br style=3D"font-family:arial,sans-serif;font-size:13px"><span style=3D"fo=
+ nt-family:arial,sans-serif;font-size:13px">-(define sqlite-lib</span><br st=
+ yle=3D"font-family:arial,sans-serif;font-size:13px"><span style=3D"font-fam=
+ ily:arial,sans-serif;font-size:13px">- =C2=A0(case (system-type)</span><br =
+ style=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">- =C2=A0 =C2=A0=
+ [(windows) (ffi-lib &quot;</span><span class=3D"" style=3D"font-family:aria=
+ l,sans-serif;font-size:13px">sqlite3</span><span style=3D"font-family:arial=
+ ,sans-serif;font-size:13px">.dll&quot; #:fail (lambda () #f))]</span><br st=
+ yle=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">- =C2=A0 =C2=A0=
+ [else (ffi-lib &quot;libsqlite3&quot; &#39;(&quot;0&quot; #f) #:fail (lambd=
+ a () #f))]))</span><br style=3D"font-family:arial,sans-serif;font-size:13px=
+ "><span style=3D"font-family:arial,sans-serif;font-size:13px">-</span><br s=
+ tyle=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">=C2=A0;; raco d=
+ istribute should include Racket&#39;s=C2=A0</span><span class=3D"" style=3D=
+ "font-family:arial,sans-serif;font-size:13px">sqlite3</span><span style=3D"=
+ font-family:arial,sans-serif;font-size:13px">=C2=A0if present</span><br sty=
+ le=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">=C2=A0(define-r=
+ untime-path _sqlite-lib-for-distribute</span><div class=3D"im" style=3D"fon=
+ t-family:arial,sans-serif;font-size:13px"><br>=C2=A0 =C2=A0(case (system-ty=
+ pe)<br>=C2=A0 =C2=A0 =C2=A0[(windows) &#39;(so &quot;<span class=3D"">sqlit=
+ e3</span>&quot;)]<br>
+ =C2=A0 =C2=A0 =C2=A0[else &#39;(so &quot;libsqlite3&quot;)]))<br><br></div>=
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">+(define sqlite=
+ -lib</span><br style=3D"font-family:arial,sans-serif;font-size:13px"><span =
+ style=3D"font-family:arial,sans-serif;font-size:13px">+ =C2=A0(case (system=
+ -type)</span><br style=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">+ =C2=A0 =C2=A0=
+ [(windows) (ffi-lib _sqlite-lib-for-distribute #:fail (lambda () #f))]</spa=
+ n><br style=3D"font-family:arial,sans-serif;font-size:13px"><span style=3D"=
+ font-family:arial,sans-serif;font-size:13px">+ =C2=A0 =C2=A0[else (ffi-lib =
+ _sqlite-lib-for-distribute &#39;(&quot;0&quot; #f) #:fail (lambda () #f))])=
+ )</span><br style=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">+</span><br sty=
+ le=3D"font-family:arial,sans-serif;font-size:13px"><span style=3D"font-fami=
+ ly:arial,sans-serif;font-size:13px">=C2=A0(define-ffi-definer define-sqlite=
+ </span><br style=3D"font-family:arial,sans-serif;font-size:13px">
+ <span style=3D"font-family:arial,sans-serif;font-size:13px">=C2=A0 =C2=A0sq=
+ lite-lib</span><br style=3D"font-family:arial,sans-serif;font-size:13px"><s=
+ pan style=3D"font-family:arial,sans-serif;font-size:13px">=C2=A0 =C2=A0#:de=
+ fault-make-fail make-not-available)</span><br style=3D"font-family:arial,sa=
+ ns-serif;font-size:13px">
+ <div>=C2=A0<br><div class=3D"gmail_extra"><br></div><div class=3D"gmail_ext=
+ ra">Regards,</div><div class=3D"gmail_extra"><br></div><div class=3D"gmail_=
+ extra">Dmitry</div><div class=3D"gmail_extra"><br></div><div class=3D"gmail=
+ _extra"><br></div>
+ <div class=3D"gmail_extra"><br><div class=3D"gmail_quote"><blockquote class=
+ =3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-left-width:1px;bo=
+ rder-left-color:rgb(204,204,204);border-left-style:solid;padding-left:1ex">=
+ Thank you very much for your problem report.<br>
+ 
+ It has the internal identification `all/14025&#39;.<br>
+ You can check on the status of your problem report at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14=
+ 025" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14025</a><br>
+ </blockquote></div><br></div></div></div>
+ 
+ --001a113322526e3e2e04e8059602--
+
+----------
+A commit by ryanc@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/4993c085af
+  | 
+

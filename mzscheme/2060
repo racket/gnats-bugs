@@ -1,0 +1,196 @@
+From robby@cs.rice.edu  Mon Sep 17 20:15:26 2001
+Return-Path: <robby@cs.rice.edu>
+Received: from localhost (unknown [155.99.212.124])
+	by cs.rice.edu (Postfix) with ESMTP id E7B20182D
+	for <plt-gnats>; Mon, 17 Sep 2001 20:15:25 -0500 (CDT)
+Message-Id: <20010918011526.E7B20182D@cs.rice.edu>
+Date: Mon, 17 Sep 2001 20:15:26 -0500 (CDT)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: module-identifier returns #f for non-top-level bound variable
+
+>Number:         2060
+>Category:       mzscheme
+>Synopsis:       module-identifier returns #f for non-top-level bound variable
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Sep 18 01:30:01 GMT 2001
+>Last-Modified:  Fri Oct 12 11:17:12 CDT 2001
+>Originator:     Robert Bruce Findler
+>Organization:
+titan
+>Release:        199.22d2
+>Environment:
+unix "Linux seesen 2.4.4 #23 \262\320 5\267\356 1 14:50:29 JST 2001 ppc unknown" (ppc-linux) (get-display-depth) = 24
+Tools: ("CVS" "compiled" "unit-bundle")
+Docs Installed:
+("help" "icons" "r5rs" "insidemz" "mred" "drscheme" "mzc" "framework" "tools" "mzlib" "mzscheme")
+Collections: 
+(("/home/robby/cvs/exp/plt/collects" ("CVS" "doc" "browser" "compiler" "debug" "defaults" "drjava" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "readline" "setup" "slatex" "srpersist" "string-constants" "syntax" "tests" "texpict" "userspce" "xml")) ("/home/robby/cvs/robby/collects" ("CVS" "backgammon" "checkers" "friendly" "icfp-pc-99" "mac-cd-database" "magic" "mahjongg" "paper-utils" "pente" "pop-pop" "set-fonts" "solutions" "test-image-map" "xmahjongg")) ("/home/robby/cvs/mflatt/collects" ("CVS" "sirmail")))
+Human Language: (string-constant human-language)
+>Description:
+The code below evaluates to #f, but the + is
+not bound to a top-level variable (at least, 
+as far as I understand the term "top level").
+
+To me, it is bound by the implicit module import,
+so identifier binding should return something like:
+
+  `(#%kernel + mzscheme +)
+
+>How-To-Repeat:
+(syntax-case (expand #'(module m mzscheme +)) ()
+  [(module m mzscheme +)
+   (identifier-binding
+    (syntax +))])
+>Fix:
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2060: module-identifier returns #f for non-top-level bound variable
+Date: Tue, 18 Sep 2001 06:13:06 -0600 (MDT)
+
+ The bug is that `identifier-syntax' fails to raise an exception when
+ its argument is a non-identifier syntax object. Fixed for the next
+ release.
+ 
+ Quoting robby@cs.rice.edu:
+ > The code below evaluates to #f, but the + is
+ > not bound to a top-level variable (at least, 
+ > as far as I understand the term "top level").
+ > 
+ > To me, it is bound by the implicit module import,
+ > so identifier binding should return something like:
+ > 
+ >   `(#%kernel + mzscheme +)
+ > 
+ > >How-To-Repeat:
+ > (syntax-case (expand #'(module m mzscheme +)) ()
+ >   [(module m mzscheme +)
+ >    (identifier-binding
+ >     (syntax +))])
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2060: module-identifier returns #f for non-top-level
+ bound variable
+Date: Tue, 18 Sep 2001 08:35:26 -0500
+
+ Well, how do I discover the import that defines + in that expression? 
+ The module-path-indicies don't specify it:
+ 
+ >  (module-path-index-split
+   (caddr
+    (syntax-case (expand #'(module m mzscheme +)) ()
+      [(module m mzscheme (xxx yyy +))
+       (identifier-binding
+        (syntax +))])))
+ #f
+ #f
+ 
+ and nothing else seems to either.
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2060: module-identifier returns #f for non-top-level
+ bound variable
+Date: Tue, 18 Sep 2001 08:47:54 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > Well, how do I discover the import that defines + in that expression? 
+ > The module-path-indicies don't specify it:
+ > 
+ > >  (module-path-index-split
+ >   (caddr
+ >    (syntax-case (expand #'(module m mzscheme +)) ()
+ >      [(module m mzscheme (xxx yyy +))
+ >       (identifier-binding
+ >        (syntax +))])))
+ > #f
+ > #f
+ > 
+ > and nothing else seems to either.
+ 
+ Yep, it's broken. Looks like all my tests were on explicit `require's
+ instead of the implicit one.
+ 
+ Fixed in module.c. I committed and exp-tagged it so you can make
+ progress as needed.
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2060: module-identifier returns #f for non-top-level
+ bound variable
+Date: Wed, 19 Sep 2001 06:07:21 -0700 (PDT)
+
+ Quoting Matthew Flatt:
+ > Quoting Robert Bruce Findler:
+ > > Well, how do I discover the import that defines + in that expression? 
+ > > The module-path-indicies don't specify it:
+ > > 
+ > > >  (module-path-index-split
+ > >   (caddr
+ > >    (syntax-case (expand #'(module m mzscheme +)) ()
+ > >      [(module m mzscheme (xxx yyy +))
+ > >       (identifier-binding
+ > >        (syntax +))])))
+ > > #f
+ > > #f
+ > > 
+ > > and nothing else seems to either.
+ > 
+ > Yep, it's broken. Looks like all my tests were on explicit `require's
+ > instead of the implicit one.
+ > 
+ > Fixed in module.c. I committed and exp-tagged it so you can make
+ > progress as needed.
+ 
+ Are you sure you tagged it? It looks like the tagged version was
+ checked in on the 14th and there were two more commits after that on
+ the 18th which weren't tagged.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2060: module-identifier returns #f for non-top-level
+ bound variable
+Date: Wed, 19 Sep 2001 07:51:53 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > Are you sure you tagged it? It looks like the tagged version was
+ > checked in on the 14th and there were two more commits after that on
+ > the 18th which weren't tagged.
+ 
+ 1.126 was indeed the one I meant to tag. It's tagged, now.
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Oct 12 11:17:09 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Oct 12 11:17:11 2001
+State-Changed-Why:
+
+
+ 
+>Unformatted:

@@ -1,0 +1,613 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jan 29 15:06:14 2013
+Received: from mail-ob0-f169.google.com (mail-ob0-f169.google.com [209.85.214.169])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r0TK6A6T003097
+	for <bugs@bugs.plt-scheme.org>; Tue, 29 Jan 2013 15:06:10 -0500
+Message-Id: <201301292006.r0TK68cN003090@champlain.ccs.neu.edu>
+Date: Tue, 29 Jan 2013 15:06:08 -0500
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: TR: missing numeric function type cases
+
+>Number:         13468
+>Category:       all
+>Synopsis:       TR: missing numeric function type cases
+>Class:          sw-bug
+>Responsible:    stamourv
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jan 29 15:08:02 -0500 2013
+>Closed-Date:    Thu Feb 14 18:25:05 -0500 2013
+>Last-Modified:  Thu Feb 14 20:24:02 -0500 2013
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.2--2013-01-28(aed3b395/d)
+>Environment:
+unix "Linux schroder 2.6.38-15-generic #66-Ubuntu SMP Tue Aug 14 17:24:44 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 335126344
+Links: (links) = ("bayes"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+Planet2 (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific:
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/5.3.2.2/collects"
+ (non-existent-path))
+("/home/neil/plt/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "planet2" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "realm" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "l!
+ ang" "raco" "gui-debugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((main) (test))))
+>Description:
+I've had "submit these as a bug report" on my to-do list for a while. Discovered while writing functions with precise `case->' types for the math library.
+>How-To-Repeat:
+#lang typed/racket
+
+;; The following expressions should all pass the type checker, but currently fail
+
+;; Most bothersome missing cases:
+(ann (- (ann 6.0+2.3i Float-Complex)) Float-Complex)
+(ann (/ (ann 6.0+2.3i Float-Complex)) Float-Complex)
+(ann (/ (ann 0.0+0.0i Float-Complex) (ann 1+0i Number)) Float-Complex)
+
+;; Would be nice to maintain flonum-ness here:
+(ann (expt (ann -5.0 Flonum) (ann 2.0 Flonum)) (U Flonum Float-Complex))
+
+;; Analogous to the (Exact-Rational -> Flonum) case:
+(ann (exact->inexact (ann 0+4i Exact-Number)) Float-Complex)
+;; Not serious because `math/base' exports `number->float-complex', which
+;; behaves better anyway
+
+;; The rest of these missing cases would be nice to have when writing macros
+;; and functions with large `case->' types. For example, because of the missing
+;; `magnitude' cases, it's harder to write this function:
+
+(: euclidean-distance (case-> (Flonum * -> Nonnegative-Flonum)
+                              (Real * -> Nonnegative-Real)
+                              (Float-Complex * -> Nonnegative-Flonum)
+                              (Number * -> Nonnegative-Real)))
+(define (euclidean-distance . lst)
+  (sqrt (apply + (map sqr (map magnitude lst)))))
+
+;; "math/private/matrix/matrix-basic.rkt" defines this function as a workaround:
+
+(: nonstupid-magnitude (case-> (Flonum -> Nonnegative-Flonum)
+                               (Real -> Nonnegative-Real)
+                               (Float-Complex -> Nonnegative-Flonum)
+                               (Number -> Nonnegative-Real)))
+(define (nonstupid-magnitude x)
+  (if (real? x) (abs x) (magnitude x)))
+
+;; In general, for real numbers, `magnitude' should have the same cases as `abs'
+
+(ann (magnitude (ann 0 Zero)) Zero)
+(ann (magnitude (ann 1 One)) One)
+(ann (magnitude (ann 6 Byte)) Byte)
+(ann (magnitude (ann 6 Index)) Index)
+
+(ann (magnitude (ann 6 Positive-Fixnum)) Positive-Fixnum)
+(ann (magnitude (ann 6 Nonnegative-Fixnum)) Nonnegative-Fixnum)
+(ann (magnitude (ann -6 Nonpositive-Fixnum)) Nonnegative-Integer)
+(ann (magnitude (ann -6 Negative-Fixnum)) Positive-Integer)
+(ann (magnitude (ann 6 Fixnum)) Integer)
+
+(ann (magnitude (ann 6 Positive-Integer)) Positive-Integer)
+(ann (magnitude (ann 6 Nonnegative-Integer)) Nonnegative-Integer)
+(ann (magnitude (ann -6 Nonpositive-Integer)) Nonnegative-Integer)
+(ann (magnitude (ann -6 Negative-Integer)) Positive-Integer)
+(ann (magnitude (ann 6 Integer)) Integer)
+
+(ann (magnitude (ann 0.0 Flonum-Zero)) Flonum-Zero)
+(ann (magnitude (ann 6.0 Positive-Flonum)) Positive-Flonum)
+(ann (magnitude (ann 6.0 Nonnegative-Flonum)) Nonnegative-Flonum)
+(ann (magnitude (ann -6.0 Nonpositive-Flonum)) Nonnegative-Flonum)
+(ann (magnitude (ann -6.0 Negative-Flonum)) Positive-Flonum)
+(ann (magnitude (ann 6.0 Flonum)) Flonum)
+
+;; In general, for real numbers, `real-part' should return the same type
+
+(ann (real-part (ann 0 Zero)) Zero)
+(ann (real-part (ann 1 One)) One)
+(ann (real-part (ann 6 Byte)) Byte)
+(ann (real-part (ann 6 Index)) Index)
+
+(ann (real-part (ann 6 Positive-Fixnum)) Positive-Fixnum)
+(ann (real-part (ann 6 Nonnegative-Fixnum)) Nonnegative-Fixnum)
+(ann (real-part (ann -6 Nonpositive-Fixnum)) Nonpositive-Fixnum)
+(ann (real-part (ann -6 Negative-Fixnum)) Negative-Fixnum)
+(ann (real-part (ann 6 Fixnum)) Fixnum)
+
+(ann (real-part (ann 6 Positive-Integer)) Positive-Integer)
+(ann (real-part (ann 6 Nonnegative-Integer)) Nonnegative-Integer)
+(ann (real-part (ann -6 Nonpositive-Integer)) Nonpositive-Integer)
+(ann (real-part (ann -6 Negative-Integer)) Negative-Integer)
+(ann (real-part (ann 6 Integer)) Integer)
+
+(ann (real-part (ann 0.0 Flonum-Zero)) Flonum-Zero)
+(ann (real-part (ann 6.0 Positive-Flonum)) Positive-Flonum)
+(ann (real-part (ann 6.0 Nonnegative-Flonum)) Nonnegative-Flonum)
+(ann (real-part (ann -6.0 Nonpositive-Flonum)) Nonpositive-Flonum)
+(ann (real-part (ann -6.0 Negative-Flonum)) Negative-Flonum)
+(ann (real-part (ann 6.0 Flonum)) Flonum)
+
+;; This one surprised me with the exactness of its return value, but it seems
+;; to be true:
+(ann (imag-part (ann 5.6 Real)) Zero)
+>Fix:
+>Audit-Trail:
+From: Vincent St-Amour <stamourv@ccs.neu.edu>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13468: TR: missing numeric function type cases
+Date: Thu, 14 Feb 2013 18:11:45 -0500
+
+ I've fixed all of those that were valid, and will push soon.
+ 
+ Some of your examples can't work, though.
+ 
+ At Tue, 29 Jan 2013 15:08:02 -0500,
+ neil.toronto@gmail.com wrote:
+ > ;; Analogous to the (Exact-Rational -> Flonum) case:
+ > (ann (exact->inexact (ann 0+4i Exact-Number)) Float-Complex)
+ > ;; Not serious because `math/base' exports `number->float-complex', which
+ > ;; behaves better anyway
+ 
+ `Exact-Number' includes `Exact-Rational', but `Float-Complex' doesn't
+ include `Flonum', so this can't work.
+ 
+ 
+ > ;; The rest of these missing cases would be nice to have when writing macros
+ > ;; and functions with large `case->' types. For example, because of the missing
+ > ;; `magnitude' cases, it's harder to write this function:
+ > 
+ > (: euclidean-distance (case-> (Flonum * -> Nonnegative-Flonum)
+ >                               (Real * -> Nonnegative-Real)
+ >                               (Float-Complex * -> Nonnegative-Flonum)
+ >                               (Number * -> Nonnegative-Real)))
+ > (define (euclidean-distance . lst)
+ >   (sqrt (apply + (map sqr (map magnitude lst)))))
+ 
+ I fixed `magnitude''s type, but this example can't typecheck for another
+ reason. `euclidean-distance' accepts empty lists, which means that `+'
+ can end up being applied to 0 arguments, in which case it returns `0',
+ which is not a valid return value for the float clauses in
+ `euclidean-distance''s type.
+ 
+ Vincent
+Responsible changed from "nobody" to "stamourv" by stamourv@racket-lang.org at Thu, 14 Feb 2013 18:25:05 -0500
+Reason>>> A commit by stamourv@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/29a181175f
+State changed from "open" to "closed" by stamourv@racket-lang.org at Thu, 14 Feb 2013 18:25:05 -0500
+Reason>>> A commit by stamourv@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/29a181175f
+  | Improve a number of numeric function types.
+  | 
+  | Closes PR13468.
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Vincent St-Amour <stamourv@ccs.neu.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13468: TR: missing numeric function type cases
+Date: Thu, 14 Feb 2013 18:16:07 -0600
+
+ --e89a8f923da228b8f604d5b848e3
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Is there a picture somewhere showing the relationships between all these
+ types?
+ 
+ Robby
+ 
+ 
+ On Thu, Feb 14, 2013 at 5:11 PM, Vincent St-Amour <stamourv@ccs.neu.edu>wrote:
+ 
+ > I've fixed all of those that were valid, and will push soon.
+ >
+ > Some of your examples can't work, though.
+ >
+ > At Tue, 29 Jan 2013 15:08:02 -0500,
+ > neil.toronto@gmail.com wrote:
+ > > ;; Analogous to the (Exact-Rational -> Flonum) case:
+ > > (ann (exact->inexact (ann 0+4i Exact-Number)) Float-Complex)
+ > > ;; Not serious because `math/base' exports `number->float-complex', which
+ > > ;; behaves better anyway
+ >
+ > `Exact-Number' includes `Exact-Rational', but `Float-Complex' doesn't
+ > include `Flonum', so this can't work.
+ >
+ >
+ > > ;; The rest of these missing cases would be nice to have when writing
+ > macros
+ > > ;; and functions with large `case->' types. For example, because of the
+ > missing
+ > > ;; `magnitude' cases, it's harder to write this function:
+ > >
+ > > (: euclidean-distance (case-> (Flonum * -> Nonnegative-Flonum)
+ > >                               (Real * -> Nonnegative-Real)
+ > >                               (Float-Complex * -> Nonnegative-Flonum)
+ > >                               (Number * -> Nonnegative-Real)))
+ > > (define (euclidean-distance . lst)
+ > >   (sqrt (apply + (map sqr (map magnitude lst)))))
+ >
+ > I fixed `magnitude''s type, but this example can't typecheck for another
+ > reason. `euclidean-distance' accepts empty lists, which means that `+'
+ > can end up being applied to 0 arguments, in which case it returns `0',
+ > which is not a valid return value for the float clauses in
+ > `euclidean-distance''s type.
+ >
+ > Vincent
+ >
+ 
+ --e89a8f923da228b8f604d5b848e3
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Is there a picture somewhere showing the relationships bet=
+ ween all these types?<div><br></div><div>Robby</div></div><div class=3D"gma=
+ il_extra"><br><br><div class=3D"gmail_quote">On Thu, Feb 14, 2013 at 5:11 P=
+ M, Vincent St-Amour <span dir=3D"ltr">&lt;<a href=3D"mailto:stamourv@ccs.ne=
+ u.edu" target=3D"_blank">stamourv@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">I&#39;ve fixed all of those that were valid,=
+  and will push soon.<br>
+ <br>
+ Some of your examples can&#39;t work, though.<br>
+ <br>
+ At Tue, 29 Jan 2013 15:08:02 -0500,<br>
+ <div class=3D"im"><a href=3D"mailto:neil.toronto@gmail.com">neil.toronto@gm=
+ ail.com</a> wrote:<br>
+ &gt; ;; Analogous to the (Exact-Rational -&gt; Flonum) case:<br>
+ &gt; (ann (exact-&gt;inexact (ann 0+4i Exact-Number)) Float-Complex)<br>
+ &gt; ;; Not serious because `math/base&#39; exports `number-&gt;float-compl=
+ ex&#39;, which<br>
+ &gt; ;; behaves better anyway<br>
+ <br>
+ </div>`Exact-Number&#39; includes `Exact-Rational&#39;, but `Float-Complex&=
+ #39; doesn&#39;t<br>
+ include `Flonum&#39;, so this can&#39;t work.<br>
+ <div class=3D"im"><br>
+ <br>
+ &gt; ;; The rest of these missing cases would be nice to have when writing =
+ macros<br>
+ &gt; ;; and functions with large `case-&gt;&#39; types. For example, becaus=
+ e of the missing<br>
+ &gt; ;; `magnitude&#39; cases, it&#39;s harder to write this function:<br>
+ &gt;<br>
+ &gt; (: euclidean-distance (case-&gt; (Flonum * -&gt; Nonnegative-Flonum)<b=
+ r>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (Real * -&gt; Nonnegative-Real)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (Float-Complex * -&gt; Nonnegative-Flonu=
+ m)<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (Number * -&gt; Nonnegative-Real)))<br>
+ &gt; (define (euclidean-distance . lst)<br>
+ &gt; =C2=A0 (sqrt (apply + (map sqr (map magnitude lst)))))<br>
+ <br>
+ </div>I fixed `magnitude&#39;&#39;s type, but this example can&#39;t typech=
+ eck for another<br>
+ reason. `euclidean-distance&#39; accepts empty lists, which means that `+&#=
+ 39;<br>
+ can end up being applied to 0 arguments, in which case it returns `0&#39;,<=
+ br>
+ which is not a valid return value for the float clauses in<br>
+ `euclidean-distance&#39;&#39;s type.<br>
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br>
+ Vincent<br>
+ </font></span></blockquote></div><br></div>
+ 
+ --e89a8f923da228b8f604d5b848e3--
+From: Vincent St-Amour <stamourv@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Vincent St-Amour <stamourv@ccs.neu.edu>,
+        Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13468: TR: missing numeric function type cases
+Date: Thu, 14 Feb 2013 19:24:21 -0500
+
+ Numneric types are currently documented in prose. The PADL paper on the
+ numeric tower has a diagram that shows most of them. I'll update it and
+ add it to the docs.
+ 
+ Vincent
+ 
+ 
+ At Thu, 14 Feb 2013 18:16:07 -0600,
+ Robby Findler wrote:
+ > 
+ > [1  <text/plain; UTF-8 (7bit)>]
+ > Is there a picture somewhere showing the relationships between all these
+ > types?
+ > 
+ > Robby
+ > 
+ > 
+ > On Thu, Feb 14, 2013 at 5:11 PM, Vincent St-Amour <stamourv@ccs.neu.edu>wrote:
+ > 
+ > > I've fixed all of those that were valid, and will push soon.
+ > >
+ > > Some of your examples can't work, though.
+ > >
+ > > At Tue, 29 Jan 2013 15:08:02 -0500,
+ > > neil.toronto@gmail.com wrote:
+ > > > ;; Analogous to the (Exact-Rational -> Flonum) case:
+ > > > (ann (exact->inexact (ann 0+4i Exact-Number)) Float-Complex)
+ > > > ;; Not serious because `math/base' exports `number->float-complex', which
+ > > > ;; behaves better anyway
+ > >
+ > > `Exact-Number' includes `Exact-Rational', but `Float-Complex' doesn't
+ > > include `Flonum', so this can't work.
+ > >
+ > >
+ > > > ;; The rest of these missing cases would be nice to have when writing
+ > > macros
+ > > > ;; and functions with large `case->' types. For example, because of the
+ > > missing
+ > > > ;; `magnitude' cases, it's harder to write this function:
+ > > >
+ > > > (: euclidean-distance (case-> (Flonum * -> Nonnegative-Flonum)
+ > > >                               (Real * -> Nonnegative-Real)
+ > > >                               (Float-Complex * -> Nonnegative-Flonum)
+ > > >                               (Number * -> Nonnegative-Real)))
+ > > > (define (euclidean-distance . lst)
+ > > >   (sqrt (apply + (map sqr (map magnitude lst)))))
+ > >
+ > > I fixed `magnitude''s type, but this example can't typecheck for another
+ > > reason. `euclidean-distance' accepts empty lists, which means that `+'
+ > > can end up being applied to 0 arguments, in which case it returns `0',
+ > > which is not a valid return value for the float clauses in
+ > > `euclidean-distance''s type.
+ > >
+ > > Vincent
+ > >
+ > [2  <text/html; UTF-8 (quoted-printable)>]
+ > 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Vincent St-Amour <stamourv@ccs.neu.edu>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13468: TR: missing numeric function type cases
+Date: Thu, 14 Feb 2013 19:05:05 -0600
+
+ --e89a8f923da23cee5b04d5b8f71a
+ Content-Type: text/plain; charset=UTF-8
+ 
+ In 3.2?
+ 
+ Something like that would be great, altho it is a shame there doesn't seem
+ to be enough space in that diagram to fit everywhere together. I feel like
+ there must be a way to do something to make it all look good and
+ informative. (Not a super helpful comment, I know...)
+ 
+ I guess you'd need to add something to explain single vs double flonums?
+ (which is the bit I was just now curious about :).
+ 
+ Robby
+ 
+ 
+ On Thu, Feb 14, 2013 at 6:24 PM, Vincent St-Amour <stamourv@ccs.neu.edu>wrote:
+ 
+ > Numneric types are currently documented in prose. The PADL paper on the
+ > numeric tower has a diagram that shows most of them. I'll update it and
+ > add it to the docs.
+ >
+ > Vincent
+ >
+ >
+ > At Thu, 14 Feb 2013 18:16:07 -0600,
+ > Robby Findler wrote:
+ > >
+ > > [1  <text/plain; UTF-8 (7bit)>]
+ > > Is there a picture somewhere showing the relationships between all these
+ > > types?
+ > >
+ > > Robby
+ > >
+ > >
+ > > On Thu, Feb 14, 2013 at 5:11 PM, Vincent St-Amour <stamourv@ccs.neu.edu
+ > >wrote:
+ > >
+ > > > I've fixed all of those that were valid, and will push soon.
+ > > >
+ > > > Some of your examples can't work, though.
+ > > >
+ > > > At Tue, 29 Jan 2013 15:08:02 -0500,
+ > > > neil.toronto@gmail.com wrote:
+ > > > > ;; Analogous to the (Exact-Rational -> Flonum) case:
+ > > > > (ann (exact->inexact (ann 0+4i Exact-Number)) Float-Complex)
+ > > > > ;; Not serious because `math/base' exports `number->float-complex',
+ > which
+ > > > > ;; behaves better anyway
+ > > >
+ > > > `Exact-Number' includes `Exact-Rational', but `Float-Complex' doesn't
+ > > > include `Flonum', so this can't work.
+ > > >
+ > > >
+ > > > > ;; The rest of these missing cases would be nice to have when writing
+ > > > macros
+ > > > > ;; and functions with large `case->' types. For example, because of
+ > the
+ > > > missing
+ > > > > ;; `magnitude' cases, it's harder to write this function:
+ > > > >
+ > > > > (: euclidean-distance (case-> (Flonum * -> Nonnegative-Flonum)
+ > > > >                               (Real * -> Nonnegative-Real)
+ > > > >                               (Float-Complex * -> Nonnegative-Flonum)
+ > > > >                               (Number * -> Nonnegative-Real)))
+ > > > > (define (euclidean-distance . lst)
+ > > > >   (sqrt (apply + (map sqr (map magnitude lst)))))
+ > > >
+ > > > I fixed `magnitude''s type, but this example can't typecheck for
+ > another
+ > > > reason. `euclidean-distance' accepts empty lists, which means that `+'
+ > > > can end up being applied to 0 arguments, in which case it returns `0',
+ > > > which is not a valid return value for the float clauses in
+ > > > `euclidean-distance''s type.
+ > > >
+ > > > Vincent
+ > > >
+ > > [2  <text/html; UTF-8 (quoted-printable)>]
+ > >
+ >
+ 
+ --e89a8f923da23cee5b04d5b8f71a
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">In 3.2?<div><br></div><div style>Something like that would=
+  be great, altho it is a shame there doesn&#39;t seem to be enough space in=
+  that diagram to fit everywhere together. I feel like there must be a way t=
+ o do something to make it all look good and informative. (Not a super helpf=
+ ul comment, I know...)</div>
+ <div><br></div><div style>I guess you&#39;d need to add something to explai=
+ n single vs double flonums? (which is the bit I was just now curious about =
+ :).<br></div><div style><br></div><div style>Robby</div><div style><br>
+ </div><div class=3D"gmail_extra"><br><div class=3D"gmail_quote">On Thu, Feb=
+  14, 2013 at 6:24 PM, Vincent St-Amour <span dir=3D"ltr">&lt;<a href=3D"mai=
+ lto:stamourv@ccs.neu.edu" target=3D"_blank">stamourv@ccs.neu.edu</a>&gt;</s=
+ pan> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">Numneric types are currently documented in p=
+ rose. The PADL paper on the<br>
+ numeric tower has a diagram that shows most of them. I&#39;ll update it and=
+ <br>
+ add it to the docs.<br>
+ <br>
+ Vincent<br>
+ <br>
+ <br>
+ At Thu, 14 Feb 2013 18:16:07 -0600,<br>
+ Robby Findler wrote:<br>
+ &gt;<br>
+ &gt; [1 =C2=A0&lt;text/plain; UTF-8 (7bit)&gt;]<br>
+ <div><div class=3D"h5">&gt; Is there a picture somewhere showing the relati=
+ onships between all these<br>
+ &gt; types?<br>
+ &gt;<br>
+ &gt; Robby<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On Thu, Feb 14, 2013 at 5:11 PM, Vincent St-Amour &lt;<a href=3D"mailt=
+ o:stamourv@ccs.neu.edu">stamourv@ccs.neu.edu</a>&gt;wrote:<br>
+ &gt;<br>
+ &gt; &gt; I&#39;ve fixed all of those that were valid, and will push soon.<=
+ br>
+ &gt; &gt;<br>
+ &gt; &gt; Some of your examples can&#39;t work, though.<br>
+ &gt; &gt;<br>
+ &gt; &gt; At Tue, 29 Jan 2013 15:08:02 -0500,<br>
+ &gt; &gt; <a href=3D"mailto:neil.toronto@gmail.com">neil.toronto@gmail.com<=
+ /a> wrote:<br>
+ &gt; &gt; &gt; ;; Analogous to the (Exact-Rational -&gt; Flonum) case:<br>
+ &gt; &gt; &gt; (ann (exact-&gt;inexact (ann 0+4i Exact-Number)) Float-Compl=
+ ex)<br>
+ &gt; &gt; &gt; ;; Not serious because `math/base&#39; exports `number-&gt;f=
+ loat-complex&#39;, which<br>
+ &gt; &gt; &gt; ;; behaves better anyway<br>
+ &gt; &gt;<br>
+ &gt; &gt; `Exact-Number&#39; includes `Exact-Rational&#39;, but `Float-Comp=
+ lex&#39; doesn&#39;t<br>
+ &gt; &gt; include `Flonum&#39;, so this can&#39;t work.<br>
+ &gt; &gt;<br>
+ &gt; &gt;<br>
+ &gt; &gt; &gt; ;; The rest of these missing cases would be nice to have whe=
+ n writing<br>
+ &gt; &gt; macros<br>
+ &gt; &gt; &gt; ;; and functions with large `case-&gt;&#39; types. For examp=
+ le, because of the<br>
+ &gt; &gt; missing<br>
+ &gt; &gt; &gt; ;; `magnitude&#39; cases, it&#39;s harder to write this func=
+ tion:<br>
+ &gt; &gt; &gt;<br>
+ &gt; &gt; &gt; (: euclidean-distance (case-&gt; (Flonum * -&gt; Nonnegative=
+ -Flonum)<br>
+ &gt; &gt; &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (Real * -&gt; Nonnegative-Rea=
+ l)<br>
+ &gt; &gt; &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (Float-Complex * -&gt; Nonneg=
+ ative-Flonum)<br>
+ &gt; &gt; &gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (Number * -&gt; Nonnegative-R=
+ eal)))<br>
+ &gt; &gt; &gt; (define (euclidean-distance . lst)<br>
+ &gt; &gt; &gt; =C2=A0 (sqrt (apply + (map sqr (map magnitude lst)))))<br>
+ &gt; &gt;<br>
+ &gt; &gt; I fixed `magnitude&#39;&#39;s type, but this example can&#39;t ty=
+ pecheck for another<br>
+ &gt; &gt; reason. `euclidean-distance&#39; accepts empty lists, which means=
+  that `+&#39;<br>
+ &gt; &gt; can end up being applied to 0 arguments, in which case it returns=
+  `0&#39;,<br>
+ &gt; &gt; which is not a valid return value for the float clauses in<br>
+ &gt; &gt; `euclidean-distance&#39;&#39;s type.<br>
+ &gt; &gt;<br>
+ &gt; &gt; Vincent<br>
+ &gt; &gt;<br>
+ </div></div>&gt; [2 =C2=A0&lt;text/html; UTF-8 (quoted-printable)&gt;]<br>
+ &gt;<br>
+ </blockquote></div><br></div></div>
+ 
+ --e89a8f923da23cee5b04d5b8f71a--
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Vincent St-Amour <stamourv@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13468: TR: missing numeric function type cases
+Date: Thu, 14 Feb 2013 18:22:10 -0700
+
+ Thanks for the fixes and explanations. :)
+ 
+ Neil ⊥
+ 
+ On 02/14/2013 04:11 PM, Vincent St-Amour wrote:
+ > I've fixed all of those that were valid, and will push soon.
+ >
+ > Some of your examples can't work, though.
+ >
+ > At Tue, 29 Jan 2013 15:08:02 -0500,
+ > neil.toronto@gmail.com wrote:
+ >> ;; Analogous to the (Exact-Rational -> Flonum) case:
+ >> (ann (exact->inexact (ann 0+4i Exact-Number)) Float-Complex)
+ >> ;; Not serious because `math/base' exports `number->float-complex', which
+ >> ;; behaves better anyway
+ >
+ > `Exact-Number' includes `Exact-Rational', but `Float-Complex' doesn't
+ > include `Flonum', so this can't work.
+ >
+ >
+ >> ;; The rest of these missing cases would be nice to have when writing macros
+ >> ;; and functions with large `case->' types. For example, because of the missing
+ >> ;; `magnitude' cases, it's harder to write this function:
+ >>
+ >> (: euclidean-distance (case-> (Flonum * -> Nonnegative-Flonum)
+ >>                                (Real * -> Nonnegative-Real)
+ >>                                (Float-Complex * -> Nonnegative-Flonum)
+ >>                                (Number * -> Nonnegative-Real)))
+ >> (define (euclidean-distance . lst)
+ >>    (sqrt (apply + (map sqr (map magnitude lst)))))
+ >
+ > I fixed `magnitude''s type, but this example can't typecheck for another
+ > reason. `euclidean-distance' accepts empty lists, which means that `+'
+ > can end up being applied to 0 arguments, in which case it returns `0',
+ > which is not a valid return value for the float clauses in
+ > `euclidean-distance''s type.
+ >
+ > Vincent
+ >
+ 

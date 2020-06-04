@@ -1,0 +1,1129 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Nov 14 04:34:52 2008
+Received: from rn-out-0910.google.com (rn-out-0910.google.com [64.233.170.187])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id mAE9YiVY018884
+	for <bugs@bugs.plt-scheme.org>; Fri, 14 Nov 2008 04:34:44 -0500
+Message-Id: <200811140934.mAE9YXUg018872@champlain.ccs.neu.edu>
+Date: Fri, 14 Nov 2008 04:34:33 -0500
+From: gmarceau@gmail.com
+To: bugs@plt-scheme.org
+Subject: EQUAL? on scenes is slow, impairs good testing
+
+>Number:         9910
+>Category:       htdp
+>Synopsis:       EQUAL? on scenes is slow, impairs good testing
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Nov 14 04:36:01 -0500 2008
+>Closed-Date:    
+>Last-Modified:  Sat Aug 01 11:33:51 -0400 2009
+>Originator:     Guillaume Marceau
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.1
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 124964220
+
+Collections:
+(("C:\\Documents and Settings\\Admin\\Application Data\\PLT Scheme\\4.1.1\\collects" "installed-teachpacks") ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced Student") (#(#t constructor repeating-decimal #t #t none) #f ((lib "world.ss" "teachpack" "htdp") (lib "image.ss" "teachpack" "htdp"))))
+>Description:
+My students are complaining that their program are taking too long time to start. At first, I though the syntax manipulation done by CHECK-EXPECT might be buggy, but after a little exploration, I found that the culprit is EQUALS? on images:
+
+  (time (equal? (empty-scene 500 500) (empty-scene 500 500)))
+  cpu time: 7953 real time: 8000 gc time: 1125
+
+  (time (equal?  (empty-scene 1000 1000) (empty-scene 1000 1000))))
+  cpu time: 29750 real time: 29938 gc time: 2954
+
+  (time (equal? (rectangle 500 500 'solid 'red) (rectangle 500 500 'solid 'red)))
+  cpu time: 3485 real time: 3485 gc time: 63
+
+I am following the exercise sequence of Stephen Bloch's book, which consists almost entirely of image-base programs. That combined with the good testing habit of my students, I find that my students' programs have a start up delays of 10 to 30 seconds which is tributable to EQUAL? on images.
+
+I am running DrScheme on a Windows Laptop, Leonovo R60, at 1.6 ghz with 1.5 gigs of ram. My students have similar machines, usually with 512 megs of ram.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: "Robby Findler" <robby@plt-scheme.org>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>, gmarceau@gmail.com,
+        bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 14 Nov 2008 13:51:49 -0600
+
+ I noticed a few things about this (beyodn the fact that my windows
+ computer is much slower than yours :).
+ 
+ This is the workhorse function for image equality:
+ 
+   (define (same/alpha? v1 v2)
+     (let loop ([i (vector-length v1)])
+       (or (zero? i)
+           (let ([a1 (vector-ref v1 (- i 4))]
+                 [a2 (vector-ref v2 (- i 4))])
+             (and (or (= a1 a2 255)
+                      (and (= a1 a2)
+                           (= (vector-ref v1 (- i 3)) (vector-ref v2 (- i 3)))
+                           (= (vector-ref v1 (- i 2)) (vector-ref v2 (- i 2)))
+                           (= (vector-ref v1 (- i 1)) (vector-ref v2 (- i 1)))))
+                  (loop (- i 4)))))))
+ 
+ But it looks wrong. Shouldn't it be multiplying the alphas by the
+ other colors before comparing?
+ 
+ But anyways, all of the time is spent in constructing the image
+ (that's why scene's take 2x rectangles -- a scene is an overlay of two
+ images, and there is significant work for that).
+ 
+ #lang scheme/gui
+ (require htdp/world
+          lang/imageeq)
+ 
+ (define s1 (empty-scene 300 300))
+ (define s2 (empty-scene 300 300))
+ 
+  ;; comment out this line to see times move around
+  ;; the result of get-argb is cached so
+  ;; the calls inside image=? won't take time if they are done here.
+ (time (void (send s1 get-argb))) (time (void (send s2 get-argb)))
+ 
+ (time (image=? s1 s2))
+ 
+ So I'm not sure how we can fix this without involving the platform or
+ porting some of this code to C. The expensive thing is the precise
+ alpha-based computation.
+ 
+ Would it work right to draw the two images to bitmaps and then get
+ byte strings for the images, and then compare them (probably doing it
+ twice with two different colored backgrounds)?
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Robby Findler" <robby@plt-scheme.org>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>, gmarceau@gmail.com,
+        bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 14 Nov 2008 14:09:39 -0700
+
+ At Fri, 14 Nov 2008 13:51:49 -0600, "Robby Findler" wrote:
+ > I noticed a few things about this (beyodn the fact that my windows
+ > computer is much slower than yours :).
+ > 
+ > This is the workhorse function for image equality:
+ > 
+ >   (define (same/alpha? v1 v2)
+ >     (let loop ([i (vector-length v1)])
+ >       (or (zero? i)
+ >           (let ([a1 (vector-ref v1 (- i 4))]
+ >                 [a2 (vector-ref v2 (- i 4))])
+ >             (and (or (= a1 a2 255)
+ >                      (and (= a1 a2)
+ >                           (= (vector-ref v1 (- i 3)) (vector-ref v2 (- i 3)))
+ >                           (= (vector-ref v1 (- i 2)) (vector-ref v2 (- i 2)))
+ >                           (= (vector-ref v1 (- i 1)) (vector-ref v2 (- i 1)))))
+ >                  (loop (- i 4)))))))
+ > 
+ > But it looks wrong. Shouldn't it be multiplying the alphas by the
+ > other colors before comparing?
+ 
+ I imagine the intent was to determine whether the two pictures would
+ draw the same in any context --- which means the same alphas as well as
+ the same colors, right?
+ 
+ > So I'm not sure how we can fix this without involving the platform or
+ > porting some of this code to C. The expensive thing is the precise
+ > alpha-based computation.
+ 
+ I think the only solution is to change the model of images for the
+ successor library? That is, I don't think you'll get much speed from
+ trying to make the current model run faster.
+ 
+ > Would it work right to draw the two images to bitmaps and then get
+ > byte strings for the images, and then compare them (probably doing it
+ > twice with two different colored backgrounds)?
+ 
+ That would be an approximation with respect to the current model of
+ images, right? I think it might be too weak of an approximation.
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: "Robby Findler" <robby@plt-scheme.org>, gmarceau@gmail.com,
+        bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 14 Nov 2008 16:15:50 -0500
+
+ 1. I think the problem isn't real, and I have shared my thoughts with  
+ Guillaume. (It's basically a teachable moment.)
+ 
+ 2. I wouldn't tackle this problem until we have turned image.ss into  
+ pict.ss
+ 
+ -- Matthias
+ 
+ 
+ 
+ On Nov 14, 2008, at 4:09 PM, Matthew Flatt wrote:
+ 
+ > At Fri, 14 Nov 2008 13:51:49 -0600, "Robby Findler" wrote:
+ >> I noticed a few things about this (beyodn the fact that my windows
+ >> computer is much slower than yours :).
+ >>
+ >> This is the workhorse function for image equality:
+ >>
+ >>   (define (same/alpha? v1 v2)
+ >>     (let loop ([i (vector-length v1)])
+ >>       (or (zero? i)
+ >>           (let ([a1 (vector-ref v1 (- i 4))]
+ >>                 [a2 (vector-ref v2 (- i 4))])
+ >>             (and (or (= a1 a2 255)
+ >>                      (and (= a1 a2)
+ >>                           (= (vector-ref v1 (- i 3)) (vector-ref  
+ >> v2 (- i 3)))
+ >>                           (= (vector-ref v1 (- i 2)) (vector-ref  
+ >> v2 (- i 2)))
+ >>                           (= (vector-ref v1 (- i 1)) (vector-ref  
+ >> v2 (- i 1)))))
+ >>                  (loop (- i 4)))))))
+ >>
+ >> But it looks wrong. Shouldn't it be multiplying the alphas by the
+ >> other colors before comparing?
+ >
+ > I imagine the intent was to determine whether the two pictures would
+ > draw the same in any context --- which means the same alphas as  
+ > well as
+ > the same colors, right?
+ >
+ >> So I'm not sure how we can fix this without involving the platform or
+ >> porting some of this code to C. The expensive thing is the precise
+ >> alpha-based computation.
+ >
+ > I think the only solution is to change the model of images for the
+ > successor library? That is, I don't think you'll get much speed from
+ > trying to make the current model run faster.
+ >
+ >> Would it work right to draw the two images to bitmaps and then get
+ >> byte strings for the images, and then compare them (probably doing it
+ >> twice with two different colored backgrounds)?
+ >
+ > That would be an approximation with respect to the current model of
+ > images, right? I think it might be too weak of an approximation.
+ >
+ 
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Matthias Felleisen" <matthias@ccs.neu.edu>
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>, gmarceau@gmail.com,
+        bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 14 Nov 2008 16:22:37 -0600
+
+ Yes, with pictures (as we discussed earlier) this problem goes away, I believe.
+ 
+ Thanks,
+ Robby
+ 
+ On Fri, Nov 14, 2008 at 3:15 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > 1. I think the problem isn't real, and I have shared my thoughts with
+ > Guillaume. (It's basically a teachable moment.)
+ >
+ > 2. I wouldn't tackle this problem until we have turned image.ss into pict.ss
+ >
+ > -- Matthias
+ >
+ >
+ >
+ > On Nov 14, 2008, at 4:09 PM, Matthew Flatt wrote:
+ >
+ >> At Fri, 14 Nov 2008 13:51:49 -0600, "Robby Findler" wrote:
+ >>>
+ >>> I noticed a few things about this (beyodn the fact that my windows
+ >>> computer is much slower than yours :).
+ >>>
+ >>> This is the workhorse function for image equality:
+ >>>
+ >>>  (define (same/alpha? v1 v2)
+ >>>    (let loop ([i (vector-length v1)])
+ >>>      (or (zero? i)
+ >>>          (let ([a1 (vector-ref v1 (- i 4))]
+ >>>                [a2 (vector-ref v2 (- i 4))])
+ >>>            (and (or (= a1 a2 255)
+ >>>                     (and (= a1 a2)
+ >>>                          (= (vector-ref v1 (- i 3)) (vector-ref v2 (- i
+ >>> 3)))
+ >>>                          (= (vector-ref v1 (- i 2)) (vector-ref v2 (- i
+ >>> 2)))
+ >>>                          (= (vector-ref v1 (- i 1)) (vector-ref v2 (- i
+ >>> 1)))))
+ >>>                 (loop (- i 4)))))))
+ >>>
+ >>> But it looks wrong. Shouldn't it be multiplying the alphas by the
+ >>> other colors before comparing?
+ >>
+ >> I imagine the intent was to determine whether the two pictures would
+ >> draw the same in any context --- which means the same alphas as well as
+ >> the same colors, right?
+ >>
+ >>> So I'm not sure how we can fix this without involving the platform or
+ >>> porting some of this code to C. The expensive thing is the precise
+ >>> alpha-based computation.
+ >>
+ >> I think the only solution is to change the model of images for the
+ >> successor library? That is, I don't think you'll get much speed from
+ >> trying to make the current model run faster.
+ >>
+ >>> Would it work right to draw the two images to bitmaps and then get
+ >>> byte strings for the images, and then compare them (probably doing it
+ >>> twice with two different colored backgrounds)?
+ >>
+ >> That would be an approximation with respect to the current model of
+ >> images, right? I think it might be too weak of an approximation.
+ >>
+ >
+ >
+From: "Guillaume Marceau" <gmarceau@gmail.com>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Thu, 20 Nov 2008 17:00:25 +0530
+
+ ------=_Part_87611_3102906.1227180625164
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ I did a little detective work. The slowdown indeed happens during the
+ construction of a geometric figure in the module image.ss.
+ 
+ Evaluating
+ 
+ (equal? (empty-scene 400 400) (empty-scene 400 400))
+ 
+ takes 5.6 seconds on my machines. Of these, 4.9 seconds can be attributed to
+ the call to overlay-bitmap inside make-simple-cache-image-snip.
+ 
+ When I disable that section of the code (see below), the performance jumps
+ 10-fold. The odd thing is, I cannot see which functionality I am losing.
+ These six lines of code clearly implement some aspect of the alpha-blending
+ provided by image.ss, however, none of my student's program which uses
+ semi-transparent images seem to be affected when I remove the lines.
+ 
+ (define (make-simple-cache-image-snip w h px py dc-proc mask-proc)
+   (let ([w (inexact->exact (ceiling w))]
+         [h (inexact->exact (ceiling h))])
+     (let ([argb-proc
+            void
+            #|
+            (if (or (zero? w) (zero? h))
+                void
+                (lambda (argb-vector dx dy)
+                  (let ([c-bm (build-bitmap (lambda (dc) (dc-proc dc 0 0)) w
+ h)]
+                        [m-bm (build-bitmap (lambda (dc) (mask-proc dc 0 0))
+ w h)])
+                    (overlay-bitmap argb-vector dx dy c-bm m-bm))))
+            |#
+            ])
+       (new cache-image-snip%
+            [dc-proc dc-proc]
+            [argb-proc argb-proc]
+            [width w]
+            [height h]
+            [px px]
+            [py py]))))
+ 
+ I looks to me that it would only require a small modification to
+ make-simple-cache-image-snip
+ to implement a fast-path that would boost the performance of the library for
+ almost all users.
+ 
+ ------=_Part_87611_3102906.1227180625164
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ <span style="font-family: arial,helvetica,sans-serif;">I did a little detective work. The slowdown indeed happens during the construction of a geometric figure in the module image.ss.&nbsp; <br><br>Evaluating<br>&nbsp;<br></span><div style="margin-left: 40px; font-family: arial,helvetica,sans-serif;">
+ <span style="font-family: courier new,monospace;">(equal? (empty-scene 400 400) (empty-scene 400 400))</span><br><br></div>takes 5.6 seconds on my machines. Of these, 4.9 seconds can be attributed to the call to <span style="font-family: courier new,monospace;">overlay-bitmap</span> inside <span style="font-family: courier new,monospace;">make-simple-cache-image-snip.<br>
+ <br><span style="font-family: arial,helvetica,sans-serif;">When I disable that section of the code (see below), the performance jumps 10-fold. The odd thing is, I cannot see which functionality I am losing. These six lines of code clearly implement some aspect of the alpha-blending provided by image.ss, however, none of my student&#39;s program which uses semi-transparent images seem to be affected when I remove the lines.</span><br>
+ </span><div style="margin-left: 40px;"><span style="font-family: courier new,monospace;"></span></div><span style="font-family: courier new,monospace;"></span><div style="margin-left: 40px;"><span style="font-family: courier new,monospace;"><br>
+ (define (make-simple-cache-image-snip w h px py dc-proc mask-proc)</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp; (let ([w (inexact-&gt;exact (ceiling w))]</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [h (inexact-&gt;exact (ceiling h))])</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp; (let ([argb-proc </span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; void</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; #|</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (if (or (zero? w) (zero? h))</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; void</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (lambda (argb-vector dx dy)</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (let ([c-bm (build-bitmap (lambda (dc) (dc-proc dc 0 0)) w h)]</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [m-bm (build-bitmap (lambda (dc) (mask-proc dc 0 0)) w h)])</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (overlay-bitmap argb-vector dx dy c-bm m-bm))))</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |#</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ])</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (new cache-image-snip%</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [dc-proc dc-proc]</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [argb-proc argb-proc]</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [width w]</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [height h]</span><br style="font-family: courier new,monospace;"><span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [px px]</span><br style="font-family: courier new,monospace;">
+ <span style="font-family: courier new,monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [py py]))))</span><br style="font-family: courier new,monospace;"></div><br>I looks to me that it would only require a small modification to <span style="font-family: courier new,monospace;">make-simple-cache-image-snip <font face="arial,helvetica,sans-serif">to implement a fast-path that would boost the performance of the library for almost all users.<br>
+ <br><br></font></span>
+ 
+ ------=_Part_87611_3102906.1227180625164--
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Guillaume Marceau" <gmarceau@gmail.com>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Thu, 20 Nov 2008 07:12:57 -0600
+
+ After commenting out that code related to equal?, did you actually
+ test equal? or just drawing? (Note that drawing is already optimized
+ to avoid that computation.)
+ 
+ Robby
+ 
+ On Thu, Nov 20, 2008 at 5:30 AM, Guillaume Marceau <gmarceau@gmail.com> wrote:
+ > I did a little detective work. The slowdown indeed happens during the
+ > construction of a geometric figure in the module image.ss.
+ >
+ > Evaluating
+ >
+ > (equal? (empty-scene 400 400) (empty-scene 400 400))
+ >
+ > takes 5.6 seconds on my machines. Of these, 4.9 seconds can be attributed to
+ > the call to overlay-bitmap inside make-simple-cache-image-snip.
+ >
+ > When I disable that section of the code (see below), the performance jumps
+ > 10-fold. The odd thing is, I cannot see which functionality I am losing.
+ > These six lines of code clearly implement some aspect of the alpha-blending
+ > provided by image.ss, however, none of my student's program which uses
+ > semi-transparent images seem to be affected when I remove the lines.
+ >
+ > (define (make-simple-cache-image-snip w h px py dc-proc mask-proc)
+ >   (let ([w (inexact->exact (ceiling w))]
+ >         [h (inexact->exact (ceiling h))])
+ >     (let ([argb-proc
+ >            void
+ >            #|
+ >            (if (or (zero? w) (zero? h))
+ >                void
+ >                (lambda (argb-vector dx dy)
+ >                  (let ([c-bm (build-bitmap (lambda (dc) (dc-proc dc 0 0)) w
+ > h)]
+ >                        [m-bm (build-bitmap (lambda (dc) (mask-proc dc 0 0))
+ > w h)])
+ >                    (overlay-bitmap argb-vector dx dy c-bm m-bm))))
+ >            |#
+ >            ])
+ >       (new cache-image-snip%
+ >            [dc-proc dc-proc]
+ >            [argb-proc argb-proc]
+ >            [width w]
+ >            [height h]
+ >            [px px]
+ >            [py py]))))
+ >
+ > I looks to me that it would only require a small modification to
+ > make-simple-cache-image-snip to implement a fast-path that would boost the
+ > performance of the library for almost all users.
+ >
+ >
+ >
+From: "Guillaume Marceau" <gmarceau@gmail.com>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 14:41:34 +0530
+
+ ------=_Part_98262_29517286.1227258694134
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ On Thu, Nov 20, 2008 at 6:42 PM, Robby Findler <robby@cs.uchicago.edu>wrote:
+ 
+ > After commenting out that code related to equal?, did you actually
+ > test equal? or just drawing? (Note that drawing is already optimized
+ > to avoid that computation.)
+ >
+ 
+ Oh, I see. That code is there so that EQUAL? may take transparency into
+ account. That makes sense.
+ 
+ I did some more benchmarking. The bottleneck is the two calls to
+ GET-ARGB-PIXELS in OVERLAY-BITMAP. They consume about 85% the time taken by
+ EQUAL?. I'll try to think of a way of doing the equal check without paying
+ for the two GET-ARGB-PIXELS calls.
+ 
+ In the mean time, I have implemented a subclass of CACHE-IMAGE-SNIP which
+ maintains a sort of scene graph. It is a tree of the drawing commands that
+ were used to create the image. Equality then checks if content of two scene
+ graphs are EQUAL?, using EQ? when it encounters a CACHE-IMAGE-SNIPs . If
+ that fast-path check fails, it reverts to the usual (slow) IMAGE=?.
+ 
+ (require (prefix-in image: lang/imageeq)))
+ 
+ (define (image=? a b)
+   (or (and (image/scene? a)
+            (image/scene? b)
+            (scene==? (get-field scene a) (get-field scene b)))
+       (image:image=? a b)))
+ 
+ (define-struct scene-app (fn args))
+ 
+ (define (scene==? a b)
+   (and (symbol=? (scene-app-fn a) (scene-app-fn b))
+        (andmap arg==?
+                (scene-app-args a) (scene-app-args b))))
+ 
+ (define (arg==? a b)
+   (if (or (is-a? a snip%) (is-a? b snip%))
+       (eq? a b)
+       (equal? a b)))
+ 
+ I then wrap all the functions from image.ss which produces an image so that
+ they update the scene as they go along.
+ 
+ (define-syntax (wrap stx)
+   (syntax-case stx ()
+     [(_ src dst)
+      #'(begin
+          (provide src)
+          (define (src . args)
+            (snip->scene-snip (apply dst args)
+                              (make-scene-app 'src (map maybe-get-scene
+ args)))))]))
+ 
+ (define (maybe-get-scene v)
+   (if (image/scene? v)
+       (get-field scene v)
+       v))
+ 
+ (wrap overlay image:overlay)
+ (wrap overlay/xy image:overlay/xy)
+ ...
+ 
+ With this implementation of images, the time required to run one of my
+ student's program goes from 1 minute 30 seconds down to 3 seconds.
+ 
+ If you are interested, I will clean up my code a bit and submit it as a
+ patch.
+ 
+ ------=_Part_98262_29517286.1227258694134
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ <br><br><div class="gmail_quote">On Thu, Nov 20, 2008 at 6:42 PM, Robby Findler <span dir="ltr">&lt;<a href="mailto:robby@cs.uchicago.edu" target="_blank">robby@cs.uchicago.edu</a>&gt;</span> wrote:<br><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">
+ 
+ After commenting out that code related to equal?, did you actually<br>
+ test equal? or just drawing? (Note that drawing is already optimized<br>
+ to avoid that computation.)<br>
+ <font color="#888888"></font></blockquote><div><br>Oh, I see. That code is there so that EQUAL? may take transparency into account. That makes sense.<br><br>I did some more benchmarking. The bottleneck is the two calls to GET-ARGB-PIXELS in OVERLAY-BITMAP. They consume about 85% the time taken by EQUAL?. I&#39;ll try to think of a way of doing the equal check without paying for the two GET-ARGB-PIXELS calls. <br>
+ 
+ <br>In the mean time, I have implemented a subclass of CACHE-IMAGE-SNIP which maintains a sort of scene graph. It is a tree of the drawing commands that were used to create the image. Equality then checks if content of two scene graphs are EQUAL?, using EQ? when it encounters a CACHE-IMAGE-SNIPs . If that fast-path check fails, it reverts to the usual (slow) IMAGE=?. <br>
+ 
+ <br><div style="margin-left: 40px; font-family: courier new,monospace;">(require (prefix-in image: lang/imageeq)))<br><br>(define (image=? a b)<br>&nbsp; (or (and (image/scene? a)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (image/scene? b)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (scene==? (get-field scene a) (get-field scene b)))<br>
+ 
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (image:image=? a b)))<br></div><br><div style="margin-left: 40px; font-family: courier new,monospace;">(define-struct scene-app (fn args))<br><br>(define (scene==? a b)<br>&nbsp; (and (symbol=? (scene-app-fn a) (scene-app-fn b))<br>
+ 
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (andmap arg==?<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (scene-app-args a) (scene-app-args b))))<br><br>(define (arg==? a b)<br>&nbsp; (if (or (is-a? a snip%) (is-a? b snip%))<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (eq? a b)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (equal? a b)))<br><br></div><div style="font-family: courier new,monospace;">
+ 
+ <font style="font-family: arial,helvetica,sans-serif;" face="arial,helvetica,sans-serif">I then wrap all the functions from image</font><span style="font-family: arial,helvetica,sans-serif;">.ss which produces an image so that they update the scene as they go along.</span><br>
+ 
+ </div><div style="margin-left: 40px; font-family: courier new,monospace;">&nbsp; <br>(define-syntax (wrap stx)<br>&nbsp; (syntax-case stx ()<br>&nbsp;&nbsp;&nbsp; [(_ src dst)<br>&nbsp;&nbsp;&nbsp;&nbsp; #&#39;(begin<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (provide src)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (define (src . args)<br>
+ 
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (snip-&gt;scene-snip (apply dst args)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (make-scene-app &#39;src (map maybe-get-scene args)))))]))<br><br>(define (maybe-get-scene v)<br>&nbsp; (if (image/scene? v)<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (get-field scene v)<br>
+ 
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; v))<br><br>(wrap overlay image:overlay)<br>(wrap overlay/xy image:overlay/xy)<br>...<br></div><div style="font-family: courier new,monospace;"><br></div>With this implementation of images, the time required to run one of my student&#39;s program goes from 1 minute 30 seconds down to 3 seconds.<br>
+ <br>If you are interested, I will clean up my code a bit and submit it as a patch.<br>
+ <br></div></div>
+ 
+ ------=_Part_98262_29517286.1227258694134--
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Guillaume Marceau" <gmarceau@gmail.com>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 07:42:10 -0600
+
+ When I find time I'm planning to rework the image library so that its
+ "semantics" is not based on bitmap comparison, but is based on
+ something like that kind of a tree comparison. But perhaps something
+ like that is the right thing in the meantime.
+ 
+ Thanks for the offer of help!
+ 
+ If you are interested in doing this properly (which would have to be
+ done before it goes into a release), pls. make sure that copy and
+ paste (and saving files) preserves this information and please update
+ the test suite with relevant tests. (I recommend exporting a 'does
+ this have the same structure' method (or similar, whatever works best
+ for the code) and then querying that method directly in the test
+ suite.) The current test suite is in
+ plt/collects/tests/mzscheme/htdp-image.ss.
+ 
+ Robby
+ 
+ On 11/21/08, Guillaume Marceau <gmarceau@gmail.com> wrote:
+ > On Thu, Nov 20, 2008 at 6:42 PM, Robby Findler <robby@cs.uchicago.edu>wrote:
+ >
+ >> After commenting out that code related to equal?, did you actually
+ >> test equal? or just drawing? (Note that drawing is already optimized
+ >> to avoid that computation.)
+ >>
+ >
+ > Oh, I see. That code is there so that EQUAL? may take transparency into
+ > account. That makes sense.
+ >
+ > I did some more benchmarking. The bottleneck is the two calls to
+ > GET-ARGB-PIXELS in OVERLAY-BITMAP. They consume about 85% the time taken by
+ > EQUAL?. I'll try to think of a way of doing the equal check without paying
+ > for the two GET-ARGB-PIXELS calls.
+ >
+ > In the mean time, I have implemented a subclass of CACHE-IMAGE-SNIP which
+ > maintains a sort of scene graph. It is a tree of the drawing commands that
+ > were used to create the image. Equality then checks if content of two scene
+ > graphs are EQUAL?, using EQ? when it encounters a CACHE-IMAGE-SNIPs . If
+ > that fast-path check fails, it reverts to the usual (slow) IMAGE=?.
+ >
+ > (require (prefix-in image: lang/imageeq)))
+ >
+ > (define (image=? a b)
+ >   (or (and (image/scene? a)
+ >            (image/scene? b)
+ >            (scene==? (get-field scene a) (get-field scene b)))
+ >       (image:image=? a b)))
+ >
+ > (define-struct scene-app (fn args))
+ >
+ > (define (scene==? a b)
+ >   (and (symbol=? (scene-app-fn a) (scene-app-fn b))
+ >        (andmap arg==?
+ >                (scene-app-args a) (scene-app-args b))))
+ >
+ > (define (arg==? a b)
+ >   (if (or (is-a? a snip%) (is-a? b snip%))
+ >       (eq? a b)
+ >       (equal? a b)))
+ >
+ > I then wrap all the functions from image.ss which produces an image so that
+ > they update the scene as they go along.
+ >
+ > (define-syntax (wrap stx)
+ >   (syntax-case stx ()
+ >     [(_ src dst)
+ >      #'(begin
+ >          (provide src)
+ >          (define (src . args)
+ >            (snip->scene-snip (apply dst args)
+ >                              (make-scene-app 'src (map maybe-get-scene
+ > args)))))]))
+ >
+ > (define (maybe-get-scene v)
+ >   (if (image/scene? v)
+ >       (get-field scene v)
+ >       v))
+ >
+ > (wrap overlay image:overlay)
+ > (wrap overlay/xy image:overlay/xy)
+ > ...
+ >
+ > With this implementation of images, the time required to run one of my
+ > student's program goes from 1 minute 30 seconds down to 3 seconds.
+ >
+ > If you are interested, I will clean up my code a bit and submit it as a
+ > patch.
+ >
+From: "Guillaume Marceau" <gmarceau@gmail.com>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 19:29:32 +0530
+
+ ------=_Part_100297_19014148.1227275972460
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ On Fri, Nov 21, 2008 at 7:12 PM, Robby Findler <robby@cs.uchicago.edu>wrote:
+ 
+ > When I find time I'm planning to rework the image library so that its
+ > "semantics" is not based on bitmap comparison, but is based on
+ > something like that kind of a tree comparison.
+ 
+ 
+ I think the bitmap comparison has to be there somewhere. Otherwise a
+ screensaver application that keeps adding random dots on the screen will
+ grow an infinitely large tree and crash. I'll add a maximum size to my scene
+ graphs to avoid this.
+ 
+ 
+ >
+ > If you are interested in doing this properly (which would have to be
+ > done before it goes into a release),
+ 
+ 
+ Is there a scheduled data for the next release?
+ 
+ 
+ 
+ > pls. make sure that copy and
+ > paste (and saving files) preserves this information and please update
+ 
+ 
+ I read through the snip-class documentation and I think I understand how
+ it's supposed to work. What is the best practice for maintaining backward
+ compatibility and forward compatibility with the other versions of DrScheme?
+ Is there a way to make the new image-with-scene compatible with older
+ DrScheme's. Is there a way to indicate to old DrScheme's that they can throw
+ away the scene graph?
+ 
+ 
+ 
+ > the test suite with relevant tests. (I recommend exporting a 'does
+ > this have the same structure' method (or similar, whatever works best
+ > for the code) and then querying that method directly in the test
+ > suite.) The current test suite is in
+ > plt/collects/tests/mzscheme/htdp-image.ss.
+ 
+ 
+ Will do.
+ 
+ ------=_Part_100297_19014148.1227275972460
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ <br><br><div class="gmail_quote">On Fri, Nov 21, 2008 at 7:12 PM, Robby Findler <span dir="ltr">&lt;<a href="mailto:robby@cs.uchicago.edu">robby@cs.uchicago.edu</a>&gt;</span> wrote:<br><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">
+ When I find time I&#39;m planning to rework the image library so that its<br>
+ &quot;semantics&quot; is not based on bitmap comparison, but is based on<br>
+ something like that kind of a tree comparison. </blockquote><div><br>I think the bitmap comparison has to be there somewhere. Otherwise a screensaver application that keeps adding random dots on the screen will grow an infinitely large tree and crash. I&#39;ll add a maximum size to my scene graphs to avoid this.<br>
+ &nbsp;</div><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;"><br>
+ If you are interested in doing this properly (which would have to be<br>
+ done before it goes into a release), </blockquote><div><br>Is there a scheduled data for the next release?<br><br>&nbsp;</div><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">
+ pls. make sure that copy and<br>
+ paste (and saving files) preserves this information and please update</blockquote><div><br>I read through the snip-class documentation and I think I understand how it&#39;s supposed to work. What is the best practice for maintaining backward compatibility and forward compatibility with the other versions of DrScheme? Is there a way to make the new image-with-scene compatible with older DrScheme&#39;s. Is there a way to indicate to old DrScheme&#39;s that they can throw away the scene graph?<br>
+ &nbsp;<br><br></div><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;"><br>
+ the test suite with relevant tests. (I recommend exporting a &#39;does<br>
+ this have the same structure&#39; method (or similar, whatever works best<br>
+ for the code) and then querying that method directly in the test<br>
+ suite.) The current test suite is in<br>
+ plt/collects/tests/mzscheme/htdp-image.ss.</blockquote><div><br>Will do.<br><br></div></div><br>
+ 
+ ------=_Part_100297_19014148.1227275972460--
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Guillaume Marceau" <gmarceau@gmail.com>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 08:26:56 -0600
+
+ On Fri, Nov 21, 2008 at 7:59 AM, Guillaume Marceau <gmarceau@gmail.com> wrote:
+ >
+ >
+ > On Fri, Nov 21, 2008 at 7:12 PM, Robby Findler <robby@cs.uchicago.edu>
+ > wrote:
+ >>
+ >> When I find time I'm planning to rework the image library so that its
+ >> "semantics" is not based on bitmap comparison, but is based on
+ >> something like that kind of a tree comparison.
+ >
+ > I think the bitmap comparison has to be there somewhere. Otherwise a
+ > screensaver application that keeps adding random dots on the screen will
+ > grow an infinitely large tree and crash. I'll add a maximum size to my scene
+ > graphs to avoid this.
+ 
+ I think that's only true if you're naive about the implementation. In
+ other words, I think it should be possible to keep the space
+ requirements for the tree (in the worst, and extremely uncommon case)
+ to be bounded by some constant factor over the bitmap.
+ 
+ Also to note: the bitmap-based semantics of image comparison is going
+ to be different than the tree one. For example, the bitmap one is
+ platform-dependent. So we can't just fall back to bitmaps.
+ 
+ >> If you are interested in doing this properly (which would have to be
+ >> done before it goes into a release),
+ >
+ > Is there a scheduled data for the next release?
+ 
+ Yes, there is a release plan. Are you on plt-internal?
+ 
+ >> pls. make sure that copy and
+ >> paste (and saving files) preserves this information and please update
+ >
+ > I read through the snip-class documentation and I think I understand how
+ > it's supposed to work. What is the best practice for maintaining backward
+ > compatibility and forward compatibility with the other versions of DrScheme?
+ > Is there a way to make the new image-with-scene compatible with older
+ > DrScheme's. Is there a way to indicate to old DrScheme's that they can throw
+ > away the scene graph?
+ 
+ Best practice for now is to forget about making old versions able to
+ read in new version save files.
+ 
+ I think that you can register two snip readers, one with an old
+ version number that reads the old format and one with a new one that
+ reads the new one. (And old DrSchemes will only have the old one.)
+ 
+ Do feel free to ask questions about that stuff! That's definitely the
+ part of the job with the most complex interface. Matthew designed it,
+ I've used it a lot ... and maybe Matthias has, so we're the ones to
+ ask.
+ 
+ >> the test suite with relevant tests. (I recommend exporting a 'does
+ >> this have the same structure' method (or similar, whatever works best
+ >> for the code) and then querying that method directly in the test
+ >> suite.) The current test suite is in
+ >> plt/collects/tests/mzscheme/htdp-image.ss.
+ >
+ > Will do.
+ >
+ 
+ THANKS!
+ 
+ Robby
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: "Guillaume Marceau" <gmarceau@gmail.com>
+Cc: "Robby Findler" <robby@cs.uchicago.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 09:26:23 -0500
+
+ On Nov 21, 2008, at 8:59 AM, Guillaume Marceau wrote:
+ 
+ > Is there a scheduled data for the next release?
+ 
+ 
+ We are releasing on the 15th of every odd-numbered month, including  
+ leap years :-) 
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Matthias Felleisen" <matthias@ccs.neu.edu>
+Cc: "Guillaume Marceau" <gmarceau@gmail.com>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 08:27:30 -0600
+
+ But I would encourage you to release your changes on the 20th of an
+ odd numbered month. :)
+ 
+ On Fri, Nov 21, 2008 at 8:26 AM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > On Nov 21, 2008, at 8:59 AM, Guillaume Marceau wrote:
+ >
+ >> Is there a scheduled data for the next release?
+ >
+ >
+ > We are releasing on the 15th of every odd-numbered month, including leap
+ > years :-)
+ >
+From: "Guillaume Marceau" <gmarceau@gmail.com>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 21:30:06 +0530
+
+ ------=_Part_101378_1877279.1227283206671
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ On Fri, Nov 21, 2008 at 7:56 PM, Robby Findler <robby@cs.uchicago.edu>wrote:
+ 
+ 
+ > Yes, there is a release plan. Are you on plt-internal?
+ >
+ 
+ Nope, I am not. Yes, perhaps I should.
+ 
+ 
+ Best practice for now is to forget about making old versions able to
+ > read in new version save files.
+ >
+ 
+ ok
+ 
+ 
+ >
+ > I think that you can register two snip readers, one with an old
+ > version number that reads the old format and one with a new one that
+ > reads the new one. (And old DrSchemes will only have the old one.)
+ >
+ 
+ ok
+ 
+ 
+ >
+ > Do feel free to ask questions about that stuff! That's definitely the
+ > part of the job with the most complex interface. Matthew designed it,
+ > I've used it a lot ... and maybe Matthias has, so we're the ones to
+ > ask.
+ >
+ 
+ Most complex, eh? I beg to differ. The macrology involved in the
+ implementation of Beginner Scheme and of the Stepper is the source of
+ endless wonders for me. I think I can handle the marshaling API.
+ 
+ I'll keep you posted if come across any questions.
+ 
+ ------=_Part_101378_1877279.1227283206671
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline
+ 
+ <br><br><div class="gmail_quote">On Fri, Nov 21, 2008 at 7:56 PM, Robby Findler <span dir="ltr">&lt;<a href="mailto:robby@cs.uchicago.edu">robby@cs.uchicago.edu</a>&gt;</span> wrote:<br><br><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">
+ <div class="Ih2E3d"><br>
+ </div>Yes, there is a release plan. Are you on plt-internal?<br>
+ <div class="Ih2E3d"></div></blockquote><div><br>Nope, I am not. Yes, perhaps I should.<br><br><br></div><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;">
+ Best practice for now is to forget about making old versions able to<br>
+ read in new version save files.<br>
+ </blockquote><div><br>ok<br>&nbsp;</div><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;"><br>
+ I think that you can register two snip readers, one with an old<br>
+ version number that reads the old format and one with a new one that<br>
+ reads the new one. (And old DrSchemes will only have the old one.)<br>
+ </blockquote><div><br>ok<br>&nbsp;<br></div><blockquote class="gmail_quote" style="border-left: 1px solid rgb(204, 204, 204); margin: 0pt 0pt 0pt 0.8ex; padding-left: 1ex;"><br>
+ Do feel free to ask questions about that stuff! That&#39;s definitely the<br>
+ part of the job with the most complex interface. Matthew designed it,<br>
+ I&#39;ve used it a lot ... and maybe Matthias has, so we&#39;re the ones to<br>
+ ask.<br>
+ <div class="Ih2E3d"></div></blockquote><div><br>Most complex, eh? I beg to differ. The macrology involved in the implementation of Beginner Scheme and of the Stepper is the source of endless wonders for me. I think I can handle the marshaling API.<br>
+ <br>I&#39;ll keep you posted if come across any questions.<br><br><br>&nbsp;</div></div><br>
+ 
+ ------=_Part_101378_1877279.1227283206671--
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Guillaume Marceau" <gmarceau@gmail.com>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Fri, 21 Nov 2008 10:37:02 -0600
+
+ On Fri, Nov 21, 2008 at 10:00 AM, Guillaume Marceau <gmarceau@gmail.com> wrote:
+ >
+ >
+ > On Fri, Nov 21, 2008 at 7:56 PM, Robby Findler <robby@cs.uchicago.edu>
+ > wrote:
+ >
+ >>
+ >> Yes, there is a release plan. Are you on plt-internal?
+ >
+ > Nope, I am not. Yes, perhaps I should.
+ >
+ >
+ >> Best practice for now is to forget about making old versions able to
+ >> read in new version save files.
+ >
+ > ok
+ >
+ >>
+ >> I think that you can register two snip readers, one with an old
+ >> version number that reads the old format and one with a new one that
+ >> reads the new one. (And old DrSchemes will only have the old one.)
+ >
+ > ok
+ >
+ >>
+ >> Do feel free to ask questions about that stuff! That's definitely the
+ >> part of the job with the most complex interface. Matthew designed it,
+ >> I've used it a lot ... and maybe Matthias has, so we're the ones to
+ >> ask.
+ >
+ > Most complex, eh? I beg to differ. The macrology involved in the
+ > implementation of Beginner Scheme and of the Stepper is the source of
+ > endless wonders for me. I think I can handle the marshaling API.
+ >
+ > I'll keep you posted if come across any questions.
+ 
+ Oh, right. Perhaps I should say the highest ratio of complexity of the
+ interface to inherent complexity of the task :)
+ 
+ Robby
+From: "Guillaume Marceau" <gmarceau@gmail.com>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Thu, 18 Dec 2008 20:04:25 +0530
+
+ A short update on the image speed bug: I have the implementation
+ working and some of the test. I need to test some more.
+ 
+ Unfortunately I am in job limbo right now, and as a consequence access
+ to computers is difficult. I'll mail when I have a chance to work on
+ it some more.
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Guillaume Marceau" <gmarceau@gmail.com>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        "Shriram Krishnamurthi" <sk@cs.brown.edu>,
+        "Danny Yoo" <danny.yoo@gmail.com>
+Subject: Re: [plt-bug] all/9910: EQUAL? on scenes is slow, impairs good testing
+Date: Thu, 18 Dec 2008 08:48:07 -0600
+
+ Thanks for the update. I hope that your job limbo gets resolved well!
+ 
+ Robby
+ 
+ On Thu, Dec 18, 2008 at 8:34 AM, Guillaume Marceau <gmarceau@gmail.com> wrote:
+ > A short update on the image speed bug: I have the implementation
+ > working and some of the test. I need to test some more.
+ >
+ > Unfortunately I am in job limbo right now, and as a consequence access
+ > to computers is difficult. I'll mail when I have a chance to work on
+ > it some more.
+ >
+ >
+
+
+State changed from "open" to "suspended" by matthias at Mon, 16 Mar 2009 14:24:37 -0400
+Reason>>> guillaume worked on this but i dont think anything came of it
+
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] htdp/9910 EQUAL? on scenes is slow, impairs good 
+	testing
+Date: Tue, 17 Mar 2009 19:07:15 +0700
+
+ --001636e90dcb688edb04654f68b0
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: 7bit
+ 
+ On 3/17/09, matthias@plt-scheme.org <matthias@plt-scheme.org> wrote:
+ >
+ >
+ > State changed from "open" to "suspended" by matthias at Mon, 16 Mar 2009
+ > 14:24:37 -0400
+ > Reason>>> guillaume worked on this but i dont think anything came of it
+ 
+ 
+ Development is suspended until come back from my trip in Vietnam, some time
+ early Aprill.
+ 
+ --001636e90dcb688edb04654f68b0
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <br><br>
+ <div><span class=3D"gmail_quote">On 3/17/09, <b class=3D"gmail_sendername">=
+ <a href=3D"mailto:matthias@plt-scheme.org">matthias@plt-scheme.org</a></b> =
+ &lt;<a href=3D"mailto:matthias@plt-scheme.org">matthias@plt-scheme.org</a>&=
+ gt; wrote:</span>
+ <blockquote class=3D"gmail_quote" style=3D"PADDING-LEFT: 1ex; MARGIN: 0px 0=
+ px 0px 0.8ex; BORDER-LEFT: #ccc 1px solid"><br>State changed from &quot;ope=
+ n&quot; to &quot;suspended&quot; by matthias at Mon, 16 Mar 2009 14:24:37 -=
+ 0400<br>
+ Reason&gt;&gt;&gt; guillaume worked on this but i dont think anything came =
+ of it</blockquote>
+ <div>=A0</div>
+ <div>Development is suspended until come back from my trip in Vietnam, some=
+  time early Aprill.</div><br>=A0</div>
+ 
+ --001636e90dcb688edb04654f68b0--
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] htdp/9910 EQUAL? on scenes is slow, impairs good 
+	testing
+Date: Sat, 16 May 2009 01:43:48 -0400
+
+ I have committed code that fixes this bug to the repository. It is
+ saved as a branch at
+ 
+    http://svn.plt-scheme.org/plt/branches/gmarceau/fast-images-r14835
+ 
+ 
+ The code is tested (summarily) and documented in scribble (a bit).
+ 
+ The branch incorporates all the changes to the trunk, up to revision
+ 14835 (I was merging regularly).
+ 
+ There are a number of problems that were there before and that remain
+ there in the branch.:
+   - two tests that were failing are still failing
+   - there is an intermittent bug that blackens an image every so often
+   - copy-pasting throws away some alpha information
+   - copy-pasting large images is slow
+   - copy-pasting doesn't work between drscheme instances
+ 
+ 
+ Is there someone who wants to review the code before I commit it to
+ the trunk? The important changes are in
+       htdp/image.ss
+       mrlib/cache-image-snip.ss
+       mrlib/scriblings/cache-image-snip.scrbl
+ 
+ 
+ 
+ Guillaume
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Guillaume Marceau <gmarceau@gmail.com>
+Cc: "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] htdp/9910 EQUAL? on scenes is slow, impairs good 
+	testing
+Date: Sat, 16 May 2009 19:59:54 -0500
+
+ On Sat, May 16, 2009 at 7:54 PM, Guillaume Marceau <gmarceau@gmail.com> wrote:
+ > On Sat, May 16, 2009 at 9:31 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> On Sat, May 16, 2009 at 4:28 PM, Guillaume Marceau <gmarceau@gmail.com> wrote:
+ >>> On Sat, May 16, 2009 at 3:40 PM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>>
+ >>>> I wasn't quite sure how you are making sure that the absent-history
+ >>>> structs are always different from each other to make sure that this
+ >>>> test:
+ >>>
+ >>> That's the idea. The invariant is that one new absent-history replace
+ >>> one full-history that has gotten to high. So if two absent-history are
+ >>> EQ?, it means that they both stand for the same history.
+ >>
+ >> I noticed that raw images (say inserted into the editor) can also have
+ >> an absent history. Perhaps those should have some other struct then,
+ >> to avoid confusion?
+ >>
+ >
+ > That shouldn't happen. Raw images should be instances of
+ > cache-image-snip%, not of cache-image-snip/history%. That's how the
+ > distinction is kept between images that lost their history and images
+ > that never had one.
+ >
+ > Can you figure out how it happenned?
+ 
+ Raw images are not cache-image-snip%s, but image-snip%s. Just try
+ inserting an image into the drscheme window (and then overlay it with
+ a rectangle or something).
+ 
+ Robby
+
+State changed from "suspended" to "closed" by matthias at Sat, 01 Aug 2009 11:25:09 -0400
+Reason>>> image.ss will be replaced
+
+
+Responsible changed from "matthias" to "robby" by robby at Sat, 01 Aug 2009 11:33:51 -0400
+Reason>>> This is my PR.
+
+State changed from "closed" to "open" by robby at Sat, 01 Aug 2009 11:33:51 -0400
+Reason>>> not yet fixed.
+

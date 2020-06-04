@@ -1,0 +1,143 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Jan 29 14:04:40 2010
+Received: from mail-yx0-f171.google.com (mail-yx0-f171.google.com [209.85.210.171])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o0TJ4cf6005236
+	for <bugs@bugs.plt-scheme.org>; Fri, 29 Jan 2010 14:04:38 -0500
+Message-Id: <201001291904.o0TJ4KvW005224@champlain.ccs.neu.edu>
+Date: Fri, 29 Jan 2010 14:04:20 -0500
+From: d.j.gurnell@gmail.com
+To: bugs@plt-scheme.org
+Subject: date->string doesn't correctly pad the ~Y pattern to four digits
+
+>Number:         10725
+>Category:       misc
+>Synopsis:       date->string doesn't correctly pad the ~Y pattern to four digits
+>Class:          sw-bug
+>Responsible:    clements
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Jan 29 14:08:01 -0500 2010
+>Closed-Date:    Tue May 03 18:52:25 -0400 2011
+>Last-Modified:  Tue May 03 18:52:25 -0400 2011
+>Originator:     SRFI 19 - bug in date->string
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.4.1
+>Environment:
+macosx "Darwin Trillian.local 10.2.0 Darwin Kernel Version 10.2.0: Tue Nov  3 10:37:10 PST 2009; root:xnu-1486.2.11~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 174256932
+
+Collections:
+(("/Users/dave/Library/PLT Scheme/4.2.4.1/collects" non-existent-path) ("/usr/local/plt-4.2.4.0/collects" ".svn" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "reader" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed!
+ -scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+>Description:
+Hi all,
+
+One of the Untypers found a bug in SRFI 19. The ~Y formatter in date->string doesn't pad years up to 4 digits:
+
+  (date->string (string->date "01/02/0003" "~d/~m/~Y") "~d/~m/~Y")
+  ; ==> "01/02/03" instead of "01/02/0003"
+
+Patch and test case attached in "steps to reproduce". I'll send a bug report to the SRFI 19 maintainer at srfi.schemers.org as well.
+
+Many thanks,
+
+-- Dave
+>How-To-Repeat:
+Trillian:/usr/local/plt-4.2.4.0/collects$ svn diff
+Index: srfi/19/time.ss
+===================================================================
+--- srfi/19/time.ss	(revision 17769)
++++ srfi/19/time.ss	(working copy)
+@@ -1140,7 +1140,10 @@
+                                       2)
+                           port)))
+      (cons #\Y (lambda (date pad-with port)
+-                 (display (srfi:date-year date) port)))
++                 (display (tm:padding (srfi:date-year date)
++                                      pad-with
++                                      4)
++                          port)))
+      (cons #\z (lambda (date pad-with port)
+                  (tm:tz-printer (date-zone-offset date) port)))
+      (cons #\Z (lambda (date pad-with port)
+Index: tests/srfi/19/tests.ss
+===================================================================
+--- tests/srfi/19/tests.ss	(revision 17769)
++++ tests/srfi/19/tests.ss	(working copy)
+@@ -1,9 +1,10 @@
+ #lang scheme/base
+ 
+ ;; Tests by Will Fitzgerald, augmented by:
+-;;   John Clements                             -- 2004-08-16
+-;;   Dave Gurnell (string->date, date->string) -- 2007-09-14 
+-;;   Dave Gurnell (time{=,<,>,<=,>=}?)         -- 2009-11-26
++;;   John Clements                                -- 2004-08-16
++;;   Dave Gurnell (string->date, date->string)    -- 2007-09-14 
++;;   Dave Gurnell (time{=,<,>,<=,>=}?)            -- 2009-11-26
++;;   Dave Gurnell (years < 100 in date->string)   -- 2010-01-29
+ 
+ (require srfi/19/time)
+ 
+@@ -176,6 +177,10 @@
+       (check-equal? (string->date "12:00:00.000000123" "~H:~M:~S.~N") (srfi:make-date 123       0 0 12 #t #t #t cur-tz) "check 16")
+       (check-equal? (string->date "12:00:00.000000012" "~H:~M:~S.~N") (srfi:make-date 12        0 0 12 #t #t #t cur-tz) "check 17")
+       (check-equal? (string->date "12:00:00.000000001" "~H:~M:~S.~N") (srfi:make-date 1         0 0 12 #t #t #t cur-tz) "check 18"))
++
++    (test-case "[DJG] date->string : years before 100"
++      (check-equal? (date->string (string->date "01/02/03" "~d/~m/~Y") "~d/~m/~y") "01/02/03")
++      (check-equal? (date->string (string->date "01/02/03" "~d/~m/~Y") "~d/~m/~Y") "01/02/0003"))
+     
+     (test-case "date<->julian-day conversion"
+       (check = 365 (- (date->julian-day (srfi:make-date 0 0 0 0 1 1 2004 0))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "clements" by clements at Thu, 22 Apr 2010 02:27:35 -0400
+Reason>>> applying the patch
+
+From: John Clements <clements@brinckerhoff.org>
+To: d.j.gurnell@gmail.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10725: date->string doesn't correctly pad the ~Y pattern to four digits
+Date: Thu, 22 Apr 2010 00:01:20 -0700
+
+ On Jan 29, 2010, at 11:08 AM, d.j.gurnell@gmail.com wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10725
+ >=20
+ > Reported by SRFI 19 - bug in date->string for release: 4.2.4.1
+ >=20
+ > *** Description:
+ > Hi all,
+ >=20
+ > One of the Untypers found a bug in SRFI 19. The ~Y formatter in =
+ date->string doesn't pad years up to 4 digits:
+ >=20
+ >  (date->string (string->date "01/02/0003" "~d/~m/~Y") "~d/~m/~Y")
+ >  ; =3D=3D> "01/02/03" instead of "01/02/0003"
+ >=20
+ > Patch and test case attached in "steps to reproduce". I'll send a bug =
+ report to the SRFI 19 maintainer at srfi.schemers.org as well.
+ 
+ Hmm... I went and took a look at this, and actually, it's not clear to =
+ me that 0003 is actually the desired (a.k.a. documented) behavior.  My =
+ copy of the SRFI-19 docs just has this to say:
+ 
+ ~Y	year
+ 
+ That is, it's not specified as being padded to 4 digits. =20
+ 
+ For this reason, I'm tempted to leave it alone.  Is there a good reason =
+ to have ~Y mean dates-padded-to-4-digits?
+ 
+ John Clements
+ 
+ 
+State changed from "open" to "closed" by ryanc at Tue, 03 May 2011 18:52:25 -0400
+Reason>>> resolved
+

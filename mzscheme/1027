@@ -1,0 +1,411 @@
+From nobody@cs.rice.edu  Wed Jun  9 15:55:41 1999
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id PAA25206
+	for <plt-gnats@cs.rice.edu>; Wed, 9 Jun 1999 15:55:41 -0500 (CDT)
+Message-Id: <199906092055.PAA05686@web.cs.rice.edu>
+Date: Wed, 9 Jun 1999 15:55:40 -0500 (CDT)
+From: robby@cs.rice.edu
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: text vs binary mode on the mac 
+
+>Number:         1027
+>Category:       mzscheme
+>Synopsis:       text vs binary mode on the mac
+>Confidential:   no
+>Severity:       critical
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Jun  9 21:00:02 GMT 1999
+>Last-Modified:  Thu Jul  8 13:27:24 CDT 1999
+>Originator:     Robert Bruce Findler
+>Organization:
+titan
+>Release:        100alpha3
+>Environment:
+Mac PowerPC
+>Description:
+When I open a file in mzscheme with call-with-output-file, passing the flags
+'truncate and 'text, it doesn't open the file in text more. In MrEd, it
+does open the file in text mode. To see, evaluate the following code in MrEd. It will will open the file in tetx mode. But, run it in mzscheme
+and the newlines will come out as some other character.
+
+Here's the file that mzscheme produces:
+
+\begin{schemeregion}
+\newbox\RawInvokeBefore
+\setbox\RawInvokeBefore=\hbox{\begin{schemebox}
+$\langle$S, (invoke-unit
+              (unit (import)
+                    (export (iz ez t) ...)
+                (define x V) ...
+                M))$\rangle$
+\end{schemebox}}
+\newbox\RawInvokeAfter
+\setbox\RawInvokeAfter=\hbox{\begin{schemebox}
+$\langle$S, (letrec ([x V] ...) M)$\rangle$
+\end{schemebox}}
+
+\newbox\RawCompoundUnitBefore
+\setbox\RawCompoundUnitBefore=\hbox{\begin{schemebox}
+$\langle$S, (compound-unit
+              (import yi ...)
+              (link [u ((unit (import (yiu xiu tau) ...)
+                              (export (yeu xeu tau) ...)
+                          (define xu V) ...
+                          M$_u$)
+                        ywu ...)]
+                    [v ((unit (import (yiv xiv tau) ...)
+                              (export (yex xev tau) ...)
+                          (define xv V) ...
+                          M$_v$)
+                        ywv ...)])
+              (export ye ...))$\rangle$
+\end{schemebox}}
+\newbox\RawCompoundUnitAfter
+\setbox\RawCompoundUnitAfter=\hbox{\begin{schemebox}
+$\langle$S, (unit (import (ye xe tau) ...)
+                   (export (ye xe tau) ...)
+              (define xu V) ...
+              (define xv
+                V) ...
+              (begin
+                M$_u$
+                M$_v$))$\rangle$
+\end{schemebox}}
+
+
+
+\begin{tabular}{rclll}
+\copy\RawInvokeBefore & = & \copy\RawInvokeAfter &  & Invoke \\
+\copy\RawCompoundUnitBefore & = & \copy\RawCompoundUnitAfter & \parbox[.5in]{
+\begin{displaymath}
+12
+\end{displaymath}
+} & CompoundUnit \\
+\end{tabular}
+\end{schemeregion}
+
+>How-To-Repeat:
+Here's the source code (it's a little long, but I couldn't get a shorter
+example to work):
+
+(define-struct red (box-name name before after side-condition))
+(define raw-reductions
+  (list
+   (make-red 
+    "RawInvoke" 
+    "Invoke"
+    (format "~
+$\\langle$S, (invoke-unit
+              (unit (import)
+                    (export (iz ez t) ...)
+                (define x V) ...
+                M))$\\rangle$")
+    "$\\langle$S, (letrec ([x V] ...) M)$\\rangle$"
+    "")
+
+   (make-red 
+    "RawCompoundUnit" 
+    "CompoundUnit"
+    (format "~
+$\\langle$S, (compound-unit
+              (import yi ...)
+              (link [u ((unit (import (yiu xiu tau) ...)
+                              (export (yeu xeu tau) ...)
+                          (define xu V) ...
+                          M$_u$)
+                        ywu ...)]
+                    [v ((unit (import (yiv xiv tau) ...)
+                              (export (yex xev tau) ...)
+                          (define xv V) ...
+                          M$_v$)
+                        ywv ...)])
+              (export ye ...))$\\rangle$")
+    (format "~
+$\\langle$S, (unit (import (ye xe tau) ...)
+                   (export (ye xe tau) ...)
+              (define xu V) ...
+              (define xv
+                V) ...
+              (begin
+                M$_u$
+                M$_v$))$\\rangle$")
+    (format"~
+\\parbox[.5in]{
+\\begin{displaymath}
+12
+\\end{displaymath}
+}"))))
+
+(define (output-reductions filename reductions)
+  (call-with-output-file filename
+      (lambda (port)
+        (parameterize ([current-output-port port])
+          (printf "\\begin{schemeregion}~n")
+          (for-each (lambda (red)
+                      (let ([box-name (red-box-name red)]
+                            [before (red-before red)]
+                            [after (red-after red)])
+                        (printf "\\newbox\\~aBefore~n" box-name)
+                        (printf "\\setbox\\~aBefore=\\hbox{\\begin{schemebox}~n" box-name)
+                        (display before) (newline)
+                        (printf "\\end{schemebox}}~n")
+                        (printf "\\newbox\\~aAfter~n" box-name)
+                        (printf "\\setbox\\~aAfter=\\hbox{\\begin{schemebox}~n" box-name)
+                        (display after) (newline)
+                        (printf "\\end{schemebox}}~n~n")))
+                    reductions)
+          (newline)
+          (newline)
+          (printf "\\begin{tabular}{rclll}~n")
+          (for-each (lambda (red)
+                      (let ([name (red-name red)]
+                            [side-condition (red-side-condition red)]
+                            [box-name (red-box-name red)])
+                        (printf "\\copy\\~aBefore & = & \\copy\\~aAfter & ~a & ~a \\\\~n"
+                                box-name box-name 
+                                side-condition
+                                name)))
+                    reductions)
+          (printf "\\end{tabular}~n")
+          (printf "\\end{schemeregion}~n")))
+    'truncate 'text))
+
+(output-reductions "Cupertino:raw-reductions.tex" raw-reductions)
+
+
+>Fix:
+
+>Audit-Trail:
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac 
+Date: Wed, 9 Jun 1999 17:30:48 -0500 (CDT)
+
+ Further experimentation reveals that it is not a mzscheme-specific
+ problem. Although the example given here is only a problem in mzscheme,
+ the larger program that this was culled from also opens files in binary
+ mode, even in mred.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac 
+Date: Wed, 9 Jun 1999 16:00:06 -0700 (PDT)
+
+ Your source program contains explicit newlines with a string, which
+ makes it very difficult to predict what's going to happen, since
+ 
+  * I don't know what kind of conversions occured on the source file as
+    it passed through our system.
+ 
+  * I don't know what kind of newlines were in the original file.
+    MzScheme loads Scheme source in binary mode, so if a Windows-created
+    source file contains
+ 
+   "a
+    b"
+ 
+   (where the newline embedded in the string is actually CRLF), then on
+   the Mac in text mode it will print as
+ 
+   a
+ 
+   b
+ 
+   That may not have anything to do with the report, but it's impossible
+   to tell.
+ 
+ 
+ In any case, please clarify the bug report by specifying what the
+ output should have been, as compared to what the output was. Looking at
+ the output and the source code, I can't tell why the output is bad.
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac 
+Date: Wed, 9 Jun 1999 19:18:01 -0500 (CDT)
+
+ Quoting Matthew Flatt:
+ > Your source program contains explicit newlines with a string, which
+ > makes it very difficult to predict what's going to happen, since
+ > 
+ >  * I don't know what kind of conversions occured on the source file as
+ >    it passed through our system.
+ 
+ I loaded the file.
+ 
+ >  * I don't know what kind of newlines were in the original file.
+ >    MzScheme loads Scheme source in binary mode, so if a Windows-created
+ >    source file contains
+ 
+ The files were saved with DrScheme on a macintosh, so they should
+ have been in text mode. When I open then in Alpha, I see what expect,
+ unlike the output file, where I see funny characters (little boxes)
+ where the newlines should have been.
+ 
+ >   "a
+ >    b"
+ > 
+ >   (where the newline embedded in the string is actually CRLF), then on
+ >   the Mac in text mode it will print as
+ > 
+ >   a
+ > 
+ >   b
+ > 
+ >   That may not have anything to do with the report, but it's impossible
+ >   to tell.
+ 
+ This may be the problem. I will change the newlines to 
+ 
+  "  blah~
+ ~n blah"
+ 
+ and see if that helps (I won't be able to try the test until tommorrow).
+ 
+ > 
+ > In any case, please clarify the bug report by specifying what the
+ > output should have been, as compared to what the output was. Looking at
+ > the output and the source code, I can't tell why the output is bad.
+ 
+ I think that seeing the output in the pr was useless. Somehow those
+ characters got turned into newlines along the way in the pr. Probably
+ the embedded newlines in the source got transformed around, as well.
+ The file is in CVS, which does newline conversions, plus DrScheme had
+ saved the file.
+ 
+ Well, I guess that I just shouldn't trust that an embedded newline in a
+ string comes out as an actual text platform-specific newline.
+ 
+ Are files loaded in binary mode?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac 
+Date: Wed, 9 Jun 1999 20:32:54 -0700 (PDT)
+
+ Quoting Robert Bruce Findler:
+ > Are files loaded in binary mode?
+ 
+ Yes.
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac 
+Date: Wed, 9 Jun 1999 21:02:04 -0700 (PDT)
+
+ Quoting Robert Bruce Findler:
+ > The files were saved with DrScheme on a macintosh, so they should
+ > have been in text mode. When I open then in Alpha, I see what expect,
+ > unlike the output file, where I see funny characters (little boxes)
+ > where the newlines should have been.
+ 
+ Perhaps CodeWarrior's C library does something strange with #\return in
+ text mode? Just to be sure, can you tell me what's the result of the
+ following expression in MacOS (assuming the file "test" doesn't
+ exist)?:
+ 
+  (begin
+   (with-output-to-file "test"
+     (lambda ()
+       (printf "a~ab~ac" #\return #\newline))
+     'text)
+   (string->list
+    (with-input-from-file "test"
+      (lambda () (read-string 10)))))
+ 
+ > I will change the newlines to 
+ > 
+ >  "  blah~
+ > ~n blah"
+ 
+ That's certainly the best policy. Note that our source files are
+ distributed with Unix-style newlines, regardless of the target platform
+ (although I imagine your actual program is not part of the
+ distribution).
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac 
+Date: Wed, 9 Jun 1999 23:27:18 -0500 (CDT)
+
+ Quoting Matthew Flatt:
+ > Quoting Robert Bruce Findler:
+ > > Are files loaded in binary mode?
+ > 
+ > Yes.
+ 
+ That probably explains everything! Sorry for the pr. 
+ 
+ Is there a rationale for that? Clearly it caused me lots of grief! I
+ don't expect that kind of platform dependancy in my code!
+ 
+ Robby
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac 
+Date: Wed, 9 Jun 1999 23:29:48 -0500 (CDT)
+
+ Actually, after this message, I see why opening them in binary mode is
+ the best policy. Either way gets funny platform dependancies, but
+ opening in text mode is worse.
+ 
+ Sigh.
+ 
+ Robby
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1027: text vs binary mode on the mac
+Date: Thu, 10 Jun 1999 09:48:54 -0500
+
+ Apparently, something strange is happening:
+ 
+ > (begin
+   (with-output-to-file "test"
+     (lambda ()
+       (printf "a~ab~ac" #\return #\newline))
+     'text)
+   (string->list
+    (with-input-from-file "test"
+      (lambda () (read-string 10)))))
+ 
+ (#\a #\newline #\b #\return #\c)
+ 
+ Robby
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Jun 13 09:05:09 1999
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: steck
+State-Changed-When: Thu Jul  8 13:27:16 1999
+State-Changed-Why:
+Per meeting.
+
+>Unformatted:

@@ -1,0 +1,82 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Oct 31 08:52:15 2011
+Received: from mail-qy0-f172.google.com (mail-qy0-f172.google.com [209.85.216.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p9VCqCcd027259
+	for <bugs@bugs.plt-scheme.org>; Mon, 31 Oct 2011 08:52:12 -0400
+Message-Id: <201110311252.p9VCq5L4027249@champlain.ccs.neu.edu>
+Date: Mon, 31 Oct 2011 08:52:05 -0400
+From: cce@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: free-identifier=? does not account for rename transformers bound in internal definition contexts
+
+>Number:         12333
+>Category:       all
+>Synopsis:       free-identifier=? does not account for rename transformers bound in internal definition contexts
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Oct 31 08:56:01 -0400 2011
+>Closed-Date:    Wed Nov 02 12:05:06 -0400 2011
+>Last-Modified:  Wed Nov 02 12:05:06 -0400 2011
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.0.1
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10.6; rv:5.0.1) Gecko/20100101 Firefox/5.0.1
+>Description:
+The program below defines two macros.
+
+The first macro, called compare, compares its (only) argument to the macro's own name three ways.  First, direct free-identifier=?.  Second, manually tracing rename transformers of the argument using syntax-local-value/immediate and using free-identifier=? on the result.  Third, comparing the results of syntax-local-value using eq?.
+
+The second macro, called invoke, constructs a locally-bound alias to its (only) argument using a rename transformer.  It then local-expands an expression that passes the alias as an argument to itself.
+
+Finally, the program calls invoke, passing the name compare as its argument.
+
+The result shows that the alias to compare is not free-identifier=? to the original compare name, so free-identifier=? is not accounting for the rename transformer.  However, the other two comparisons yield true, so syntax-local-value/immediate and syntax-local-value are accounting for the rename transformer.
+
+As far as I can tell from the relevant documentation, free-identifier=? should be consistent with syntax-local-value/immediate and syntax-local value, and should recognize the alias as equal to the original name.
+>How-To-Repeat:
+#lang racket
+
+(define-syntax (compare stx)
+  (define id0 (cadr (syntax->list stx)))
+  (define id
+    (let loop {[id id0]}
+      (define-values {value target-or-false}
+        (syntax-local-value/immediate id))
+      (if target-or-false
+        (loop target-or-false)
+        id)))
+  #`(quote
+      #,(list
+          (free-identifier=? id0 #'compare)
+          (free-identifier=? id #'compare)
+          (eq?
+            (syntax-local-value id0)
+            (syntax-local-value #'compare)))))
+
+(define-syntax (invoke stx)
+  (define id1 (cadr (syntax->list stx)))
+  (define id2 ((make-syntax-introducer) (datum->syntax #false 'dummy)))
+  (define d-ctx (syntax-local-make-definition-context #false))
+  (define e-ctx (list (gensym)))
+  (syntax-local-bind-syntaxes
+    (list id2)
+    #`(make-rename-transformer #'#,id1)
+    d-ctx)
+  (internal-definition-context-seal d-ctx)
+  (local-expand #`(#,id2 #,id2) e-ctx (list #'quote) d-ctx))
+
+(invoke compare)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Wed, 02 Nov 2011 12:05:06 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/98cde53fa0
+State changed from "open" to "closed" by mflatt@racket-lang.org at Wed, 02 Nov 2011 12:05:06 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/98cde53fa0

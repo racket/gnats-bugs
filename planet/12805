@@ -1,0 +1,94 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue May 29 23:22:45 2012
+Received: from mail-vb0-f44.google.com (mail-vb0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q4U3Mftl002921
+	for <bugs@bugs.plt-scheme.org>; Tue, 29 May 2012 23:22:41 -0400
+Message-Id: <201205300322.q4U3Mb36002915@champlain.ccs.neu.edu>
+Date: Tue, 29 May 2012 23:22:37 -0400
+From: mwilber@uccs.edu
+To: bugs@racket-lang.org
+Subject: Broken links in scribbled planet docs
+
+>Number:         12805
+>Category:       planet
+>Synopsis:       Broken links in scribbled planet docs
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue May 29 23:24:01 -0400 2012
+>Last-Modified:  Sun Jun 03 09:47:14 -0400 2012
+>Originator:     Michael W.
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.9--2012-05-29(-/f)
+>Environment:
+unix "Linux eevee 3.0-ARCH #1 SMP PREEMPT Fri Oct 7 10:11:05 UTC 2011 i686 Genuine Intel(R) CPU T2400 @ 1.83GHz GenuineIntel GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 199029996
+Links: (links) = ("geiser" "fluxus-018"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/michael/.racket/5.3.0.9/collects"
+ (non-existent-path))
+("/usr/lib/racket/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unst!
+ able" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #f ((main) (test))))
+>Description:
+Scribbled planet documentation has broken links, both in the table of contents and in internal links.
+
+The links work fine once the package is installed. The links on the navigation bar are also fine, but they're broken in the main document section.
+
+This affects a lot of planet packages--try clicking on the table of contents or clicking on internal links to defined functions in:
+http://planet.racket-lang.org/package-source/tov/affine-contracts.plt/2/2/planet-docs/manual/index.html
+http://planet.racket-lang.org/package-source/dutchyn/aspectscheme.plt/1/0/planet-docs/manual/index.html
+http://planet.racket-lang.org/package-source/dyoo/basic-blocks.plt/1/0/planet-docs/manual/index.html
+http://planet.racket-lang.org/package-source/dyoo/browser-evaluate.plt/1/0/planet-docs/manual/index.html
+
+In my example below, the link's href is "/#(part._testing-section-tag)" (note the leading slash) which sends you to your root folder /.
+
+I can see why this is happening, but I can't see how to fix it. Take a look at `scribble/html-render.rkt` in the render-content method near line 1084:
+
+    (define/override (render-content e part ri)
+        ...
+        [(and (link-element? e) (not (current-no-links)))
+         (parameterize ([current-no-links #t])
+           (let-values ([(dest ext?)
+                         (resolve-get/ext? part ri (link-element-tag e))])
+         ...
+
+
+In planet packages, (dest-path dest) is a #<mobile-root> containing the output _folder_ of the planet package (in my case, #<path:planet-docs/test>).
+
+Then, (dest->url dest) returns the incorrect href in line 383 of `collects/scribble/html-render.rkt` because it compares the folder to the current output _file_. If they don't match, (from-root) returns just "/" as the first part of the href.
+>How-To-Repeat:
+To reproduce this issue for yourself,
+
+1. Copy 'info.rkt' and 'test.scrbl' (included at the end of my message)
+   into a fresh folder and make a planet development link.
+2. Run `raco planet create .`
+3. Open up planet-docs/index.html in a browser and click the "Try clicking me!" link.
+
+;; info.rkt ------------
+#lang setup/infotab
+(define scribblings '(("test.scrbl" ())))
+;; don't care
+(define name "don't care")
+(define blurb '("don't care"))
+(define release-notes '((p "don't care")))
+(define category 'misc)
+(define primary-file "info.rkt")
+(define repositories '("4.x"))
+
+;; test.scrbl ----------------
+#lang scribble/doc
+@(require scribble/manual planet/scribble)
+@title{Testing}
+@section[#:tag "testing-section-tag"]{Some tag}
+@seclink["testing-section-tag"]{Try clicking me!}
+>Fix:

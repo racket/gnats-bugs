@@ -1,0 +1,641 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jan 31 21:30:25 2013
+Received: from mail-ob0-f182.google.com (mail-ob0-f182.google.com [209.85.214.182])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r112UHiQ017260
+	for <bugs@bugs.plt-scheme.org>; Thu, 31 Jan 2013 21:30:17 -0500
+Message-Id: <201302010230.r112UFx3017255@champlain.ccs.neu.edu>
+Date: Thu, 31 Jan 2013 21:30:15 -0500
+From: cce@racket-lang.org
+To: bugs@racket-lang.org
+Subject: Odd interaction between dynamic-require and side effects
+
+>Number:         13472
+>Category:       all
+>Synopsis:       Odd interaction between dynamic-require and side effects
+>Class:          not-a-bug
+>Responsible:    cce
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jan 31 21:32:01 -0500 2013
+>Closed-Date:    Sun Feb 03 16:49:55 -0500 2013
+>Last-Modified:  Sun Feb 03 16:56:01 -0500 2013
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.3
+>Environment:
+mac-i386-osx
+>Description:
+The program below outputs four lines:
+
+'updated
+'original
+'original
+'original
+
+Each call to (the-test) at the end of the program dynamic-requires and invokes the same thunk, but only the first line of output reflects the side effect immediately preceding the definition of the thunk. Somehow the subsequent executions manage to use the thunk in a nonsensical context where it is defined, yet the preceding effect never happened.
+>How-To-Repeat:
+#lang racket
+
+(module param racket/base
+  (provide the-parameter)
+  (define the-parameter (make-parameter 'original)))
+
+(module dynamic racket
+  (provide speak)
+  (require (submod ".." param))
+  (the-parameter 'updated)
+  (define (speak) (eprintf "~v\n" (the-parameter))))
+
+(require racket/sandbox syntax/location)
+
+(define the-namespace (make-base-namespace))
+(define (the-test)
+  (define sandbox
+    (call-with-trusted-sandbox-configuration
+      (lambda ()
+        (make-evaluator 'racket/base))))
+  (call-in-sandbox-context sandbox
+    (lambda ()
+      (parameterize {[current-namespace the-namespace]}
+        ((dynamic-require
+           (quote-module-path dynamic)
+           'speak))))))
+
+(the-test)
+(the-test)
+(the-test)
+(the-test)
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Carl Eastlund <cce@racket-lang.org>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13472: Odd interaction between dynamic-require
+ and side effects
+Date: Thu, 31 Jan 2013 20:43:14 -0600
+
+ --14dae93b59b67f932804d4a0b4f4
+ Content-Type: text/plain; charset=UTF-8
+ 
+ This isn't non-sense. parameters are thread-specific and the state in a
+ module is namespace-specific. (So if you switch threads but don't switch
+ namespaces you see state changing in ways like that.)
+ 
+ I don't actually know what threads the sandbox is creating, but you can
+ recreate this output using threads.
+ 
+ Robby
+ 
+ 
+ On Thu, Jan 31, 2013 at 8:32 PM, <cce@racket-lang.org> wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13472
+ >
+ > Reported by Carl Eastlund for release: 5.3.2.3
+ >
+ > *** Description:
+ > The program below outputs four lines:
+ >
+ > 'updated
+ > 'original
+ > 'original
+ > 'original
+ >
+ > Each call to (the-test) at the end of the program dynamic-requires and
+ > invokes the same thunk, but only the first line of output reflects the side
+ > effect immediately preceding the definition of the thunk. Somehow the
+ > subsequent executions manage to use the thunk in a nonsensical context
+ > where it is defined, yet the preceding effect never happened.
+ >
+ > *** How to repeat:
+ > #lang racket
+ >
+ > (module param racket/base
+ >   (provide the-parameter)
+ >   (define the-parameter (make-parameter 'original)))
+ >
+ > (module dynamic racket
+ >   (provide speak)
+ >   (require (submod ".." param))
+ >   (the-parameter 'updated)
+ >   (define (speak) (eprintf "~v\n" (the-parameter))))
+ >
+ > (require racket/sandbox syntax/location)
+ >
+ > (define the-namespace (make-base-namespace))
+ > (define (the-test)
+ >   (define sandbox
+ >     (call-with-trusted-sandbox-configuration
+ >       (lambda ()
+ >         (make-evaluator 'racket/base))))
+ >   (call-in-sandbox-context sandbox
+ >     (lambda ()
+ >       (parameterize {[current-namespace the-namespace]}
+ >         ((dynamic-require
+ >            (quote-module-path dynamic)
+ >            'speak))))))
+ >
+ > (the-test)
+ > (the-test)
+ > (the-test)
+ > (the-test)
+ >
+ > *** Environment:
+ > mac-i386-osx
+ >
+ >
+ 
+ --14dae93b59b67f932804d4a0b4f4
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">This isn&#39;t non-sense. parameters are thread-specific a=
+ nd the state in a module is namespace-specific. (So if you switch threads b=
+ ut don&#39;t switch namespaces you see state changing in ways like that.)<d=
+ iv>
+ <br></div><div>I don&#39;t actually know what threads the sandbox is creati=
+ ng, but you can recreate this output using threads.<br><div><br>Robby</div>=
+ </div></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">O=
+ n Thu, Jan 31, 2013 at 8:32 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:cc=
+ e@racket-lang.org" target=3D"_blank">cce@racket-lang.org</a>&gt;</span> wro=
+ te:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 472" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13472</a><br>
+ <br>
+ Reported by Carl Eastlund for release: 5.3.2.3<br>
+ <br>
+ *** Description:<br>
+ The program below outputs four lines:<br>
+ <br>
+ &#39;updated<br>
+ &#39;original<br>
+ &#39;original<br>
+ &#39;original<br>
+ <br>
+ Each call to (the-test) at the end of the program dynamic-requires and invo=
+ kes the same thunk, but only the first line of output reflects the side eff=
+ ect immediately preceding the definition of the thunk. Somehow the subseque=
+ nt executions manage to use the thunk in a nonsensical context where it is =
+ defined, yet the preceding effect never happened.<br>
+ 
+ <br>
+ *** How to repeat:<br>
+ #lang racket<br>
+ <br>
+ (module param racket/base<br>
+ =C2=A0 (provide the-parameter)<br>
+ =C2=A0 (define the-parameter (make-parameter &#39;original)))<br>
+ <br>
+ (module dynamic racket<br>
+ =C2=A0 (provide speak)<br>
+ =C2=A0 (require (submod &quot;..&quot; param))<br>
+ =C2=A0 (the-parameter &#39;updated)<br>
+ =C2=A0 (define (speak) (eprintf &quot;~v\n&quot; (the-parameter))))<br>
+ <br>
+ (require racket/sandbox syntax/location)<br>
+ <br>
+ (define the-namespace (make-base-namespace))<br>
+ (define (the-test)<br>
+ =C2=A0 (define sandbox<br>
+ =C2=A0 =C2=A0 (call-with-trusted-sandbox-configuration<br>
+ =C2=A0 =C2=A0 =C2=A0 (lambda ()<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 (make-evaluator &#39;racket/base))))<br>
+ =C2=A0 (call-in-sandbox-context sandbox<br>
+ =C2=A0 =C2=A0 (lambda ()<br>
+ =C2=A0 =C2=A0 =C2=A0 (parameterize {[current-namespace the-namespace]}<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((dynamic-require<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(quote-module-path dynamic)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&#39;speak))))))<br>
+ <br>
+ (the-test)<br>
+ (the-test)<br>
+ (the-test)<br>
+ (the-test)<br>
+ <br>
+ *** Environment:<br>
+ mac-i386-osx<br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --14dae93b59b67f932804d4a0b4f4--
+
+Class changed from "sw-bug" to "not-a-bug" by cce at Sun, 03 Feb 2013 16:49:55 -0500
+Reason>>> Not a bug, but instead a side effect of the fact that
+sandboxes run in their own threads.
+
+Responsible changed from "nobody" to "cce" by cce at Sun, 03 Feb 2013 16:49:55 -0500
+Reason>>> My mistake.
+
+State changed from "open" to "closed" by cce at Sun, 03 Feb 2013 16:49:55 -0500
+Reason>>> Not a bug.
+
+From: Carl Eastlund <cce@racket-lang.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13472: Odd interaction between dynamic-require
+ and side effects
+Date: Sun, 3 Feb 2013 16:48:53 -0500
+
+ --e89a8ff1c2c2b2035104d4d8f3f3
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Sorry for the delayed response, and thanks for the clarification!  Threads,
+ of course.  Sandboxes do so many things, I forgot thread switching was one
+ of them.  Makes perfect sense, and gives me a clear idea what I need to fix
+ in my original code.  I'll close the bug.
+ 
+ Carl Eastlund
+ 
+ 
+ On Thu, Jan 31, 2013 at 9:43 PM, Robby Findler
+ <robby@eecs.northwestern.edu>wrote:
+ 
+ > This isn't non-sense. parameters are thread-specific and the state in a
+ > module is namespace-specific. (So if you switch threads but don't switch
+ > namespaces you see state changing in ways like that.)
+ >
+ > I don't actually know what threads the sandbox is creating, but you can
+ > recreate this output using threads.
+ >
+ > Robby
+ >
+ >
+ > On Thu, Jan 31, 2013 at 8:32 PM, <cce@racket-lang.org> wrote:
+ >
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=13472
+ >>
+ >> Reported by Carl Eastlund for release: 5.3.2.3
+ >>
+ >> *** Description:
+ >> The program below outputs four lines:
+ >>
+ >> 'updated
+ >> 'original
+ >> 'original
+ >> 'original
+ >>
+ >> Each call to (the-test) at the end of the program dynamic-requires and
+ >> invokes the same thunk, but only the first line of output reflects the side
+ >> effect immediately preceding the definition of the thunk. Somehow the
+ >> subsequent executions manage to use the thunk in a nonsensical context
+ >> where it is defined, yet the preceding effect never happened.
+ >>
+ >> *** How to repeat:
+ >> #lang racket
+ >>
+ >> (module param racket/base
+ >>   (provide the-parameter)
+ >>   (define the-parameter (make-parameter 'original)))
+ >>
+ >> (module dynamic racket
+ >>   (provide speak)
+ >>   (require (submod ".." param))
+ >>   (the-parameter 'updated)
+ >>   (define (speak) (eprintf "~v\n" (the-parameter))))
+ >>
+ >> (require racket/sandbox syntax/location)
+ >>
+ >> (define the-namespace (make-base-namespace))
+ >> (define (the-test)
+ >>   (define sandbox
+ >>     (call-with-trusted-sandbox-configuration
+ >>       (lambda ()
+ >>         (make-evaluator 'racket/base))))
+ >>   (call-in-sandbox-context sandbox
+ >>     (lambda ()
+ >>       (parameterize {[current-namespace the-namespace]}
+ >>         ((dynamic-require
+ >>            (quote-module-path dynamic)
+ >>            'speak))))))
+ >>
+ >> (the-test)
+ >> (the-test)
+ >> (the-test)
+ >> (the-test)
+ >>
+ >> *** Environment:
+ >> mac-i386-osx
+ >>
+ >>
+ >
+ 
+ --e89a8ff1c2c2b2035104d4d8f3f3
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Sorry for the delayed response, and thanks for the clarifi=
+ cation!=C2=A0 Threads, of course.=C2=A0 Sandboxes do so many things, I forg=
+ ot thread switching was one of them.=C2=A0 Makes perfect sense, and gives m=
+ e a clear idea what I need to fix in my original code.=C2=A0 I&#39;ll close=
+  the bug.<br>
+ 
+ </div><div class=3D"gmail_extra"><br clear=3D"all"><div>Carl Eastlund</div>
+ <br><br><div class=3D"gmail_quote">On Thu, Jan 31, 2013 at 9:43 PM, Robby F=
+ indler <span dir=3D"ltr">&lt;<a href=3D"mailto:robby@eecs.northwestern.edu"=
+  target=3D"_blank">robby@eecs.northwestern.edu</a>&gt;</span> wrote:<br><bl=
+ ockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #=
+ ccc solid;padding-left:1ex">
+ 
+ <div dir=3D"ltr">This isn&#39;t non-sense. parameters are thread-specific a=
+ nd the state in a module is namespace-specific. (So if you switch threads b=
+ ut don&#39;t switch namespaces you see state changing in ways like that.)<d=
+ iv>
+ 
+ 
+ <br></div><div>I don&#39;t actually know what threads the sandbox is creati=
+ ng, but you can recreate this output using threads.<span class=3D"HOEnZb"><=
+ font color=3D"#888888"><br><div><br>Robby</div></font></span></div></div><d=
+ iv class=3D"HOEnZb">
+ 
+ <div class=3D"h5"><div class=3D"gmail_extra"><br><br><div class=3D"gmail_qu=
+ ote">On Thu, Jan 31, 2013 at 8:32 PM,  <span dir=3D"ltr">&lt;<a href=3D"mai=
+ lto:cce@racket-lang.org" target=3D"_blank">cce@racket-lang.org</a>&gt;</spa=
+ n> wrote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 472" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13472</a><br>
+ <br>
+ Reported by Carl Eastlund for release: 5.3.2.3<br>
+ <br>
+ *** Description:<br>
+ The program below outputs four lines:<br>
+ <br>
+ &#39;updated<br>
+ &#39;original<br>
+ &#39;original<br>
+ &#39;original<br>
+ <br>
+ Each call to (the-test) at the end of the program dynamic-requires and invo=
+ kes the same thunk, but only the first line of output reflects the side eff=
+ ect immediately preceding the definition of the thunk. Somehow the subseque=
+ nt executions manage to use the thunk in a nonsensical context where it is =
+ defined, yet the preceding effect never happened.<br>
+ 
+ 
+ 
+ <br>
+ *** How to repeat:<br>
+ #lang racket<br>
+ <br>
+ (module param racket/base<br>
+ =C2=A0 (provide the-parameter)<br>
+ =C2=A0 (define the-parameter (make-parameter &#39;original)))<br>
+ <br>
+ (module dynamic racket<br>
+ =C2=A0 (provide speak)<br>
+ =C2=A0 (require (submod &quot;..&quot; param))<br>
+ =C2=A0 (the-parameter &#39;updated)<br>
+ =C2=A0 (define (speak) (eprintf &quot;~v\n&quot; (the-parameter))))<br>
+ <br>
+ (require racket/sandbox syntax/location)<br>
+ <br>
+ (define the-namespace (make-base-namespace))<br>
+ (define (the-test)<br>
+ =C2=A0 (define sandbox<br>
+ =C2=A0 =C2=A0 (call-with-trusted-sandbox-configuration<br>
+ =C2=A0 =C2=A0 =C2=A0 (lambda ()<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 (make-evaluator &#39;racket/base))))<br>
+ =C2=A0 (call-in-sandbox-context sandbox<br>
+ =C2=A0 =C2=A0 (lambda ()<br>
+ =C2=A0 =C2=A0 =C2=A0 (parameterize {[current-namespace the-namespace]}<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((dynamic-require<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(quote-module-path dynamic)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&#39;speak))))))<br>
+ <br>
+ (the-test)<br>
+ (the-test)<br>
+ (the-test)<br>
+ (the-test)<br>
+ <br>
+ *** Environment:<br>
+ mac-i386-osx<br>
+ <br>
+ </blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --e89a8ff1c2c2b2035104d4d8f3f3--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Carl Eastlund <cce@racket-lang.org>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13472: Odd interaction between dynamic-require
+ and side effects
+Date: Sun, 3 Feb 2013 15:55:07 -0600
+
+ --f46d0444e9259f0d9704d4d907fb
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Great! Thanks for taking care of the PR.
+ 
+ Robby
+ 
+ 
+ On Sun, Feb 3, 2013 at 3:48 PM, Carl Eastlund <cce@racket-lang.org> wrote:
+ 
+ > Sorry for the delayed response, and thanks for the clarification!
+ > Threads, of course.  Sandboxes do so many things, I forgot thread switching
+ > was one of them.  Makes perfect sense, and gives me a clear idea what I
+ > need to fix in my original code.  I'll close the bug.
+ >
+ > Carl Eastlund
+ >
+ >
+ > On Thu, Jan 31, 2013 at 9:43 PM, Robby Findler <
+ > robby@eecs.northwestern.edu> wrote:
+ >
+ >> This isn't non-sense. parameters are thread-specific and the state in a
+ >> module is namespace-specific. (So if you switch threads but don't switch
+ >> namespaces you see state changing in ways like that.)
+ >>
+ >> I don't actually know what threads the sandbox is creating, but you can
+ >> recreate this output using threads.
+ >>
+ >> Robby
+ >>
+ >>
+ >> On Thu, Jan 31, 2013 at 8:32 PM, <cce@racket-lang.org> wrote:
+ >>
+ >>> A new problem report is waiting at
+ >>>   http://bugs.racket-lang.org/query/?cmd=view&pr=13472
+ >>>
+ >>> Reported by Carl Eastlund for release: 5.3.2.3
+ >>>
+ >>> *** Description:
+ >>> The program below outputs four lines:
+ >>>
+ >>> 'updated
+ >>> 'original
+ >>> 'original
+ >>> 'original
+ >>>
+ >>> Each call to (the-test) at the end of the program dynamic-requires and
+ >>> invokes the same thunk, but only the first line of output reflects the side
+ >>> effect immediately preceding the definition of the thunk. Somehow the
+ >>> subsequent executions manage to use the thunk in a nonsensical context
+ >>> where it is defined, yet the preceding effect never happened.
+ >>>
+ >>> *** How to repeat:
+ >>> #lang racket
+ >>>
+ >>> (module param racket/base
+ >>>   (provide the-parameter)
+ >>>   (define the-parameter (make-parameter 'original)))
+ >>>
+ >>> (module dynamic racket
+ >>>   (provide speak)
+ >>>   (require (submod ".." param))
+ >>>   (the-parameter 'updated)
+ >>>   (define (speak) (eprintf "~v\n" (the-parameter))))
+ >>>
+ >>> (require racket/sandbox syntax/location)
+ >>>
+ >>> (define the-namespace (make-base-namespace))
+ >>> (define (the-test)
+ >>>   (define sandbox
+ >>>     (call-with-trusted-sandbox-configuration
+ >>>       (lambda ()
+ >>>         (make-evaluator 'racket/base))))
+ >>>   (call-in-sandbox-context sandbox
+ >>>     (lambda ()
+ >>>       (parameterize {[current-namespace the-namespace]}
+ >>>         ((dynamic-require
+ >>>            (quote-module-path dynamic)
+ >>>            'speak))))))
+ >>>
+ >>> (the-test)
+ >>> (the-test)
+ >>> (the-test)
+ >>> (the-test)
+ >>>
+ >>> *** Environment:
+ >>> mac-i386-osx
+ >>>
+ >>>
+ >>
+ >
+ 
+ --f46d0444e9259f0d9704d4d907fb
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Great! Thanks for taking care of the PR.<div><br>Robby</di=
+ v></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Su=
+ n, Feb 3, 2013 at 3:48 PM, Carl Eastlund <span dir=3D"ltr">&lt;<a href=3D"m=
+ ailto:cce@racket-lang.org" target=3D"_blank">cce@racket-lang.org</a>&gt;</s=
+ pan> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Sorry for the delayed respo=
+ nse, and thanks for the clarification!=C2=A0 Threads, of course.=C2=A0 Sand=
+ boxes do so many things, I forgot thread switching was one of them.=C2=A0 M=
+ akes perfect sense, and gives me a clear idea what I need to fix in my orig=
+ inal code.=C2=A0 I&#39;ll close the bug.<span class=3D"HOEnZb"><font color=
+ =3D"#888888"><br>
+ 
+ 
+ </font></span></div><div class=3D"gmail_extra"><span class=3D"HOEnZb"><font=
+  color=3D"#888888"><br clear=3D"all"><div>Carl Eastlund</div></font></span>=
+ <div><div class=3D"h5">
+ <br><br><div class=3D"gmail_quote">On Thu, Jan 31, 2013 at 9:43 PM, Robby F=
+ indler <span dir=3D"ltr">&lt;<a href=3D"mailto:robby@eecs.northwestern.edu"=
+  target=3D"_blank">robby@eecs.northwestern.edu</a>&gt;</span> wrote:<br><bl=
+ ockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #=
+ ccc solid;padding-left:1ex">
+ 
+ 
+ <div dir=3D"ltr">This isn&#39;t non-sense. parameters are thread-specific a=
+ nd the state in a module is namespace-specific. (So if you switch threads b=
+ ut don&#39;t switch namespaces you see state changing in ways like that.)<d=
+ iv>
+ 
+ 
+ 
+ <br></div><div>I don&#39;t actually know what threads the sandbox is creati=
+ ng, but you can recreate this output using threads.<span><font color=3D"#88=
+ 8888"><br><div><br>Robby</div></font></span></div></div><div>
+ 
+ <div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Thu, =
+ Jan 31, 2013 at 8:32 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:cce@racke=
+ t-lang.org" target=3D"_blank">cce@racket-lang.org</a>&gt;</span> wrote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 472" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13472</a><br>
+ <br>
+ Reported by Carl Eastlund for release: 5.3.2.3<br>
+ <br>
+ *** Description:<br>
+ The program below outputs four lines:<br>
+ <br>
+ &#39;updated<br>
+ &#39;original<br>
+ &#39;original<br>
+ &#39;original<br>
+ <br>
+ Each call to (the-test) at the end of the program dynamic-requires and invo=
+ kes the same thunk, but only the first line of output reflects the side eff=
+ ect immediately preceding the definition of the thunk. Somehow the subseque=
+ nt executions manage to use the thunk in a nonsensical context where it is =
+ defined, yet the preceding effect never happened.<br>
+ 
+ 
+ 
+ 
+ <br>
+ *** How to repeat:<br>
+ #lang racket<br>
+ <br>
+ (module param racket/base<br>
+ =C2=A0 (provide the-parameter)<br>
+ =C2=A0 (define the-parameter (make-parameter &#39;original)))<br>
+ <br>
+ (module dynamic racket<br>
+ =C2=A0 (provide speak)<br>
+ =C2=A0 (require (submod &quot;..&quot; param))<br>
+ =C2=A0 (the-parameter &#39;updated)<br>
+ =C2=A0 (define (speak) (eprintf &quot;~v\n&quot; (the-parameter))))<br>
+ <br>
+ (require racket/sandbox syntax/location)<br>
+ <br>
+ (define the-namespace (make-base-namespace))<br>
+ (define (the-test)<br>
+ =C2=A0 (define sandbox<br>
+ =C2=A0 =C2=A0 (call-with-trusted-sandbox-configuration<br>
+ =C2=A0 =C2=A0 =C2=A0 (lambda ()<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 (make-evaluator &#39;racket/base))))<br>
+ =C2=A0 (call-in-sandbox-context sandbox<br>
+ =C2=A0 =C2=A0 (lambda ()<br>
+ =C2=A0 =C2=A0 =C2=A0 (parameterize {[current-namespace the-namespace]}<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((dynamic-require<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(quote-module-path dynamic)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0&#39;speak))))))<br>
+ <br>
+ (the-test)<br>
+ (the-test)<br>
+ (the-test)<br>
+ (the-test)<br>
+ <br>
+ *** Environment:<br>
+ mac-i386-osx<br>
+ <br>
+ </blockquote></div><br></div>
+ </div></div></blockquote></div><br></div></div></div>
+ </blockquote></div><br></div>
+ 
+ --f46d0444e9259f0d9704d4d907fb--

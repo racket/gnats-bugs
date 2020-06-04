@@ -1,0 +1,119 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jul 23 14:28:44 2014
+Received: from mail-oi0-f50.google.com (mail-oi0-f50.google.com [209.85.218.50])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s6NISfaw006006
+	for <bugs@bugs.plt-scheme.org>; Wed, 23 Jul 2014 14:28:42 -0400
+Message-Id: <201407231828.s6NISdhS005997@winooski.ccs.neu.edu>
+Date: Wed, 23 Jul 2014 14:28:39 -0400
+From: pnguyen@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: TR - Typechecking program with (tuple of unions) match pattern takes forever
+
+>Number:         14658
+>Category:       typed-scheme
+>Synopsis:       TR - Typechecking program with (tuple of unions) match pattern takes forever
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Jul 23 14:32:01 -0400 2014
+>Last-Modified:  Thu Jul 24 10:44:02 -0400 2014
+>Originator:     Phil Nguyen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.0.3--2014-07-23(f9b20d3/a)
+>Environment:
+unix "Linux ubudel 3.13.0-30-generic #54-Ubuntu SMP Mon Jun 9 22:45:01 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 337469568
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    c5372e4de491796702db3953d76c6018bf12fa6b    (catalog main-distribution)
+ racket-lib           d788b703b694c86e89ad90bdc7cf31b02e01bde8    (catalog racket-lib)
+ [175 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ Package    Checksum                                    Source
+ pcf        097f08372a8016e5a4ce82b47d124a425793f52f    (catalog pcf)
+
+
+
+Collections:
+("/home/phil/.racket/snapshot/collects"
+ (non-existent-path))
+("/home/phil/Apps/Racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test)) #t))
+>Description:
+Program using pattern matching with tuples of unions takes surprisingly long to typecheck. There seems to be an exponential blowup.
+>How-To-Repeat:
+The following program still typechecks after 5 minutes on my computer. Racket 6.0.1 (release) checks this program quickly as expected.
+
+#lang typed/racket
+
+(: f : Any → Any)
+(define (f x)
+  (match x
+    [(list (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))) #t]
+    [_ #f]))
+
+
+The following changes affect the time:
+
+1. Removing the seemingly cheap wildcard clause reduces typechecking time to ~15 seconds on my computer:
+
+(: f : Any → Any)
+(define (f x)
+  (match x
+    [(list (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))) #t]))
+
+2. Removing annotation also significantly reduces the time. The following takes ~15 seconds, inferring (Any -> Boolean):
+
+(define (f x)
+  (match x
+    [(list (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))) #t]
+    [_ #f]))
+
+3. However, changing #t and #f to say, 1 and 0, makes the (unannotated) program run forever again:
+
+(define (f x)
+  (match x
+    [(list (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))
+           (or (? integer?) (? string?) (? false?))) 1]
+    [_ 0]))
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: pnguyen@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14658: TR - Typechecking program with (tuple of
+ unions) match pattern takes forever
+Date: Thu, 24 Jul 2014 10:40:06 -0400
+
+ On 2014-07-23 14:32:01 -0400, pnguyen@ccs.neu.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14658
+ >
+ > Reported by Phil Nguyen for release: 6.1.0.3--2014-07-23(f9b20d3/a)
+ >
+ > *** Description:
+ > Program using pattern matching with tuples of unions takes surprisingly long to typecheck. There seems to be an exponential blowup.
+ 
+ Thanks for the report Phil.
+ 
+ I did a git bisect and it found that the first commit where this issue
+ shows up is 62b41b39e76cc1eeef81f63d6dd28a37dd145ed8.
+ 
+ Cheers,
+ Asumu

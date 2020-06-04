@@ -1,0 +1,123 @@
+From apache@plt-scheme.org Fri May 27 05:21:28 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j4R9LPAD016849
+	for <bugs@plt-scheme.org>; Fri, 27 May 2005 05:21:25 -0400
+Message-Id: <200505270921.j4R9LPIj016847@champlain.ccs.neu.edu>
+Date: Fri, 27 May 2005 05:21:25 -0400
+From: ryanc@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: error in match.ss struct patterns (under very specific circumstances)
+
+>Number:         7398
+>Category:       misc
+>Synopsis:       error in match.ss struct patterns (under very specific circumstances)
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri May 27 05:25:00 -0400 2005
+>Last-Modified:  Tue Jul 05 18:23:12 -0400 2005
+>Originator:     Ryan Culpepper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.104-cvs6may2005
+>Environment:
+unix "Linux localhost.localdomain 2.6.11-1.14_FC3smp #1 SMP Thu Apr 7 19:38:19 EDT 2005 i686 i686 i386 GNU/Linux" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+(#<path:/opt/plt/collects/doc/help> #<path:/opt/plt/collects/doc/t-y-scheme> #<path:/opt/plt/collects/doc/mzc> #<path:/opt/plt/collects/doc/mrlib> #<path:/opt/plt/collects/doc/plot> #<path:/opt/plt/collects/doc/insidemz> #<path:/opt/plt/collects/doc/profj-beginner> #<path:/opt/plt/collects/doc/tex2page> #<path:/opt/plt/collects/doc/r5rs> #<path:/opt/plt/collects/doc/mzscheme> #<path:/opt/plt/collects/doc/tools> #<path:/opt/plt/collects/doc/intermediate-lambda> #<path:/opt/plt/collects/doc/intermediate> #<path:/opt/plt/collects/doc/misclib> #<path:/opt/plt/collects/doc/web-server> #<path:/opt/plt/collects/doc/swindle> #<path:/opt/plt/collects/doc/profj-intermediate> #<path:/opt/plt/collects/doc/tour> #<path:/opt/plt/collects/doc/beginning-abbr> #<path:/opt/plt/collects/doc/srfi> #<path:/opt/plt/collects/doc/mred> #<path:/opt/plt/collects/doc/teachpack> #<path:/opt/plt/collects/doc/beginning> #<path:/opt/plt/collects/doc/mzlib> #<path:/opt/plt/collects/doc/profj-advanced> #<path:/opt/plt/collects/doc/framework> #<path:/opt/plt/collects/doc/drscheme> #<path:/opt/plt/collects/doc/foreign> #<path:/opt/plt/collects/doc/advanced>)
+Collections:
+((#<path:/home/ryan/.plt-scheme/299.104/collects> "non-existent path") (#<path:/opt/plt/collects> (#<path:string-constants> #<path:icons> #<path:ffi> #<path:browser> #<path:photo> #<path:sirmail> #<path:test-suite> #<path:waterworld> #<path:html> #<path:preprocessor> #<path:profjWizard> #<path:reduction-semantics> #<path:profj> #<path:slideshow> #<path:finish-install> #<path:launcher> #<path:graphics> #<path:hierlist> #<path:skipper> #<path:drscheme> #<path:framework> #<path:handin-server> #<path:syntax-color> #<path:mzlib> #<path:net> #<path:cvs-time-stamp> #<path:parser-tools> #<path:defaults> #<path:slibinit> #<path:mred> #<path:trace> #<path:srfi> #<path:texpict> #<path:syntax> #<path:honu-module> #<path:frtime> #<path:games> #<path:readline> #<path:ssax> #<path:make> #<path:mzcom> #<path:mysterx> #<path:setup> #<path:lang> #<path:htdch> #<path:swindle> #<path:web-server> #<path:xelda> #<path:afm> #<path:profjBoxes> #<path:dynext> #<path:stepper> #<path:algol60> #<path:handin-client> #<path:planet> #<path:version> #<path:sgl> #<path:mrdemo> #<path:compiler> #<path:mzscheme> #<path:slatex> #<path:eopl> #<path:tests> #<path:mrflow> #<path:tex2page> #<path:openssl> #<path:xml> #<path:plot> #<path:embedded-gui> #<path:mrlib> #<path:htdp> #<path:srpersist> #<path:info-domain> #<path:guibuilder> #<path:errortrace> #<path:help> #<path:doc>)))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+There is an error in the match.ss library that seems
+to cause pattern variables to be ignored inside of
+struct patterns in the following case: the struct
+type being matched was defined in a separate module, 
+AND it extends a struct type defined in yet another
+module.
+>How-To-Repeat:
+The following module definitions show both cases
+which do not contain the bug and one final case
+which does. Running the module definitions in 
+DrScheme raises an unbound variable error in the
+body of the last match expression.
+
+;; Define some structs... all of these turn out 
+;; to be safe.
+(module s1 mzscheme
+  (provide (struct A (x y))
+           (struct A2 ()))
+  (define-struct A (x y))
+  (define-struct (A2 A) ()))
+
+;; Define one last struct. This is the one that 
+;; match will break on.
+(module s2 mzscheme
+  (provide (struct B ()))
+  (define-struct (B exn) ()))
+
+(module break mzscheme
+  (require (lib "match.ss")
+           s1 s2)
+  ;; Works fine on locally defined structs...
+  (define-struct C (x y))
+  (match (make-C 'q 'r)
+    [($ C _ x) (eq? x 'r)])
+
+  ;; ... even when they have super-structs.
+  (define-struct (D C) ())
+  (match (make-D 'q 'r)
+    [($ D _ x) (eq? x 'r)])
+
+  ;; It works fine on derived structs defined in same module as their supers...
+  (match (make-A2 'q 'r)
+    [($ A2 _ x) (eq? x 'r)])
+  
+  ;; Or even locally-defined structs whose super structs were defined in 
+  ;; a separate module!
+  (define-struct (E A) ())
+  (match (make-E 'q 'r)
+    [($ E _ x) '(eq? x 'r)])
+
+  ;; But if both were defined in different foreign modules, error!
+  (match (make-B 'q 'r)
+    [($ B _ x) (eq? x 'q)])
+  )
+>Fix:
+>Audit-Trail:
+From: Ryan Michael Culpepper <ryanc@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7398: error in match.ss struct patterns (under very specific
+ circumstances)
+Date: Fri, 27 May 2005 17:23:40 -0400 (EDT)
+
+ On Fri, 27 May 2005 bugs@plt-scheme.org wrote:
+ 
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/7398'.
+ > You can check on the status of your problem report at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=7398
+ > Assigned to Unclaimed <nobody@plt-scheme.org>.
+ 
+ Update: I made a mistake in writing and interpreting the code I sent in
+ with the bug. The problem seems to only come up when extending the exn
+ struct type. Sorry about the confusion.
+ 
+ Ryan
+
+Responsible changed from "nobody" to "samth" by eli at Mon, 20 Jun 2005 15:50:02 -0400
+Reason>>> match
+
+
+State changed from "open" to "closed" by samth at Tue, 05 Jul 2005 18:23:12 -0400
+Reason>>> Fixed in SVN.
+It turns out that the handling of immutable fields was
+completely bogus.  Also, srfi-1 append-map does not error
+when the lists are of differing length.
+

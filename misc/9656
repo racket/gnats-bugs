@@ -1,0 +1,195 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Aug  5 11:24:27 2008
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.184])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m75FOJag017052
+	for <bugs@bugs.plt-scheme.org>; Tue, 5 Aug 2008 11:24:19 -0400
+Message-Id: <200808051524.m75FOFOs017045@champlain.ccs.neu.edu>
+Date: Tue, 5 Aug 2008 11:24:15 -0400
+From: cdutchyn@acm.org
+To: bugs@plt-scheme.org
+Subject: pdf-slatex doesn't accept command-line arguments intended for LaTeX
+
+>Number:         9656
+>Category:       misc
+>Synopsis:       pdf-slatex doesn't accept command-line arguments intended for LaTeX
+>Class:          sw-bug
+>Responsible:    sstrickl
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Aug 05 11:28:01 -0400 2008
+>Last-Modified:  Mon Mar 16 06:13:47 -0400 2009
+>Originator:     Christopher Dutchyn
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0.2
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_5_4; en-us) AppleWebKit/525.18 (KHTML, like Gecko) Version/3.1.2 Safari/525.20.1
+>Description:
+I use AucTeX under emacs to write SLaTeX code.  The automated AucTeX document-recompile expects to inform LaTeX that
+          -interaction=nonstopmode
+so that interaction on errors does not occur.  But, the pdf-slatex wrapper included with PLT scheme does not support additional command-line arguments.  Therefore, simply telling  AucTeX to use pdf-slatex to compile my SLaTeX documents does not work.
+
+Here are the obvious patches to make this work:
+
+----------------------
+diff -c /Applications/PLT\ Scheme\ v4.0.2/collects/slatex/pdf-slatex-launcher.ss\~ /Applications/PLT\ Scheme\ v4.0.2/collects/slatex/pdf-slatex-launcher.ss
+*** /Applications/PLT Scheme v4.0.2/collects/slatex/pdf-slatex-launcher.ss~	Fri Jul  4 07:40:09 2008
+--- /Applications/PLT Scheme v4.0.2/collects/slatex/pdf-slatex-launcher.ss	Sat Aug  2 15:55:16 2008
+***************
+*** 10,18 ****
+       ;; set up drag and drop
+       (error 'slatex "pdf-slatex not supported under Mac OS Classic")]
+      [(windows unix macosx)
+-      (when (eq? (vector) argv)
+-        (error 'slatex "expected a file on the command line~n"))
+       (parameterize ([error-escape-handler exit])
+!        (pdf-slatex (vector-ref argv 0)))
+       (exit)]))
+  
+--- 10,23 ----
+       ;; set up drag and drop
+       (error 'slatex "pdf-slatex not supported under Mac OS Classic")]
+      [(windows unix macosx)
+       (parameterize ([error-escape-handler exit])
+!        (let ([l (- (vector-length argv) 1)])
+! 	 (let loop ([n 0]
+! 		    [options '()])
+! 	   (cond [(> n l) (error 'slatex "expected a file on the command line~n")]
+!                  [(eq? #\- (string-ref (vector-ref argv n) 0)) (loop (+ n 1)
+! 								     (cons (vector-ref argv n) options))]
+!                  [(= n l) (pdf-slatex (reverse options) (vector-ref argv n))]
+!                  [else (error 'slatex "too many filenames on the command line~n")]))))
+       (exit)]))
+  
+
+Diff finished.  Tue Aug  5 09:14:24 2008
+----------------------------
+diff -c /Applications/PLT\ Scheme\ v4.0.2/collects/slatex/slatex-wrapper.ss\~ /Applications/PLT\ Scheme\ v4.0.2/collects/slatex/slatex-wrapper.ss
+*** /Applications/PLT Scheme v4.0.2/collects/slatex/slatex-wrapper.ss~	Fri Jul  4 07:40:09 2008
+--- /Applications/PLT Scheme v4.0.2/collects/slatex/slatex-wrapper.ss	Sat Aug  2 15:52:16 2008
+***************
+*** 23,40 ****
+          [else
+           (error 'filename->latex-filename "~e does not exist" input-file)])))
+  
+!   (define (exec-latex exe file)
+      (let ([latex-path (find-executable-path exe #f)])
+        (unless latex-path
+          (error 'latex "could not find latex binary: ~e" exe))
+!       (system* latex-path file)))
+  
+    ;; latex, pdf-latex : string -> boolean
+    ;; boolean result indicates success
+    (define-values (latex pdf-latex)
+      (letrec ([meta-latex 
+                (lambda (pdf?)
+!                 (lambda (input-file)
+                    (let ([file (filename->latex-filename input-file)]
+                          [command-name (if pdf? 
+                                            "pdflatex"
+--- 23,40 ----
+          [else
+           (error 'filename->latex-filename "~e does not exist" input-file)])))
+  
+!   (define (exec-latex exe options file)
+      (let ([latex-path (find-executable-path exe #f)])
+        (unless latex-path
+          (error 'latex "could not find latex binary: ~e" exe))
+!       (apply system* (cons latex-path (append options (list file))))))
+  
+    ;; latex, pdf-latex : string -> boolean
+    ;; boolean result indicates success
+    (define-values (latex pdf-latex)
+      (letrec ([meta-latex 
+                (lambda (pdf?)
+!                 (lambda (options input-file)
+                    (let ([file (filename->latex-filename input-file)]
+                          [command-name (if pdf? 
+                                            "pdflatex"
+***************
+*** 70,78 ****
+                               (send-event "MACS" "aevt" "odoc" (vector 'file oztex-location)))))
+                         (send-event "OTEX" "aevt" "odoc" (vector 'file file))
+                         #t]
+!                       [(windows) (exec-latex (add-suffix command-name #".exe") file)]
+                        [(unix macosx)
+!                        (exec-latex command-name file)]
+                        [else
+                         (error 'latex "do not know how to run ~s on ~s" command-name (system-type))]))))])
+        (values
+--- 70,78 ----
+                               (send-event "MACS" "aevt" "odoc" (vector 'file oztex-location)))))
+                         (send-event "OTEX" "aevt" "odoc" (vector 'file file))
+                         #t]
+!                       [(windows) (exec-latex (add-suffix command-name #".exe") options file)]
+                        [(unix macosx)
+!                        (exec-latex command-name options file)]
+                        [else
+                         (error 'latex "do not know how to run ~s on ~s" command-name (system-type))]))))])
+        (values
+***************
+*** 82,90 ****
+    (define-values (slatex pdf-slatex)
+      (letrec ([meta-slatex
+                (lambda (latex-fun)
+!                 (lambda (filename)
+                    (slatex/no-latex filename)
+!                   (latex-fun filename)))])
+        (values 
+         (meta-slatex latex)
+         (meta-slatex pdf-latex))))
+--- 82,90 ----
+    (define-values (slatex pdf-slatex)
+      (letrec ([meta-slatex
+                (lambda (latex-fun)
+!                 (lambda (options filename)
+                    (slatex/no-latex filename)
+!                   (latex-fun options filename)))])
+        (values 
+         (meta-slatex latex)
+         (meta-slatex pdf-latex))))
+***************
+*** 98,101 ****
+                              base
+                              (current-directory))])
+            (slatex::process-main-tex-file (path->string name)))))))
+- 
+--- 98,100 ----
+
+Diff finished.  Tue Aug  5 09:15:19 2008
+
+
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: bugs@plt-scheme.org, cdutchyn@acm.org
+Cc: 
+Subject: Re: all/9656: pdf-slatex doesn't accept command-line arguments intended for LaTeX
+Date: Tue, 5 Aug 2008 12:29:04 -0400
+
+ Recently I changed (plain) slatex to take a command line option ('-n')  
+ that just preprocesses the file without running (pdf)latex.  I made  
+ this change when I had a similar issue with the rubber tool, which  
+ passes along pure TeX commands to (pdf)latex on the command line.   
+ This means that the solution of passing along any unused option-like  
+ arguments, as you do here, would not work in the rubber case.  I think  
+ it's better to be able to use slatex as only a preprocessor for these  
+ kinds of interactions, instead of trying to guess exactly which  
+ arguments should be interpreted as files and which should be passed  
+ through to (pdf)latex.
+ 
+ This change is available in SVN and should be available in the nightly  
+ builds, but has not made its way into any of the official releases yet.
+ 
+ Stevie
+
+State changed from "open" to "closed" by sstrickl at Tue, 05 Aug 2008 14:37:40 -0400
+Reason>>> Fixed in SVN (r10563 for original changes, r11086 for port to pdf-slatex)
+
+
+Responsible changed from "nobody" to "sstrickl" by eli at Mon, 16 Mar 2009 06:13:47 -0400
+Reason>>> stevie closed
+

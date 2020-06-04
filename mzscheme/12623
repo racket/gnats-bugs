@@ -1,0 +1,98 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Mar  8 20:01:06 2012
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q2910oIl006812
+	for <bugs@bugs.plt-scheme.org>; Thu, 8 Mar 2012 20:00:50 -0500
+Message-Id: <201203090100.q2910lU4006806@champlain.ccs.neu.edu>
+Date: Thu, 8 Mar 2012 20:00:47 -0500
+From: cce@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: free-identifier=? / bound-identifier=? inconsistency
+
+>Number:         12623
+>Category:       mzscheme
+>Synopsis:       free-identifier=? / bound-identifier=? inconsistency
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Mar 08 20:04:01 -0500 2012
+>Closed-Date:    Mon May 20 16:49:58 -0400 2013
+>Last-Modified:  Mon May 20 16:49:58 -0400 2013
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1.7
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10.6; rv:5.0.1) Gecko/20100101 Firefox/5.0.1
+>Description:
+The below program produces a pair of identifiers that are bound-identifier=? but not free-identifier=?.  In the Dybvig paper, at least, this cannot happen; I am unaware of anything that should change the principle in this case.
+>How-To-Repeat:
+#lang racket/load
+
+(module lang racket/base
+  (#%module-begin
+
+    (provide
+      #%module-begin
+      (all-from-out racket/base)
+      (for-syntax
+        (all-from-out racket/base)
+        (all-from-out syntax/parse)))
+
+    (require
+      (for-syntax
+        racket/base
+        syntax/parse))
+
+    (define-syntax (#%module-begin stx)
+      (syntax-parse stx
+        [(_ before ...)
+         (syntax-parse (local-expand
+                         #'(#%plain-module-begin before ...)
+                         'module-begin
+                         '())
+           #:literal-sets {kernel-literals}
+           [(#%plain-module-begin
+              _
+              _
+              (#%plain-lambda {one:id}
+                (letrec-syntaxes+values _ _ two:id)))
+
+            (when (bound-identifier=? #'one #'two)
+              (unless (free-identifier=? #'one #'two)
+                (error 'bug
+                  "{bound,free}-identifier=? inconsistency")))])]))))
+
+(module bug 'lang
+  (#%module-begin
+
+    (define-syntaxes {lam}
+      (lambda (stx)
+        (syntax-parse stx
+          [(_ unmarked . body)
+           (define/syntax-parse marked
+             (syntax-local-introduce (attribute unmarked)))
+           #'(#%plain-lambda {marked}
+               (define-syntaxes {unmarked}
+                 (make-rename-transformer #'marked))
+               . body)])))
+
+    (define-syntaxes {x}
+      (make-rename-transformer #'dummy))
+
+    (lam x x)))
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt@racket-lang.org at Mon, 20 May 2013 16:49:58 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/a48154a665
+  | fix problem in `free-identifier=?'
+  | 
+  | Renamings created by a rename-transformer binding were not treated
+  | correctly by `free-identifier=?'.
+  | 
+  | Closes PR 12623
+

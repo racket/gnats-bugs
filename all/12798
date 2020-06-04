@@ -1,0 +1,1127 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon May 28 13:27:10 2012
+Received: from mail-vc0-f172.google.com (mail-vc0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q4SHR6Hk015514
+	for <bugs@bugs.plt-scheme.org>; Mon, 28 May 2012 13:27:06 -0400
+Message-Id: <201205281727.q4SHR3Gi015508@champlain.ccs.neu.edu>
+Date: Mon, 28 May 2012 13:27:03 -0400
+From: mwilber@uccs.edu
+To: bugs@racket-lang.org
+Subject: serial-lambda gets free variables in the wrong order
+
+>Number:         12798
+>Category:       all
+>Synopsis:       serial-lambda gets free variables in the wrong order
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon May 28 13:28:01 -0400 2012
+>Closed-Date:    Mon May 28 14:53:09 -0400 2012
+>Last-Modified:  Tue May 29 14:52:01 -0400 2012
+>Originator:     Michael W.
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.5--2012-05-06(-/f)
+>Environment:
+unix "Linux eevee 3.0-ARCH #1 SMP PREEMPT Fri Oct 7 10:11:05 UTC 2011 i686 Genuine Intel(R) CPU T2400 @ 1.83GHz GenuineIntel GNU/Linux" (i386-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 154888636
+Links: (links) = ("geiser" "fluxus-018"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/michael/.racket/5.3.0.5/collects"
+ (non-existent-path))
+("/usr/lib/racket/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unst!
+ able" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #f #f ((main) (test))))
+>Description:
+When using serial-lambda from web-server/lang/serial-lambda, the ordering of the closure's free variables is unreliable. Sometimes, the free variables are mixed up (shuffled) by the serialization/deserialization process.
+
+This behavior is fragile; it only breaks under certain conditions.
+>How-To-Repeat:
+Here's an example file that demonstrates this on my machine. It just serializes a lambda and displays both the lambda and the result:
+
+;; -------- 8< ------- 8< -------- 8< -------
+#lang racket
+(require web-server/lang/serial-lambda
+         racket/serialize) 
+
+(provide run)  ;; works when this is commented
+
+(define (run)
+  (define free-b "two")
+  (define free-c "three")
+  (serialize
+    (serial-lambda ()
+      (define bound-a "one") ;; works when this definition is removed
+      (displayln (list bound-a free-b free-c)))))
+
+
+(module+ main
+  (define fserial (run))
+  (write fserial)(newline)
+  ((deserialize fserial)))
+;; -------- 8< ------- 8< -------- 8< -------
+
+Output:
+$ racket test2.rkt
+((3) 1 ((#"/tmp/test2.rkt" . "lifted.6")) 0 () () (0 "three" "two"))
+(one two three)
+
+The variables are in the correct order.
+
+Let's try to run the serialized lambda again, but this time from the REPL:
+
+$ racket -i -l racket/serialize
+Welcome to Racket v5.3.0.5.
+> ((deserialize '((3) 1 ((#"/tmp/test2.rkt" . "lifted.6")) 0 () () (0 "three" "two"))))
+(one three two)
+
+The ordering of the free variables has been changed: free-b is now free-c and vice versa.
+
+Here are some things that fix this (make ordering reliable):
+- Removing the (provide run) from the top of the file
+- Removing (define bound-a) from the serial-lambda
+
+This might have something to do with the way (deserialize) gathers the serial-lambda's serialization info with (dynamic-require), but I don't know for sure.
+
+Thanks for the help. :)
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 -0400
+Reason>>> Serialization is sensitive to compilation by design.
+
+I can only recreate your problem when I don't compile the
+module with the serializable closure---which means that
+running the module gets one compilation and using the REPL
+gets another compilation.
+
+If I compile it first (raco make foo.rkt) and then run it or
+require it, I get consistent results.
+
+It would be nice to cause the sequence you're doing to
+error, but I don't know how to tell compilations apart where
+the text hasn't changed.
+
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org,
+        jay@racket-lang.org, mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 14:59:27 -0400
+
+ On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >
+ > State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 -0400
+ > Reason>>> Serialization is sensitive to compilation by design.
+ >
+ > I can only recreate your problem when I don't compile the
+ > module with the serializable closure---which means that
+ > running the module gets one compilation and using the REPL
+ > gets another compilation.
+ 
+ This seems unfortunate, on a naive reading, since one of the big (and
+ nice) ideas in "you want it when" is that ahead-of-time compiling
+ shouldn't change the semantics of the program.
+ 
+ > If I compile it first (raco make foo.rkt) and then run it or
+ > require it, I get consistent results.
+ >
+ > It would be nice to cause the sequence you're doing to
+ > error, but I don't know how to tell compilations apart where
+ > the text hasn't changed.
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Jay McCarthy <jay@racket-lang.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org, mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 13:01:14 -0600
+
+ syntax/free-vars uses a compile time hash table and so its results are
+ dependent on the configuration of memory.
+ 
+ If it were changed to sort the results of something, it would be
+ plausible that this could work.
+ 
+ Jay
+ 
+ On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >>
+ >> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 -0400
+ >> Reason>>> Serialization is sensitive to compilation by design.
+ >>
+ >> I can only recreate your problem when I don't compile the
+ >> module with the serializable closure---which means that
+ >> running the module gets one compilation and using the REPL
+ >> gets another compilation.
+ >
+ > This seems unfortunate, on a naive reading, since one of the big (and
+ > nice) ideas in "you want it when" is that ahead-of-time compiling
+ > shouldn't change the semantics of the program.
+ >
+ >> If I compile it first (raco make foo.rkt) and then run it or
+ >> require it, I get consistent results.
+ >>
+ >> It would be nice to cause the sequence you're doing to
+ >> error, but I don't know how to tell compilations apart where
+ >> the text hasn't changed.
+ >
+ >
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ 
+From: Jay McCarthy <jay@racket-lang.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org, mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 13:23:55 -0600
+
+ I tried this and it doesn't work.
+ 
+ The problem is that there's no obvious way to sort identifiers. I
+ assumed that you could turn them to strings and sort them, but you
+ have problems where two identifiers have the same text but one was
+ macro generated or something. Then the order they come out of the hash
+ table is still "random".
+ 
+ We could re-implement syntax/free-vars to not use the hash table at
+ all and deal with a slower version of merge that was list based.
+ 
+ Jay
+ 
+ On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > syntax/free-vars uses a compile time hash table and so its results are
+ > dependent on the configuration of memory.
+ >
+ > If it were changed to sort the results of something, it would be
+ > plausible that this could work.
+ >
+ > Jay
+ >
+ > On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >>>
+ >>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 -0400
+ >>> Reason>>> Serialization is sensitive to compilation by design.
+ >>>
+ >>> I can only recreate your problem when I don't compile the
+ >>> module with the serializable closure---which means that
+ >>> running the module gets one compilation and using the REPL
+ >>> gets another compilation.
+ >>
+ >> This seems unfortunate, on a naive reading, since one of the big (and
+ >> nice) ideas in "you want it when" is that ahead-of-time compiling
+ >> shouldn't change the semantics of the program.
+ >>
+ >>> If I compile it first (raco make foo.rkt) and then run it or
+ >>> require it, I get consistent results.
+ >>>
+ >>> It would be nice to cause the sequence you're doing to
+ >>> error, but I don't know how to tell compilations apart where
+ >>> the text hasn't changed.
+ >>
+ >>
+ >>
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Jay McCarthy <jay@racket-lang.org>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 14:34:59 -0500
+
+ All we really need is an ordering on syntax objects, right? That seems
+ like a reasonable thing to ask racket to provide.
+ 
+ Robby
+ 
+ On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > I tried this and it doesn't work.
+ >
+ > The problem is that there's no obvious way to sort identifiers. I
+ > assumed that you could turn them to strings and sort them, but you
+ > have problems where two identifiers have the same text but one was
+ > macro generated or something. Then the order they come out of the hash
+ > table is still "random".
+ >
+ > We could re-implement syntax/free-vars to not use the hash table at
+ > all and deal with a slower version of merge that was list based.
+ >
+ > Jay
+ >
+ > On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> syntax/free-vars uses a compile time hash table and so its results are
+ >> dependent on the configuration of memory.
+ >>
+ >> If it were changed to sort the results of something, it would be
+ >> plausible that this could work.
+ >>
+ >> Jay
+ >>
+ >> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >>>>
+ >>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 -0400
+ >>>> Reason>>> Serialization is sensitive to compilation by design.
+ >>>>
+ >>>> I can only recreate your problem when I don't compile the
+ >>>> module with the serializable closure---which means that
+ >>>> running the module gets one compilation and using the REPL
+ >>>> gets another compilation.
+ >>>
+ >>> This seems unfortunate, on a naive reading, since one of the big (and
+ >>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ >>> shouldn't change the semantics of the program.
+ >>>
+ >>>> If I compile it first (raco make foo.rkt) and then run it or
+ >>>> require it, I get consistent results.
+ >>>>
+ >>>> It would be nice to cause the sequence you're doing to
+ >>>> error, but I don't know how to tell compilations apart where
+ >>>> the text hasn't changed.
+ >>>
+ >>>
+ >>>
+ >>> --
+ >>> sam th
+ >>> samth@ccs.neu.edu
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Jay McCarthy <jay@racket-lang.org>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 18:43:11 -0600
+
+ Ordering lexical information sounds tricky at best.
+ 
+ If something like a list would work, then could you record the order in
+ which identifiers are put into a hash table (by using the hash table's
+ current size as part of each value)?
+ 
+ At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ > All we really need is an ordering on syntax objects, right? That seems
+ > like a reasonable thing to ask racket to provide.
+ > 
+ > Robby
+ > 
+ > On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > > I tried this and it doesn't work.
+ > >
+ > > The problem is that there's no obvious way to sort identifiers. I
+ > > assumed that you could turn them to strings and sort them, but you
+ > > have problems where two identifiers have the same text but one was
+ > > macro generated or something. Then the order they come out of the hash
+ > > table is still "random".
+ > >
+ > > We could re-implement syntax/free-vars to not use the hash table at
+ > > all and deal with a slower version of merge that was list based.
+ > >
+ > > Jay
+ > >
+ > > On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > >> syntax/free-vars uses a compile time hash table and so its results are
+ > >> dependent on the configuration of memory.
+ > >>
+ > >> If it were changed to sort the results of something, it would be
+ > >> plausible that this could work.
+ > >>
+ > >> Jay
+ > >>
+ > >> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > >>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ > >>>>
+ > >>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 -0400
+ > >>>> Reason>>> Serialization is sensitive to compilation by design.
+ > >>>>
+ > >>>> I can only recreate your problem when I don't compile the
+ > >>>> module with the serializable closure---which means that
+ > >>>> running the module gets one compilation and using the REPL
+ > >>>> gets another compilation.
+ > >>>
+ > >>> This seems unfortunate, on a naive reading, since one of the big (and
+ > >>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ > >>> shouldn't change the semantics of the program.
+ > >>>
+ > >>>> If I compile it first (raco make foo.rkt) and then run it or
+ > >>>> require it, I get consistent results.
+ > >>>>
+ > >>>> It would be nice to cause the sequence you're doing to
+ > >>>> error, but I don't know how to tell compilations apart where
+ > >>>> the text hasn't changed.
+ > >>>
+ > >>>
+ > >>>
+ > >>> --
+ > >>> sam th
+ > >>> samth@ccs.neu.edu
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Jay McCarthy <jay@racket-lang.org>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the wrong order
+Date: Mon, 28 May 2012 20:58:07 -0400
+
+ Is it possible to determine the static distance for a variable? If so, it provides a unique measure for ordering ids. 
+ 
+ 
+ On May 28, 2012, at 8:43 PM, Matthew Flatt wrote:
+ 
+ > Ordering lexical information sounds tricky at best.
+ > 
+ > If something like a list would work, then could you record the order in
+ > which identifiers are put into a hash table (by using the hash table's
+ > current size as part of each value)?
+ > 
+ > At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ >> All we really need is an ordering on syntax objects, right? That seems
+ >> like a reasonable thing to ask racket to provide.
+ >> 
+ >> Robby
+ >> 
+ >> On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>> I tried this and it doesn't work.
+ >>> 
+ >>> The problem is that there's no obvious way to sort identifiers. I
+ >>> assumed that you could turn them to strings and sort them, but you
+ >>> have problems where two identifiers have the same text but one was
+ >>> macro generated or something. Then the order they come out of the hash
+ >>> table is still "random".
+ >>> 
+ >>> We could re-implement syntax/free-vars to not use the hash table at
+ >>> all and deal with a slower version of merge that was list based.
+ >>> 
+ >>> Jay
+ >>> 
+ >>> On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>>> syntax/free-vars uses a compile time hash table and so its results are
+ >>>> dependent on the configuration of memory.
+ >>>> 
+ >>>> If it were changed to sort the results of something, it would be
+ >>>> plausible that this could work.
+ >>>> 
+ >>>> Jay
+ >>>> 
+ >>>> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >>>>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >>>>>> 
+ >>>>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 -0400
+ >>>>>> Reason>>> Serialization is sensitive to compilation by design.
+ >>>>>> 
+ >>>>>> I can only recreate your problem when I don't compile the
+ >>>>>> module with the serializable closure---which means that
+ >>>>>> running the module gets one compilation and using the REPL
+ >>>>>> gets another compilation.
+ >>>>> 
+ >>>>> This seems unfortunate, on a naive reading, since one of the big (and
+ >>>>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ >>>>> shouldn't change the semantics of the program.
+ >>>>> 
+ >>>>>> If I compile it first (raco make foo.rkt) and then run it or
+ >>>>>> require it, I get consistent results.
+ >>>>>> 
+ >>>>>> It would be nice to cause the sequence you're doing to
+ >>>>>> error, but I don't know how to tell compilations apart where
+ >>>>>> the text hasn't changed.
+ >>>>> 
+ >>>>> 
+ >>>>> 
+ >>>>> --
+ >>>>> sam th
+ >>>>> samth@ccs.neu.edu
+ 
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Jay McCarthy <jay@racket-lang.org>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the wrong order
+Date: Mon, 28 May 2012 19:38:00 -0600
+
+ That would provide an order for identifiers that correspond to
+ variables within a particular scope (as opposed to an order on
+ identifiers in general), and that order would work for a free-variable
+ calculation, but it seems fairly special-purpose for a built-in
+ operation.
+ 
+ An order based on left-to-right initial occurrence in the expression
+ seems simpler and more direct to me.
+ 
+ At Mon, 28 May 2012 20:58:07 -0400, Matthias Felleisen wrote:
+ > 
+ > Is it possible to determine the static distance for a variable? If so, it provides 
+ > a unique measure for ordering ids. 
+ > 
+ > 
+ > On May 28, 2012, at 8:43 PM, Matthew Flatt wrote:
+ > 
+ > > Ordering lexical information sounds tricky at best.
+ > > 
+ > > If something like a list would work, then could you record the order in
+ > > which identifiers are put into a hash table (by using the hash table's
+ > > current size as part of each value)?
+ > > 
+ > > At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ > >> All we really need is an ordering on syntax objects, right? That seems
+ > >> like a reasonable thing to ask racket to provide.
+ > >> 
+ > >> Robby
+ > >> 
+ > >> On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > >>> I tried this and it doesn't work.
+ > >>> 
+ > >>> The problem is that there's no obvious way to sort identifiers. I
+ > >>> assumed that you could turn them to strings and sort them, but you
+ > >>> have problems where two identifiers have the same text but one was
+ > >>> macro generated or something. Then the order they come out of the hash
+ > >>> table is still "random".
+ > >>> 
+ > >>> We could re-implement syntax/free-vars to not use the hash table at
+ > >>> all and deal with a slower version of merge that was list based.
+ > >>> 
+ > >>> Jay
+ > >>> 
+ > >>> On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > >>>> syntax/free-vars uses a compile time hash table and so its results are
+ > >>>> dependent on the configuration of memory.
+ > >>>> 
+ > >>>> If it were changed to sort the results of something, it would be
+ > >>>> plausible that this could work.
+ > >>>> 
+ > >>>> Jay
+ > >>>> 
+ > >>>> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> 
+ > wrote:
+ > >>>>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ > >>>>>> 
+ > >>>>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09 
+ > -0400
+ > >>>>>> Reason>>> Serialization is sensitive to compilation by design.
+ > >>>>>> 
+ > >>>>>> I can only recreate your problem when I don't compile the
+ > >>>>>> module with the serializable closure---which means that
+ > >>>>>> running the module gets one compilation and using the REPL
+ > >>>>>> gets another compilation.
+ > >>>>> 
+ > >>>>> This seems unfortunate, on a naive reading, since one of the big (and
+ > >>>>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ > >>>>> shouldn't change the semantics of the program.
+ > >>>>> 
+ > >>>>>> If I compile it first (raco make foo.rkt) and then run it or
+ > >>>>>> require it, I get consistent results.
+ > >>>>>> 
+ > >>>>>> It would be nice to cause the sequence you're doing to
+ > >>>>>> error, but I don't know how to tell compilations apart where
+ > >>>>>> the text hasn't changed.
+ > >>>>> 
+ > >>>>> 
+ > >>>>> 
+ > >>>>> --
+ > >>>>> sam th
+ > >>>>> samth@ccs.neu.edu
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Mon, 28 May 2012 22:15:52 -0400
+Reason>>> A commit by mflatt@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/ee93e35260
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Jay McCarthy <jay@racket-lang.org>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 21:19:28 -0500
+
+ Would using eq-hash-codes also work?
+ 
+ Robby
+ 
+ On Mon, May 28, 2012 at 8:38 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > That would provide an order for identifiers that correspond to
+ > variables within a particular scope (as opposed to an order on
+ > identifiers in general), and that order would work for a free-variable
+ > calculation, but it seems fairly special-purpose for a built-in
+ > operation.
+ >
+ > An order based on left-to-right initial occurrence in the expression
+ > seems simpler and more direct to me.
+ >
+ > At Mon, 28 May 2012 20:58:07 -0400, Matthias Felleisen wrote:
+ >>
+ >> Is it possible to determine the static distance for a variable? If so, it provides
+ >> a unique measure for ordering ids.
+ >>
+ >>
+ >> On May 28, 2012, at 8:43 PM, Matthew Flatt wrote:
+ >>
+ >> > Ordering lexical information sounds tricky at best.
+ >> >
+ >> > If something like a list would work, then could you record the order in
+ >> > which identifiers are put into a hash table (by using the hash table's
+ >> > current size as part of each value)?
+ >> >
+ >> > At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ >> >> All we really need is an ordering on syntax objects, right? That seems
+ >> >> like a reasonable thing to ask racket to provide.
+ >> >>
+ >> >> Robby
+ >> >>
+ >> >> On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> >>> I tried this and it doesn't work.
+ >> >>>
+ >> >>> The problem is that there's no obvious way to sort identifiers. I
+ >> >>> assumed that you could turn them to strings and sort them, but you
+ >> >>> have problems where two identifiers have the same text but one was
+ >> >>> macro generated or something. Then the order they come out of the hash
+ >> >>> table is still "random".
+ >> >>>
+ >> >>> We could re-implement syntax/free-vars to not use the hash table at
+ >> >>> all and deal with a slower version of merge that was list based.
+ >> >>>
+ >> >>> Jay
+ >> >>>
+ >> >>> On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> >>>> syntax/free-vars uses a compile time hash table and so its results are
+ >> >>>> dependent on the configuration of memory.
+ >> >>>>
+ >> >>>> If it were changed to sort the results of something, it would be
+ >> >>>> plausible that this could work.
+ >> >>>>
+ >> >>>> Jay
+ >> >>>>
+ >> >>>> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ >> wrote:
+ >> >>>>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >> >>>>>>
+ >> >>>>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09
+ >> -0400
+ >> >>>>>> Reason>>> Serialization is sensitive to compilation by design.
+ >> >>>>>>
+ >> >>>>>> I can only recreate your problem when I don't compile the
+ >> >>>>>> module with the serializable closure---which means that
+ >> >>>>>> running the module gets one compilation and using the REPL
+ >> >>>>>> gets another compilation.
+ >> >>>>>
+ >> >>>>> This seems unfortunate, on a naive reading, since one of the big (and
+ >> >>>>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ >> >>>>> shouldn't change the semantics of the program.
+ >> >>>>>
+ >> >>>>>> If I compile it first (raco make foo.rkt) and then run it or
+ >> >>>>>> require it, I get consistent results.
+ >> >>>>>>
+ >> >>>>>> It would be nice to cause the sequence you're doing to
+ >> >>>>>> error, but I don't know how to tell compilations apart where
+ >> >>>>>> the text hasn't changed.
+ >> >>>>>
+ >> >>>>>
+ >> >>>>>
+ >> >>>>> --
+ >> >>>>> sam th
+ >> >>>>> samth@ccs.neu.edu
+ 
+From: Jay McCarthy <jay@racket-lang.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 21:03:18 -0600
+
+ eq-hash-codes are basically what we're already using and are
+ memory-layout sensitive, IIUC.
+ 
+ I think the most straight-forward solution is the order added as
+ Matthew suggests.
+ 
+ Jay
+ 
+ On Mon, May 28, 2012 at 8:19 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Would using eq-hash-codes also work?
+ >
+ > Robby
+ >
+ > On Mon, May 28, 2012 at 8:38 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >> That would provide an order for identifiers that correspond to
+ >> variables within a particular scope (as opposed to an order on
+ >> identifiers in general), and that order would work for a free-variable
+ >> calculation, but it seems fairly special-purpose for a built-in
+ >> operation.
+ >>
+ >> An order based on left-to-right initial occurrence in the expression
+ >> seems simpler and more direct to me.
+ >>
+ >> At Mon, 28 May 2012 20:58:07 -0400, Matthias Felleisen wrote:
+ >>>
+ >>> Is it possible to determine the static distance for a variable? If so, it provides
+ >>> a unique measure for ordering ids.
+ >>>
+ >>>
+ >>> On May 28, 2012, at 8:43 PM, Matthew Flatt wrote:
+ >>>
+ >>> > Ordering lexical information sounds tricky at best.
+ >>> >
+ >>> > If something like a list would work, then could you record the order in
+ >>> > which identifiers are put into a hash table (by using the hash table's
+ >>> > current size as part of each value)?
+ >>> >
+ >>> > At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ >>> >> All we really need is an ordering on syntax objects, right? That seems
+ >>> >> like a reasonable thing to ask racket to provide.
+ >>> >>
+ >>> >> Robby
+ >>> >>
+ >>> >> On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>> >>> I tried this and it doesn't work.
+ >>> >>>
+ >>> >>> The problem is that there's no obvious way to sort identifiers. I
+ >>> >>> assumed that you could turn them to strings and sort them, but you
+ >>> >>> have problems where two identifiers have the same text but one was
+ >>> >>> macro generated or something. Then the order they come out of the hash
+ >>> >>> table is still "random".
+ >>> >>>
+ >>> >>> We could re-implement syntax/free-vars to not use the hash table at
+ >>> >>> all and deal with a slower version of merge that was list based.
+ >>> >>>
+ >>> >>> Jay
+ >>> >>>
+ >>> >>> On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>> >>>> syntax/free-vars uses a compile time hash table and so its results are
+ >>> >>>> dependent on the configuration of memory.
+ >>> >>>>
+ >>> >>>> If it were changed to sort the results of something, it would be
+ >>> >>>> plausible that this could work.
+ >>> >>>>
+ >>> >>>> Jay
+ >>> >>>>
+ >>> >>>> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ >>> wrote:
+ >>> >>>>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >>> >>>>>>
+ >>> >>>>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09
+ >>> -0400
+ >>> >>>>>> Reason>>> Serialization is sensitive to compilation by design.
+ >>> >>>>>>
+ >>> >>>>>> I can only recreate your problem when I don't compile the
+ >>> >>>>>> module with the serializable closure---which means that
+ >>> >>>>>> running the module gets one compilation and using the REPL
+ >>> >>>>>> gets another compilation.
+ >>> >>>>>
+ >>> >>>>> This seems unfortunate, on a naive reading, since one of the big (and
+ >>> >>>>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ >>> >>>>> shouldn't change the semantics of the program.
+ >>> >>>>>
+ >>> >>>>>> If I compile it first (raco make foo.rkt) and then run it or
+ >>> >>>>>> require it, I get consistent results.
+ >>> >>>>>>
+ >>> >>>>>> It would be nice to cause the sequence you're doing to
+ >>> >>>>>> error, but I don't know how to tell compilations apart where
+ >>> >>>>>> the text hasn't changed.
+ >>> >>>>>
+ >>> >>>>>
+ >>> >>>>>
+ >>> >>>>> --
+ >>> >>>>> sam th
+ >>> >>>>> samth@ccs.neu.edu
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Jay McCarthy <jay@racket-lang.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Mon, 28 May 2012 21:43:35 -0600
+
+ My suggestion was over-complicated because I assumed that `merge'
+ received hash-table arguments. It actually receives list arguments, so
+ it's just a matter of accumulating a list instead of only a hash table.
+ And then I made more changes to change the complexity from quadratic to
+ linear.
+ 
+ At Mon, 28 May 2012 21:03:18 -0600, Jay McCarthy wrote:
+ > eq-hash-codes are basically what we're already using and are
+ > memory-layout sensitive, IIUC.
+ > 
+ > I think the most straight-forward solution is the order added as
+ > Matthew suggests.
+ > 
+ > Jay
+ > 
+ > On Mon, May 28, 2012 at 8:19 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ > > Would using eq-hash-codes also work?
+ > >
+ > > Robby
+ > >
+ > > On Mon, May 28, 2012 at 8:38 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > >> That would provide an order for identifiers that correspond to
+ > >> variables within a particular scope (as opposed to an order on
+ > >> identifiers in general), and that order would work for a free-variable
+ > >> calculation, but it seems fairly special-purpose for a built-in
+ > >> operation.
+ > >>
+ > >> An order based on left-to-right initial occurrence in the expression
+ > >> seems simpler and more direct to me.
+ > >>
+ > >> At Mon, 28 May 2012 20:58:07 -0400, Matthias Felleisen wrote:
+ > >>>
+ > >>> Is it possible to determine the static distance for a variable? If so, it 
+ > provides
+ > >>> a unique measure for ordering ids.
+ > >>>
+ > >>>
+ > >>> On May 28, 2012, at 8:43 PM, Matthew Flatt wrote:
+ > >>>
+ > >>> > Ordering lexical information sounds tricky at best.
+ > >>> >
+ > >>> > If something like a list would work, then could you record the order in
+ > >>> > which identifiers are put into a hash table (by using the hash table's
+ > >>> > current size as part of each value)?
+ > >>> >
+ > >>> > At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ > >>> >> All we really need is an ordering on syntax objects, right? That seems
+ > >>> >> like a reasonable thing to ask racket to provide.
+ > >>> >>
+ > >>> >> Robby
+ > >>> >>
+ > >>> >> On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > >>> >>> I tried this and it doesn't work.
+ > >>> >>>
+ > >>> >>> The problem is that there's no obvious way to sort identifiers. I
+ > >>> >>> assumed that you could turn them to strings and sort them, but you
+ > >>> >>> have problems where two identifiers have the same text but one was
+ > >>> >>> macro generated or something. Then the order they come out of the hash
+ > >>> >>> table is still "random".
+ > >>> >>>
+ > >>> >>> We could re-implement syntax/free-vars to not use the hash table at
+ > >>> >>> all and deal with a slower version of merge that was list based.
+ > >>> >>>
+ > >>> >>> Jay
+ > >>> >>>
+ > >>> >>> On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > >>> >>>> syntax/free-vars uses a compile time hash table and so its results are
+ > >>> >>>> dependent on the configuration of memory.
+ > >>> >>>>
+ > >>> >>>> If it were changed to sort the results of something, it would be
+ > >>> >>>> plausible that this could work.
+ > >>> >>>>
+ > >>> >>>> Jay
+ > >>> >>>>
+ > >>> >>>> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ > >>> wrote:
+ > >>> >>>>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ > >>> >>>>>>
+ > >>> >>>>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09
+ > >>> -0400
+ > >>> >>>>>> Reason>>> Serialization is sensitive to compilation by design.
+ > >>> >>>>>>
+ > >>> >>>>>> I can only recreate your problem when I don't compile the
+ > >>> >>>>>> module with the serializable closure---which means that
+ > >>> >>>>>> running the module gets one compilation and using the REPL
+ > >>> >>>>>> gets another compilation.
+ > >>> >>>>>
+ > >>> >>>>> This seems unfortunate, on a naive reading, since one of the big (and
+ > >>> >>>>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ > >>> >>>>> shouldn't change the semantics of the program.
+ > >>> >>>>>
+ > >>> >>>>>> If I compile it first (raco make foo.rkt) and then run it or
+ > >>> >>>>>> require it, I get consistent results.
+ > >>> >>>>>>
+ > >>> >>>>>> It would be nice to cause the sequence you're doing to
+ > >>> >>>>>> error, but I don't know how to tell compilations apart where
+ > >>> >>>>>> the text hasn't changed.
+ > >>> >>>>>
+ > >>> >>>>>
+ > >>> >>>>>
+ > >>> >>>>> --
+ > >>> >>>>> sam th
+ > >>> >>>>> samth@ccs.neu.edu
+ 
+From: Jay McCarthy <jay@racket-lang.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org,
+        mwilber@uccs.edu
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the
+ wrong order
+Date: Tue, 29 May 2012 12:31:45 -0600
+
+ Awesome.
+ 
+ Michael, it is now probable that you won't experience your PR.
+ 
+ Jay
+ 
+ On Mon, May 28, 2012 at 9:43 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > My suggestion was over-complicated because I assumed that `merge'
+ > received hash-table arguments. It actually receives list arguments, so
+ > it's just a matter of accumulating a list instead of only a hash table.
+ > And then I made more changes to change the complexity from quadratic to
+ > linear.
+ >
+ > At Mon, 28 May 2012 21:03:18 -0600, Jay McCarthy wrote:
+ >> eq-hash-codes are basically what we're already using and are
+ >> memory-layout sensitive, IIUC.
+ >>
+ >> I think the most straight-forward solution is the order added as
+ >> Matthew suggests.
+ >>
+ >> Jay
+ >>
+ >> On Mon, May 28, 2012 at 8:19 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >> > Would using eq-hash-codes also work?
+ >> >
+ >> > Robby
+ >> >
+ >> > On Mon, May 28, 2012 at 8:38 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >> >> That would provide an order for identifiers that correspond to
+ >> >> variables within a particular scope (as opposed to an order on
+ >> >> identifiers in general), and that order would work for a free-variable
+ >> >> calculation, but it seems fairly special-purpose for a built-in
+ >> >> operation.
+ >> >>
+ >> >> An order based on left-to-right initial occurrence in the expression
+ >> >> seems simpler and more direct to me.
+ >> >>
+ >> >> At Mon, 28 May 2012 20:58:07 -0400, Matthias Felleisen wrote:
+ >> >>>
+ >> >>> Is it possible to determine the static distance for a variable? If so, it
+ >> provides
+ >> >>> a unique measure for ordering ids.
+ >> >>>
+ >> >>>
+ >> >>> On May 28, 2012, at 8:43 PM, Matthew Flatt wrote:
+ >> >>>
+ >> >>> > Ordering lexical information sounds tricky at best.
+ >> >>> >
+ >> >>> > If something like a list would work, then could you record the order in
+ >> >>> > which identifiers are put into a hash table (by using the hash table's
+ >> >>> > current size as part of each value)?
+ >> >>> >
+ >> >>> > At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ >> >>> >> All we really need is an ordering on syntax objects, right? That seems
+ >> >>> >> like a reasonable thing to ask racket to provide.
+ >> >>> >>
+ >> >>> >> Robby
+ >> >>> >>
+ >> >>> >> On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> >>> >>> I tried this and it doesn't work.
+ >> >>> >>>
+ >> >>> >>> The problem is that there's no obvious way to sort identifiers. I
+ >> >>> >>> assumed that you could turn them to strings and sort them, but you
+ >> >>> >>> have problems where two identifiers have the same text but one was
+ >> >>> >>> macro generated or something. Then the order they come out of the hash
+ >> >>> >>> table is still "random".
+ >> >>> >>>
+ >> >>> >>> We could re-implement syntax/free-vars to not use the hash table at
+ >> >>> >>> all and deal with a slower version of merge that was list based.
+ >> >>> >>>
+ >> >>> >>> Jay
+ >> >>> >>>
+ >> >>> >>> On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> >>> >>>> syntax/free-vars uses a compile time hash table and so its results are
+ >> >>> >>>> dependent on the configuration of memory.
+ >> >>> >>>>
+ >> >>> >>>> If it were changed to sort the results of something, it would be
+ >> >>> >>>> plausible that this could work.
+ >> >>> >>>>
+ >> >>> >>>> Jay
+ >> >>> >>>>
+ >> >>> >>>> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ >> >>> wrote:
+ >> >>> >>>>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ >> >>> >>>>>>
+ >> >>> >>>>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09
+ >> >>> -0400
+ >> >>> >>>>>> Reason>>> Serialization is sensitive to compilation by design.
+ >> >>> >>>>>>
+ >> >>> >>>>>> I can only recreate your problem when I don't compile the
+ >> >>> >>>>>> module with the serializable closure---which means that
+ >> >>> >>>>>> running the module gets one compilation and using the REPL
+ >> >>> >>>>>> gets another compilation.
+ >> >>> >>>>>
+ >> >>> >>>>> This seems unfortunate, on a naive reading, since one of the big (and
+ >> >>> >>>>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ >> >>> >>>>> shouldn't change the semantics of the program.
+ >> >>> >>>>>
+ >> >>> >>>>>> If I compile it first (raco make foo.rkt) and then run it or
+ >> >>> >>>>>> require it, I get consistent results.
+ >> >>> >>>>>>
+ >> >>> >>>>>> It would be nice to cause the sequence you're doing to
+ >> >>> >>>>>> error, but I don't know how to tell compilations apart where
+ >> >>> >>>>>> the text hasn't changed.
+ >> >>> >>>>>
+ >> >>> >>>>>
+ >> >>> >>>>>
+ >> >>> >>>>> --
+ >> >>> >>>>> sam th
+ >> >>> >>>>> samth@ccs.neu.edu
+ 
+From: Michael Wilber <mwilber@uccs.edu>
+To: Jay McCarthy <jay@racket-lang.org>, Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>,
+        Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12798 serial-lambda gets free variables in the wrong order
+Date: Tue, 29 May 2012 12:49:35 -0600
+
+ Yes, it's fixed. Thanks! :)
+ 
+ On Tue, 29 May 2012 12:31:45 -0600, Jay McCarthy <jay@racket-lang.org> wrote:
+ > Awesome.
+ > 
+ > Michael, it is now probable that you won't experience your PR.
+ > 
+ > Jay
+ > 
+ > On Mon, May 28, 2012 at 9:43 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > > My suggestion was over-complicated because I assumed that `merge'
+ > > received hash-table arguments. It actually receives list arguments, so
+ > > it's just a matter of accumulating a list instead of only a hash table.
+ > > And then I made more changes to change the complexity from quadratic to
+ > > linear.
+ > >
+ > > At Mon, 28 May 2012 21:03:18 -0600, Jay McCarthy wrote:
+ > >> eq-hash-codes are basically what we're already using and are
+ > >> memory-layout sensitive, IIUC.
+ > >>
+ > >> I think the most straight-forward solution is the order added as
+ > >> Matthew suggests.
+ > >>
+ > >> Jay
+ > >>
+ > >> On Mon, May 28, 2012 at 8:19 PM, Robby Findler
+ > >> <robby@eecs.northwestern.edu> wrote:
+ > >> > Would using eq-hash-codes also work?
+ > >> >
+ > >> > Robby
+ > >> >
+ > >> > On Mon, May 28, 2012 at 8:38 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > >> >> That would provide an order for identifiers that correspond to
+ > >> >> variables within a particular scope (as opposed to an order on
+ > >> >> identifiers in general), and that order would work for a free-variable
+ > >> >> calculation, but it seems fairly special-purpose for a built-in
+ > >> >> operation.
+ > >> >>
+ > >> >> An order based on left-to-right initial occurrence in the expression
+ > >> >> seems simpler and more direct to me.
+ > >> >>
+ > >> >> At Mon, 28 May 2012 20:58:07 -0400, Matthias Felleisen wrote:
+ > >> >>>
+ > >> >>> Is it possible to determine the static distance for a variable? If so, it
+ > >> provides
+ > >> >>> a unique measure for ordering ids.
+ > >> >>>
+ > >> >>>
+ > >> >>> On May 28, 2012, at 8:43 PM, Matthew Flatt wrote:
+ > >> >>>
+ > >> >>> > Ordering lexical information sounds tricky at best.
+ > >> >>> >
+ > >> >>> > If something like a list would work, then could you record the order in
+ > >> >>> > which identifiers are put into a hash table (by using the hash table's
+ > >> >>> > current size as part of each value)?
+ > >> >>> >
+ > >> >>> > At Mon, 28 May 2012 14:34:59 -0500, Robby Findler wrote:
+ > >> >>> >> All we really need is an ordering on syntax objects, right? That seems
+ > >> >>> >> like a reasonable thing to ask racket to provide.
+ > >> >>> >>
+ > >> >>> >> Robby
+ > >> >>> >>
+ > >> >>> >> On Mon, May 28, 2012 at 2:23 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > >> >>> >>> I tried this and it doesn't work.
+ > >> >>> >>>
+ > >> >>> >>> The problem is that there's no obvious way to sort identifiers. I
+ > >> >>> >>> assumed that you could turn them to strings and sort them, but you
+ > >> >>> >>> have problems where two identifiers have the same text but one was
+ > >> >>> >>> macro generated or something. Then the order they come out of the hash
+ > >> >>> >>> table is still "random".
+ > >> >>> >>>
+ > >> >>> >>> We could re-implement syntax/free-vars to not use the hash table at
+ > >> >>> >>> all and deal with a slower version of merge that was list based.
+ > >> >>> >>>
+ > >> >>> >>> Jay
+ > >> >>> >>>
+ > >> >>> >>> On Mon, May 28, 2012 at 1:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > >> >>> >>>> syntax/free-vars uses a compile time hash table and so its results are
+ > >> >>> >>>> dependent on the configuration of memory.
+ > >> >>> >>>>
+ > >> >>> >>>> If it were changed to sort the results of something, it would be
+ > >> >>> >>>> plausible that this could work.
+ > >> >>> >>>>
+ > >> >>> >>>> Jay
+ > >> >>> >>>>
+ > >> >>> >>>> On Mon, May 28, 2012 at 12:59 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+ > >> >>> wrote:
+ > >> >>> >>>>> On Mon, May 28, 2012 at 2:53 PM,  <jay@racket-lang.org> wrote:
+ > >> >>> >>>>>>
+ > >> >>> >>>>>> State changed from "open" to "closed" by jay at Mon, 28 May 2012 14:53:09
+ > >> >>> -0400
+ > >> >>> >>>>>> Reason>>> Serialization is sensitive to compilation by design.
+ > >> >>> >>>>>>
+ > >> >>> >>>>>> I can only recreate your problem when I don't compile the
+ > >> >>> >>>>>> module with the serializable closure---which means that
+ > >> >>> >>>>>> running the module gets one compilation and using the REPL
+ > >> >>> >>>>>> gets another compilation.
+ > >> >>> >>>>>
+ > >> >>> >>>>> This seems unfortunate, on a naive reading, since one of the big (and
+ > >> >>> >>>>> nice) ideas in "you want it when" is that ahead-of-time compiling
+ > >> >>> >>>>> shouldn't change the semantics of the program.
+ > >> >>> >>>>>
+ > >> >>> >>>>>> If I compile it first (raco make foo.rkt) and then run it or
+ > >> >>> >>>>>> require it, I get consistent results.
+ > >> >>> >>>>>>
+ > >> >>> >>>>>> It would be nice to cause the sequence you're doing to
+ > >> >>> >>>>>> error, but I don't know how to tell compilations apart where
+ > >> >>> >>>>>> the text hasn't changed.
+ > >> >>> >>>>>
+ > >> >>> >>>>>
+ > >> >>> >>>>>
+ > >> >>> >>>>> --
+ > >> >>> >>>>> sam th
+ > >> >>> >>>>> samth@ccs.neu.edu
+ 

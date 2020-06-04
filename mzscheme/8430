@@ -1,0 +1,214 @@
+From apache@plt-scheme.org Sun Dec 10 16:07:15 2006
+Received: from py-out-1112.google.com (py-out-1112.google.com [64.233.166.176])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id kBAL796e000528
+	for <bugs@bugs.plt-scheme.org>; Sun, 10 Dec 2006 16:07:09 -0500
+Message-Id: <200612102107.kBAL78L4000523@champlain.ccs.neu.edu>
+Date: Sun, 10 Dec 2006 16:07:08 -0500
+From: hdg@cox.net
+To: bugs@plt-scheme.org
+Subject: custom readtables mishandle read/recurse of inserted ")"
+
+>Number:         8430
+>Category:       mzscheme
+>Synopsis:       custom readtables mishandle read/recurse of inserted ")"
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          analyzed
+>Confidential:   no
+>Arrival-Date:   Sun Dec 10 16:10:01 -0500 2006
+>Closed-Date:    
+>Last-Modified:  Tue Jan 16 15:15:01 -0500 2007
+>Originator:     David Goering
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.1-svn9dec2006
+>Environment:
+macosx "Darwin ip68-103-47-84.ks.ok.cox.net 8.8.0 Darwin Kernel Version 8.8.0: Fri Sep  8 17:18:57 PDT 2006; root:xnu-792.12.6.obj~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Applications/PLT Scheme Full v369.1/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 94605856
+
+Collections:
+(("/Users/david/Library/PLT Scheme/369.1/collects" non-existent-path) ("/Applications/PLT Scheme Full v369.1/collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+Using read/recurse to swap "(" and ")" for "<" and ">" fails.  The
+substitution of "(" works, but the substitution of ")" does not.
+
+Bug 8174 reported this bug an a similar bug with 'like-char' entries.  The 'like-char' bug was fixed, but the read/recurse bug was evidently overlooked.
+>How-To-Repeat:
+; replaces "<" with "(" and rereads
+(define parse-left-bracket
+	(case-lambda
+		[(ch port) 
+			;; `read' mode
+			(read/recursive 
+				port 
+				#\( 
+				rt)]
+		[(ch port src line col pos)
+			;; `read-syntax' mode
+			(read-syntax/recursive 
+				src
+				port
+				#\(
+				rt)
+			 src]))
+
+; replaces ">" with ")" and rereads
+(define parse-right-bracket
+	(case-lambda
+		[(ch port) 
+			;; `read' mode
+			(read/recursive 
+				port 
+				#\)
+				rt)]
+		[(ch port src line col pos)
+			;; `read-syntax' mode
+			(read-syntax/recursive 
+				src
+				port	
+				#\)
+				rt)
+			 src]))
+
+
+(define rt
+	(make-readtable #f	 
+		#\< 'terminating-macro parse-left-bracket
+		#\> 'terminating-macro parse-right-bracket
+	))
+
+#| tests
+
+(define test-<>-1 (parameterize ([current-readtable rt])
+	(read (open-input-string "( a<b c>d )"))))
+test-<>-1 ; should return => (a (b c) d); but fails with "read: unexpected ')'"
+
+(define test-<>-2
+	(parameterize ([current-readtable rt])
+		(read (open-input-string "( a<b c)d )"))))
+test-<>-2 ; => (a (b c) d)
+
+
+|#
+>Fix:
+>Audit-Trail:
+State changed from "open" to "analyzed" by mflatt at Mon, 15 Jan 2007 01:16:02 -0500
+Reason>>> We agree that the example doesn't work, but disagree
+on whether it shold work.
+
+The parenthesis-matching part of the reader does not invoke `read'
+recursively to parse a closing parenthesis, since
+ a closing parenthesis is not an expression. Instead,
+it has to check whether a character is a list closer, 
+stop if it is, or read an expression if it isn't.
+
+Mapping #\> to behave like #\) works because the 
+parenthesis-matching part of the reader consults the
+readtable to determine if a character is a closer (and of
+what sort). Mapping #\> to a reader macro doesn't work, because
+if `read' is being called recursively, then the parenthesis-matching
+part of the reader has already decided that the parenthsis isn't
+closed.
+
+That is, read of ")" (which is what the reader macro for
+#|> does) fails, because ")" isn't an expression. I really
+don't think this should be made to work, and I suspect that
+it can't really be made to work.
+
+The docs say
+
+  Meanwhile, if a character is mapped to the default behavior of an open
+  parenthesis (``(''), then it starts sequence that is closed by any
+  character that is mapped to a close parenthesis (``)'')
+
+I think this specification is consistent with the current
+behavior, but maybe something can be clarified in the
+docs?
+
+Thanks,
+Matthew
+
+From: H David Goering <hdg@cox.net>
+To: bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org, nobody@plt-scheme.org, sk@plt-scheme.org
+Subject: Re: [plt-bug] mzscheme/8430 custom readtables mishandle read/recurse of inserted ")"
+Date: Tue, 16 Jan 2007 14:13:06 -0600
+
+ Matthew,
+ 
+ I misinterpreted read/recursive as returning tokens, rather than sub- 
+ expressions.  I agree that there is no software bug here.
+ 
+ Perhaps the docs could be clearer.  The "Recursive Reads" section is  
+ clearer to me now, when I'm not predisposed to find a particular  
+ capability, but the feature is hazy because it provides two distinct  
+ capabilites -- manipulating the character stream and invoking  
+ alternative parsers  -- while skipping over tokenizing, a capability  
+ that would naturally lie between.  It's an unexplained gap, left for  
+ the imagination to fill in.
+ 
+ Thank you for taking the time to investigate and clarify.
+ 
+ David
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ On Jan 15, 2007, at 12:16 AM, mflatt@plt-scheme.org wrote:
+ 
+ >
+ > State changed from "open" to "analyzed" by mflatt at Mon, 15 Jan  
+ > 2007 01:16:02 -0500
+ > Reason>>> We agree that the example doesn't work, but disagree
+ > on whether it shold work.
+ >
+ > The parenthesis-matching part of the reader does not invoke `read'
+ > recursively to parse a closing parenthesis, since
+ >  a closing parenthesis is not an expression. Instead,
+ > it has to check whether a character is a list closer,
+ > stop if it is, or read an expression if it isn't.
+ >
+ > Mapping #\> to behave like #\) works because the
+ > parenthesis-matching part of the reader consults the
+ > readtable to determine if a character is a closer (and of
+ > what sort). Mapping #\> to a reader macro doesn't work, because
+ > if `read' is being called recursively, then the parenthesis-matching
+ > part of the reader has already decided that the parenthsis isn't
+ > closed.
+ >
+ > That is, read of ")" (which is what the reader macro for
+ > #|> does) fails, because ")" isn't an expression. I really
+ > don't think this should be made to work, and I suspect that
+ > it can't really be made to work.
+ >
+ > The docs say
+ >
+ >   Meanwhile, if a character is mapped to the default behavior of an  
+ > open
+ >   parenthesis (``(''), then it starts sequence that is closed by any
+ >   character that is mapped to a close parenthesis (``)'')
+ >
+ > I think this specification is consistent with the current
+ > behavior, but maybe something can be clarified in the
+ > docs?
+ >
+ > Thanks,
+ > Matthew
+ >
+ >
+ > View:
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8430
+ >
+ 

@@ -1,0 +1,5803 @@
+From kumo@bellsouth.net  Tue Jun  6 08:41:05 2000
+Received: from localhost (h-206-222-246-39.netscape.com [206.222.246.39])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id IAA21499
+	for <plt-gnats>; Tue, 6 Jun 2000 08:41:03 -0500 (CDT)
+Message-Id: <200006061341.IAA21499@cs.rice.edu>
+Date: Tue, 6 Jun 2000 08:41:03 -0500 (CDT)
+From: kumo@bellsouth.net
+To: plt-gnats@cs.rice.edu
+Subject: r5rs macro problems
+
+>Number:         1495
+>Category:       mzscheme
+>Synopsis:       r5rs macro problems
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Jun  6 13:45:06 GMT 2000
+>Last-Modified:  Tue Jun  6 12:54:14 CDT 2000
+>Originator:     david rush
+>Organization:
+titan
+>Release:        102/15
+>Environment:
+unix (sparc-solaris) (get-display-depth) = 8
+Tools: ("CVS" "analysis" "debug" "project-manager" "syncheck" "typeset" "unit-bundle")
+Docs Installed:
+("help" "teachpack" "r5rs" "mzscheme" "mred" "drscheme" "misclib" "framework" "tools" "mzc")
+Collections:
+(("/home/drush/dist/Scheme/plt/collects" ("CVS" "afm" "browser" "compiler" "countdwn" "defaults" "drjava" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "help" "hierarchy" "hierlist" "htdp" "icons" "launcher" "make" "mrdemo" "mred" "mrspidey" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "quasiquote" "readline" "setup" "slatex" "slibinit" "srpersist" "stepper" "tests" "texpict" "typeset" "userspce" "xml" "zodiac" "doc")))
+>Description:
+I have a medium-sized program which makes moderate use
+of R5RS macros (5400 LOC/225 lines of macros), which currently
+compiles and runs cleanly under Bigloo, Scheme48 and Larceny.
+When I feed it to mzscheme, I get the following error:
+
+/home/drush/dist/Scheme/plt/collects/mzlib/synruler.ss: 141.23-144.71: 
+unquote-splicing: invalid context within quasiquote in: 
+(quasiquote (begin (unquote-splicing expansion)))
+
+FWIW, I get the same error under version 101, although with less
+detail. OTOH, the error under 101, does identify a particular 
+macro as problematic. My reduced test case (including only that
+macro) does not exhibit the error under 101 or 102/15; however
+MrSpidey cannot analyze the test case under 102/15 (Indeed 
+MrSpidey also fails to analyze the whole program).
+>How-To-Repeat:
+Attempt to load my source file into mzscheme or execute
+it in DrScheme. 
+
+Sorry I can't do better, although I'd be happy to provide
+you with the source file. I will send the source under 
+separately to plt-bugs once I get a ticket# for this bug-report.
+>Fix:
+>Audit-Trail:
+
+From: David Rush <kumo@bellsouth.net>
+To: plt-gnats@cs.rice.edu, steck@cs.rice.edu
+Cc:  Subject: Re: all/1495: r5rs macro problems
+Date: 06 Jun 2000 14:51:08 +0100
+
+ plt-gnats@cs.rice.edu writes:
+ > It has the internal identification `all/1495'.
+ > 
+ > >Category:       all
+ > >Synopsis:       r5rs macro problems
+ > >Arrival-Date:   Tue Jun  6 13:45:06 GMT 2000
+ 
+ As promised in my bug report, here is the source code which fails.
+ 
+ david rush
+ 
+ ; -*- bee -*-
+ 
+ (require-library "synrule.ss")
+ (require-library "pretty.ss")
+ 
+ (define (repl)
+    (let loop ((form (read)))
+       (pretty-print (eval form))
+       (loop (read))))
+ 
+ ; don't know how to expand macros in PLT
+ (define (expand-syntax f) f)
+ 
+ (define-syntax cond-expand
+   (syntax-rules (PLT else)
+      ((cond-expand) (if #f #f))
+      
+      ((cond-expand (PLT exp) clauses ...)
+       (begin exp))
+ 
+      ((cond-expand (else exp) clauses ...)
+       (begin exp))
+ 
+      ((cond-expand clause0 clause+ ...)
+       (cond-expand clause+ ...))
+      
+      ))
+ ; -*- scheme -*-
+ 
+ ; bits and bobs used from SRFI-1 in s2
+ 
+ (define (take lis k)
+   (let recur ((lis lis) (k k))
+     (if (zero? k) '()
+ 	(cons (car lis)
+ 	      (recur (cdr lis) (- k 1))))))
+ 
+ (define (drop lis k)
+   (let iter ((lis lis) (k k))
+     (if (zero? k) lis (iter (cdr lis) (- k 1)))))
+ 
+ (define (take! lis k)
+   (if (zero? k) '()
+       (begin (set-cdr! (drop lis (- k 1)) '())
+ 	     lis)))
+ 
+ (define (unfold p f g seed . maybe-tail-gen)
+   (if (pair? maybe-tail-gen)
+       
+       (let ((tail-gen (car maybe-tail-gen)))
+ 	(let recur ((seed seed))
+ 	  (if (p seed) (tail-gen seed)
+ 	      (cons (f seed) (recur (g seed))))))
+ 
+       (let recur ((seed seed))
+ 	(if (p seed) '()
+ 	    (cons (f seed) (recur (g seed)))))))
+ 
+ 
+ (define (fold kons knil lis1 . lists)
+   (let lp ((lis lis1) (ans knil))			; Fast path
+     (if (null? lis) ans
+ 	(lp (cdr lis) (kons (car lis) ans)))))
+ 
+ 
+ (define (fold-right kons knil lis1 . lists)
+   (let recur ((lis lis1))				; Fast path
+     (if (null? lis) knil
+ 	(let ((head (car lis)))
+ 	  (kons head (recur (cdr lis)))))))
+ 
+ 
+ ;;; Map F across L, and save up all the non-false results.
+ (define (filter-map f lis1)
+    (let recur ((lis lis1))
+       (if (null? lis) lis
+ 	  (let ((tail (recur (cdr lis))))
+ 	     (cond ((f (car lis)) => (lambda (x) (cons x tail)))
+ 		   (else tail))))))
+ 
+ (define (find pred list)
+   (cond ((find-tail pred list) => car)
+ 	(else #f)))
+ 
+ (define (find-tail pred list)
+   (let lp ((list list))
+     (and (not (null? list))
+ 	 (if (pred (car list)) list
+ 	     (lp (cdr list))))))
+ 
+ (define (lset-union = . lists)
+   (reduce (lambda (lis ans)		; Compute ANS + LIS.
+ 	    (cond ((null? lis) ans)	; Don't copy any lists
+ 		  ((null? ans) lis) 	; if we don't have to.
+ 		  ((eq? lis ans) ans)
+ 		  (else
+ 		   (fold (lambda (elt ans) (if (any (lambda (x) (= x elt)) ans)
+ 					       ans
+ 					       (cons elt ans)))
+ 			 ans lis))))
+ 	  '() lists))
+ 
+ (define (lset-intersection = lis1 . lists)
+   (let ((lists (delete lis1 lists eq?))) ; Throw out any LIS1 vals.
+     (cond ((any null? lists) '())		; Short cut
+ 	  ((null? lists)          lis1)		; Short cut
+ 	  (else (filter (lambda (x)
+ 			  (every (lambda (lis) (member x lis =)) lists))
+ 			lis1)))))
+ 
+ (define (lset-difference = lis1 . lists)
+   (let ((lists (filter pair? lists)))	; Throw out empty lists.
+     (cond ((null? lists)     lis1)	; Short cut
+ 	  ((memq lis1 lists) '())	; Short cut
+ 	  (else (filter (lambda (x)
+ 			  (every (lambda (lis) (not (member x lis =)))
+ 				 lists))
+ 			lis1)))))
+ 
+ (define (filter! pred lis)
+   (let lp ((ans lis))
+     (cond ((null? ans)       ans)			; Scan looking for
+ 	  ((not (pred (car ans))) (lp (cdr ans)))	; first cons of result.
+ 
+ 	  ;; ANS is the eventual answer.
+ 	  ;; SCAN-IN: (CDR PREV) = LIS and (CAR PREV) satisfies PRED.
+ 	  ;;          Scan over a contiguous segment of the list that
+ 	  ;;          satisfies PRED.
+ 	  ;; SCAN-OUT: (CAR PREV) satisfies PRED. Scan over a contiguous
+ 	  ;;           segment of the list that *doesn't* satisfy PRED.
+ 	  ;;           When the segment ends, patch in a link from PREV
+ 	  ;;           to the start of the next good segment, and jump to
+ 	  ;;           SCAN-IN.
+ 	  (else (letrec ((scan-in (lambda (prev lis)
+ 				    (if (pair? lis)
+ 					(if (pred (car lis))
+ 					    (scan-in lis (cdr lis))
+ 					    (scan-out prev (cdr lis))))))
+ 			 (scan-out (lambda (prev lis)
+ 				     (let lp ((lis lis))
+ 				       (if (pair? lis)
+ 					   (if (pred (car lis))
+ 					       (begin (set-cdr! prev lis)
+ 						      (scan-in lis (cdr lis)))
+ 					       (lp (cdr lis)))
+ 					   (set-cdr! prev lis))))))
+ 		  (scan-in ans (cdr ans))
+ 		  ans)))))
+ 
+ (define (filter pred lis)			; Sleazing with EQ? makes this
+   (let recur ((lis lis))		
+     (if (null? lis) lis			; Use NOT-PAIR? to handle dotted lists.
+ 	(let ((head (car lis))
+ 	      (tail (cdr lis)))
+ 	  (if (pred head)
+ 	      (let ((new-tail (recur tail)))	; Replicate the RECUR call so
+ 		(if (eq? tail new-tail) lis
+ 		    (cons head new-tail)))
+ 	      (recur tail))))))			; this one can be a tail call.
+ 
+ (define (member x lis . maybe-=)
+   (let ((= (if (null? maybe-=) equal? maybe-=)))
+     (find-tail (lambda (y) (= x y)) lis)))
+ 
+ (define (any pred lis1 . lists)
+    (and (not (null? lis1))
+ 	(let lp ((head (car lis1)) (tail (cdr lis1)))
+ 	   (if (null? tail)
+ 	       (pred head)		; Last PRED app is tail call.
+ 	       (or (pred head) (lp (car tail) (cdr tail)))))))
+ 
+ (define (reduce f ridentity lis)
+   (if (null? lis) ridentity
+       (fold f (car lis) (cdr lis))))
+ 
+ (define (delete x lis . maybe-=) 
+   (let ((= (if (null? maybe-=) equal? maybe-=)))
+     (filter (lambda (y) (not (= x y))) lis)))
+ 
+ (define (every pred lis1 . lists)
+    ;; Fast path
+    (or (null? lis1)
+        (let lp ((head (car lis1))  (tail (cdr lis1)))
+ 	  (if (null? tail)
+ 	      (pred head)	; Last PRED app is tail call.
+ 	      (and (pred head) (lp (car tail) (cdr tail)))))))
+ 
+ (define (span pred lis)
+    (let recur ((lis lis))
+       (if (null? lis) (values '() '())
+ 	  (let ((x (car lis)))
+ 	     (if (pred x)
+ 		 (call-with-values
+ 		    (lambda () (recur (cdr lis)))
+ 		    (lambda (prefix suffix)
+ 		       (values (cons x prefix) suffix)))
+ 		 (values '() lis))))))
+ 
+ ; -*- scheme -*-
+ (define call/cc call-with-current-continuation)
+ (define (display* . args) (map display args))
+ 
+ (define (repl)
+    (let loop ((form (read)))
+       (pretty-print (eval form))
+       (loop (read))))
+ 
+ ; from Bigloo source Runtime/Llib/hash.scm
+ (define (hashtbl max-size size get-hash-number get-key nb-entry predicate table)
+    (vector 'hashtbl  max-size size get-hash-number get-key nb-entry predicate table))
+ (define (hashtbl? ht) (and (vector? ht) (eq? (vector-ref ht 0) 'hashtbl)))
+ (define (hashtbl-max-size ht) (vector-ref ht 1))
+ (define (hashtbl-size ht) (vector-ref ht 2))
+ (define (hashtbl-size-set! ht n) (vector-set! ht 2 n))
+ (define (hashtbl-get-hash-number ht) (vector-ref ht 3))
+ (define (hashtbl-get-key ht) (vector-ref ht 4))
+ (define (hashtbl-nb-entry ht) (vector-ref ht 5))
+ (define (hashtbl-nb-entry-set! ht n) (vector-set! ht 5 n))
+ (define (hashtbl-predicate ht) (vector-ref ht 6))
+ (define (hashtbl-table ht) (vector-ref ht 7))
+ (define (hashtbl-table-set! ht t) (vector-set! ht 7 t))
+ 
+ ;*---------------------------------------------------------------------*/
+ ;*    make-hash-table ...                                              */
+ ;*    -------------------------------------------------------------    */
+ ;*    max-size       : int           : la taille max de la table       */
+ ;*    get-hash-number: key -> int    : la fonction de hashage          */
+ ;*    get-key        : obj -> key    : la cle des objets               */
+ ;*    eq             : obj x obj -> b: le test d'egalite.              */
+ ;*    init-size      : int           : la taille initiale de la table  */
+ ;*---------------------------------------------------------------------*/
+ (define (make-hash-table max-size get-hash-number get-key eq . init-size)
+    (let ((size     (if (null? init-size)
+ 		       max-size
+ 		       (car init-size)))
+ 	 (power-of-2? (lambda (size)
+ 		      (and (> size 1)
+ 			   (= 0 (bit-and size (- size 1)))))))
+       (cond
+ 	 ((not (power-of-2? size))
+ 	  (error "make-hash-table"
+ 		 "Illegal init-size (not a 2 power)"
+ 		 size))
+ 	 ((not (power-of-2? max-size))
+ 	  (error "make-hash-table"
+ 		 "Illegal max-size (not a 2 power)"
+ 		 max-size))
+ 	 ((> size max-size)
+ 	  (error "make-hash-table"
+ 		 "init-size greater than max-size !"
+ 		 size))
+ 	 (else
+ 	  (let ((table (make-vector size '())))
+ 	     (hashtbl max-size size get-hash-number get-key 0 eq table))))))
+ 
+ (define (hash-table? obj) (hashtbl? obj))
+ (define (hash-table-nb-entry table) (hashtbl-nb-entry table))
+ (define (hash-table->vector table) (hashtbl-table table))
+ 
+ (define (get-hash-number table key)
+    (let* ((hash-function (hashtbl-get-hash-number table))
+ 	  (max-size      (hashtbl-max-size table))
+ 	  (size          (hashtbl-size table))
+ 	  (num           (hash-function key))
+ 	  (res           (if (< size max-size)
+ 			     (modulo num size)
+ 			     num)))
+       (if (>= res max-size)
+ 	  (let ((res (error "get-hash-number"
+ 			    "Illegal get-hash-function"
+ 			    table)))
+ 	     (if (integer? res)
+ 		 res
+ 		 -1))
+ 	  res)))
+ 
+ (define (get-hash key table)
+    (let* ((hash-num  (get-hash-number table key))
+ 	  (hash-eq?  (hashtbl-predicate table))
+ 	  (bucket    (vector-ref (hashtbl-table table) hash-num))
+ 	  (get-key   (hashtbl-get-key table)))
+       (let loop ((bucket bucket))
+ 	 (cond
+ 	    ((null? bucket)
+ 	     #f)
+ 	    ((hash-eq? (get-key (car bucket)) key)
+ 	     (car bucket))
+ 	    (else
+ 	     (loop (cdr bucket)))))))
+ 
+ (define (put-hash! obj table)
+    (if (and (< (hashtbl-size table) (hashtbl-max-size table))
+ 	    (> (hash-table-nb-entry table)
+ 		 (/ (hashtbl-size table) 2)))
+        ;; quand le nombre d'entree est egal a la taille de la table
+        ;; divisee par deux, a augemte la table
+        (hash-table-grows! table))
+    (let* ((get-key    (hashtbl-get-key table))
+ 	  (key        (get-key obj))
+ 	  (hash-eq?   (hashtbl-predicate table))
+ 	  (hash-num   (get-hash-number table key))
+ 	  (vec        (hashtbl-table table))
+ 	  (bucket     (vector-ref vec hash-num)))
+       (if (null? bucket)
+ 	  (begin
+ 	     (hashtbl-nb-entry-set! table (+ 1 (hashtbl-nb-entry table)))
+ 	     (vector-set! vec hash-num (list obj))
+ 	     obj)
+ 	  (let loop ((bucket bucket))
+ 	     (cond
+ 		((hash-eq? (get-key (car bucket)) key)
+ 		 (car bucket))
+ 		((null? (cdr bucket))
+ 		 (hashtbl-nb-entry-set! table (+ 1 (hashtbl-nb-entry table)))
+ 		 (set-cdr! bucket (list obj))
+ 		 obj)
+ 		(else
+ 		 (loop (cdr bucket))))))))
+ 
+ (define (for-each-hash fun table)
+    (let ((vec (hashtbl-table table)))
+       (let loop ((i (- (hashtbl-size table) 1)))
+ 	 (if (= i -1)
+ 	     (if #f #f)
+ 	     (begin
+ 		(for-each fun (vector-ref vec i))
+ 		(loop (- i 1)))))))
+ 
+ 
+ (define (hash-table-grows! table)
+    (let* ((max-size   (hashtbl-max-size table))
+ 	  (size       (hashtbl-size table))
+ 	  (new-size   (* size 2))
+ 	  (new-table  (make-vector new-size '()))
+ 	  (old-table  (hash-table->vector table)))
+       ;; on reajuste la table de hash
+       (hashtbl-size-set!  table new-size)
+       (hashtbl-table-set! table new-table)
+       ;; remettre a zero le nombre d'elements
+       ;; a cause des appels a put-hash! juste apres
+       (hashtbl-nb-entry-set! table 0)
+       ;; on rehash tous les elements du vector dans la nouvelle table.
+       (let loop ((i 0))
+ 	 (if (= i size)
+ 	     'done
+ 	     (let ((bucket (vector-ref old-table i)))
+ 		(for-each (lambda (obj)
+ 			     (put-hash! obj table))
+ 			  bucket)
+ 		(loop (+ i 1)))))))
+ 
+ (define obj->0..2^x-1
+    ; this is a horrible way to do it, but heck it's only
+    ; for compatibility...
+    (let* ((hashed-objects '())
+ 	  (object-insert hashed-objects))
+       (lambda (obj power)
+ 	 (if (null? hashed-objects)
+ 	     (begin
+ 		(set! hashed-objects (cons obj hashed-objects))
+ 		(set! object-insert hashed-objects)
+ ;		(display* "Initial hash object (0) " obj #\newline)
+ 		0)
+ 	     (let search ((objs hashed-objects) (n 0))
+ 		(if (null? objs)
+ 		    (begin
+ 		       (set-cdr! object-insert (list obj))
+ 		       (set! object-insert (cdr object-insert))
+ ;		       (display* "new hash object (" n ") " obj #\newline)
+ 		       (modulo n power))
+ 		    (if (eq? obj (car objs))
+ 			(begin
+ ;			  (display* "found hash object (" n ") " obj #\newline)
+ 			  (modulo n (expt 2 (- power 1))))
+ 			(search (cdr objs) (+ n 1))))
+ 		)))
+       ))
+ 		    
+ ; From: "Mayer Goldberg" <gmayer@cs.bgu.ac.il>
+ ; horribly slow method. Y-O-Y can't we have *some* machine
+ ; oriented primitives in standard Scheme?
+ (define ^bitwise-op
+   (lambda (op-combine do-if-arg1=0 do-if-arg2=0)
+     (letrec ((bitwise-op2
+ 	      (lambda (arg1 arg2)
+ 		(cond ((zero? arg1) (do-if-arg1=0 arg2))
+ 		      ((zero? arg2) (do-if-arg2=0 arg1))
+ 		      (else (+ (op-combine
+ 				(remainder arg1 2)
+ 				(remainder arg2 2))
+ 			       (* 2 (bitwise-op2
+ 				     (quotient arg1 2)
+ 				     (quotient arg2 2))))))))
+ 	     (bitwise-op-list
+ 	      (lambda (s)
+ 		(if (null? (cdr s)) (car s)
+ 		    (bitwise-op2 (car s) (bitwise-op-list (cdr s)))))))
+       (lambda s
+ 	(bitwise-op-list s)))))
+ 
+ (define bit-and
+   (^bitwise-op
+    (lambda (a b) (if (or (zero? a) (zero? b)) 0 1))
+    (lambda (b) 0)
+    (lambda (a) 0)))
+ 
+ ; from SLIB
+ ;;; "sort.scm" Defines: sorted?, merge, merge!, sort, sort!
+ ;;; Author : Richard A. O'Keefe (based on Prolog code by D.H.D.Warren)
+ 
+ (define (sort:merge! a b less?)
+     (define (loop r a b)
+ 	(if (less? (car b) (car a))
+ 	    (begin
+ 		(set-cdr! r b)
+ 		(if (null? (cdr b))
+ 		    (set-cdr! b a)
+ 		    (loop b a (cdr b)) ))
+ 	    ;; (car a) <= (car b)
+ 	    (begin
+ 		(set-cdr! r a)
+ 		(if (null? (cdr a))
+ 		    (set-cdr! a b)
+ 		    (loop a (cdr a) b)) )) )
+     (cond
+ 	((null? a) b)
+ 	((null? b) a)
+ 	((less? (car b) (car a))
+ 	    (if (null? (cdr b))
+ 		(set-cdr! b a)
+ 		(loop b a (cdr b)))
+ 	    b)
+ 	(else ; (car a) <= (car b)
+ 	    (if (null? (cdr a))
+ 		(set-cdr! a b)
+ 		(loop a (cdr a) b))
+ 	    a)))
+ 
+ 
+ (define (sort:sort! seq less?)
+     (define (step n)
+ 	(cond
+ 	    ((> n 2)
+ 		(let* ((j (quotient n 2))
+ 		       (a (step j))
+ 		       (k (- n j))
+ 		       (b (step k)))
+ 		    (sort:merge! a b less?)))
+ 	    ((= n 2)
+ 		(let ((x (car seq))
+ 		      (y (cadr seq))
+ 		      (p seq))
+ 		    (set! seq (cddr seq))
+ 		    (if (less? y x) (begin
+ 			(set-car! p y)
+ 			(set-car! (cdr p) x)))
+ 		    (set-cdr! (cdr p) '())
+ 		    p))
+ 	    ((= n 1)
+ 		(let ((p seq))
+ 		    (set! seq (cdr seq))
+ 		    (set-cdr! p '())
+ 		    p))
+ 	    (else
+ 		'()) ))
+     (if (vector? seq)
+ 	(let ((n (vector-length seq))
+ 	      (vec seq))
+ 	  (set! seq (vector->list seq))
+ 	  (do ((p (step n) (cdr p))
+ 	       (i 0 (+ i 1)))
+ 	      ((null? p) vec)
+ 	    (vector-set! vec i (car p)) ))
+ 	;; otherwise, assume it is a list
+ 	(step (length seq)) ))
+ 
+ (define (sort:sort seq less?)
+     (if (vector? seq)
+ 	(list->vector (sort:sort! (vector->list seq) less?))
+ 	(sort:sort! (append seq '()) less?)))
+ 
+ (define sort sort:sort)
+ ; from module Aborts in common/aborts.scm
+ (define *bail-hook* '())
+ 
+ 
+ (define (call-bail-hook arg)
+   (if (procedure? *bail-hook*)
+     (*bail-hook* arg)
+     (map display
+          `(call-bail-hook
+             ": "
+             ,arg
+             #\newline
+             "INTERNAL ERROR: *bail-hook* misconfigured! Continuing..."
+             #\newline))))
+ 
+ 
+ (define (abort function message . info)
+   (call-bail-hook
+     `(abortion ,function ,message ,info)))
+ 
+ 
+ (define (unimplemented function)
+   (call-bail-hook `(unimplemented ,function)))
+ 
+ 
+ (define (usage . why)
+   (call-bail-hook `(usage ,why)))
+ 
+ 
+ (define (success . why)
+   (call-bail-hook `(success ,why)))
+ 
+ 
+ ; from module Errors in common/errors.scm
+ (define *error-hook* '())
+ 
+ 
+ (define (error-display . args)
+   (if (null? *error-hook*)
+     (map display args)
+     (apply (car *error-hook*) args)))
+ 
+ 
+ (define (push-notifier! f)
+   (set! *error-hook* (cons f *error-hook*)))
+ 
+ 
+ (define (pop-notifier!)
+   (if (not (null? *error-hook*))
+     (set! *error-hook* (cdr *error-hook*))))
+ 
+ 
+ (define (notify-location file-name . line-number)
+   (let ((line-number
+           (if (pair? line-number)
+             (car line-number)
+             line-number)))
+     (lambda args
+       (display*
+         "ERROR ("
+         file-name
+         ":"
+         (if (integer? line-number) line-number '?)
+         "): ")
+       (apply display* args))))
+ 
+ 
+ ; from module hash-table-support in common/hash-table.scm
+ (define (next-power-of-2 j)
+   (cond-expand
+     (Scheme48
+       (let next-power ((power 2))
+         (if (< power j) (next-power (* power 2)) power)))
+     (else (inexact->exact
+             (ceiling
+               (exp (* (+ 1 (floor (/ (log j) (log 2)))) (log 2))))))))
+ 
+ 
+ (define (make-hash-table-for min hash gk eq)
+   (let ((size (next-power-of-2 min)))
+     (make-hash-table
+       size
+       (lambda (k) (modulo (hash k) size))
+       gk
+       eq)))
+ 
+ 
+ (define (default-hash obj)
+   (obj->0..2^x-1 obj 30))
+ 
+ 
+ (define (idempotent x) x)
+ 
+ 
+ (define (hash-has? key ht)
+   (if (get-hash key ht) #t #f))
+ 
+ 
+ (define (hash-table->list ht)
+   (let ((l '()))
+     (for-each-hash
+       (lambda (obj) (set! l (cons obj l)))
+       ht)
+     l))
+ 
+ 
+ ; from module Topological-sort in common/toposort.scm
+ (define (make-dep entity dependent-entities)
+   (vector
+     entity
+     dependent-entities
+     (length dependent-entities)))
+ 
+ 
+ (define (dep-entity d) (vector-ref d 0))
+ 
+ 
+ (define (dep-deps d) (vector-ref d 1))
+ 
+ 
+ (define (dep-deps! d ds) (vector-set! d 1 ds))
+ 
+ 
+ (define (dep-n-deps d) (vector-ref d 2))
+ 
+ 
+ (define (make-deps entities ent-eq? get-deps)
+   (vector
+     (deps-sort
+       (map (lambda (e) (make-dep e (get-deps e)))
+            entities))
+     ent-eq?))
+ 
+ 
+ (define (deps->list deps) (vector-ref deps 0))
+ 
+ 
+ (define (deps-set-deps! deps new)
+   (vector-set! deps 0 (deps-sort new))
+   deps)
+ 
+ 
+ (define (deps-entity-eq? deps)
+   (vector-ref deps 1))
+ 
+ 
+ (define (deps-empty? deps)
+   (null? (deps->list deps)))
+ 
+ 
+ (define (deps-eq? deps l r)
+   ((deps-entity-eq? deps)
+    (dep-entity l)
+    (dep-entity r)))
+ 
+ 
+ (define (deps-get deps entity)
+   (find (lambda (e)
+           ((deps-entity-eq? deps) (dep-entity e) entity))
+         (deps->list deps)))
+ 
+ 
+ (define (deps-order l r ctr)
+   (let ((ln (dep-n-deps l)) (rn (dep-n-deps r)))
+     (if (= ln rn)
+       (if (null? ctr)
+         l
+         (deps-order
+           (deps-get ctr (dep-entity r))
+           (deps-get ctr (dep-entity l))
+           '()))
+       (< ln rn))))
+ 
+ 
+ (define (deps-sort deps)
+   (sort deps (lambda (l r) (deps-order l r '()))))
+ 
+ 
+ (define (deps-least deps)
+   (let ((deps (deps->list deps)))
+     (if (null? deps) #f (car deps))))
+ 
+ 
+ (define (deps-remove deps dep)
+   (let search-and-destroy ((old (deps->list deps)) (new '()))
+     (if (null? old)
+       (deps-set-deps! deps new)
+       (let* ((check (car old))
+              (unchecked (cdr old))
+              (next-new
+                (if (deps-eq? deps dep check)
+                  new
+                  (let* ((ent-is-not?
+                           (lambda (entity)
+                             (lambda (ent)
+                               (not ((deps-entity-eq? deps) ent entity)))))
+                         (check-dependents (dep-deps check)))
+                    (cons (make-dep
+                            (dep-entity check)
+                            (filter!
+                              (ent-is-not? (dep-entity dep))
+                              check-dependents))
+                          new)))))
+         (search-and-destroy unchecked next-new)))))
+ 
+ 
+ (define (topological-sort
+          entities
+          ent-eq?
+          get-deps
+          cycle-handler)
+   (let build ((dep-map (make-deps entities ent-eq? get-deps))
+               (topo '()))
+     (if (deps-empty? dep-map)
+       (map dep-entity topo)
+       (let* ((dep (deps-least dep-map)) (n (dep-n-deps dep)))
+         (if (> n 0)
+           (begin
+             (display*
+               ((dep-entity dep) 'name)
+               " has "
+               n
+               " dependents"
+               #\newline)
+             (set! dep
+               (deps-get
+                 dep-map
+                 (cycle-handler (dep-entity dep) (dep-deps dep))))))
+         (let ((new-map (deps-remove dep-map dep))
+               (new-topo (cons dep topo)))
+           (build new-map new-topo))))))
+ 
+ 
+ ; from module Utility in common/utility.scm
+ (define (*unit*) *unit*)
+ 
+ 
+ (define (*unit*? v) (eq? v *unit*))
+ 
+ 
+ (define (*unit*->list v)
+   (if (or (*unit*? v) (not v)) '() v))
+ 
+ 
+ (define (boolean->*unit* v) (if v v *unit*))
+ 
+ 
+ (define *stdin* (current-input-port))
+ 
+ 
+ (define (dup s)
+   (cond ((null? s) s)
+         ((pair? s) (cons (dup (car s)) (dup (cdr s))))
+         (else s)))
+ 
+ 
+ (define (vector-map f v)
+   (let* ((len (vector-length v)) (nv (make-vector len)))
+     (let map ((i 0))
+       (if (< i len)
+         (begin
+           (vector-set! nv i (f (vector-ref v i)))
+           (map (+ i 1)))
+         nv))))
+ 
+ 
+ (define (vector-fold f i v)
+   (let ((len (vector-length v)))
+     (let fold ((i 0) (rv i))
+       (if (< i len)
+         (fold (+ i 1) (f (vector-ref v i) rv))
+         rv))))
+ 
+ 
+ ; from module GenericWrite in output/genwrite.scm
+ (define (generic-write obj display? width output)
+   (define (read-macro? l)
+     (define (length1? l)
+       (and (pair? l) (null? (cdr l))))
+     (let ((head (car l)) (tail (cdr l)))
+       (case head
+         ((QUOTE QUASIQUOTE UNQUOTE UNQUOTE-SPLICING)
+          (length1? tail))
+         (else #f))))
+   (define (read-macro-body l) (cadr l))
+   (define (read-macro-prefix l)
+     (let ((head (car l)) (tail (cdr l)))
+       (case head
+         ((QUOTE) "'")
+         ((QUASIQUOTE) "`")
+         ((UNQUOTE) ",")
+         ((UNQUOTE-SPLICING) ",@"))))
+   (define (out str col)
+     (and col
+          (output str)
+          (+ col (string-length str))))
+   (define (wr obj col)
+     (define (wr-expr expr col)
+       (if (read-macro? expr)
+         (wr (read-macro-body expr)
+             (out (read-macro-prefix expr) col))
+         (wr-lst expr col)))
+     (define (wr-lst l col)
+       (if (pair? l)
+         (let loop ((l (cdr l))
+                    (col (and col (wr (car l) (out "(" col)))))
+           (cond ((not col) col)
+                 ((pair? l)
+                  (loop (cdr l) (wr (car l) (out " " col))))
+                 ((null? l) (out ")" col))
+                 (else (out ")" (wr l (out " . " col))))))
+         (out "()" col)))
+     (cond ((pair? obj) (wr-expr obj col))
+           ((null? obj) (wr-lst obj col))
+           ((vector? obj)
+            (wr-lst (vector->list obj) (out "#" col)))
+           ((boolean? obj) (out (if obj "#t" "#f") col))
+           ((number? obj) (out (number->string obj) col))
+           ((symbol? obj) (out (symbol->string obj) col))
+           ((procedure? obj) (out "#[procedure]" col))
+           ((string? obj)
+            (if display?
+              (out obj col)
+              (let loop ((i 0) (j 0) (col (out "\"" col)))
+                (if (and col (< j (string-length obj)))
+                  (let ((c (string-ref obj j)))
+                    (if (or (char=? c #\\) (char=? c #\"))
+                      (loop j
+                            (+ j 1)
+                            (out "\\" (out (substring obj i j) col)))
+                      (loop i (+ j 1) col)))
+                  (out "\"" (out (substring obj i j) col))))))
+           ((char? obj)
+            (if display?
+              (out (make-string 1 obj) col)
+              (out (case obj
+                     ((#\space) "space")
+                     ((#\newline) "newline")
+                     (else (make-string 1 obj)))
+                   (out "#\\" col))))
+           ((input-port? obj) (out "#[input-port]" col))
+           ((output-port? obj) (out "#[output-port]" col))
+           ((eof-object? obj) (out "#eof-object" col))
+           (else (out "#unspecified" col))))
+   (define (pp obj col)
+     (define (spaces n col)
+       (if (> n 0)
+         (if (> n 7)
+           (spaces (- n 8) (out "        " col))
+           (out (substring "        " 0 n) col))
+         col))
+     (define (indent to col)
+       (and col
+            (if (< to col)
+              (and (out (make-string 1 #\newline) col)
+                   (spaces to 0))
+              (spaces (- to col) col))))
+     (define (pr obj col extra pp-pair)
+       (if (or (pair? obj) (vector? obj))
+         (let ((result '())
+               (left (min (+ (- (- width col) extra) 1)
+                          max-expr-width)))
+           (generic-write
+             obj
+             display?
+             #f
+             (lambda (str)
+               (set! result (cons str result))
+               (set! left (- left (string-length str)))
+               (> left 0)))
+           (if (> left 0)
+             (out (reverse-string-append result) col)
+             (if (pair? obj)
+               (pp-pair obj col extra)
+               (pp-list
+                 (vector->list obj)
+                 (out "#" col)
+                 extra
+                 pp-expr))))
+         (wr obj col)))
+     (define (pp-expr expr col extra)
+       (if (read-macro? expr)
+         (pr (read-macro-body expr)
+             (out (read-macro-prefix expr) col)
+             extra
+             pp-expr)
+         (let ((head (car expr)))
+           (if (symbol? head)
+             (let ((proc (style head)))
+               (if proc
+                 (proc expr col extra)
+                 (if (> (string-length (symbol->string head))
+                        max-call-head-width)
+                   (pp-general expr col extra #f #f #f pp-expr)
+                   (pp-call expr col extra pp-expr))))
+             (pp-list expr col extra pp-expr)))))
+     (define (pp-call expr col extra pp-item)
+       (let ((col* (wr (car expr) (out "(" col))))
+         (and col
+              (pp-down
+                (cdr expr)
+                col*
+                (+ col* 1)
+                extra
+                pp-item))))
+     (define (pp-list l col extra pp-item)
+       (let ((col (out "(" col)))
+         (pp-down l col col extra pp-item)))
+     (define (pp-down l col1 col2 extra pp-item)
+       (let loop ((l l) (col col1))
+         (and col
+              (cond ((pair? l)
+                     (let ((rest (cdr l)))
+                       (let ((extra (if (null? rest) (+ extra 1) 0)))
+                         (loop rest
+                               (pr (car l) (indent col2 col) extra pp-item)))))
+                    ((null? l) (out ")" col))
+                    (else
+                     (out ")"
+                          (pr l
+                              (indent col2 (out "." (indent col2 col)))
+                              (+ extra 1)
+                              pp-item)))))))
+     (define (pp-general expr col extra named? pp-1 pp-2 pp-3)
+       (define (tail1 rest col1 col2 col3)
+         (if (and pp-1 (pair? rest))
+           (let* ((val1 (car rest))
+                  (rest (cdr rest))
+                  (extra (if (null? rest) (+ extra 1) 0)))
+             (tail2 rest
+                    col1
+                    (pr val1 (indent col3 col2) extra pp-1)
+                    col3))
+           (tail2 rest col1 col2 col3)))
+       (define (tail2 rest col1 col2 col3)
+         (if (and pp-2 (pair? rest))
+           (let* ((val1 (car rest))
+                  (rest (cdr rest))
+                  (extra (if (null? rest) (+ extra 1) 0)))
+             (tail3 rest
+                    col1
+                    (pr val1 (indent col3 col2) extra pp-2)))
+           (tail3 rest col1 col2)))
+       (define (tail3 rest col1 col2)
+         (pp-down rest col2 col1 extra pp-3))
+       (let* ((head (car expr))
+              (rest (cdr expr))
+              (col* (wr head (out "(" col))))
+         (if (and named? (pair? rest))
+           (let* ((name (car rest))
+                  (rest (cdr rest))
+                  (col** (wr name (out " " col*))))
+             (tail1 rest
+                    (+ col indent-general)
+                    col**
+                    (+ col** 1)))
+           (tail1 rest
+                  (+ col indent-general)
+                  col*
+                  (+ col* 1)))))
+     (define (pp-expr-list l col extra)
+       (pp-list l col extra pp-expr))
+     (define (pp-LAMBDA expr col extra)
+       (pp-general
+         expr
+         col
+         extra
+         #f
+         pp-expr-list
+         #f
+         pp-expr))
+     (define (pp-IF expr col extra)
+       (pp-general expr col extra #f pp-expr #f pp-expr))
+     (define (pp-COND expr col extra)
+       (pp-call expr col extra pp-expr-list))
+     (define (pp-CASE expr col extra)
+       (pp-general
+         expr
+         col
+         extra
+         #f
+         pp-expr
+         #f
+         pp-expr-list))
+     (define (pp-AND expr col extra)
+       (pp-call expr col extra pp-expr))
+     (define (pp-LET expr col extra)
+       (let* ((rest (cdr expr))
+              (named? (and (pair? rest) (symbol? (car rest)))))
+         (pp-general
+           expr
+           col
+           extra
+           named?
+           pp-expr-list
+           #f
+           pp-expr)))
+     (define (pp-BEGIN expr col extra)
+       (pp-general expr col extra #f #f #f pp-expr))
+     (define (pp-DO expr col extra)
+       (pp-general
+         expr
+         col
+         extra
+         #f
+         pp-expr-list
+         pp-expr-list
+         pp-expr))
+     (define indent-general 2)
+     (define max-call-head-width 5)
+     (define max-expr-width 50)
+     (define (style head)
+       (case head
+         ((LAMBDA LET* LETREC DEFINE) pp-LAMBDA)
+         ((IF SET!) pp-IF)
+         ((COND) pp-COND)
+         ((CASE) pp-CASE)
+         ((AND OR) pp-AND)
+         ((LET) pp-LET)
+         ((BEGIN) pp-BEGIN)
+         ((DO) pp-DO)
+         (else #f)))
+     (pr obj col 0 pp-expr))
+   (if width
+     (out (make-string 1 #\newline) (pp obj 0))
+     (wr obj 0)))
+ 
+ 
+ (define (reverse-string-append l)
+   (define (rev-string-append l i)
+     (if (pair? l)
+       (let* ((str (car l))
+              (len (string-length str))
+              (result (rev-string-append (cdr l) (+ i len))))
+         (let loop ((j 0) (k (- (- (string-length result) i) len)))
+           (if (< j len)
+             (begin
+               (string-set! result k (string-ref str j))
+               (loop (+ j 1) (+ k 1)))
+             result)))
+       (make-string i)))
+   (rev-string-append l 0))
+ 
+ 
+ ; from module File-Tricks in reader/file-tricks.scm
+ (define *search-path* '())
+ 
+ 
+ (define *path-separator* #\:)
+ 
+ 
+ (define *vicinity-separator* #\/)
+ 
+ 
+ (define (decompose-path string-path)
+   (let build ((path-chars (string->list string-path))
+               (path '()))
+     (call-with-values
+       (lambda ()
+         (span (lambda (c) (not (char=? c *path-separator*)))
+               path-chars))
+       (lambda (vicinity rest-of-path)
+         (if (or (null? rest-of-path)
+                 (null? (cdr rest-of-path)))
+           path
+           (if (null? vicinity)
+             (build (cdr rest-of-path) path)
+             (build (cdr rest-of-path)
+                    (cons (list->string vicinity) path))))))))
+ 
+ 
+ (define (maybe-open-output-port file)
+   (open-output-file file))
+ 
+ 
+ (define (expand-file-name name path)
+   (let search ((dirs path))
+     (if (null? dirs)
+       name
+       (let* ((dir (car dirs))
+              (rest (cdr dirs))
+              (maybe-name
+                (string-append
+                  dir
+                  (string *vicinity-separator*)
+                  name)))
+         (cond-expand
+           (Bigloo
+             (if (file-exists? maybe-name)
+               maybe-name
+               (search rest)))
+           (Gambit
+             (if (file-exists? maybe-name)
+               maybe-name
+               (search rest)))
+           (Scheme48
+             (if (file-exists? maybe-name)
+               maybe-name
+               (search rest)))
+           (Larceny
+             (if (file-exists? maybe-name)
+               maybe-name
+               (search rest)))
+           (PLT (if (file-exists? maybe-name)
+                  maybe-name
+                  (search rest)))
+           (else name))))))
+ 
+ 
+ (define (file-name->module-name file-name)
+   (string->symbol file-name))
+ 
+ 
+ ; from module Portable-Eval in eval/eval.scm
+ (define (portable-eval x) (eval x))
+ 
+ 
+ ; from module Options in common/options.scm
+ (define (option-flag o) (vector-ref o 0))
+ 
+ 
+ (define (option-values o) (vector-ref o 1))
+ 
+ 
+ (define (option-n-args o) (vector-ref o 2))
+ 
+ 
+ (define (option-action o) (vector-ref o 3))
+ 
+ 
+ (define (option-args arg-desc-list)
+   (if (null? arg-desc-list)
+     ""
+     (apply string-append
+            (cdr (fold (lambda (desc l) (append (list " " desc) l))
+                       '()
+                       arg-desc-list)))))
+ 
+ 
+ (define (option-usage o)
+   (let ((flag (option-flag o)))
+     (if (*unit*? flag)
+       ""
+       (string-append flag " " (option-values o)))))
+ 
+ 
+ (define (option-map f v) (vector-map f v))
+ 
+ 
+ (define (option-grovel option-table argv-list)
+   (let* ((n-options (vector-length option-table))
+          (else-option
+            (let find-else ((index 1))
+              (if (>= index n-options)
+                *unit*
+                (let ((check (vector-ref option-table index)))
+                  (if (*unit*? (option-flag check))
+                    check
+                    (find-else (+ 1 index))))))))
+     (let grovel ((option-list argv-list) (unused '()))
+       (if (null? option-list)
+         (reverse unused)
+         (let ((maybe-flag (car option-list))
+               (maybe-values (cdr option-list)))
+           (let search ((index 0))
+             (if (< index n-options)
+               (let ((option (vector-ref option-table index)))
+                 (if (equal? maybe-flag (option-flag option))
+                   (let* ((n-args (option-n-args option))
+                          (option-values (take maybe-values n-args))
+                          (unused-options (list-tail maybe-values n-args)))
+                     (apply (option-action option) option-values)
+                     (grovel unused-options unused))
+                   (search (+ index 1))))
+               (if (*unit*? else-option)
+                 (grovel maybe-values (cons maybe-flag unused))
+                 (begin
+                   ((option-action else-option) maybe-flag)
+                   (grovel maybe-values unused))))))))))
+ 
+ 
+ ; from module Output-String in output/output-string.scm
+ (define (any->r5rs obj) (any->format obj #t))
+ 
+ 
+ (define (any->string obj) (any->format obj #f))
+ 
+ 
+ (define any->format
+   (lambda (x r5rs-read-format?)
+     (cond ((*unit*? x) "*unit*")
+           ((null? x) "()")
+           ((symbol? x) (symbol->string x))
+           ((boolean? x) (if x "#t" "#f"))
+           ((number? x) (number->string x))
+           ((char? x)
+            (if (not (and r5rs-read-format?
+                          (or (eq? x #\space) (eq? x #\newline))))
+              (make-string 1 x)
+              (if (eq? x #\space) "#\\space" "#\\newline")))
+           ((string? x)
+            (if r5rs-read-format?
+              (list->string
+                (cons #\"
+                      (fold-right
+                        (lambda (c new)
+                          (if (or (eq? c #\") (eq? c #\\))
+                            (cons #\\ (cons c new))
+                            (cons c new)))
+                        '(#\")
+                        (string->list x))))
+              x))
+           ((vector? x)
+            (string-append
+              "#"
+              (any->string (vector->list x))))
+           ((pair? x)
+            (string-append
+              "("
+              (any->string (car x))
+              (let loop ((tail (cdr x)) (rep ""))
+                (cond ((null? tail) rep)
+                      ((pair? tail)
+                       (loop (cdr tail)
+                             (string-append rep " " (any->string (car tail)))))
+                      (else (string-append " . " (any->string tail)))))
+              ")")))))
+ 
+ 
+ (define (many->format r5rs? args)
+   (if (null? args)
+     ""
+     (let loop ((remaining args) (strings '()))
+       (if (null? remaining)
+         (apply string-append (reverse strings))
+         (loop (cdr remaining)
+               (cons (any->format (car remaining) r5rs?)
+                     strings))))))
+ 
+ 
+ (define (many->string . args)
+   (many->format #f args))
+ 
+ 
+ (define (many->r5rs . args)
+   (many->format #t args))
+ 
+ 
+ ; from module Output in output/output.scm
+ (define *output* (current-output-port))
+ 
+ 
+ (define *stdout* (current-output-port))
+ 
+ 
+ (define map-display-port
+   (lambda (port . args)
+     (map (lambda (obj) (display obj port)) args)
+     *unit*))
+ 
+ 
+ (define (map-display . args)
+   (apply map-display-port
+          (current-output-port)
+          args))
+ 
+ 
+ (define (map-write . args) (map write args))
+ 
+ 
+ ; from module POOP in common/poop.scm
+ (define *self* *unit*)
+ 
+ 
+ (define *args* *unit*)
+ 
+ 
+ (define return *unit*)
+ 
+ 
+ (define (poopy k self . args)
+   (set! return (lambda (x) (k x)))
+   (set! *self* self)
+   (set! *args* args)
+   (error-display
+     "POOP! Message not understood: "
+     args
+     #\newline)
+   (repl))
+ 
+ 
+ ; from module PrettyPrint in output/pp.scm
+ (define *line-width* 79)
+ 
+ 
+ (define (pretty-print obj . opt)
+   (let ((port (if (pair? opt) (car opt) (current-output-port))))
+     (generic-write
+       obj
+       #f
+       *line-width*
+       (lambda (s) (display s port) #t))))
+ 
+ 
+ ; from common/poop.sch
+ (define-syntax
+   dispatcher
+   (syntax-rules
+     (hook selector args)
+     ((dispatcher
+        ((sel0 arg0 ...) e00 e01 ...)
+        ((seln argn ...) en0 en1 ...)
+        ...)
+      (dispatcher
+        self
+        ((sel0 arg0 ...) e00 e01 ...)
+        ((seln argn ...) en0 en1 ...)
+        ...))
+     ((dispatcher
+        name
+        ((sel0 arg0 ...) e00 e01 ...)
+        ((seln argn ...) en0 en1 ...)
+        ...)
+      (letrec ((name (lambda (selector . args)
+                       (case selector
+                         ((sel0)
+                          (apply (lambda (arg0 ...) e00 e01 ...) args))
+                         ((seln)
+                          (apply (lambda (argn ...) en0 en1 ...) args))
+                         ...
+                         (else
+                          (call/cc
+                            (lambda (k)
+                              (poopy k name (cons selector args)))))))))
+        name))
+     ((dispatcher
+        name
+        (hook (s-var a-var) he0 he1 ...)
+        ((sel0 arg0 ...) e00 e01 ...)
+        ((seln argn ...) en0 en1 ...)
+        ...)
+      (letrec ((name (lambda (selector . args)
+                       (call-with-values
+                         (lambda ()
+                           ((lambda (s-var a-var) he0 he1 ...)
+                            selector
+                            args))
+                         (lambda (selector args)
+                           (case selector
+                             ((sel0)
+                              (apply (lambda (arg0 ...) e00 e01 ...) args))
+                             ((seln)
+                              (apply (lambda (argn ...) en0 en1 ...) args))
+                             ...
+                             (else
+                              (call/cc
+                                (lambda (k)
+                                  (poopy k name (cons selector args)))))))))))
+        name))))
+ 
+ 
+ (define-syntax
+   lazy-init
+   (syntax-rules
+     (with initializer)
+     ((lazy-init v (with e0 e1 ...))
+      (let ((initializer (lambda () e0 e1 ...)))
+        (if (*unit*? v) (set! v (initializer)))
+        v))))
+ 
+ 
+ ; from module Bigloo-Target in targets/bigloo-target.scm
+ (define bigloo-target
+   (dispatcher
+     ((type) 'target)
+     ((target-name) "Bigloo")
+     ((target-tags) '(Bigloo))
+     ((srfi-0?) #t)
+     ((r5rs-macros) #t)
+     ((r5rs-expander)
+      (cond-expand (Bigloo expand-syntax) (else *unit*)))
+     ((prelude user-main target-main)
+      `(module ,user-main (main ,user-main)))
+     ((make-main user-main target-main) *unit*)))
+ 
+ 
+ ; from module Larceny-Target in targets/larceny-target.scm
+ (define larceny-target
+   (dispatcher
+     ((type) 'target)
+     ((target-name) "Larceny")
+     ((target-tags) '(Larceny))
+     ((srfi-0?) #f)
+     ((r5rs-macros) #t)
+     ((r5rs-expander)
+      (cond-expand (Larceny macro-expand) (else *unit*)))
+     ((prelude user-main target-main) *unit*)
+     ((make-main user-main target-main)
+      `(define (,target-main argv)
+         (,user-main
+          (cons ',user-main (vector->list argv)))))))
+ 
+ 
+ ; from module Scheme48-Target in targets/scheme48-target.scm
+ (define scheme48-target
+   (dispatcher
+     ((type) 'target)
+     ((target-name) "Scheme48")
+     ((target-tags) '(Scheme48))
+     ((srfi-0?) #f)
+     ((r5rs-macros) #t)
+     ((r5rs-expander) *unit*)
+     ((prelude user target) *unit*)
+     ((make-main user-main target-main)
+      `(define (,target-main argv)
+         (,user-main (cons ',user-main argv))))))
+ 
+ 
+ ; from common/macros.sch
+ ; from common/srfi-2.sch
+ (define-syntax
+   and-let*
+   (syntax-rules
+     ()
+     ((and-let* () body ...) (begin body ...))
+     ((and-let* ((var expr) clauses ...) body ...)
+      (let ((var expr))
+        (if var (and-let* (clauses ...) body ...) #f)))
+     ((and-let* ((expr) clauses ...) body ...)
+      (if expr (and-let* (clauses ...) body ...) #f))
+     ((and-let* (var clauses ...) body ...)
+      (if var (and-let* (clauses ...) body ...) #f))))
+ 
+ 
+ ; from common/srfi-8.sch
+ (define-syntax
+   receive
+   (syntax-rules
+     ()
+     ((receive (v0 vn ...) producer e0 en ...)
+      (call-with-values
+        (lambda () producer)
+        (lambda (v0 vn ...) e0 en ...)))))
+ 
+ 
+ (define-syntax
+   id
+   (syntax-rules
+     (v)
+     ((id x)
+      (let ((v x))
+        (map-display 'x " => ")
+        (write v)
+        (newline)
+        v))
+     ((id tag x)
+      (let ((v x))
+        (map-display tag " " 'x " => ")
+        (write v)
+        (newline)
+        v))))
+ 
+ 
+ (define-syntax
+   define-trace
+   (syntax-rules
+     ()
+     ((define-trace (name arg ...) e0 e1 ...)
+      (begin (define (name arg ...) e0 e1 ...)))))
+ 
+ 
+ (define-syntax
+   let/cc
+   (syntax-rules
+     (context)
+     ((let/cc label ((var0 init0) ...) e0 e1 ...)
+      (let ((label #f))
+        (call-with-values
+          (lambda ()
+            (call/cc
+              (lambda (k)
+                (set! label (lambda args (apply k args)))
+                (values init0 ...))))
+          (lambda (var0 ...) e0 e1 ...))))))
+ 
+ 
+ (define-syntax
+   with-notifier
+   (syntax-rules
+     (v)
+     ((with-notifier f e)
+      (begin
+        (push-notifier! f)
+        (let ((v e)) (pop-notifier!) v)))))
+ 
+ 
+ (define-syntax
+   notify-in-file
+   (syntax-rules
+     ()
+     ((notify-in-file f e)
+      (with-notifier (notify-location f) e))))
+ 
+ 
+ ; from module Decorations in reader/decorations.scm
+ (define (make-file-position
+          line-number
+          column-number
+          bytes)
+   (dispatcher
+     ((type) 'file-position)
+     ((line) line-number)
+     ((column) column-number)
+     ((offset) bytes)
+     ((< pos) (< bytes (pos 'offset)))))
+ 
+ 
+ (define (string->char-or-number s)
+   (or (and (eq? #\# (string-ref s 0))
+            (eq? #\\ (string-ref s 1))
+            (cond ((string-ci=? s "#\\newline") #\newline)
+                  ((string-ci=? s "#\\space") #\space)
+                  ((string-ci=? s "#\\tab") (integer->char 10))
+                  (else (string-ref s 2))))
+       (string->number s)))
+ 
+ 
+ (define (decoration? obj)
+   (and (procedure? obj)
+        (not (*unit*? obj))
+        (let ((type (obj 'type)))
+          (or (eq? type 'token) (eq? type 'decoration)))))
+ 
+ 
+ (define (decoration-is-type? d type)
+   (and (decoration? d) (eq? (d 'scheme-type) type)))
+ 
+ 
+ (define (d:symbol? d)
+   (decoration-is-type? d 'symbol))
+ 
+ 
+ (define (d:string? d)
+   (decoration-is-type? d 'string))
+ 
+ 
+ (define (d:number? d)
+   (decoration-is-type? d 'number))
+ 
+ 
+ (define (d:char? d)
+   (decoration-is-type? d 'char))
+ 
+ 
+ (define (d:boolean? d)
+   (decoration-is-type? d 'boolean))
+ 
+ 
+ (define (d:pair? d)
+   (decoration-is-type? d 'pair))
+ 
+ 
+ (define (d:vector? d)
+   (decoration-is-type? d 'vector))
+ 
+ 
+ (define (token? obj)
+   (and (decoration? obj) (eq? (obj 'type) 'token)))
+ 
+ 
+ (define (make-token tag text position)
+   (dispatcher
+     self
+     ((type) 'token)
+     ((tag) tag)
+     ((text) text)
+     ((position) position)
+     ((eof?) (eq? tag 'eof))
+     ((=>string)
+      (many->string
+        "<"
+        tag
+        ": \""
+        text
+        "\" @"
+        (position 'line)
+        ","
+        (position 'column)
+        ">"))
+     ((scheme-value)
+      (case tag
+        ((identifier) (string->symbol text))
+        ((number) (string->char-or-number text))
+        ((string) text)
+        ((boolean) (string-ci=? text "#t"))
+        ((character) (string->char-or-number text))
+        ((KWOTE) 'quote)
+        ((KWASI-KWOTE) 'quasiquote)
+        ((UNKWOTE) 'unquote)
+        ((UNKWOTE-SPLICING) 'unquote-splicing)
+        (else *unit*)))
+     ((scheme-type)
+      (case tag
+        ((identifier) 'symbol)
+        ((number) 'number)
+        ((string) 'string)
+        ((boolean) 'boolean)
+        ((character) 'char)
+        ((KWOTE) 'symbol)
+        ((KWASI-KWOTE) 'symbol)
+        ((UNKWOTE) 'symbol)
+        ((UNKWOTE-SPLICING) 'symbol)
+        (else *unit*)))
+     ((eq? obj)
+      (if (eq? (self 'scheme-type) 'symbol)
+        (if (and (decoration? obj)
+                 (eq? (obj 'scheme-type) 'symbol))
+          (string-ci=? text (obj 'text))
+          (and (symbol? obj)
+               (string-ci=? text (symbol->string obj))))
+        (equal? (self 'scheme-value) (undecorate obj))))))
+ 
+ 
+ (define (make-eof-token pos)
+   (make-token 'eof "*eof*" pos))
+ 
+ 
+ (define (make-decoration obj position)
+   (let ((raw *unit*))
+     (dispatcher
+       ((type) 'decoration)
+       ((position) position)
+       ((scheme-value)
+        (if (*unit*? raw) (set! raw (undecorate obj)))
+        raw)
+       ((scheme-type)
+        (cond ((pair? obj) 'pair)
+              ((vector? obj) 'vector)
+              (else *unit*)))
+       ((eq? obj) #f)
+       ((car) (if (pair? obj) (car obj) *unit*))
+       ((cdr) (if (pair? obj) (cdr obj) *unit*)))))
+ 
+ 
+ (define (decorate-list l p)
+   (make-decoration l p))
+ 
+ 
+ (define (decorate-vector v p)
+   (make-decoration v p))
+ 
+ 
+ (define (undecorate o)
+   (cond ((decoration? o) (o 'scheme-value))
+         ((pair? o)
+          (cons (undecorate (car o)) (undecorate (cdr o))))
+         ((vector? o) (vector-map undecorate o))
+         (else o)))
+ 
+ 
+ (define (show-decorated-form form)
+   (display*
+     '*scheme-toplevel-hook*
+     " got form at line: "
+     ((form 'position) 'line)
+     #\newline)
+   (pretty-print (form 'scheme-value))
+   (newline))
+ 
+ 
+ ; from module Common-Reader in reader/common-reader.scm
+ (define *show-read-detail* #f)
+ 
+ 
+ (define *readers* '())
+ 
+ 
+ (define *reader* *unit*)
+ 
+ 
+ (define (reader reader-name)
+   (assoc reader-name *readers*))
+ 
+ 
+ (define (reader-name reader-proc)
+   (let search ((readers *readers*))
+     (if (null? readers)
+       #f
+       (if (eq? reader-proc (cdar readers))
+         (caar readers)
+         (search (cdr readers))))))
+ 
+ 
+ (define (add-reader! reader-name reader-proc)
+   (set! *readers*
+     `((,reader-name unquote reader-proc) ,@*readers*)))
+ 
+ 
+ (define (default-reader! reader-proc)
+   (set! *reader* reader-proc))
+ 
+ 
+ (define (eof-object)
+   (cond-expand
+     (Bigloo (read (open-input-string "")))
+     (Scheme48 (read (open-input-string "")))
+     (PLT (read (open-input-string "")))
+     (else (let* ((source (open-input-file "/dev/null"))
+                  (eof-object (read source)))
+             (close-input-port source)
+             eof-object))))
+ 
+ 
+ (define *scheme-toplevel-hook* (lambda (d) d))
+ 
+ 
+ (define *scheme-expand-syntax* (lambda (d) d))
+ 
+ 
+ (define (read-forms reader eof? clean)
+   (let ((forms '()))
+     (let build ((form (reader)))
+       (if (eof? form)
+         (reverse forms)
+         (begin
+           (set! forms (cons form forms))
+           (build (reader)))))))
+ 
+ 
+ ; from module Meta in tree-match/meta.scm
+ (define (m:earliest . decorations)
+   (let search ((d decorations) (position *unit*))
+     (if (null? d)
+       position
+       (let* ((this (car d))
+              (this-position
+                (if (decoration? this) (this 'position) *unit*)))
+         (search
+           (cdr d)
+           (if (or (*unit*? position)
+                   (*unit*? this-position)
+                   (this-position '< position))
+             this-position
+             position))))))
+ 
+ 
+ (define (m:cons car-obj cdr-obj)
+   (if (or (decoration? car-obj) (decoration? cdr-obj))
+     (let ((position (m:earliest car-obj cdr-obj)))
+       (make-decoration (cons car-obj cdr-obj) position))
+     (cons car-obj cdr-obj)))
+ 
+ 
+ (define (m:car obj)
+   (if (d:pair? obj) (obj 'car) (car obj)))
+ 
+ 
+ (define (m:cdr obj)
+   (if (d:pair? obj) (obj 'cdr) (cdr obj)))
+ 
+ 
+ (define m:eq?
+   (lambda (l r)
+     (cond ((decoration? l) (l 'eq? r))
+           ((decoration? r) (r 'eq? l))
+           (else (eq? l r)))))
+ 
+ 
+ (define m:symbol?
+   (lambda (obj)
+     (if (decoration? obj)
+       (d:symbol? obj)
+       (symbol? obj))))
+ 
+ 
+ (define m:number?
+   (lambda (obj)
+     (if (decoration? obj)
+       (d:number? obj)
+       (number? obj))))
+ 
+ 
+ (define m:char?
+   (lambda (obj)
+     (if (decoration? obj) (d:char? obj) (char? obj))))
+ 
+ 
+ (define m:string?
+   (lambda (obj)
+     (if (decoration? obj)
+       (d:string? obj)
+       (string? obj))))
+ 
+ 
+ (define m:pair?
+   (lambda (obj)
+     (if (decoration? obj) (d:pair? obj) (pair? obj))))
+ 
+ 
+ (define m:null? null?)
+ 
+ 
+ (define m:vector?
+   (lambda (obj)
+     (if (decoration? obj)
+       (d:vector? obj)
+       (vector? obj))))
+ 
+ 
+ (define (m:vector->list v)
+   (if (d:vector? v)
+     (let ((position (v 'position)))
+       (make-decoration
+         (vector->list (v 'scheme-value))
+         position))
+     (vector->list v)))
+ 
+ 
+ (define (m:scheme-value f)
+   (if (decoration? f) (f 'scheme-value) f))
+ 
+ 
+ (define (m:unfold p f g seed)
+   (let recur ((seed seed))
+     (if (p seed)
+       '()
+       (m:cons (f seed) (recur (g seed))))))
+ 
+ 
+ ; from module Naive-Reader in reader/naive.scm
+ (define (naive-forms-in-file file-name)
+   (call-with-input-file
+     file-name
+     (lambda (port)
+       (read-forms
+         (lambda () (read port))
+         (lambda (form) (eof-object? form))
+         (lambda (form) form)))))
+ 
+ 
+ ; from reader/scheme.sch
+ (define *input* #f)
+ 
+ 
+ (define *error-status* #f)
+ 
+ 
+ (define *attribute-value* #f)
+ 
+ 
+ (define (read-scheme-stream x-1)
+   (set! *input* x-1)
+   (set! *error-status* 0)
+   (let ((x-5 (lambda ()
+                (error-display "unhandled parse error"))))
+     (f-2 x-5)))
+ 
+ 
+ (define (f-2 x-1)
+   (let ((x-4 (lambda (x-2) (f-3 x-1 x-2))))
+     (if (stream-empty? *input*)
+       (begin
+         (f-67)
+         (let ((x-9 (lambda (x-7) (f-3 x-1 x-7))))
+           (x-9 1)))
+       (let* ((x-11 (stream-car *input*)) (x-10 (car x-11)))
+         (case x-10
+           ((26) (f-19) (f-68 x-4 *attribute-value* x-1))
+           (else
+            (let* ((x-20 (stream-car *input*)) (x-19 (car x-20)))
+              (case x-19
+                ((12)
+                 (f-67)
+                 (let ((x-25 (lambda (x-23) (f-3 x-1 x-23))))
+                   (x-25 1)))
+                ((20)
+                 (f-67)
+                 (let ((x-30 (lambda (x-28) (f-3 x-1 x-28))))
+                   (x-30 1)))
+                ((18)
+                 (f-67)
+                 (let ((x-35 (lambda (x-33) (f-3 x-1 x-33))))
+                   (x-35 1)))
+                ((24)
+                 (f-67)
+                 (let ((x-40 (lambda (x-38) (f-3 x-1 x-38))))
+                   (x-40 1)))
+                ((23)
+                 (f-67)
+                 (let ((x-45 (lambda (x-43) (f-3 x-1 x-43))))
+                   (x-45 1)))
+                ((22)
+                 (f-67)
+                 (let ((x-50 (lambda (x-48) (f-3 x-1 x-48))))
+                   (x-50 1)))
+                ((21)
+                 (f-67)
+                 (let ((x-55 (lambda (x-53) (f-3 x-1 x-53))))
+                   (x-55 1)))
+                ((17)
+                 (f-67)
+                 (let ((x-60 (lambda (x-58) (f-3 x-1 x-58))))
+                   (x-60 1)))
+                ((16)
+                 (f-67)
+                 (let ((x-65 (lambda (x-63) (f-3 x-1 x-63))))
+                   (x-65 1)))
+                ((15)
+                 (f-67)
+                 (let ((x-70 (lambda (x-68) (f-3 x-1 x-68))))
+                   (x-70 1)))
+                ((14)
+                 (f-67)
+                 (let ((x-75 (lambda (x-73) (f-3 x-1 x-73))))
+                   (x-75 1)))
+                ((13)
+                 (f-67)
+                 (let ((x-80 (lambda (x-78) (f-3 x-1 x-78))))
+                   (x-80 1)))
+                (else (x-1))))))))))
+ 
+ 
+ (define (f-68 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-69 x-1) (x-2 1))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((24 23 22 21 20 18 17 16 15 14 13 12)
+          (f-69 x-1)
+          (x-2 1))
+         (else (x-3))))))
+ 
+ 
+ (define (f-69 x-1)
+   (let* ((x-4 (lambda ($1)
+                 (begin
+                   (display* 'what-the-fuck? #\newline)
+                   (*scheme-toplevel-hook* (eof-object)))))
+          (x-3 (x-4 x-1)))
+     (set! *attribute-value* x-3)))
+ 
+ 
+ (define (f-67)
+   (let* ((x-3 (lambda () (eof-object))) (x-2 (x-3)))
+     (set! *attribute-value* x-2)))
+ 
+ 
+ (define (f-3 x-2 x-1)
+   (let ((x-5 (lambda (x-3) (f-3 x-2 x-3))))
+     (if (equal? 0 x-1)
+       (if (stream-empty? *input*)
+         *attribute-value*
+         (x-2))
+       (f-4 x-5 *attribute-value* x-2))))
+ 
+ 
+ (define (f-4 x-2 x-1 x-3)
+   (let* ((x-6 (lambda () (f-5) (f-6 x-2 x-1 x-3)))
+          (x-9 (lambda (x-7) (f-7 x-2 x-1 x-3 x-7))))
+     (if (stream-empty? *input*)
+       (begin
+         (f-66 x-1)
+         (let ((x-14 (lambda (x-12) (f-7 x-2 x-1 x-3 x-12))))
+           (x-2 0)))
+       (let* ((x-16 (stream-car *input*)) (x-15 (car x-16)))
+         (case x-15
+           ((20) (f-19) (f-20 x-9 *attribute-value* x-6))
+           ((24) (f-19) (f-27 x-9 *attribute-value* x-6))
+           ((23) (f-19) (f-28 x-9 *attribute-value* x-6))
+           ((22) (f-19) (f-29 x-9 *attribute-value* x-6))
+           ((21) (f-19) (f-30 x-9 *attribute-value* x-6))
+           ((18) (f-19) (f-31 x-9 *attribute-value* x-6))
+           ((13) (f-19) (f-37 x-9 *attribute-value* x-6))
+           ((17) (f-19) (f-38 x-9 *attribute-value* x-6))
+           ((16) (f-19) (f-39 x-9 *attribute-value* x-6))
+           ((15) (f-19) (f-40 x-9 *attribute-value* x-6))
+           ((14) (f-19) (f-41 x-9 *attribute-value* x-6))
+           (else
+            (let* ((x-45 (stream-car *input*)) (x-44 (car x-45)))
+              (x-6))))))))
+ 
+ 
+ (define (f-66 x-1)
+   (let* ((x-4 (lambda (x) x)) (x-3 (x-4 x-1)))
+     (set! *attribute-value* x-3)))
+ 
+ 
+ (define (f-6 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (let* ((x-5 (lambda ($1 $2)
+                   (begin
+                     (error-display
+                       'syntax-error
+                       " at toplevel line: "
+                       ((*input* 'position) 'line)
+                       #\newline)
+                     *unit*)))
+            (x-4 (x-5 x-1 #f)))
+       (set! *error-status* 3)
+       (let* ((x-9 (lambda (x-7) (f-7 x-2 x-1 x-3 x-7)))
+              (x-12 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+         (f-64 x-2 x-9 x-1 x-4 x-12)))
+     (let* ((x-15 (stream-car *input*))
+            (x-14 (car x-15))
+            (x-27 (stream-car *input*))
+            (x-26 (car x-27)))
+       (case x-26
+         ((12)
+          (let* ((x-29 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-28 (x-29 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-33 (lambda (x-31) (f-7 x-2 x-1 x-3 x-31)))
+                   (x-36 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-33 x-1 x-28 x-36))))
+         ((13)
+          (let* ((x-39 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-38 (x-39 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-43 (lambda (x-41) (f-7 x-2 x-1 x-3 x-41)))
+                   (x-46 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-43 x-1 x-38 x-46))))
+         ((14)
+          (let* ((x-49 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-48 (x-49 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-53 (lambda (x-51) (f-7 x-2 x-1 x-3 x-51)))
+                   (x-56 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-53 x-1 x-48 x-56))))
+         ((15)
+          (let* ((x-59 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-58 (x-59 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-63 (lambda (x-61) (f-7 x-2 x-1 x-3 x-61)))
+                   (x-66 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-63 x-1 x-58 x-66))))
+         ((16)
+          (let* ((x-69 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-68 (x-69 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-73 (lambda (x-71) (f-7 x-2 x-1 x-3 x-71)))
+                   (x-76 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-73 x-1 x-68 x-76))))
+         ((17)
+          (let* ((x-79 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-78 (x-79 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-83 (lambda (x-81) (f-7 x-2 x-1 x-3 x-81)))
+                   (x-86 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-83 x-1 x-78 x-86))))
+         ((18)
+          (let* ((x-89 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-88 (x-89 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-93 (lambda (x-91) (f-7 x-2 x-1 x-3 x-91)))
+                   (x-96 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-93 x-1 x-88 x-96))))
+         ((20)
+          (let* ((x-99 (lambda ($1 $2)
+                         (begin
+                           (error-display
+                             'syntax-error
+                             " at toplevel line: "
+                             ((*input* 'position) 'line)
+                             #\newline)
+                           *unit*)))
+                 (x-98 (x-99 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-103 (lambda (x-101) (f-7 x-2 x-1 x-3 x-101)))
+                   (x-106 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-103 x-1 x-98 x-106))))
+         ((21)
+          (let* ((x-109 (lambda ($1 $2)
+                          (begin
+                            (error-display
+                              'syntax-error
+                              " at toplevel line: "
+                              ((*input* 'position) 'line)
+                              #\newline)
+                            *unit*)))
+                 (x-108 (x-109 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-113 (lambda (x-111) (f-7 x-2 x-1 x-3 x-111)))
+                   (x-116 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-113 x-1 x-108 x-116))))
+         ((22)
+          (let* ((x-119 (lambda ($1 $2)
+                          (begin
+                            (error-display
+                              'syntax-error
+                              " at toplevel line: "
+                              ((*input* 'position) 'line)
+                              #\newline)
+                            *unit*)))
+                 (x-118 (x-119 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-123 (lambda (x-121) (f-7 x-2 x-1 x-3 x-121)))
+                   (x-126 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-123 x-1 x-118 x-126))))
+         ((23)
+          (let* ((x-129 (lambda ($1 $2)
+                          (begin
+                            (error-display
+                              'syntax-error
+                              " at toplevel line: "
+                              ((*input* 'position) 'line)
+                              #\newline)
+                            *unit*)))
+                 (x-128 (x-129 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-133 (lambda (x-131) (f-7 x-2 x-1 x-3 x-131)))
+                   (x-136 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-133 x-1 x-128 x-136))))
+         ((24)
+          (let* ((x-139 (lambda ($1 $2)
+                          (begin
+                            (error-display
+                              'syntax-error
+                              " at toplevel line: "
+                              ((*input* 'position) 'line)
+                              #\newline)
+                            *unit*)))
+                 (x-138 (x-139 x-1 #f)))
+            (set! *error-status* 3)
+            (let* ((x-143 (lambda (x-141) (f-7 x-2 x-1 x-3 x-141)))
+                   (x-146 (lambda () (f-5) (f-6 x-2 x-1 x-3))))
+              (f-64 x-2 x-143 x-1 x-138 x-146))))
+         (else
+          (begin
+            (set! *input* (stream-cdr *input*))
+            (f-6 x-2 x-1 x-3)))))))
+ 
+ 
+ (define (f-64 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (begin (f-65 x-1 x-2) (x-3 1))
+     (let* ((x-9 (stream-car *input*))
+            (x-8 (car x-9))
+            (x-13 (stream-car *input*))
+            (x-12 (car x-13)))
+       (case x-12
+         ((24 23 22 21 20 18 17 16 15 14 13 12)
+          (f-65 x-1 x-2)
+          (x-3 1))
+         (else (x-5))))))
+ 
+ 
+ (define (f-65 x-1 x-2)
+   (let* ((x-5 (lambda ($1 $2)
+                 (begin
+                   (error-display
+                     'syntax-error
+                     " at toplevel line: "
+                     ((*input* 'position) 'line)
+                     #\newline)
+                   *unit*)))
+          (x-4 (x-5 x-1 x-2)))
+     (set! *attribute-value* x-4)))
+ 
+ 
+ (define (f-7 x-3 x-2 x-4 x-1)
+   (let* ((x-7 (lambda () (f-5) (f-6 x-3 x-2 x-4)))
+          (x-10 (lambda (x-8) (f-7 x-3 x-2 x-4 x-8))))
+     (if (equal? 0 x-1)
+       (if (stream-empty? *input*)
+         *attribute-value*
+         (x-7))
+       (case x-1
+         ((11) (f-8 x-10 *attribute-value* x-7))
+         ((8) (f-10 x-10 *attribute-value* x-7))
+         ((7) (f-12 x-10 *attribute-value* x-7))
+         ((6) (f-13 x-10 *attribute-value* x-7))
+         ((4) (f-14 x-10 *attribute-value* x-7))
+         ((5) (f-15 x-10 *attribute-value* x-7))
+         ((3) (f-16 x-10 *attribute-value* x-7))
+         (else (f-62 x-3 x-10 x-2 *attribute-value* x-7))))))
+ 
+ 
+ (define (f-62 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (begin (f-63 x-1 x-2) (x-3 1))
+     (let* ((x-9 (stream-car *input*))
+            (x-8 (car x-9))
+            (x-13 (stream-car *input*))
+            (x-12 (car x-13)))
+       (case x-12
+         ((24 23 22 21 20 18 17 16 15 14 13 12)
+          (f-63 x-1 x-2)
+          (x-3 1))
+         (else (x-5))))))
+ 
+ 
+ (define (f-63 x-1 x-2)
+   (let* ((x-5 (lambda ($1 $2) (*scheme-toplevel-hook* $2)))
+          (x-4 (x-5 x-1 x-2)))
+     (set! *attribute-value* x-4)))
+ 
+ 
+ (define (f-8 x-2 x-1 x-3)
+   (let ((x-6 (lambda (x-4) (f-9 x-2 x-1 x-3 x-4))))
+     (if (stream-empty? *input*)
+       (x-3)
+       (let* ((x-9 (stream-car *input*)) (x-8 (car x-9)))
+         (case x-8
+           ((20) (f-19) (f-20 x-6 *attribute-value* x-3))
+           ((24) (f-19) (f-27 x-6 *attribute-value* x-3))
+           ((23) (f-19) (f-28 x-6 *attribute-value* x-3))
+           ((22) (f-19) (f-29 x-6 *attribute-value* x-3))
+           ((21) (f-19) (f-30 x-6 *attribute-value* x-3))
+           ((18) (f-19) (f-31 x-6 *attribute-value* x-3))
+           ((13) (f-19) (f-37 x-6 *attribute-value* x-3))
+           ((17) (f-19) (f-38 x-6 *attribute-value* x-3))
+           ((16) (f-19) (f-39 x-6 *attribute-value* x-3))
+           ((15) (f-19) (f-40 x-6 *attribute-value* x-3))
+           ((14) (f-19) (f-41 x-6 *attribute-value* x-3))
+           (else (x-3)))))))
+ 
+ 
+ (define (f-20 x-2 x-1 x-3)
+   (let* ((x-6 (lambda () (f-5) (f-21 x-2 x-1 x-3)))
+          (x-9 (lambda (x-7) (f-22 x-2 x-1 x-3 x-7))))
+     (if (stream-empty? *input*)
+       (x-6)
+       (let* ((x-12 (stream-car *input*)) (x-11 (car x-12)))
+         (case x-11
+           ((20) (f-19) (f-20 x-9 *attribute-value* x-6))
+           ((24) (f-19) (f-27 x-9 *attribute-value* x-6))
+           ((23) (f-19) (f-28 x-9 *attribute-value* x-6))
+           ((22) (f-19) (f-29 x-9 *attribute-value* x-6))
+           ((21) (f-19) (f-30 x-9 *attribute-value* x-6))
+           ((18) (f-19) (f-31 x-9 *attribute-value* x-6))
+           ((13) (f-19) (f-37 x-9 *attribute-value* x-6))
+           ((17) (f-19) (f-38 x-9 *attribute-value* x-6))
+           ((16) (f-19) (f-39 x-9 *attribute-value* x-6))
+           ((15) (f-19) (f-40 x-9 *attribute-value* x-6))
+           ((14) (f-19) (f-41 x-9 *attribute-value* x-6))
+           (else
+            (let* ((x-37 (stream-car *input*)) (x-36 (car x-37)))
+              (case x-36
+                ((19)
+                 (f-43 x-1)
+                 (let ((x-42 (lambda (x-40) (f-22 x-2 x-1 x-3 x-40))))
+                   (x-42 9)))
+                (else (x-6))))))))))
+ 
+ 
+ (define (f-21 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (error-display
+       "parse error: premature end of input")
+     (let* ((x-6 (stream-car *input*)) (x-5 (car x-6)))
+       (case x-5
+         ((19)
+          (let ((x-7 (stream-car *input*)))
+            (set! *error-status* 3)
+            (let* ((x-11 (lambda (x-9) (f-22 x-2 x-1 x-3 x-9)))
+                   (x-14 (lambda () (f-5) (f-21 x-2 x-1 x-3))))
+              (f-59 x-2 x-11 x-1 (cdr x-7) x-14))))
+         (else
+          (begin
+            (set! *input* (stream-cdr *input*))
+            (f-21 x-2 x-1 x-3)))))))
+ 
+ 
+ (define (f-59 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (x-5)
+     (let* ((x-8 (stream-car *input*)) (x-7 (car x-8)))
+       (case x-7
+         ((19)
+          (f-19)
+          (f-60 x-3 x-4 #f x-1 x-2 *attribute-value* x-5))
+         (else (x-5))))))
+ 
+ 
+ (define (f-60 x-4 x-5 x-6 x-1 x-2 x-3 x-7)
+   (if (stream-empty? *input*)
+     (begin (f-61 x-1 x-2 x-3) (x-4 7))
+     (let* ((x-11 (stream-car *input*))
+            (x-10 (car x-11))
+            (x-15 (stream-car *input*))
+            (x-14 (car x-15)))
+       (case x-14
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-61 x-1 x-2 x-3)
+          (x-4 7))
+         (else (x-7))))))
+ 
+ 
+ (define (f-61 x-1 x-2 x-3)
+   (let* ((x-6 (lambda ($1 $2 $3)
+                 (let ((position (*input* 'position)))
+                   (error-display
+                     'syntax-error
+                     " in vector at line: "
+                     (position 'line)
+                     #\newline)
+                   (decorate-vector (vector) position))))
+          (x-5 (x-6 x-1 x-2 x-3)))
+     (set! *attribute-value* x-5)))
+ 
+ 
+ (define (f-22 x-3 x-2 x-4 x-1)
+   (let* ((x-7 (lambda () (f-5) (f-21 x-3 x-2 x-4)))
+          (x-10 (lambda (x-8) (f-22 x-3 x-2 x-4 x-8))))
+     (case x-1
+       ((11) (f-8 x-10 *attribute-value* x-7))
+       ((8) (f-10 x-10 *attribute-value* x-7))
+       ((7) (f-12 x-10 *attribute-value* x-7))
+       ((6) (f-13 x-10 *attribute-value* x-7))
+       ((4) (f-14 x-10 *attribute-value* x-7))
+       ((5) (f-15 x-10 *attribute-value* x-7))
+       ((3) (f-16 x-10 *attribute-value* x-7))
+       ((2) (f-23 x-10 *attribute-value* x-7))
+       (else (f-56 x-3 x-10 x-2 *attribute-value* x-7)))))
+ 
+ 
+ (define (f-56 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (x-5)
+     (let* ((x-8 (stream-car *input*)) (x-7 (car x-8)))
+       (case x-7
+         ((19)
+          (f-19)
+          (f-57 x-3 x-4 #f x-1 x-2 *attribute-value* x-5))
+         (else (x-5))))))
+ 
+ 
+ (define (f-57 x-4 x-5 x-6 x-1 x-2 x-3 x-7)
+   (if (stream-empty? *input*)
+     (begin (f-58 x-1 x-2 x-3) (x-4 7))
+     (let* ((x-11 (stream-car *input*))
+            (x-10 (car x-11))
+            (x-15 (stream-car *input*))
+            (x-14 (car x-15)))
+       (case x-14
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-58 x-1 x-2 x-3)
+          (x-4 7))
+         (else (x-7))))))
+ 
+ 
+ (define (f-58 x-1 x-2 x-3)
+   (let* ((x-6 (lambda ($1 $2 $3)
+                 (decorate-vector
+                   (list->vector $2)
+                   ($1 'position))))
+          (x-5 (x-6 x-1 x-2 x-3)))
+     (set! *attribute-value* x-5)))
+ 
+ 
+ (define (f-23 x-2 x-1 x-3)
+   (let ((x-6 (lambda (x-4) (f-24 x-2 x-1 x-3 x-4))))
+     (if (stream-empty? *input*)
+       (x-3)
+       (let* ((x-9 (stream-car *input*)) (x-8 (car x-9)))
+         (case x-8
+           ((20) (f-19) (f-20 x-6 *attribute-value* x-3))
+           ((24) (f-19) (f-27 x-6 *attribute-value* x-3))
+           ((23) (f-19) (f-28 x-6 *attribute-value* x-3))
+           ((22) (f-19) (f-29 x-6 *attribute-value* x-3))
+           ((21) (f-19) (f-30 x-6 *attribute-value* x-3))
+           ((18) (f-19) (f-31 x-6 *attribute-value* x-3))
+           ((13) (f-19) (f-37 x-6 *attribute-value* x-3))
+           ((17) (f-19) (f-38 x-6 *attribute-value* x-3))
+           ((16) (f-19) (f-39 x-6 *attribute-value* x-3))
+           ((15) (f-19) (f-40 x-6 *attribute-value* x-3))
+           ((14) (f-19) (f-41 x-6 *attribute-value* x-3))
+           (else
+            (let* ((x-34 (stream-car *input*)) (x-33 (car x-34)))
+              (case x-33
+                ((19)
+                 (f-43 x-1)
+                 (let ((x-39 (lambda (x-37) (f-24 x-2 x-1 x-3 x-37))))
+                   (x-39 9)))
+                (else (x-3))))))))))
+ 
+ 
+ (define (f-31 x-2 x-1 x-3)
+   (let* ((x-6 (lambda () (f-5) (f-32 x-2 x-1 x-3)))
+          (x-9 (lambda (x-7) (f-33 x-2 x-1 x-3 x-7))))
+     (if (stream-empty? *input*)
+       (x-6)
+       (let* ((x-12 (stream-car *input*)) (x-11 (car x-12)))
+         (case x-11
+           ((20) (f-19) (f-20 x-9 *attribute-value* x-6))
+           ((24) (f-19) (f-27 x-9 *attribute-value* x-6))
+           ((23) (f-19) (f-28 x-9 *attribute-value* x-6))
+           ((22) (f-19) (f-29 x-9 *attribute-value* x-6))
+           ((21) (f-19) (f-30 x-9 *attribute-value* x-6))
+           ((18) (f-19) (f-31 x-9 *attribute-value* x-6))
+           ((13) (f-19) (f-37 x-9 *attribute-value* x-6))
+           ((17) (f-19) (f-38 x-9 *attribute-value* x-6))
+           ((16) (f-19) (f-39 x-9 *attribute-value* x-6))
+           ((15) (f-19) (f-40 x-9 *attribute-value* x-6))
+           ((14) (f-19) (f-41 x-9 *attribute-value* x-6))
+           (else
+            (let* ((x-37 (stream-car *input*)) (x-36 (car x-37)))
+              (case x-36
+                ((19)
+                 (f-43 x-1)
+                 (let ((x-42 (lambda (x-40) (f-33 x-2 x-1 x-3 x-40))))
+                   (x-42 9)))
+                (else (x-6))))))))))
+ 
+ 
+ (define (f-32 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (error-display
+       "parse error: premature end of input")
+     (let* ((x-6 (stream-car *input*)) (x-5 (car x-6)))
+       (case x-5
+         ((19)
+          (let ((x-7 (stream-car *input*)))
+            (set! *error-status* 3)
+            (let* ((x-11 (lambda (x-9) (f-33 x-2 x-1 x-3 x-9)))
+                   (x-14 (lambda () (f-5) (f-32 x-2 x-1 x-3))))
+              (f-53 x-2 x-11 x-1 (cdr x-7) x-14))))
+         (else
+          (begin
+            (set! *input* (stream-cdr *input*))
+            (f-32 x-2 x-1 x-3)))))))
+ 
+ 
+ (define (f-53 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (x-5)
+     (let* ((x-8 (stream-car *input*)) (x-7 (car x-8)))
+       (case x-7
+         ((19)
+          (f-19)
+          (f-54 x-3 x-4 #f x-1 x-2 *attribute-value* x-5))
+         (else (x-5))))))
+ 
+ 
+ (define (f-54 x-4 x-5 x-6 x-1 x-2 x-3 x-7)
+   (if (stream-empty? *input*)
+     (begin (f-55 x-1 x-2 x-3) (x-4 6))
+     (let* ((x-11 (stream-car *input*))
+            (x-10 (car x-11))
+            (x-15 (stream-car *input*))
+            (x-14 (car x-15)))
+       (case x-14
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-55 x-1 x-2 x-3)
+          (x-4 6))
+         (else (x-7))))))
+ 
+ 
+ (define (f-55 x-1 x-2 x-3)
+   (let* ((x-6 (lambda ($1 $2 $3)
+                 (let ((position (*input* 'position)))
+                   (error-display
+                     'syntax-error
+                     " in list at line: "
+                     (position 'line)
+                     #\newline)
+                   (decorate-list '() position))))
+          (x-5 (x-6 x-1 x-2 x-3)))
+     (set! *attribute-value* x-5)))
+ 
+ 
+ (define (f-33 x-3 x-2 x-4 x-1)
+   (let* ((x-7 (lambda () (f-5) (f-32 x-3 x-2 x-4)))
+          (x-10 (lambda (x-8) (f-33 x-3 x-2 x-4 x-8))))
+     (case x-1
+       ((11) (f-8 x-10 *attribute-value* x-7))
+       ((8) (f-10 x-10 *attribute-value* x-7))
+       ((7) (f-12 x-10 *attribute-value* x-7))
+       ((6) (f-13 x-10 *attribute-value* x-7))
+       ((4) (f-14 x-10 *attribute-value* x-7))
+       ((5) (f-15 x-10 *attribute-value* x-7))
+       ((3) (f-16 x-10 *attribute-value* x-7))
+       ((2) (f-34 x-10 *attribute-value* x-7))
+       ((10) (f-44 x-3 x-10 x-2 *attribute-value* x-7))
+       (else (f-50 x-3 x-10 x-2 *attribute-value* x-7)))))
+ 
+ 
+ (define (f-50 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (x-5)
+     (let* ((x-8 (stream-car *input*)) (x-7 (car x-8)))
+       (case x-7
+         ((19)
+          (f-19)
+          (f-51 x-3 x-4 #f x-1 x-2 *attribute-value* x-5))
+         (else (x-5))))))
+ 
+ 
+ (define (f-51 x-4 x-5 x-6 x-1 x-2 x-3 x-7)
+   (if (stream-empty? *input*)
+     (begin (f-52 x-1 x-2 x-3) (x-4 6))
+     (let* ((x-11 (stream-car *input*))
+            (x-10 (car x-11))
+            (x-15 (stream-car *input*))
+            (x-14 (car x-15)))
+       (case x-14
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-52 x-1 x-2 x-3)
+          (x-4 6))
+         (else (x-7))))))
+ 
+ 
+ (define (f-52 x-1 x-2 x-3)
+   (let* ((x-6 (lambda ($1 $2 $3)
+                 (*scheme-expand-syntax*
+                   (decorate-list $2 ($1 'position)))))
+          (x-5 (x-6 x-1 x-2 x-3)))
+     (set! *attribute-value* x-5)))
+ 
+ 
+ (define (f-44 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (x-5)
+     (let* ((x-8 (stream-car *input*)) (x-7 (car x-8)))
+       (case x-7
+         ((25)
+          (f-19)
+          (f-45 x-3 x-4 #f x-1 x-2 *attribute-value* x-5))
+         (else (x-5))))))
+ 
+ 
+ (define (f-45 x-4 x-5 x-6 x-1 x-2 x-3 x-7)
+   (let ((x-10 (lambda (x-8)
+                 (f-46 x-4 x-5 x-6 x-1 x-2 x-3 x-7 x-8))))
+     (if (stream-empty? *input*)
+       (x-7)
+       (let* ((x-13 (stream-car *input*)) (x-12 (car x-13)))
+         (case x-12
+           ((20) (f-19) (f-20 x-10 *attribute-value* x-7))
+           ((24) (f-19) (f-27 x-10 *attribute-value* x-7))
+           ((23) (f-19) (f-28 x-10 *attribute-value* x-7))
+           ((22) (f-19) (f-29 x-10 *attribute-value* x-7))
+           ((21) (f-19) (f-30 x-10 *attribute-value* x-7))
+           ((18) (f-19) (f-31 x-10 *attribute-value* x-7))
+           ((13) (f-19) (f-37 x-10 *attribute-value* x-7))
+           ((17) (f-19) (f-38 x-10 *attribute-value* x-7))
+           ((16) (f-19) (f-39 x-10 *attribute-value* x-7))
+           ((15) (f-19) (f-40 x-10 *attribute-value* x-7))
+           ((14) (f-19) (f-41 x-10 *attribute-value* x-7))
+           (else (x-7)))))))
+ 
+ 
+ (define (f-46 x-5 x-6 x-7 x-2 x-3 x-4 x-8 x-1)
+   (let ((x-11 (lambda (x-9)
+                 (f-46 x-5 x-6 x-7 x-2 x-3 x-4 x-8 x-9))))
+     (case x-1
+       ((11) (f-8 x-11 *attribute-value* x-8))
+       ((8) (f-10 x-11 *attribute-value* x-8))
+       ((7) (f-12 x-11 *attribute-value* x-8))
+       ((6) (f-13 x-11 *attribute-value* x-8))
+       ((4) (f-14 x-11 *attribute-value* x-8))
+       ((5) (f-15 x-11 *attribute-value* x-8))
+       ((3) (f-16 x-11 *attribute-value* x-8))
+       (else
+        (f-47 x-5
+              x-6
+              x-7
+              x-11
+              x-2
+              x-3
+              x-4
+              *attribute-value*
+              x-8)))))
+ 
+ 
+ (define (f-47 x-5 x-6 x-7 x-8 x-1 x-2 x-3 x-4 x-9)
+   (if (stream-empty? *input*)
+     (x-9)
+     (let* ((x-12 (stream-car *input*)) (x-11 (car x-12)))
+       (case x-11
+         ((19)
+          (f-19)
+          (f-48 x-5
+                x-6
+                x-7
+                x-8
+                #f
+                x-1
+                x-2
+                x-3
+                x-4
+                *attribute-value*
+                x-9))
+         (else (x-9))))))
+ 
+ 
+ (define (f-48
+          x-6
+          x-7
+          x-8
+          x-9
+          x-10
+          x-1
+          x-2
+          x-3
+          x-4
+          x-5
+          x-11)
+   (if (stream-empty? *input*)
+     (begin (f-49 x-1 x-2 x-3 x-4 x-5) (x-6 6))
+     (let* ((x-15 (stream-car *input*))
+            (x-14 (car x-15))
+            (x-19 (stream-car *input*))
+            (x-18 (car x-19)))
+       (case x-18
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-49 x-1 x-2 x-3 x-4 x-5)
+          (x-6 6))
+         (else (x-11))))))
+ 
+ 
+ (define (f-49 x-1 x-2 x-3 x-4 x-5)
+   (let* ((x-8 (lambda ($1 $2 $3 $4 $5) (append $2 $4)))
+          (x-7 (x-8 x-1 x-2 x-3 x-4 x-5)))
+     (set! *attribute-value* x-7)))
+ 
+ 
+ (define (f-34 x-2 x-1 x-3)
+   (let ((x-6 (lambda (x-4) (f-35 x-2 x-1 x-3 x-4))))
+     (if (stream-empty? *input*)
+       (x-3)
+       (let* ((x-9 (stream-car *input*)) (x-8 (car x-9)))
+         (case x-8
+           ((20) (f-19) (f-20 x-6 *attribute-value* x-3))
+           ((24) (f-19) (f-27 x-6 *attribute-value* x-3))
+           ((23) (f-19) (f-28 x-6 *attribute-value* x-3))
+           ((22) (f-19) (f-29 x-6 *attribute-value* x-3))
+           ((21) (f-19) (f-30 x-6 *attribute-value* x-3))
+           ((18) (f-19) (f-31 x-6 *attribute-value* x-3))
+           ((13) (f-19) (f-37 x-6 *attribute-value* x-3))
+           ((17) (f-19) (f-38 x-6 *attribute-value* x-3))
+           ((16) (f-19) (f-39 x-6 *attribute-value* x-3))
+           ((15) (f-19) (f-40 x-6 *attribute-value* x-3))
+           ((14) (f-19) (f-41 x-6 *attribute-value* x-3))
+           (else
+            (let* ((x-34 (stream-car *input*)) (x-33 (car x-34)))
+              (case x-33
+                ((25)
+                 (f-42 x-1)
+                 (let ((x-39 (lambda (x-37) (f-35 x-2 x-1 x-3 x-37))))
+                   (x-2 10)))
+                ((19)
+                 (f-43 x-1)
+                 (let ((x-44 (lambda (x-42) (f-35 x-2 x-1 x-3 x-42))))
+                   (x-44 9)))
+                (else (x-3))))))))))
+ 
+ 
+ (define (f-43 x-1)
+   (let* ((x-4 (lambda () '())) (x-3 (x-4)))
+     (set! *attribute-value* x-3)))
+ 
+ 
+ (define (f-42 x-1)
+   (let* ((x-4 (lambda ($1) (list $1))) (x-3 (x-4 x-1)))
+     (set! *attribute-value* x-3)))
+ 
+ 
+ (define (f-41 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 3))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 3))
+         (else (x-3))))))
+ 
+ 
+ (define (f-40 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 3))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 3))
+         (else (x-3))))))
+ 
+ 
+ (define (f-39 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 3))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 3))
+         (else (x-3))))))
+ 
+ 
+ (define (f-38 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 3))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 3))
+         (else (x-3))))))
+ 
+ 
+ (define (f-37 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 4))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 4))
+         (else (x-3))))))
+ 
+ 
+ (define (f-35 x-3 x-2 x-4 x-1)
+   (let ((x-7 (lambda (x-5) (f-35 x-3 x-2 x-4 x-5))))
+     (case x-1
+       ((11) (f-8 x-7 *attribute-value* x-4))
+       ((8) (f-10 x-7 *attribute-value* x-4))
+       ((7) (f-12 x-7 *attribute-value* x-4))
+       ((6) (f-13 x-7 *attribute-value* x-4))
+       ((4) (f-14 x-7 *attribute-value* x-4))
+       ((5) (f-15 x-7 *attribute-value* x-4))
+       ((3) (f-16 x-7 *attribute-value* x-4))
+       ((2) (f-34 x-7 *attribute-value* x-4))
+       ((10) (f-36 x-3 x-7 x-2 *attribute-value* x-4))
+       (else (f-25 x-3 x-7 x-2 *attribute-value* x-4)))))
+ 
+ 
+ (define (f-36 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (x-5)
+     (let* ((x-8 (stream-car *input*))
+            (x-7 (car x-8))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25) (f-26 x-1 x-2) (x-3 10))
+         (else (x-5))))))
+ 
+ 
+ (define (f-30 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (x-3)
+     (let* ((x-6 (stream-car *input*))
+            (x-5 (car x-6))
+            (x-9 (stream-car *input*))
+            (x-8 (car x-9)))
+       (case x-8
+         ((24 23 22 21 20 18 17 16 15 14 13)
+          (f-11 x-1)
+          (x-2 11))
+         (else (x-3))))))
+ 
+ 
+ (define (f-29 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (x-3)
+     (let* ((x-6 (stream-car *input*))
+            (x-5 (car x-6))
+            (x-9 (stream-car *input*))
+            (x-8 (car x-9)))
+       (case x-8
+         ((24 23 22 21 20 18 17 16 15 14 13)
+          (f-11 x-1)
+          (x-2 11))
+         (else (x-3))))))
+ 
+ 
+ (define (f-28 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (x-3)
+     (let* ((x-6 (stream-car *input*))
+            (x-5 (car x-6))
+            (x-9 (stream-car *input*))
+            (x-8 (car x-9)))
+       (case x-8
+         ((24 23 22 21 20 18 17 16 15 14 13)
+          (f-11 x-1)
+          (x-2 11))
+         (else (x-3))))))
+ 
+ 
+ (define (f-27 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (x-3)
+     (let* ((x-6 (stream-car *input*))
+            (x-5 (car x-6))
+            (x-9 (stream-car *input*))
+            (x-8 (car x-9)))
+       (case x-8
+         ((24 23 22 21 20 18 17 16 15 14 13)
+          (f-11 x-1)
+          (x-2 11))
+         (else (x-3))))))
+ 
+ 
+ (define (f-24 x-3 x-2 x-4 x-1)
+   (let ((x-7 (lambda (x-5) (f-24 x-3 x-2 x-4 x-5))))
+     (case x-1
+       ((11) (f-8 x-7 *attribute-value* x-4))
+       ((8) (f-10 x-7 *attribute-value* x-4))
+       ((7) (f-12 x-7 *attribute-value* x-4))
+       ((6) (f-13 x-7 *attribute-value* x-4))
+       ((4) (f-14 x-7 *attribute-value* x-4))
+       ((5) (f-15 x-7 *attribute-value* x-4))
+       ((3) (f-16 x-7 *attribute-value* x-4))
+       ((2) (f-23 x-7 *attribute-value* x-4))
+       (else (f-25 x-3 x-7 x-2 *attribute-value* x-4)))))
+ 
+ 
+ (define (f-25 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (x-5)
+     (let* ((x-8 (stream-car *input*))
+            (x-7 (car x-8))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((19) (f-26 x-1 x-2) (x-3 9))
+         (else (x-5))))))
+ 
+ 
+ (define (f-26 x-1 x-2)
+   (let* ((x-5 (lambda ($1 $2) (cons $1 $2)))
+          (x-4 (x-5 x-1 x-2)))
+     (set! *attribute-value* x-4)))
+ 
+ 
+ (define (f-19)
+   (let ((x-2 (stream-car *input*)))
+     (set! *attribute-value* (cdr x-2))
+     (set! *input* (stream-cdr *input*))
+     (if (zero? *error-status*)
+       (set! *error-status* *error-status*)
+       (set! *error-status* (- *error-status* 1)))))
+ 
+ 
+ (define (f-9 x-3 x-2 x-4 x-1)
+   (let ((x-7 (lambda (x-5) (f-9 x-3 x-2 x-4 x-5))))
+     (case x-1
+       ((11) (f-8 x-7 *attribute-value* x-4))
+       ((8) (f-10 x-7 *attribute-value* x-4))
+       ((7) (f-12 x-7 *attribute-value* x-4))
+       ((6) (f-13 x-7 *attribute-value* x-4))
+       ((4) (f-14 x-7 *attribute-value* x-4))
+       ((5) (f-15 x-7 *attribute-value* x-4))
+       ((3) (f-16 x-7 *attribute-value* x-4))
+       (else (f-17 x-3 x-7 x-2 *attribute-value* x-4)))))
+ 
+ 
+ (define (f-17 x-3 x-4 x-1 x-2 x-5)
+   (if (stream-empty? *input*)
+     (begin (f-18 x-1 x-2) (x-3 8))
+     (let* ((x-9 (stream-car *input*))
+            (x-8 (car x-9))
+            (x-13 (stream-car *input*))
+            (x-12 (car x-13)))
+       (case x-12
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-18 x-1 x-2)
+          (x-3 8))
+         (else (x-5))))))
+ 
+ 
+ (define (f-18 x-1 x-2)
+   (let* ((x-5 (lambda ($1 $2) (list $1 $2)))
+          (x-4 (x-5 x-1 x-2)))
+     (set! *attribute-value* x-4)))
+ 
+ 
+ (define (f-16 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 2))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 2))
+         (else (x-3))))))
+ 
+ 
+ (define (f-15 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 2))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 2))
+         (else (x-3))))))
+ 
+ 
+ (define (f-14 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 3))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 3))
+         (else (x-3))))))
+ 
+ 
+ (define (f-13 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 5))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 5))
+         (else (x-3))))))
+ 
+ 
+ (define (f-12 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 5))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 5))
+         (else (x-3))))))
+ 
+ 
+ (define (f-10 x-2 x-1 x-3)
+   (if (stream-empty? *input*)
+     (begin (f-11 x-1) (x-2 6))
+     (let* ((x-7 (stream-car *input*))
+            (x-6 (car x-7))
+            (x-11 (stream-car *input*))
+            (x-10 (car x-11)))
+       (case x-10
+         ((25 24 23 22 21 20 19 18 17 16 15 14 13 12)
+          (f-11 x-1)
+          (x-2 6))
+         (else (x-3))))))
+ 
+ 
+ (define (f-11 x-1)
+   (let* ((x-4 (lambda ($1) $1)) (x-3 (x-4 x-1)))
+     (set! *attribute-value* x-3)))
+ 
+ 
+ (define (f-5)
+   (cond ((zero? *error-status*) (set! *input* *input*))
+         ((stream-empty? *input*)
+          (let ((x-2 (error-display
+                       "parse error: premature end of input")))
+            (set! *input* x-2)))
+         (else (set! *input* (stream-cdr *input*)))))
+ 
+ 
+ ; from reader/mapping.sch
+ (define s2:reader-alist
+   '(($start . 0)
+     (stream . 1)
+     (datum . 2)
+     (simple-datum . 3)
+     (symbol . 4)
+     (compound-datum . 5)
+     (list . 6)
+     (vector . 7)
+     (abbreviation . 8)
+     (datum* . 9)
+     (datum+ . 10)
+     (abbrev-prefix . 11)
+     ($error . 12)
+     (identifier . 13)
+     (boolean . 14)
+     (number . 15)
+     (character . 16)
+     (string . 17)
+     (oparen . 18)
+     (cparen . 19)
+     (vec-begin . 20)
+     (kwote . 21)
+     (kwasi-kwote . 22)
+     (unkwote . 23)
+     (unkwote-splicing . 24)
+     (dot . 25)
+     (eof . 26)))
+ 
+ 
+ (define (s2:symbol->enum s)
+   (cond ((assq s s2:reader-alist)
+          =>
+          (lambda (a) (cdr a)))
+         (else #f)))
+ 
+ 
+ (define (s2:enum->symbol gs)
+   (if (< gs (length s2:reader-alist))
+     (car (list-ref s2:reader-alist gs))
+     #f))
+ 
+ 
+ ; from module Full-Reader in reader/reader.scm
+ (define (tab? c)
+   (cond-expand
+     (Scheme48
+       (eq? c
+            ((structure-ref big-scheme ascii->char) 9)))
+     (else (eq? c (integer->char 9)))))
+ 
+ 
+ (define (make-char-stream port)
+   (let ((line-number 1)
+         (column-number 0)
+         (bytes 0)
+         (pending '())
+         (read-object *unit*))
+     (dispatcher
+       ((type) 'char-stream)
+       ((line) line-number)
+       ((column) column-number)
+       ((offset) bytes)
+       ((position)
+        (make-file-position
+          line-number
+          column-number
+          bytes))
+       ((eof?) (eof-object? read-object))
+       ((peek-char)
+        (if (null? pending)
+          (peek-char port)
+          (car pending)))
+       ((read-char)
+        (set! read-object
+          (if (null? pending)
+            (read-char port)
+            (let ((next (car pending)))
+              (set! pending (cdr pending))
+              next)))
+        (set! bytes (+ bytes 1))
+        (if (eq? read-object #\newline)
+          (begin
+            (set! line-number (+ line-number 1))
+            (set! column-number 0))
+          (set! column-number (+ column-number 1)))
+        read-object)
+       ((unread-char c)
+        (set! pending (cons c pending))
+        (set! bytes (- bytes 1))
+        (if (eq? c #\newline)
+          (set! line-number (- line-number 1))
+          (set! column-number (- column-number 1)))
+        c))))
+ 
+ 
+ (define (lex-error desc position)
+   (error-display
+     'lex-error
+     " at line: "
+     (position 'line)
+     ":"
+     (position 'column)
+     " offset: "
+     (position 'offset)
+     " - "
+     desc
+     #\newline))
+ 
+ 
+ (define special-initial-characters
+   (string->list
+     "abcdefghijklmnopqrstuvwxyz!$%&*/:<=>?^_~"))
+ 
+ 
+ (define (special-initial? c)
+   (let ((ci (char-downcase c)))
+     (let check ((chars special-initial-characters))
+       (if (null? chars)
+         #f
+         (if (eq? ci (car chars)) #t (check (cdr chars)))))))
+ 
+ 
+ (define (make-token-reader char-stream)
+   (let* ((position *unit*)
+          (chars '())
+          (token *unit*)
+          (emit-state *unit*)
+          (stream-head *unit*)
+          (eof? #f)
+          (reader
+            (letrec ((next? (lambda (c) (eq? c (char-stream 'peek-char))))
+                     (token-text
+                       (lambda () (list->string (reverse chars))))
+                     (next-state
+                       (lambda (s c) (char-stream 'unread-char c) s))
+                     (save-char!
+                       (lambda (c) (set! chars (cons c chars))))
+                     (token!
+                       (lambda (t) (set! token t) (set! chars '())))
+                     (tokenize-chars!
+                       (lambda ()
+                         (let ((text (token-text)))
+                           (token!
+                             (make-token (classify text) text position)))))
+                     (classify
+                       (lambda (s)
+                         (let ((first (string-ref s 0)))
+                           (cond ((string-ci=? s "#undefined") 'IDENTIFIER)
+                                 ((string-ci=? s "#unspecified") 'IDENTIFIER)
+                                 ((string-ci=? s "#eof") 'IDENTIFIER)
+                                 ((string-ci=? s "#t") 'BOOLEAN)
+                                 ((string-ci=? s "#f") 'BOOLEAN)
+                                 ((eq? #\# first)
+                                  (if (char? (string->char-or-number s))
+                                    'CHARACTER
+                                    'NUMBER))
+                                 ((char-numeric? first) 'NUMBER)
+                                 ((char-alphabetic? first) 'IDENTIFIER)
+                                 ((special-initial? first) 'IDENTIFIER)
+                                 ((string=? s "+") 'IDENTIFIER)
+                                 ((string=? s "-") 'IDENTIFIER)
+                                 ((and (eq? #\- first)
+                                       (number? (string->char-or-number s)))
+                                  'NUMBER)
+                                 (else
+                                  (lex-error "Invalid token" position)
+                                  'IDENTIFIER)))))
+                     (emit (lambda (c) (base c)))
+                     (emit-eof
+                       (lambda (c)
+                         (token! (make-eof-token (char-stream 'position)))
+                         emit))
+                     (dots (lambda (c)
+                             (if (and (eq? c #\.) (next? #\.))
+                               (begin
+                                 (char-stream 'read-char)
+                                 (token!
+                                   (make-token 'IDENTIFIER "..." position))
+                                 emit)
+                               (lex-error
+                                 "Only two consecutive dots?"
+                                 position))))
+                     (comment
+                       (lambda (c)
+                         (if (eq? c #\newline)
+                           (begin
+                             (set! position (char-stream 'position))
+                             base)
+                           (if (eof-object? c) emit-eof comment))))
+                     (whitespace
+                       (lambda (c)
+                         (case c
+                           ((#\space #\newline) whitespace)
+                           (else
+                            (cond ((tab? c) whitespace)
+                                  ((eof-object? c) emit-eof)
+                                  (else
+                                   (set! position (char-stream 'position))
+                                   (next-state base c)))))))
+                     (suck-string
+                       (lambda (c)
+                         (case c
+                           ((#\")
+                            (token!
+                              (make-token 'STRING (token-text) position))
+                            emit)
+                           ((#\\)
+                            (let ((next (char-stream 'read-char)))
+                              (if (char-stream 'eof?)
+                                (lex-error "EOF in string DLE" position)
+                                (save-char! next))
+                              suck-string))
+                           (else
+                            (if (eof-object? c)
+                              (lex-error "EOF inside of string" position)
+                              (begin (save-char! c) suck-string))))))
+                     (base (lambda (c)
+                             (case c
+                               ((#\()
+                                (token! (make-token 'OPAREN "(" position))
+                                emit)
+                               ((#\))
+                                (token! (make-token 'CPAREN ")" position))
+                                emit)
+                               ((#\`)
+                                (token! (make-token 'KWASI-KWOTE "`" position))
+                                emit)
+                               ((#\')
+                                (token! (make-token 'KWOTE "'" position))
+                                emit)
+                               ((#\,)
+                                (let ((t (if (next? #\@)
+                                           (begin
+                                             (char-stream 'read-char)
+                                             (make-token
+                                               'UNKWOTE-SPLICING
+                                               ",@"
+                                               position))
+                                           (make-token
+                                             'UNKWOTE
+                                             ",@"
+                                             position))))
+                                  (token! t)
+                                  emit))
+                               ((#\.)
+                                (if (not (next? #\.))
+                                  (begin
+                                    (token! (make-token 'DOT "." position))
+                                    emit)
+                                  dots))
+                               ((#\space #\newline) whitespace)
+                               ((#\;) comment)
+                               ((#\") suck-string)
+                               ((#\#) (save-char! c) sharp)
+                               (else
+                                (cond ((tab? c) whitespace)
+                                      ((eof-object? c) emit-eof)
+                                      (else
+                                       (save-char! c)
+                                       accumulate-token))))))
+                     (sharp (lambda (c)
+                              (save-char! c)
+                              (if (eq? c #\()
+                                (begin
+                                  (token! (make-token 'VEC-BEGIN "#(" position))
+                                  emit)
+                                (begin
+                                  (if (eq? c #\\)
+                                    (save-char! (char-stream 'read-char)))
+                                  (accumulate-token
+                                    (char-stream 'read-char))))))
+                     (accumulate-token
+                       (lambda (c)
+                         (case c
+                           ((#\( #\) #\" #\; #\space #\newline)
+                            (tokenize-chars!)
+                            (next-state emit c))
+                           (else
+                            (cond ((tab? c)
+                                   (tokenize-chars!)
+                                   (next-state emit c))
+                                  ((eof-object? c) (tokenize-chars!) emit)
+                                  (else (save-char! c) accumulate-token)))))))
+              (set! emit-state emit)
+              base)))
+     (dispatcher
+       self
+       ((type) 'token-stream)
+       ((token)
+        (set! position (char-stream 'position))
+        (let get-a-token ((state reader))
+          (if (eq? state emit-state)
+            token
+            (get-a-token (state (char-stream 'read-char))))))
+       ((position) (char-stream 'position))
+       ((eof?) (char-stream 'eof?))
+       ((car)
+        (if (*unit*? stream-head)
+          (set! stream-head (self 'token)))
+        stream-head)
+       ((cdr) (set! stream-head *unit*) self))))
+ 
+ 
+ (define stream-car
+   (lambda (reader)
+     (let* ((s2:token (reader 'car))
+            (token (cons (s2:symbol->enum (s2:token 'tag)) s2:token))
+            (rv (if (reader 'eof?) '() token)))
+       rv)))
+ 
+ 
+ (define (stream-cdr reader) (reader 'cdr))
+ 
+ 
+ (define (stream-empty? reader)
+   (null? (stream-car reader)))
+ 
+ 
+ (define (make-form-reader)
+   (let ((kontinue-parser *unit*))
+     (lambda (reader)
+       (call/cc
+         (lambda (k)
+           (set! *scheme-toplevel-hook*
+             (lambda (form)
+               (call/cc
+                 (lambda (kr) (set! kontinue-parser kr) (k form)))))
+           (if (*unit*? kontinue-parser)
+             (let ((f (read-scheme-stream reader))) (k f))
+             (let ((f (kontinue-parser *unit*))) (k f))))))))
+ 
+ 
+ (define (forms-in-file file-name)
+   (call-with-input-file
+     file-name
+     (lambda (port)
+       (let ((tokens
+               (make-token-reader (make-char-stream port)))
+             (read-one-form (make-form-reader)))
+         (read-forms
+           (lambda () (read-one-form tokens))
+           (lambda (form) (*unit*? form))
+           (lambda (form) (undecorate form)))))))
+ 
+ 
+ ; from module Rewrite in output/rewrite.scm
+ (define (report-internal-conflicts modules)
+   (let ((conflicts
+           (map (lambda (m)
+                  (list (m 'name) (m 'internal-conflicts)))
+                modules)))
+     (let search ((conflicts conflicts) (conflicts? #f))
+       (if (null? conflicts)
+         (if conflicts?
+           (abort 'rewrite-sources
+                  (string-append
+                    "Internal conflicts prevent processing. "
+                    "Fix them or get a new mangler")))
+         (let* ((conflict-map (car conflicts))
+                (conflict-set (cadr conflict-map))
+                (rest (cdr conflicts)))
+           (if (null? conflict-set)
+             (search rest #f)
+             (begin
+               (error-display
+                 "Conflicts in module "
+                 (car conflict-map)
+                 ": "
+                 conflict-set
+                 #\newline)
+               (search rest #t))))))))
+ 
+ 
+ (define *show-sorted-order* #f)
+ 
+ 
+ (define (rewrite-sources modules port)
+   (report-internal-conflicts modules)
+   (let* ((module-map
+            (fold (lambda (m h)
+                    (if (hash-has? (m 'name) h)
+                      (abort 'rewrite-sources
+                             (many->string
+                               "Multiple occurrences of module "
+                               (m 'name)))
+                      (put-hash! m h))
+                    h)
+                  (make-hash-table-for
+                    (length modules)
+                    default-hash
+                    (lambda (m) (m 'name))
+                    eq?)
+                  modules))
+          (get-module-named
+            (lambda (name)
+              (let ((mod (get-hash name module-map)))
+                (if mod
+                  mod
+                  (abort 'rewrite-sources
+                         (many->string "Don't have module " name))))))
+          (sorted-modules
+            (reverse
+              (topological-sort
+                modules
+                (lambda (l r) (m:eq? (l 'name) (r 'name)))
+                (lambda (m) (map get-module-named (m 'imports)))
+                (lambda (m dependants)
+                  (error-display
+                    'rewrite-sources
+                    " Cyclic dependency for "
+                    (m 'name)
+                    " via "
+                    (map (lambda (m) (m 'name)) dependants)
+                    #\newline)
+                  m)))))
+     (if *show-sorted-order*
+       (display*
+         "Module ordering:"
+         #\newline
+         (map (lambda (m) (m 'name)) sorted-modules)
+         #\newline))
+     (for-each
+       (lambda (m) (m 'rewrite port))
+       sorted-modules)
+     '(success)))
+ 
+ 
+ ; from module Syntactic-Environments in tree-match/syntax-env.scm
+ (define (simple-bind name value)
+   (dispatcher
+     self
+     ((type) 'simple-binding)
+     ((name) name)
+     ((value) value)
+     ((extension-value) (self 'value))
+     ((depth) 1)))
+ 
+ 
+ (define (simple-binding? b)
+   (and (procedure? b)
+        (eq? (b 'type) 'simple-binding)))
+ 
+ 
+ (define (kleene-bind name _value)
+   (let* ((depth 0)
+          (vals (cons *unit* *unit*))
+          (dispatch
+            (dispatcher
+              self
+              ((type) 'kleene-binding)
+              ((name) name)
+              ((value) (car vals))
+              ((extension-value) self)
+              ((depth) depth)
+              ((all-values) (car vals))
+              ((add-value value)
+               (let ((entry (cons value '())))
+                 (if (*unit*? (car vals))
+                   (begin
+                     (set-car! vals entry)
+                     (set-cdr! vals entry))
+                   (begin
+                     (set-cdr! (cdr vals) entry)
+                     (set-cdr! vals entry)))
+                 (set! depth (+ 1 depth)))))))
+     (dispatch 'add-value _value)
+     dispatch))
+ 
+ 
+ (define (kleene-binding? b)
+   (and (procedure? b)
+        (eq? (b 'type) 'kleene-binding)))
+ 
+ 
+ (define (syntax-binding? b)
+   (or (simple-binding? b) (kleene-binding? b)))
+ 
+ 
+ (define (unbind obj)
+   (if (syntax-binding? obj) (obj 'value) obj))
+ 
+ 
+ (define (simple-env)
+   (let ((bindings '()))
+     (dispatcher
+       self
+       ((type) 'simple-environment)
+       ((bindings) bindings)
+       ((update! b) (set! bindings (cons b bindings)))
+       ((display)
+        (for-each
+          (lambda (b)
+            (let ((type (b 'type)))
+              (map-display
+                type
+                " "
+                (b 'name)
+                " => "
+                (b 'value)
+                #\newline)))
+          bindings))
+       ((find name)
+        (let find ((b bindings))
+          (cond ((null? b) #f)
+                ((m:eq? name ((car b) 'name)) (car b))
+                (else (find (cdr b))))))
+       ((bind name value)
+        (if (self 'find name)
+          (error-display
+            (self 'type)
+            " multiply bound: "
+            name
+            #\newline)
+          (self 'update! (simple-bind name value))))
+       ((extend env)
+        (for-each
+          (lambda (b)
+            (if (self 'find (b 'name))
+              (error-display
+                (self 'type)
+                " "
+                (b 'name)
+                " bound in outer environment"
+                #\newline)
+              (self 'update! b)))
+          (env 'bindings)))
+       ((value name)
+        (let ((binding (self 'find name)))
+          (if binding (binding 'value) *unit*)))
+       ((value-default name default)
+        (let ((value (self 'value name)))
+          (if (*unit*? value) default value))))))
+ 
+ 
+ (define (kleene-env)
+   (let ((bindings '()))
+     (dispatcher
+       self
+       ((type) 'kleene-environment)
+       ((bindings) bindings)
+       ((update! b) (set! bindings (cons b bindings)))
+       ((display)
+        (for-each
+          (lambda (b)
+            (let ((type (b 'type)))
+              (map-display
+                type
+                " "
+                (b 'name)
+                " => "
+                (b 'value)
+                #\newline)))
+          bindings))
+       ((find name)
+        (let find ((b bindings))
+          (cond ((null? b) #f)
+                ((m:eq? name ((car b) 'name)) (car b))
+                (else (find (cdr b))))))
+       ((bind name value)
+        (let ((binding (self 'find name)))
+          (if binding
+            (if (eq? (binding 'type) 'kleene-binding)
+              (binding 'add-value value)
+              (error-display
+                (self 'type)
+                " "
+                name
+                " is not kleene-bound"
+                #\newline))
+            (self 'update! (kleene-bind name value)))))
+       ((extend env)
+        (for-each
+          (lambda (b)
+            (let ((binding (self 'find (b 'name))))
+              (if binding
+                (binding 'add-value (b 'extension-value))
+                (self 'bind (b 'name) (b 'extension-value)))))
+          (env 'bindings)))
+       ((value name)
+        (let ((binding (self 'find name)))
+          (if binding (binding 'value) *unit*)))
+       ((value-default name default)
+        (let ((value (self 'value name)))
+          (if (*unit*? value) default value))))))
+ 
+ 
+ (define (undecorate-binding env name)
+   (let* ((value (env 'value name))
+          (as-list (*unit*->list value))
+          (unbound
+            (let unbind-flatten ((values as-list) (r '()))
+              (if (null? values)
+                (reverse r)
+                (let ((value (car values)) (rest (cdr values)))
+                  (cond ((simple-binding? value)
+                         (unbind-flatten rest (cons (value 'value) r)))
+                        ((kleene-binding? value)
+                         (unbind-flatten rest (append (value 'value) r)))
+                        (else (unbind-flatten rest (cons value r)))))))))
+     (map m:scheme-value unbound)))
+ 
+ 
+ ; from module Reader-Default in reader/default.scm
+ (add-reader! "naive" naive-forms-in-file)
+ 
+ 
+ (add-reader! "full" forms-in-file)
+ 
+ 
+ (begin (default-reader! forms-in-file))
+ 
+ 
+ ; from module Match-prims in tree-match/match-prims.scm
+ (define (match-op m s) (m 'match s))
+ 
+ 
+ (define (bind-op env)
+   (let ((bind-lambda (lambda (m s) (m 'bind env s))))
+     bind-lambda))
+ 
+ 
+ (define (match-pair first next)
+   (dispatcher
+     self
+     (hook (sel args)
+           (if #f
+             (begin
+               (map-display
+                 "(match-pair "
+                 sel
+                 " "
+                 args
+                 #\)
+                 #\newline)
+               (self 'display)
+               (newline)))
+           (values sel args))
+     ((type) 'match-sequence)
+     ((first) first)
+     ((next) next)
+     ((s-exp) `(pair ,(first 's-exp) ,(next 's-exp)))
+     ((display)
+      (first 'display)
+      (display " :-> ")
+      (next 'display))
+     ((traverse f n s-exp)
+      (and-let*
+        (((or (m:pair? s-exp) (m:null? s-exp)))
+         (unmatched (f first s-exp)))
+        (n next unmatched)))
+     ((match s-exp)
+      (self 'traverse match-op match-op s-exp))
+     ((bind env s-exp)
+      (self 'traverse
+            (bind-op env)
+            (bind-op env)
+            s-exp))))
+ 
+ 
+ (define (match-nested matcher)
+   (dispatcher
+     self
+     (hook (sel args)
+           (if #f
+             (begin
+               (map-display
+                 "(match-nested "
+                 sel
+                 " "
+                 args
+                 #\)
+                 #\newline)
+               (matcher 'display)
+               (newline)))
+           (values sel args))
+     ((type) 'match-nested)
+     ((s-exp) `(nested ,(matcher 's-exp)))
+     ((display)
+      (display "(nested ")
+      (matcher 'display)
+      (display ")"))
+     ((traverse f s-exp)
+      (and-let*
+        (((m:pair? s-exp))
+         (sub-exp (m:car s-exp))
+         ((or (m:pair? sub-exp) (m:null? sub-exp)))
+         ((f matcher sub-exp)))
+        (m:cdr s-exp)))
+     ((match s-exp) (self 'traverse match-op s-exp))
+     ((bind env s-exp)
+      (let ((sub-bind (simple-env)))
+        (and-let*
+          ((unmatched
+             (self 'traverse (bind-op sub-bind) s-exp))
+           ((env 'extend sub-bind)))
+          unmatched)))))
+ 
+ 
+ (define (match-literal pattern)
+   (dispatcher
+     self
+     ((type) 'match-literal)
+     ((s-exp) `(literal ,pattern))
+     ((display) (display `(literal ,pattern)))
+     ((match s-exp)
+      (and (m:pair? s-exp)
+           (m:eq? pattern (m:car s-exp))
+           (m:cdr s-exp)))
+     ((bind env s-exp) (self 'match s-exp))))
+ 
+ 
+ (define (match-constant pattern)
+   (dispatcher
+     self
+     ((type) 'match-constant)
+     ((s-exp) `(constant ,pattern))
+     ((display) (display `(match-constant ,pattern)))
+     ((match s-exp)
+      (and (m:pair? s-exp)
+           (m:eq? pattern (m:car s-exp))
+           (m:cdr s-exp)))
+     ((bind env s-exp) (self 'match s-exp))))
+ 
+ 
+ (define (match-null)
+   (dispatcher
+     self
+     (hook (sel args)
+           (if #f
+             (map-display
+               "(match-null "
+               sel
+               " "
+               args
+               #\)
+               #\newline))
+           (values sel args))
+     ((type) 'match-null)
+     ((s-exp) 'null)
+     ((display) (display `(match-null)))
+     ((match s-exp) (if (m:null? s-exp) s-exp #f))
+     ((bind env s-exp) (self 'match s-exp))))
+ 
+ 
+ (define (match-null? m)
+   (eq? (m 'type) 'match-null))
+ 
+ 
+ (define (match-vector matcher)
+   (dispatcher
+     self
+     ((type) 'match-vector)
+     ((s-exp) `(match-vector ,(matcher 's-exp)))
+     ((display)
+      (display "(match-vector ")
+      (matcher 'display)
+      (display ")"))
+     ((traverse f s-exp)
+      (and-let*
+        (((m:pair? s-exp))
+         (maybe-vector (m:car s-exp))
+         ((m:vector? maybe-vector))
+         (match-result
+           (f matcher (m:vector->list maybe-vector)))
+         ((boolean? match-result)))
+        (m:cdr s-exp)))
+     ((match s-exp) (self 'traverse match-op s-exp))
+     ((bind env s-exp)
+      (self 'traverse (bind-op env) s-exp))))
+ 
+ 
+ (define (kleene-match matcher)
+   (dispatcher
+     self
+     (hook (sel args)
+           (if #f
+             (begin
+               (map-display
+                 "(kleene-match "
+                 sel
+                 " "
+                 args
+                 #\)
+                 #\newline)
+               (self 'display)
+               (newline)))
+           (values sel args))
+     ((type) 'kleene-match)
+     ((s-exp) `(kleene ,(matcher 's-exp)))
+     ((display)
+      (display "(kleene-match ")
+      (matcher 'display)
+      (display ")"))
+     ((match s-exp)
+      (and (or (m:pair? s-exp) (m:null? s-exp))
+           (let match ((forms s-exp))
+             (let ((unmatched (matcher 'match forms)))
+               (if unmatched (match unmatched) forms)))))
+     ((bind env s-exp)
+      (and (or (m:pair? s-exp) (m:null? s-exp))
+           (let bind ((forms s-exp) (klenv (kleene-env)))
+             (let ((unmatched (matcher 'bind klenv forms)))
+               (if unmatched
+                 (bind unmatched klenv)
+                 (begin (env 'extend klenv) forms))))))))
+ 
+ 
+ (define (match-any pattern)
+   (dispatcher
+     self
+     (hook (sel args)
+           (if #f
+             (map-display
+               "(match-any "
+               sel
+               " "
+               pattern
+               " "
+               args
+               #\)
+               #\newline))
+           (values sel args))
+     ((type) 'match-any)
+     ((s-exp) `(any ,pattern))
+     ((display) (display `(match-any ,pattern)))
+     ((match s-exp)
+      (and (m:pair? s-exp) (m:cdr s-exp)))
+     ((bind env s-exp)
+      (and (m:pair? s-exp)
+           (begin
+             (env 'bind pattern (m:car s-exp))
+             (m:cdr s-exp))))))
+ 
+ 
+ (define (match-type type? binding)
+   (dispatcher
+     self
+     ((type) 'match-type)
+     ((s-exp) `(match-type ,type? ,binding))
+     ((display) (display (self 's-exp)))
+     ((match s-exp)
+      (and (m:pair? s-exp)
+           (type? (m:car s-exp))
+           (m:cdr s-exp)))
+     ((bind env s-exp)
+      (and-let*
+        (((m:pair? s-exp))
+         (check (m:car s-exp))
+         ((type? check)))
+        (env 'bind binding check)
+        (m:cdr s-exp)))))
+ 
+ 
+ (define (match-symbol binding)
+   (match-type m:symbol? binding))
+ 
+ 
+ (define (match-string binding)
+   (match-type m:string? binding))
+ 
+ 
+ (define (match-alts . matchers)
+   (dispatcher
+     self
+     ((type) 'match-alts)
+     ((s-exp)
+      (let ((ms (map (lambda (m) (m 's-exp)) matchers)))
+        `(match-alts ,ms)))
+     ((display)
+      (display "(alts ")
+      (if (pair? matchers)
+        (begin
+          ((car matchers) 'display)
+          (for-each
+            (lambda (m) (display " : ") (m 'display))
+            (cdr matchers))))
+      (display ")"))
+     ((match s-exp)
+      (and (or (m:pair? s-exp) (m:null? s-exp))
+           (let check-alt ((alts matchers))
+             (if (null? alts)
+               #f
+               (let ((unmatched ((car alts) 'match s-exp)))
+                 (if unmatched unmatched (check-alt (cdr alts))))))))
+     ((bind env s-exp)
+      (and (or (m:pair? s-exp) (m:null? s-exp))
+           (let check-alt ((alts matchers) (check-env (simple-env)))
+             (if (null? alts)
+               #f
+               (let ((unmatched ((car alts) 'bind check-env s-exp)))
+                 (if unmatched
+                   (begin (env 'extend check-env) unmatched)
+                   (check-alt (cdr alts) (simple-env))))))))))
+ 
+ 
+ (define (dot-match matcher)
+   (dispatcher
+     self
+     ((type) 'dot-match)
+     ((s-exp) `(match-dot ,(matcher 's-exp)))
+     ((display) (display " . ") (matcher 'display))
+     ((traverse op s-exp)
+      (let ((wrapped-unmatched (op matcher (list s-exp))))
+        (and wrapped-unmatched
+             (if (m:null? wrapped-unmatched)
+               wrapped-unmatched
+               (m:car wrapped-unmatched)))))
+     ((match s-exp) (self 'traverse match-op s-exp))
+     ((bind env s-exp)
+      (let* ((dot-env (simple-env))
+             (unmatched
+               (self 'traverse (bind-op dot-env) s-exp)))
+        (if unmatched (env 'extend dot-env))
+        unmatched))))
+ 
+ 
+ (define (match-sequence . matchers)
+   (dispatcher
+     self
+     ((type) 'match-sequence)
+     ((s-exp)
+      (let ((ms (map (lambda (m) (m 's-exp)) matchers)))
+        `(match-sequence ,ms)))
+     ((display)
+      (display "(sequence ")
+      (if (pair? matchers)
+        (begin
+          ((car matchers) 'display)
+          (for-each
+            (lambda (m) (display " :-> ") (m 'display))
+            (cdr matchers))))
+      (display ")"))
+     ((traverse op s-exp)
+      (and (or (m:pair? s-exp) (m:null? s-exp))
+           (let check-seq ((check s-exp) (match matchers))
+             (if (null? match)
+               check
+               (let ((this-match (car match))
+                     (next-match (cdr match)))
+                 (let ((unmatched
+                         (if (and (null? next-match)
+                                  (not (match-null? this-match)))
+                           (op (dot-match this-match) check)
+                           (op this-match check))))
+                   (if unmatched
+                     (check-seq unmatched next-match)
+                     #f)))))))
+     ((match s-exp) (self 'traverse match-op s-exp))
+     ((bind env s-exp)
+      (let* ((seq-env (simple-env))
+             (unmatched
+               (self 'traverse (bind-op seq-env) s-exp)))
+        (if unmatched (env 'extend seq-env))
+        unmatched))))
+ 
+ 
+ (define (match-list . matchers)
+   (apply match-sequence
+          (append matchers (list (match-null)))))
+ 
+ 
+ (define (bind-match name matcher)
+   (dispatcher
+     self
+     ((type) 'bind-match)
+     ((s-exp) `())
+     ((display)
+      (map-display "(bind " name " ")
+      (matcher 'display)
+      (display ")"))
+     ((match s-exp) (matcher 'match s-exp))
+     ((bind env s-exp)
+      (let ((unmatched (matcher 'match s-exp)))
+        (cond ((eq? unmatched s-exp) (env 'bind name *unit*))
+              (unmatched
+               (env 'bind
+                    name
+                    (m:unfold
+                      (lambda (elt) (m:eq? unmatched elt))
+                      m:car
+                      m:cdr
+                      s-exp))
+               unmatched)
+              (else #f))))))
+ 
+ 
+ (define (recursive-match)
+   (let ((real-matcher *unit*))
+     (dispatcher
+       self
+       ((type) (real-matcher 'type))
+       ((s-exp) `(recursive ,real-matcher))
+       ((display)
+        (map-display "(recurse " real-matcher ")"))
+       ((match s-exp) (real-matcher 'match s-exp))
+       ((bind env s-exp) (real-matcher 'bind env s-exp))
+       ((set-matcher! m) (set! real-matcher m)))))
+ 
+ 
+ ; from module Macro-Match in tree-match/macro-match.scm
+ (define (m:ellipsis? pattern)
+   (or (m:eq? '... pattern)
+       (and (m:pair? pattern)
+            (let ((toplevel (m:car pattern)))
+              (and (not (m:pair? toplevel))
+                   (m:ellipsis? toplevel))))))
+ 
+ 
+ (define (m:identifier? pattern)
+   (m:symbol? pattern))
+ 
+ 
+ (define (m:constant? pattern)
+   (or (m:number? pattern)
+       (m:char? pattern)
+       (m:string? pattern)))
+ 
+ 
+ (define (literal? literals pattern)
+   (member pattern literals))
+ 
+ 
+ (define (syntax-rule-builder literals)
+   (letrec ((m:literal?
+              (lambda (pattern) (literal? literals pattern)))
+            (match-form
+              (lambda (pattern)
+                (let ((new-match
+                        (cond ((m:literal? pattern) (match-literal pattern))
+                              ((m:identifier? pattern) (match-any pattern))
+                              ((m:vector? pattern)
+                               (match-vector
+                                 (match-form (m:vector->list pattern))))
+                              ((m:null? pattern) (match-null))
+                              ((m:constant? pattern) (match-constant pattern))
+                              ((m:pair? pattern)
+                               (let* ((first (m:car pattern))
+                                      (rest (m:cdr pattern))
+                                      (basic-match-first (match-form first))
+                                      (match-first
+                                        (if (m:pair? first)
+                                          (match-nested basic-match-first)
+                                          basic-match-first)))
+                                 (if (m:ellipsis? rest)
+                                   (match-pair
+                                     (kleene-match match-first)
+                                     (match-form (m:cdr rest)))
+                                   (match-pair match-first (match-form rest)))))
+                              (else
+                               (error-display
+                                 'syntax-rule-matcher
+                                 " Unrecognized pattern element: "
+                                 (m:scheme-value pattern)
+                                 #\newline)))))
+                  new-match))))
+     match-form))
+ 
+ 
+ (define (make-syntax-rule builder pattern)
+   (builder pattern))
+ 
+ 
+ ; from common/matching.sch
+ (define-syntax
+   match-bind-matcher
+   (syntax-rules
+     (else)
+     ((match-bind-matcher
+        env-name
+        form
+        (matcher0 e0 e+ ...)
+        (else ee0 ee+ ...))
+      (if (matcher0 'bind env-name form)
+        (begin e0 e+ ...)
+        (begin ee0 ee+ ...)))
+     ((match-bind-matcher
+        env-name
+        form
+        (matcher0 e00 e0+ ...)
+        (matcher+ e+0 e++ ...)
+        ...)
+      (if (matcher0 'bind env-name form)
+        (begin e00 e0+ ...)
+        (match-bind-matcher
+          env-name
+          form
+          (matcher+ e+0 e++ ...)
+          ...)))))
+ 
+ 
+ (define-syntax
+   match-bind
+   (syntax-rules
+     ()
+     ((match-bind env-name form matchers ...)
+      (let ((env-name (simple-env)))
+        (match-bind-matcher env-name form matchers ...)))))
+ 
+ 
+ ; from module R5RS-Match in targets/r5rs-match.scm
+ (define define-matcher
+   (let ((name-matcher (match-symbol 'name)))
+     (match-list
+       (match-literal 'define)
+       (match-alts
+         name-matcher
+         (match-list
+           name-matcher
+           (kleene-match (match-symbol 'arg))))
+       (match-any 'e0)
+       (kleene-match (match-any 'e+)))))
+ 
+ 
+ ; from module S2-Match in targets/s2-match.scm
+ (define module-name-matcher
+   (match-list
+     (match-literal 'module-name)
+     (match-symbol 'name)))
+ 
+ 
+ (define (module-name form)
+   (match-bind
+     name
+     form
+     (module-name-matcher (name 'name))
+     (else #f)))
+ 
+ 
+ (define condition-matcher
+   (let* ((recur (recursive-match))
+          (x-cm (match-alts
+                  (match-symbol 'target)
+                  (match-nested
+                    (match-list (match-literal 'not) recur))
+                  (match-nested
+                    (match-list (match-literal 'and) recur recur))
+                  (match-nested
+                    (match-list (match-literal 'or) recur recur)))))
+     (recur 'set-matcher! x-cm)
+     (bind-match 'cond-exp x-cm)))
+ 
+ 
+ (define code-matcher
+   (bind-match 'exp (kleene-match (match-any 'exp))))
+ 
+ 
+ (define cond-expand-matcher
+   (match-list
+     (match-literal 'cond-expand)
+     (kleene-match
+       (match-nested
+         (match-alts
+           (bind-match
+             'else
+             (match-list (match-literal 'else) code-matcher))
+           (match-list condition-matcher code-matcher))))))
+ 
+ 
+ ; from module SLIB-Match in targets/SLIB-match.scm
+ (define require-matcher
+   (match-list
+     (match-literal 'require)
+     (match-symbol 'name)))
+ 
+ 
+ (define (require-form? f)
+   (require-matcher 'match f))
+ 
+ 
+ (define provide-matcher
+   (match-list
+     (match-literal 'provide)
+     (match-symbol 'name)))
+ 
+ 
+ (define (provide-form? f)
+   (provide-matcher 'match f))
+ 
+ 
+ (define (SLIB-decompose-form
+          form
+          continue
+          name
+          main
+          toplevels
+          exports
+          imports
+          includes)
+   (cond ((require-form? form)
+          (error-display
+            'make-source
+            ": Unrecognized (SLIB) form - "
+            form
+            #\newline)
+          (continue
+            name
+            main
+            toplevels
+            exports
+            imports
+            includes))
+         ((provide-form? form)
+          (error-display
+            'make-source
+            ": Unrecognized (SLIB) form - "
+            form
+            #\newline)
+          (continue
+            name
+            main
+            toplevels
+            exports
+            imports
+            includes))
+         (else #f)))
+ 
+ 
+ ; from module Bigloo-Match in targets/bigloo-match.scm
+ (define import-matcher
+   (let ((import (match-literal 'import)))
+     (match-alts
+       (match-list import (match-symbol 'import-name))
+       (match-list
+         import
+         (match-symbol 'import-name)
+         (match-string 'path)))))
+ 
+ 
+ (define export-matcher
+   (let ((export (match-literal 'export))
+         (variable (match-symbol 'variable))
+         (formals
+           (kleene-match (match-symbol 'formal-args))))
+     (match-alts
+       (match-list export variable)
+       (match-list
+         export
+         (match-nested (match-sequence variable formals)))
+       (match-list
+         export
+         (match-nested (match-pair variable formals))))))
+ 
+ 
+ (define library-matcher
+   (match-list
+     (match-literal 'library)
+     (match-symbol 'library-name)))
+ 
+ 
+ (define include-matcher
+   (match-list
+     (match-literal 'include)
+     (match-string 'path)))
+ 
+ 
+ (define main-matcher
+   (match-list
+     (match-literal 'main)
+     (match-symbol 'main-name)))
+ 
+ 
+ (define eval-matcher
+   (match-list
+     (match-literal 'eval)
+     (kleene-match (match-any 'eval-clause))))
+ 
+ 
+ (define module-matcher
+   (match-list
+     (match-literal 'module)
+     (match-symbol 'name)
+     (kleene-match
+       (match-alts
+         (match-nested import-matcher)
+         (match-nested export-matcher)
+         (match-nested library-matcher)
+         (match-nested include-matcher)
+         (match-nested eval-matcher)
+         (match-nested main-matcher)))))
+ 
+ 
+ (define directives-matcher
+   (match-list
+     (match-literal 'directives)
+     (kleene-match
+       (match-alts
+         (match-nested import-matcher)
+         (match-nested include-matcher)
+         (match-nested library-matcher)))))
+ 
+ 
+ (define (Bigloo-decompose-form
+          form
+          continue
+          name
+          main
+          toplevels
+          exports
+          imports
+          includes)
+   (match-bind
+     env
+     form
+     (module-matcher
+       (continue
+         (m:scheme-value (env 'value 'name))
+         (env 'value-default 'main main)
+         toplevels
+         (append
+           (undecorate-binding env 'variable)
+           (*unit*->list exports))
+         (append
+           (undecorate-binding env 'import-name)
+           imports)
+         (append (undecorate-binding env 'path) includes)))
+     (directives-matcher
+       (continue
+         name
+         main
+         toplevels
+         exports
+         (append
+           (undecorate-binding env 'import-name)
+           imports)
+         (append (undecorate-binding env 'path) includes)))
+     (else #f)))
+ 
+ 
+ ; from module Guile-Match in targets/guile-match.scm
+ (define module-path-matcher
+   (match-list
+     (match-symbol 'path0)
+     (kleene-match (match-symbol 'path+))))
+ 
+ 
+ (define define-module-matcher
+   (match-list
+     (match-literal 'define-module)
+     (bind-match 'name module-path-matcher)
+     (kleene-match
+       (match-sequence
+         (match-symbol (string->symbol ":USE-MODULE"))
+         (bind-match 'use-module module-path-matcher)))))
+ 
+ 
+ (define use-module-matcher
+   (match-list
+     (match-literal 'use-modules)
+     (kleene-match
+       (bind-match 'use-module module-path-matcher))))
+ 
+ 
+ (define define-public-matcher
+   (let ((name-matcher (match-symbol 'name)))
+     (match-list
+       (match-literal 'define-public)
+       (match-alts
+         name-matcher
+         (match-list
+           name-matcher
+           (kleene-match (match-symbol 'arg))))
+       (match-any 'e0)
+       (kleene-match (match-any 'e+)))))
+ 
+ 
+ (define (define-public-form? f)
+   (define-public-matcher 'match f))
+ 
+ 
+ (define (use-module-form? f)
+   (use-module-matcher 'match f))
+ 
+ 
+ (define (define-module-form? f)
+   (define-module-matcher 'match f))
+ 
+ 
+ (define (guile-decompose-form
+          form
+          k
+          name
+          main
+          toplevels
+          exports
+          imports
+          includes)
+   (match-bind
+     bindings
+     form
+     (define-module-matcher
+       (error-display
+         'make-source
+         ": Unrecognized (Guile) form - "
+         form
+         #\newline)
+       (k name main toplevels exports imports includes))
+     (use-module-matcher
+       (error-display
+         'make-source
+         ": Unrecognized (Guile) form - "
+         form
+         #\newline)
+       (k name main toplevels exports imports includes))
+     (define-public-matcher
+       (k name
+          main
+          (cons form toplevels)
+          (append
+            (*unit*->list (bindings 'value 'name))
+            (*unit*->list exports))
+          imports
+          includes))
+     (else #f)))
+ 
+ 
+ ; from module sd-Match in targets/sd-match.scm
+ (define demand-matcher
+   (match-pair
+     (match-literal 'demand)
+     (match-pair (match-symbol 'name) (match-null))))
+ 
+ 
+ (define supply-matcher
+   (match-pair
+     (match-literal 'supply)
+     (match-pair (match-symbol 'name) (match-null))))
+ 
+ 
+ (define (supply-form? f)
+   (supply-matcher 'match f))
+ 
+ 
+ (define (demand-form? f)
+   (demand-matcher 'match f))
+ 
+ 
+ (define (sd-decompose-form
+          form
+          continue
+          name
+          main
+          toplevels
+          exports
+          imports
+          includes)
+   (cond ((supply-form? form)
+          (error-display
+            'make-source
+            ": Unrecognized (Breanndán Ó Nualláin) form - "
+            form
+            #\newline)
+          (continue
+            name
+            main
+            toplevels
+            exports
+            imports
+            includes))
+         ((demand-form? form)
+          (error-display
+            'make-source
+            ": Unrecognized (Breanndán Ó Nualláin) form - "
+            form
+            #\newline)
+          (continue
+            name
+            main
+            toplevels
+            exports
+            imports
+            includes))
+         (else #f)))
+ 
+ 
+ ; from module Scheme48-Match in targets/scheme48-match.scm
+ (define open-clause-matcher
+   (match-list
+     (match-literal 'open)
+     (kleene-match (match-symbol 'import))))
+ 
+ 
+ (define access-clause-matcher
+   (match-list
+     (match-literal 'access)
+     (kleene-match (match-symbol 'import))))
+ 
+ 
+ (define files-clause-matcher
+   (match-list
+     (match-literal 'files)
+     (kleene-match (match-string 'include))))
+ 
+ 
+ (define begin-clause-matcher
+   (match-list
+     (match-literal 'begin)
+     (kleene-match (match-any 'toplevel))))
+ 
+ 
+ (define interface-matcher
+   (let* ((interface (recursive-match))
+          (matcher
+            (match-alts
+              (match-list
+                (match-literal 'export)
+                (kleene-match (match-symbol 'export)))
+              (match-symbol 'interface)
+              (match-list
+                (match-literal 'compound-interface)
+                (kleene-match interface)))))
+     (interface 'set-matcher! matcher)
+     interface))
+ 
+ 
+ (define define-structure-matcher
+   (match-list
+     (match-literal 'define-structure)
+     (match-symbol 'name)
+     (match-nested interface-matcher)
+     (kleene-match
+       (match-alts
+         (match-nested open-clause-matcher)
+         (match-nested access-clause-matcher)
+         (match-nested files-clause-matcher)
+         (match-nested begin-clause-matcher)))))
+ 
+ 
+ (define (Scheme48-decompose-form
+          form
+          continue
+          name
+          main
+          toplevels
+          exports
+          imports
+          includes)
+   (match-bind
+     env
+     form
+     (define-structure-matcher
+       (continue
+         (m:scheme-value (env 'value 'name))
+         main
+         (undecorate-binding env 'toplevel)
+         (append
+           (undecorate-binding env 'export)
+           (*unit*->list exports))
+         (append (undecorate-binding env 'import) imports)
+         (append
+           (undecorate-binding env 'include)
+           includes)))
+     (else #f)))
+ 
+ 
+ ; from module Macro-Support in tree-match/macro-support.scm
+ (define *macro-systems* '())
+ 
+ 
+ (define *system-expanders*
+   (cond-expand
+     (Bigloo
+       `(("r5rs"
+          unquote
+          (lambda (f) (expand-syntax (m:scheme-value f))))))
+     (Guile `(("r5rs"
+               unquote
+               (lambda (f) (sc-expand (m:scheme-value f))))
+              ("syntax-case"
+               unquote
+               (lambda (f) (sc-expand (m:scheme-value f))))))
+     (Larceny
+       `(("r5rs"
+          unquote
+          (lambda (f) (macro-expand (m:scheme-value f))))))
+     (else `(("no macros" unquote (lambda (f) f))))))
+ 
+ 
+ (define (macro-expand f)
+   (let ((systems (reverse *macro-systems*)))
+     (fold (lambda (s f)
+             (let ((expanded (s f)))
+               (if (or (not (m:pair? expanded))
+                       (m:eq? 'quote (m:car expanded)))
+                 *unit*
+                 expanded)))
+           f
+           (map (lambda (s) (cdr (assoc s *system-expanders*)))
+                systems))))
+ 
+ 
+ (define (comment-disappeared port f)
+   (let ((source-form
+           (if (pair? f)
+             (if (<= 2 (length f))
+               (list (car f) (cadr f) '...)
+               (car f))
+             f)))
+     (map-display-port
+       port
+       "; macro expansion converted "
+       source-form
+       " into vapor"
+       #\newline)))
+ 
+ 
+ (define *expands* '())
+ 
+ 
+ (define (add-cond-expand name)
+   (set! *expands*
+     (cons (string->symbol name) *expands*)))
+ 
+ 
+ (define (valid-target? target-expression)
+   (if (symbol? target-expression)
+     (memq target-expression *expands*)
+     (let ((operator (car target-expression))
+           (operand (cdr target-expression)))
+       (case operator
+         ((not) (not (valid-target? (car operand))))
+         ((and)
+          (fold (lambda (b1 b2) (and b1 b2))
+                #t
+                (map valid-target? operand)))
+         ((or)
+          (fold (lambda (b1 b2) (or b1 b2))
+                #f
+                (map valid-target? operand)))
+         (else
+          (error-display
+            'valid-target?
+            " Syntax error in cond-expand operator "
+            operator
+            #\newline))))))
+ 
+ 
+ (define (target-expand f)
+   (match-bind
+     bindings
+     f
+     (cond-expand-matcher
+       (let search ((targets
+                      (*unit*->list (bindings 'value 'cond-exp)))
+                    (forms (*unit*->list (bindings 'value 'exp))))
+         (if (null? targets)
+           (let ((else-forms (bindings 'value 'else)))
+             (if (*unit*? else-forms)
+               '(if #f #f)
+               (let* ((unwrap (car else-forms))
+                      (expansion (cdr (m:scheme-value unwrap))))
+                 `(begin ,@expansion))))
+           (let ((target (m:scheme-value (car targets)))
+                 (exp (car forms)))
+             (if (valid-target? (car target))
+               `(begin ,@exp)
+               (search (cdr targets) (cdr forms)))))))
+     (else f)))
+ 
+ 
+ (define (expanded-write port f)
+   (let ((expanded (macro-expand (target-expand f))))
+     (if (or (not (m:pair? expanded)) (eq? *unit* expanded))
+       (comment-disappeared port (m:scheme-value f))
+       (begin
+         (pretty-print (m:scheme-value expanded) port)
+         (newline port)
+         (newline port)))))
+ 
+ 
+ ; from module Forms in targets/forms.scm
+ (define (grovel-source all-forms)
+   (define (next-form)
+     (if (null? all-forms)
+       (begin (eof-object))
+       (let ((form (car all-forms)))
+         (set! all-forms (cdr all-forms))
+         form)))
+   (let/cc
+     build
+     ((form (next-form))
+      (name *unit*)
+      (main *unit*)
+      (toplevels '())
+      (exports *unit*)
+      (imports '())
+      (includes '()))
+     (let ((continue
+             (lambda (n m t e i l)
+               (let ((xx (next-form))) (build xx n m t e i l)))))
+       (if (eof-object? form)
+         (values
+           name
+           main
+           (reverse toplevels)
+           exports
+           imports
+           includes)
+         (form-decompose
+           form
+           continue
+           main
+           name
+           toplevels
+           exports
+           imports
+           includes)))))
+ 
+ 
+ (define (form-decompose
+          form
+          continue
+          main
+          name
+          toplevels
+          exports
+          imports
+          includes)
+   (cond ((bigloo-decompose-form
+            form
+            continue
+            main
+            name
+            toplevels
+            exports
+            imports
+            includes))
+         ((Scheme48-decompose-form
+            form
+            continue
+            main
+            name
+            toplevels
+            exports
+            imports
+            includes))
+         ((guile-decompose-form
+            form
+            continue
+            name
+            main
+            toplevels
+            exports
+            imports
+            includes))
+         ((SLIB-decompose-form
+            form
+            continue
+            name
+            main
+            toplevels
+            exports
+            imports
+            includes))
+         ((sd-decompose-form
+            form
+            continue
+            name
+            main
+            toplevels
+            exports
+            imports
+            includes))
+         (else
+          (continue
+            name
+            main
+            (cons form toplevels)
+            exports
+            imports
+            includes))))
+ 
+ 
+ (define (collect-defines toplevels)
+   (filter-map
+     (lambda (form)
+       (match-bind
+         bindings
+         form
+         (define-matcher (bindings 'value 'name))
+         (define-public-matcher (bindings 'value 'name))
+         (else #f)))
+     toplevels))
+ 
+ 
+ ; from module Targets in targets/targets.scm
+ (define known-targets
+   (list bigloo-target
+         larceny-target
+         scheme48-target))
+ 
+ 
+ (define (target-names)
+   (string-append
+     "{"
+     (apply string-append
+            (cdr (fold (lambda (t names)
+                         (append (list "," (t 'target-name)) names))
+                       '()
+                       known-targets)))
+     "}"))
+ 
+ 
+ (define (find-target target)
+   (let ((found (find (lambda (t) (equal? target (t 'target-name)))
+                      known-targets)))
+     (if found
+       found
+       (begin
+         (error-display
+           'find-target
+           " unsupported target "
+           target
+           " requested"
+           #\newline)
+         *unit*))))
+ 
+ 
+ (define *target* *unit*)
+ 
+ 
+ (define (use-target target)
+   (let ((target-obj (find-target target)))
+     (if (not (*unit*? target-obj))
+       (if (not (*unit*? *target*))
+         (error-display
+           'use-target
+           " New target "
+           target
+           " overriding previous "
+           (*target* 'target-name)
+           #\newline)
+         (begin
+           (set! *target* (find-target target))
+           (add-cond-expand target))))))
+ 
+ 
+ ; from module Include-Module in modules/include-module.scm
+ (define *includes* '())
+ 
+ 
+ (define (make-include f search-path)
+   (letrec ((recursive-collect
+              (lambda (base-set message)
+                (let* ((union (lambda (s1 s2) (lset-union eq? s1 s2))))
+                  (union base-set
+                         (fold union
+                               '()
+                               (map (lambda (i) (i message))
+                                    included-files))))))
+            (file-name (expand-file-name f search-path))
+            (top-level-forms '())
+            (imported-modules '())
+            (included-files '())
+            (defined-symbols *unit*)
+            (written? #f)
+            (dispatch
+              (dispatcher
+                self
+                ((name) file-name)
+                ((file) file-name)
+                ((components) (list dispatch))
+                ((entry-point) *unit*)
+                ((toplevels) top-level-forms)
+                ((imports)
+                 (recursive-collect imported-modules 'imports))
+                ((includes)
+                 (recursive-collect included-files 'includes))
+                ((exports) '())
+                ((interns) (dispatch 'defines))
+                ((defines)
+                 (lazy-init
+                   defined-symbols
+                   (with (collect-defines top-level-forms))))
+                ((defines? sym k) (find eq? (dispatch 'defines)))
+                ((internal-conflicts) '())
+                ((global-conflicts) '())
+                ((rewrite port)
+                 (if (not written?)
+                   (notify-in-file
+                     file-name
+                     (begin
+                       (map-display-port
+                         port
+                         "; from "
+                         file-name
+                         #\newline)
+                       (for-each
+                         (lambda (m) (m 'rewrite port))
+                         (self 'includes))
+                       (for-each
+                         (lambda (f) (expanded-write port f))
+                         top-level-forms)
+                       (set! written? #t))))))))
+     (cond ((find (lambda (m) (equal? file-name (m 'file)))
+                  *includes*)
+            =>
+            (lambda (found) found))
+           (else
+            (notify-in-file
+              file-name
+              (receive
+                (name use-main
+                      toplevels
+                      exports
+                      imports
+                      includes)
+                (grovel-source (*reader* file-name))
+                (if (not (or (*unit*? exports) (null? exports)))
+                  (error-display
+                    "Attempt to export bindings "
+                    exports
+                    " from include file"
+                    #\newline))
+                (set! top-level-forms toplevels)
+                (set! imported-modules imports)
+                (set! included-files
+                  (map (lambda (f) (make-include f search-path))
+                       includes))
+                (set! *includes* (cons dispatch *includes*))
+                dispatch))))))
+ 
+ 
+ ; from module Source-Module in modules/source-module.scm
+ (define (make-source file-name search-path)
+   (letrec ((collect-interns
+              (lambda (exports defines)
+                (lset-difference eq? defines exports)))
+            (recursive-collect
+              (lambda (base-set message)
+                (let* ((union (lambda (s1 s2) (lset-union eq? s1 s2))))
+                  (union base-set
+                         (fold union
+                               '()
+                               (map (lambda (i) (i message))
+                                    included-files))))))
+            (module-name *unit*)
+            (entry-point *unit*)
+            (top-level-forms '())
+            (exported-symbols *unit*)
+            (imported-modules *unit*)
+            (included-files '())
+            (defined-symbols *unit*)
+            (internal-symbols *unit*)
+            (dispatch
+              (dispatcher
+                ((name) module-name)
+                ((file) file-name)
+                ((components) (list dispatch))
+                ((entry-point) entry-point)
+                ((toplevels) top-level-forms)
+                ((includes)
+                 (recursive-collect included-files 'includes))
+                ((imports)
+                 (recursive-collect imported-modules 'imports))
+                ((exports)
+                 (lazy-init
+                   exported-symbols
+                   (with (collect-defines top-level-forms))))
+                ((defines)
+                 (lazy-init
+                   defined-symbols
+                   (with (recursive-collect
+                           (collect-defines top-level-forms)
+                           'defines))))
+                ((interns)
+                 (lazy-init
+                   internal-symbols
+                   (with (collect-interns
+                           (dispatch 'exports)
+                           (dispatch 'defines)))))
+                ((defines? sym k) (find eq? (dispatch 'defines)))
+                ((internal-conflicts) '())
+                ((global-conflicts) '())
+                ((rewrite port)
+                 (notify-in-file
+                   (if (eq? module-name *unit*) file-name module-name)
+                   (begin
+                     (for-each
+                       (lambda (m) (m 'rewrite port))
+                       included-files)
+                     (map-display-port
+                       port
+                       "; from module "
+                       module-name
+                       " in "
+                       file-name
+                       #\newline)
+                     (for-each
+                       (lambda (f) (expanded-write port f))
+                       top-level-forms)))))))
+     (notify-in-file
+       file-name
+       (receive
+         (name use-main
+               toplevels
+               exports
+               imports
+               includes)
+         (grovel-source (*reader* file-name))
+         (if *show-read-detail*
+           (display*
+             "Read module "
+             name
+             " from "
+             file-name
+             #\newline))
+         (set! module-name
+           (if (*unit*? name)
+             (file-name->module-name file-name)
+             name))
+         (set! entry-point use-main)
+         (set! top-level-forms toplevels)
+         (set! exported-symbols exports)
+         (set! imported-modules imports)
+         (set! included-files
+           (map (lambda (f) (make-include f search-path))
+                includes))
+         dispatch))))
+ 
+ 
+ ; from module Compound-Module in modules/compound-module.scm
+ (define (collect-entry-points modules)
+   (fold (lambda (m l) (append (m 'entry-point) l))
+         '()
+         modules))
+ 
+ 
+ (define (collect-top-level-forms modules)
+   (fold (lambda (m l) (append (m 'toplevels) l))
+         '()
+         modules))
+ 
+ 
+ (define (collect-exports modules)
+   (fold (lambda (m l) (append (m 'exports) l))
+         '()
+         modules))
+ 
+ 
+ (define (collect-imports modules)
+   (fold (lambda (m l) (append (m 'imports) l))
+         '()
+         modules))
+ 
+ 
+ (define (collect-includes modules)
+   (fold (lambda (m l) (append (m 'includes) l))
+         '()
+         modules))
+ 
+ 
+ (define (make-compound module-name . modules)
+   (letrec ((collect-defines
+              (lambda (modules)
+                (fold (lambda (m l) (append (m 'defines) l))
+                      '()
+                      modules)))
+            (collect-interns
+              (lambda (modules)
+                (fold (lambda (m l) (append (m 'interns) l))
+                      '()
+                      modules)))
+            (dispatch
+              (dispatcher
+                ((name) module-name)
+                ((file) *unit*)
+                ((components) modules)
+                ((entry-point) (collect-entry-points modules))
+                ((toplevels) (collect-top-level-forms modules))
+                ((exports) (collect-exports modules))
+                ((imports) (collect-imports modules))
+                ((includes) (collect-includes modules))
+                ((defines) (collect-defines modules))
+                ((interns) (collect-interns modules))
+                ((defines? sym k) (find eq? (dispatch 'defines)))
+                ((global-conflicts)
+                 (apply lset-intersection
+                        eq?
+                        (map (lambda (m) (m 'defines)) modules)))
+                ((internal-conflicts)
+                 (apply lset-intersection
+                        eq?
+                        (map (lambda (m) (m 'exports)) modules)))
+                ((rewrite port)
+                 (let ((known-includes '()))
+                   (for-each (lambda (m) (m 'rewrite port)) modules))))))
+     dispatch))
+ 
+ 
+ (define (load-module file-name search-path)
+   (let ((file-name
+           (expand-file-name file-name search-path)))
+     (notify-in-file
+       file-name
+       (call-with-input-file
+         file-name
+         (lambda (module-port)
+           (let build ((clause (read module-port))
+                       (module-name #f)
+                       (modules '()))
+             (if (eof-object? clause)
+               (begin
+                 (close-input-port module-port)
+                 (apply make-compound
+                        (if module-name
+                          module-name
+                          (file-name->module-name file-name))
+                        modules))
+               (cond ((module-name clause)
+                      =>
+                      (lambda (name)
+                        (if module-name
+                          (error-display
+                            "Module file "
+                            file-name
+                            " is already named "
+                            module-name
+                            #\newline)
+                          (build (read module-port) name modules))))
+                     (else
+                      (build (read module-port)
+                             module-name
+                             (append
+                               (map (lambda (module-map)
+                                      (make-source
+                                        (cadr module-map)
+                                        search-path))
+                                    clause)
+                               modules)))))))))))
+ 
+ 
+ ; from common/options.sch
+ (define-syntax
+   expand-option
+   (syntax-rules
+     (option else)
+     ((expand-option (else (name desc) e0 e+ ...))
+      (vector *unit* desc 1 (lambda (name) e0 e+ ...)))
+     ((expand-option
+        (option flag ((arg (usage-thunk)) ...) e0 e+ ...))
+      (vector
+        flag
+        (option-args (list (usage-thunk) ...))
+        (length '(arg ...))
+        (lambda (arg ...) e0 e+ ...)))
+     ((expand-option
+        (option flag ((arg usage) ...) e0 e+ ...))
+      (vector
+        flag
+        (option-args (list usage ...))
+        (length '(arg ...))
+        (lambda (arg ...) e0 e+ ...)))))
+ 
+ 
+ (define-syntax
+   option-table
+   (syntax-rules
+     ()
+     ((option-table options ...)
+      (vector (expand-option options) ...))))
+ 
+ 
+ ; from module Mangler in module-mangler.scm
+ (define (make-name-list extractor name-list)
+   (string-append
+     "{"
+     (apply string-append
+            (cdr (fold (lambda (r s)
+                         (append s (list "," (extractor r))))
+                       '()
+                       name-list)))
+     "}"))
+ 
+ 
+ (define (showable-names)
+   "{sort,read-detail,*unit*}")
+ 
+ 
+ (define (conflict-action-names)
+   "{warn,rewrite,let-bind}")
+ 
+ 
+ (define (reader-names)
+   (make-name-list car *readers*))
+ 
+ 
+ (define (macro-expander-names)
+   (make-name-list car *system-expanders*))
+ 
+ 
+ (define (hack-macro-system macro-system)
+   (if (not (member
+              macro-system
+              (map car *system-expanders*)))
+     (error-display
+       #\"
+       macro-system
+       #\"
+       " is not a supported macro system"
+       #\newline)
+     (set! *macro-systems*
+       (cons macro-system *macro-systems*))))
+ 
+ 
+ (define (no-macro-system substrate)
+   (error-display
+     substrate
+     " substrate doesn't support macro expansion"
+     #\newline))
+ 
+ 
+ (define module-list '())
+ 
+ 
+ (define search-list '())
+ 
+ 
+ (define mangler-options
+   (option-table
+     (option
+       "--credits"
+       ()
+       (credits)
+       (success #\newline))
+     (option
+       "--expand"
+       ((condition "condition"))
+       (add-cond-expand condition))
+     (option "--help" () (usage "help requested"))
+     (option
+       "--macros"
+       ((expander (macro-expander-names)))
+       (cond-expand
+         (Bigloo (hack-macro-system expander))
+         (Guile (hack-macro-system expander))
+         (Larceny (hack-macro-system expander))
+         (Scheme48 (no-macro-system "Scheme48"))
+         (PLT (no-macro-system "Rice PLT"))
+         (else (error-display
+                 "Macros not supported on this platform"
+                 #\newline))))
+     (option
+       "--module"
+       ((module-file "module-file"))
+       (set! module-list
+         (cons (load-module module-file search-list)
+               module-list)))
+     (option
+       "--on-conflicts"
+       ((action (conflict-action-names)))
+       (if (not (equal? action "warn-only"))
+         (error-display
+           #\"
+           action
+           #\"
+           " is not a supported conflict action"
+           #\newline)))
+     (option
+       "--output-file"
+       ((file-name "file-name"))
+       (let ((maybe-output (maybe-open-output-port file-name)))
+         (if maybe-output
+           (set! *output* maybe-output)
+           (abort 'grovel-args
+                  (many->string
+                    "Could not open "
+                    file-name
+                    " for output"
+                    #\newline)
+                  file-name))))
+     (option
+       "--reader"
+       ((reader-name (reader-names)))
+       (let ((reader-data (assoc reader-name *readers*)))
+         (if reader-data
+           (default-reader! (cdr reader-data))
+           (error-display
+             "Unknown reader: "
+             reader-name
+             #\newline))))
+     (option
+       "--search"
+       ((search-dir "directory"))
+       (set! search-list
+         (append search-list (list search-dir))))
+     (option
+       "--search-path"
+       ((search-path "path"))
+       (set! search-list
+         (append search-list (decompose-path search-path))))
+     (option
+       "--show"
+       ((thing (showable-names)))
+       (cond ((equal? thing "sort")
+              (set! *show-sorted-order* #t))
+             ((equal? thing "read-detail")
+              (set! *show-read-detail* #t))
+             ((equal? thing "*unit*")
+              (display* "*unit* -> " *unit* #\newline))
+             (else
+              (error-display
+                "Can't show \""
+                thing
+                "\""
+                #\newline))))
+     (option
+       "--target"
+       ((target (target-names)))
+       (use-target target-names))
+     (option
+       "--width"
+       ((width "line-width"))
+       (set! *line-width* (string->number width)))
+     (else (source-file "source-file")
+           (if *show-read-detail*
+             (display*
+               "Reading "
+               source-file
+               " with "
+               (reader-name *reader*)
+               #\newline))
+           (set! module-list
+             (cons (make-source source-file search-list)
+                   module-list)))))
+ 
+ 
+ (define (credits)
+   (map-display
+     "This software would not have been possible without:"
+     #\newline
+     "    Manuel Serrano's Bigloo Scheme compiler"
+     #\newline
+     "    R. Kent Dybvig's syntax-case code (and his explanations of R5RS macros)"
+     #\newline
+     "    Aubrey Jaffer's SLIB"
+     #\newline
+     "    Marc Feeley's GENWRITE function (contributed to SLIB)"
+     #\newline
+     "AND..."
+     #\newline
+     "    Alan Bawden, the SRFI Editors and other perpetrators of the SRFI process"
+     #\newline
+     "    Marc Feeley's foundational SRFI-0"
+     #\newline
+     "    Olin Shivers' hard work in developing SRFI-1"
+     #\newline
+     "    Oleg Kiselyov's SRFI-2"
+     #\newline
+     "    John David Stone's SRFI-8"
+     #\newline))
+ 
+ 
+ (define (module-main args)
+   (let ((status
+           (call/cc
+             (lambda (k)
+               (set! *bail-hook* k)
+               (if (> (length args) 1)
+                 (option-grovel mangler-options (cdr args))
+                 (usage "bogus command line"))
+               (if (null? module-list)
+                 '(usage no-modules)
+                 (rewrite-sources module-list *output*))))))
+     (case (car status)
+       ((usage)
+        (map-display
+          (cadr status)
+          #\newline
+          "usage: "
+          (car args)
+          " (option:file)*"
+          #\newline
+          "options:"
+          #\newline)
+        (option-map
+          (lambda (o)
+            (display* (option-usage o) #\newline))
+          mangler-options)
+        (newline)
+        0)
+       ((abortion)
+        (map-display
+          "Aborted in function: "
+          (cadr status)
+          #\newline
+          (caddr status)
+          #\newline))
+       ((unimplemented)
+        (map-display
+          "Unimplemented function: "
+          (cadr status)
+          #\newline))
+       ((success) (close-output-port *output*) 0)
+       (else
+        (map-display
+          "Unknown internal status: "
+          (car status)
+          #\newline)))))
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: kumo@bellsouth.net
+Cc: plt-gnats@cs.rice.edu, shriram@cs.rice.edu
+Subject: Re: all/1495: r5rs macro problems
+Date: Tue, 6 Jun 2000 07:56:58 -0700
+
+ This is a multi-part message in MIME format.
+ -----261958883394-----
+ Content-Type: text/plain; charset=us-ascii
+ Content-Transfer-Encoding: 7bit
+ 
+ Quoting kumo@bellsouth.net:
+ > I have a medium-sized program which makes moderate use
+ > of R5RS macros (5400 LOC/225 lines of macros), which currently
+ > compiles and runs cleanly under Bigloo, Scheme48 and Larceny.
+ > When I feed it to mzscheme, I get the following error:
+ > 
+ > /home/drush/dist/Scheme/plt/collects/mzlib/synruler.ss: 141.23-144.71: 
+ > unquote-splicing: invalid context within quasiquote in: 
+ > (quasiquote (begin (unquote-splicing expansion)))
+ 
+ I'm looking at the quasiquote code in synrule.ss for the first time in
+ a while. I think I was the last person to work on it --- it seemed
+ terribly wrong at the time --- and I thought I fixed it. But looking at
+ the code again, it still seems wrong. Maybe it was never tested with
+ unquote-splicing...
+ 
+ In any case, I've committed and exp-tagged a new synruler.ss in
+ plt/collects/mzlib, and also enclosed it in this message. The changes
+ get rid of the error in loding your code, and it seems to expand ok;
+ let me know whether it really works, though.
+ 
+ [In principle, our syntax-rules implementation is hopelessly broken,
+ but it looks like it should be able to handle this particular program.]
+ 
+ Matthew
+ 
+ -----261958883394-----
+ Content-Type: text/plain;
+ 	name="synruler.ss"
+ Content-Transfer-Encoding: base64
+ 
+ OyBCeSBEb3JhaSBTaXRhcmFtCjsgdGhlbiBTaHJpcmFtIEtyaXNobmFtdXJ0aGkKOyB0aGVu
+ IE1hdHRoZXcgRmxhdHQKCih1bml0CiAgKGltcG9ydCkKICAoZXhwb3J0IGRlZmluZS1zeW50
+ YXgKCSAgLTpzcjp0YWcKCSAgLTpzcjp1bnRhZwoJICAtOnNyOmZsYXR0ZW4KCSAgLTpzcjpt
+ YXRjaGVzLXBhdHRlcm4/CgkgIC06c3I6Z2V0LWJpbmRpbmdzCgkgIC06c3I6ZXhwYW5kLXBh
+ dHRlcm4pCgogIChkZWZpbmUgLTpzcjp0YWcgJ3VuZGVmaW5lZC0tOnNyOnRhZykKICAoZGVm
+ aW5lIC06c3I6dW50YWcgJ3VuZGVmaW5lZC0tOnNyOnVudGFnKQogIChkZWZpbmUgLTpzcjpm
+ bGF0dGVuICd1bmRlZmluZWQtLTpzcjpmbGF0dGVuKQoKICAobGV0cmVjIChbaHlnOnJhc3Nx
+ CgkgICAgKGxhbWJkYSAoayBhbCkKCSAgICAgIChsZXQgbG9vcCAoW2FsIGFsXSkKCQkoaWYg
+ KG51bGw/IGFsKSAKCQkgICAgI2YKCQkgICAgKGxldCAoW2MgKGNhciBhbCldKQoJCSAgICAg
+ IChpZiAoZXE/IChjZHIgYykgaykgCgkJCSAgYwoJCQkgIChsb29wIChjZHIgYWwpKSkpKSkp
+ XQoJICAgW2h5Zzp0YWcKCSAgICAobGFtYmRhIChlIGtrIGFsKQoJICAgICAgKGNvbmQgCgkg
+ ICAgICAgWyhwYWlyPyBlKQoJCShsZXQqICgoYS10ZS1hbCAoaHlnOnRhZyAoY2FyIGUpIGtr
+ IGFsKSkKCQkgICAgICAgKGQtdGUtYWwgKGh5Zzp0YWcgKGNkciBlKSBrayAoY2RyIGEtdGUt
+ YWwpKSkpCgkJICAoY29ucyAoY29ucyAoY2FyIGEtdGUtYWwpIChjYXIgZC10ZS1hbCkpCgkJ
+ CShjZHIgZC10ZS1hbCkpKV0KCSAgICAgICBbKHZlY3Rvcj8gZSkKCQkobGV0IChbdi10ZS1h
+ bCAoaHlnOnRhZyAodmVjdG9yLT5saXN0IGUpIGtrIGFsKV0pCgkJICAoY29ucyAobGlzdC0+
+ dmVjdG9yIChjYXIgdi10ZS1hbCkpCgkJCShjZHIgdi10ZS1hbCkpKV0KCSAgICAgICBbKHN5
+ bWJvbD8gZSkKCQkoY29uZCAKCQkgWyhlcT8gZSAnLi4uKSAoY29ucyAnLi4uIGFsKV0KCQkg
+ WyhtZW1xIGUga2spIChjb25zIGUgYWwpXQoJCSBbKGh5ZzpyYXNzcSBlIGFsKSAKCQkgID0+
+ IChsYW1iZGEgKGMpCgkJICAgICAgIChjb25zIChjYXIgYykgYWwpKV0KCQkgW2Vsc2UKCQkg
+ IChsZXQgKCh0ZSAoZ2Vuc3ltKSkpCgkJICAgIChjb25zIHRlIChjb25zIChjb25zIHRlIGUp
+ IGFsKSkpXSldCgkgICAgICAgW2Vsc2UgKGNvbnMgZSBhbCldKSldCgkgICBbaHlnOnVudGFn
+ CgkgICAgKGxhbWJkYSAoZSBhbCB0bXBzKQoJICAgICAgKGlmIChwYWlyPyBlKQoJCSAgKGxl
+ dCAoW2EgKGh5Zzp1bnRhZyAoY2FyIGUpIGFsIHRtcHMpXSkKCQkgICAgKGlmIChsaXN0PyBl
+ KQoJCQkoY2FzZSBhCgkJCSAgWyhxdW90ZSkgCgkJCSAgIChoeWc6dW50YWctbm8tdGFncyBl
+ IGFsKV0KCQkJICBbKHF1YXNpcXVvdGUpCgkJCSAgIChsaXN0IGEgKGh5Zzp1bnRhZy1xdWFz
+ aXF1b3RlIChjYWRyIGUpIGFsIHRtcHMpKV0KCQkJICBbKGlmIGJlZ2luKQoJCQkgICBgKCxh
+ ICxAKG1hcCAobGFtYmRhIChlMSkKCQkJCQkgKGh5Zzp1bnRhZyBlMSBhbCB0bXBzKSkgKGNk
+ ciBlKSkpXQoJCQkgIFsoc2V0ISBkZWZpbmUpCgkJCSAgIGAoLGEgLChoeWc6dW50YWctdmFu
+ aWxsYSAoY2FkciBlKSBhbCB0bXBzKQoJCQkJLEAobWFwIChsYW1iZGEgKGUxKQoJCQkJCSAo
+ aHlnOnVudGFnIGUxIGFsIHRtcHMpKSAoY2RkciBlKSkpXQoJCQkgIFsobGFtYmRhKQoJCQkg
+ ICAoaHlnOnVudGFnLWxhbWJkYSBhIChjYWRyIGUpIChjZGRyIGUpIGFsIHRtcHMpXQoJCQkg
+ IFsobGV0cmVjKQoJCQkgICAoaHlnOnVudGFnLWxldHJlYyBhIChjYWRyIGUpIChjZGRyIGUp
+ IGFsIHRtcHMpXQoJCQkgIFsobGV0KQoJCQkgICAobGV0ICgoZTIgKGNhZHIgZSkpKQoJCQkg
+ ICAgIChpZiAoc3ltYm9sPyBlMikKCQkJCSAoaHlnOnVudGFnLW5hbWVkLWxldCBhIGUyIChj
+ YWRkciBlKSAoY2RkZHIgZSkgYWwgdG1wcykKCQkJCSAoaHlnOnVudGFnLWxldCBhIGUyIChj
+ ZGRyIGUpIGFsIHRtcHMpKSldCgkJCSAgWyhsZXQqKQoJCQkgICAoaHlnOnVudGFnLWxldCog
+ KGNhZHIgZSkgKGNkZHIgZSkgYWwgdG1wcyldCgkJCSAgWyhkbykgKGh5Zzp1bnRhZy1kbyAo
+ Y2FkciBlKSAoY2FkZHIgZSkgKGNkZGRyIGUpIGFsIHRtcHMpXQoJCQkgIFsoY2FzZSkKCQkJ
+ ICAgYChjYXNlICwoaHlnOnVudGFnLXZhbmlsbGEgKGNhZHIgZSkgYWwgdG1wcykKCQkJICAg
+ ICAgLEAobWFwCgkJCQkgKGxhbWJkYSAoYykKCQkJCSAgIGAoLChoeWc6dW50YWctdmFuaWxs
+ YSAoY2FyIGMpIGFsIHRtcHMpCgkJCQkgICAgICxAKGh5Zzp1bnRhZy1saXN0IChjZHIgYykg
+ YWwgdG1wcykpKQoJCQkJIChjZGRyIGUpKSldCgkJCSAgWyhjb25kKQoJCQkgICBgKGNvbmQg
+ LEAobWFwCgkJCQkgICAgIChsYW1iZGEgKGMpCgkJCQkgICAgICAgKGh5Zzp1bnRhZy1saXN0
+ IGMgYWwgdG1wcykpCgkJCQkgICAgIChjZHIgZSkpKV0KCQkJICBbZWxzZSAKCQkJICAgOyBN
+ dXN0IGJlIGFuIGFwcGxpY2F0aW9uOgoJCQkgICAoY29ucyBhIChoeWc6dW50YWctbGlzdCAo
+ Y2RyIGUpIGFsIHRtcHMpKV0pCgkJCShjb25zIGEgKGh5Zzp1bnRhZy1saXN0KiAoY2RyIGUp
+ IGFsIHRtcHMpKSkpCgkJICAoaHlnOnVudGFnLXZhbmlsbGEgZSBhbCB0bXBzKSkpXQoJICAg
+ W2h5Zzp1bnRhZy1saXN0CgkgICAgKGxhbWJkYSAoZWUgYWwgdG1wcykKCSAgICAgIChtYXAg
+ KGxhbWJkYSAoZSkKCQkgICAgIChoeWc6dW50YWcgZSBhbCB0bXBzKSkgZWUpKV0KCSAgIFto
+ eWc6dW50YWctbGlzdCoKCSAgICAobGFtYmRhIChlZSBhbCB0bXBzKQoJICAgICAgKGxldCBs
+ b29wICgoZWUgZWUpKQoJCShpZiAocGFpcj8gZWUpCgkJICAgIChjb25zIChoeWc6dW50YWcg
+ KGNhciBlZSkgYWwgdG1wcykKCQkJICAobG9vcCAoY2RyIGVlKSkpCgkJICAgIChoeWc6dW50
+ YWcgZWUgYWwgdG1wcykpKSldCgkgICBbaHlnOnVudGFnLW5vLXRhZ3MKCSAgICAobGFtYmRh
+ IChlIGFsKQoJICAgICAgKGNvbmQgCgkgICAgICAgWyhwYWlyPyBlKQoJCShjb25zIChoeWc6
+ dW50YWctbm8tdGFncyAoY2FyIGUpIGFsKQoJCSAgICAgIChoeWc6dW50YWctbm8tdGFncyAo
+ Y2RyIGUpIGFsKSldCgkgICAgICAgWyh2ZWN0b3I/IGUpCgkJKGxpc3QtPnZlY3RvcgoJCSAo
+ aHlnOnVudGFnLW5vLXRhZ3MgKHZlY3Rvci0+bGlzdCBlKSBhbCkpXQoJICAgICAgIFsobm90
+ IChzeW1ib2w/IGUpKSBlXQoJICAgICAgIFsoYXNzcSBlIGFsKSA9PiBjZHJdCgkgICAgICAg
+ W2Vsc2UgZV0pKV0KCSAgIFtoeWc6dW50YWctcXVhc2lxdW90ZQoJICAgIChsYW1iZGEgKGZv
+ cm0gYWwgdG1wcykKCSAgICAgIChsZXQgcXEgKFt4IGZvcm1dW2xldmVsIDBdKQoJCShjb25k
+ CgkJIFsocGFpcj8geCkKCQkgIChsZXQgKFtmaXJzdCAoaHlnOnVudGFnLW5vLXRhZ3MgKGNh
+ ciB4KSBhbCldKQoJCSAgICAoY29uZAoJCSAgICAgWyhhbmQgKGVxPyBmaXJzdCAndW5xdW90
+ ZSkgKGxpc3Q/IHgpKQoJCSAgICAgIChsZXQgKFtyZXN0IChjZHIgeCldKQoJCQkoaWYgKG9y
+ IChub3QgKHBhaXI/IHJlc3QpKQoJCQkJKG5vdCAobnVsbD8gKGNkciByZXN0KSkpKQoJCQkg
+ ICAgKHJhaXNlLXN5bnRheC1lcnJvcgoJCQkgICAgICd1bnF1b3RlCgkJCSAgICAgInRha2Vz
+ IGV4YWN0bHkgb25lIGV4cHJlc3Npb24iCgkJCSAgICAgKGxpc3QgJ3F1YXNpcXVvdGUgKGh5
+ Zzp1bnRhZy1uby10YWdzIGZvcm0gYWwpKSkKCQkJICAgIChpZiAoemVybz8gbGV2ZWwpCgkJ
+ CQkobGlzdCAndW5xdW90ZSAoaHlnOnVudGFnIChjYXIgcmVzdCkgYWwgdG1wcykpCgkJCQko
+ Y29ucyBmaXJzdCAocXEgcmVzdCAoc3ViMSBsZXZlbCkpKSkpKV0KCQkgICAgIFsoYW5kIChl
+ cT8gZmlyc3QgJ3F1YXNpcXVvdGUpIChsaXN0PyB4KSkKCQkgICAgICAoY29ucyAncXVhc2lx
+ dW90ZSAocXEgKGNkciB4KSAoYWRkMSBsZXZlbCkpKV0KCQkgICAgIFsoYW5kIChlcT8gZmly
+ c3QgJ3VucXVvdGUtc3BsaWNpbmcpIChsaXN0PyB4KSkKCQkgICAgICAocmFpc2Utc3ludGF4
+ LWVycm9yCgkJICAgICAgICd1bnF1b3RlLXNwbGljaW5nCgkJICAgICAgICJpbnZhbGlkIGNv
+ bnRleHQgd2l0aGluIHF1YXNpcXVvdGUiCgkJICAgICAgIChsaXN0ICdxdWFzaXF1b3RlICho
+ eWc6dW50YWctbm8tdGFncyBmb3JtIGFsKSkpXQoJCSAgICAgWyhwYWlyPyBmaXJzdCkKCQkg
+ ICAgICAobGV0IChbY2FyLWZpcnN0IChoeWc6dW50YWctbm8tdGFncyAoY2FyIGZpcnN0KSBh
+ bCldKQoJCQkoaWYgKGFuZCAoZXE/IGNhci1maXJzdCAndW5xdW90ZS1zcGxpY2luZykKCQkJ
+ CSAobGlzdD8gZmlyc3QpKQoJCQkgICAgKGxldCAoW3Jlc3QgKGNkciBmaXJzdCldKQoJCQkg
+ ICAgICAoaWYgKG9yIChub3QgKHBhaXI/IHJlc3QpKQoJCQkJICAgICAgKG5vdCAobnVsbD8g
+ KGNkciByZXN0KSkpKQoJCQkJICAocmFpc2Utc3ludGF4LWVycm9yCgkJCQkgICAndW5xdW90
+ ZS1zcGxpY2luZwoJCQkJICAgInRha2VzIGV4YWN0bHkgb25lIGV4cHJlc3Npb24iCgkJCQkg
+ ICAobGlzdCAncXVhc2lxdW90ZSAoaHlnOnVudGFnLW5vLXRhZ3MgZm9ybSBhbCkpKQoJCQkJ
+ ICAobGlzdCAobGlzdCAndW5xdW90ZS1zcGxpY2luZwoJCQkJCSAgICAgIChpZiAoemVybz8g
+ bGV2ZWwpCgkJCQkJCSAgKGh5Zzp1bnRhZyAoY2FyIHJlc3QpIGFsIHRtcHMpCgkJCQkJCSAg
+ KHFxIChjYXIgcmVzdCkgKHN1YjEgbGV2ZWwpKSkpCgkJCQkJKHFxIChjZHIgeCkgbGV2ZWwp
+ KSkpCgkJCSAgICAoY29ucyAoY29ucyBjYXItZmlyc3QKCQkJCQkocXEgKGNkciBmaXJzdCkg
+ bGV2ZWwpKQoJCQkJICAocXEgKGNkciB4KSBsZXZlbCkpKSldCgkJICAgICBbZWxzZQoJCSAg
+ ICAgIChjb25zIGZpcnN0IChxcSAoY2RyIHgpIGxldmVsKSldKSldCgkJIFsodmVjdG9yPyB4
+ KQoJCSAgKGxpc3QtPnZlY3RvcgoJCSAgIChxcSAodmVjdG9yLT5saXN0IHgpIGxldmVsKSld
+ CgkJIFsoYm94PyB4KQoJCSAgKGJveCAocXEgKHVuYm94IHgpIGxldmVsKSldCgkJIFtlbHNl
+ IChoeWc6dW50YWctbm8tdGFncyB4IGFsKV0pKSldCgkgICBbaHlnOnVudGFnLWxhbWJkYQoJ
+ ICAgIChsYW1iZGEgKGZvcm1uYW1lIGJ2diBib2R5IGFsIHRtcHMpCgkgICAgICAobGV0ICgo
+ dG1wczIgKGFwcGVuZCEgKGh5ZzpmbGF0dGVuIGJ2dikgdG1wcykpKQoJCWAoLGZvcm1uYW1l
+ ICxidnYKCQkgICAsQChoeWc6dW50YWctbGlzdCBib2R5IGFsIHRtcHMyKSkpKV0KCSAgIFto
+ eWc6dW50YWctbGV0cmVjCgkgICAgKGxhbWJkYSAoZm9ybW5hbWUgdmFydmFscyBib2R5IGFs
+ IHRtcHMpCgkgICAgICAobGV0ICgodG1wcyAoYXBwZW5kISAobWFwIGNhciB2YXJ2YWxzKSB0
+ bXBzKSkpCgkJYCgsZm9ybW5hbWUKCQkgICAgICwobWFwCgkJICAgICAgIChsYW1iZGEgKHZh
+ cnZhbCkKCQkJIGAoLChjYXIgdmFydmFsKQoJCQkgICAsKGh5Zzp1bnRhZyAoY2FkciB2YXJ2
+ YWwpIGFsIHRtcHMpKSkKCQkgICAgICAgdmFydmFscykKCQkgICAsQChoeWc6dW50YWctbGlz
+ dCBib2R5IGFsIHRtcHMpKSkpXQoJICAgW2h5Zzp1bnRhZy1sZXQKCSAgICAobGFtYmRhIChm
+ b3JtbmFtZSB2YXJ2YWxzIGJvZHkgYWwgdG1wcykKCSAgICAgIChsZXQgKCh0bXBzMiAoYXBw
+ ZW5kISAobWFwIGNhciB2YXJ2YWxzKSB0bXBzKSkpCgkJYCgsZm9ybW5hbWUKCQkgICAgICwo
+ bWFwCgkJICAgICAgIChsYW1iZGEgKHZhcnZhbCkKCQkJIGAoLChjYXIgdmFydmFsKQoJCQkg
+ ICAsKGh5Zzp1bnRhZyAoY2FkciB2YXJ2YWwpIGFsIHRtcHMpKSkKCQkgICAgICAgdmFydmFs
+ cykKCQkgICAsQChoeWc6dW50YWctbGlzdCBib2R5IGFsIHRtcHMyKSkpKV0KCSAgIFtoeWc6
+ dW50YWctbmFtZWQtbGV0CgkgICAgKGxhbWJkYSAoZm9ybW5hbWUgbG5hbWUgdmFydmFscyBi
+ b2R5IGFsIHRtcHMpCgkgICAgICAobGV0ICgodG1wczIgKGNvbnMgbG5hbWUgKGFwcGVuZCEg
+ KG1hcCBjYXIgdmFydmFscykgdG1wcykpKSkKCQlgKCxmb3JtbmFtZSAsbG5hbWUKCQkgICAs
+ KG1hcAoJCSAgICAgKGxhbWJkYSAodmFydmFsKQoJCSAgICAgICBgKCwoY2FyIHZhcnZhbCkK
+ CQkJICwoaHlnOnVudGFnIChjYWRyIHZhcnZhbCkgYWwgdG1wcykpKQoJCSAgICAgdmFydmFs
+ cykKCQkgICAsQChoeWc6dW50YWctbGlzdCBib2R5IGFsIHRtcHMyKSkpKV0KCSAgIFtoeWc6
+ dW50YWctbGV0KgoJICAgIChsYW1iZGEgKHZhcnZhbHMgYm9keSBhbCB0bXBzKQoJICAgICAg
+ KGxldCAoKHRtcHMyIChhcHBlbmQhIChyZXZlcnNlISAobWFwIGNhciB2YXJ2YWxzKSkgdG1w
+ cykpKQoJCWAobGV0KgoJCSAgICAgLChsZXQgbG9vcCAoKHZhcnZhbHMgdmFydmFscykKCQkJ
+ CSAoaSAobGVuZ3RoIHZhcnZhbHMpKSkKCQkJKGlmIChudWxsPyB2YXJ2YWxzKSAnKCkKCQkJ
+ ICAgIChsZXQgKCh2YXJ2YWwgKGNhciB2YXJ2YWxzKSkpCgkJCSAgICAgIChjb25zIGAoLChj
+ YXIgdmFydmFsKQoJCQkJICAgICAgLChoeWc6dW50YWcgKGNhZHIgdmFydmFsKQoJCQkJCQkg
+ IGFsIChsaXN0LXRhaWwgdG1wczIgaSkpKQoJCQkJICAgIChsb29wIChjZHIgdmFydmFscykg
+ KC0gaSAxKSkpKSkpCgkJICAgLEAoaHlnOnVudGFnLWxpc3QgYm9keSBhbCB0bXBzMikpKSld
+ CgkgICBbaHlnOnVudGFnLWRvCgkgICAgKGxhbWJkYSAodmFyaW5pc3RwcyBleGl0LXRlc3Qg
+ Ym9keSBhbCB0bXBzKQoJICAgICAgKGxldCAoKHRtcHMyIChhcHBlbmQhIChtYXAgY2FyIHZh
+ cmluaXN0cHMpIHRtcHMpKSkKCQlgKGRvCgkJICAgICAsKG1hcAoJCSAgICAgICAobGFtYmRh
+ ICh2YXJpbmlzdHApCgkJCSAobGV0ICgodmFyIChjYXIgdmFyaW5pc3RwKSkpCgkJCSAgIGAo
+ LHZhciAsQChoeWc6dW50YWctbGlzdCAoY2RyIHZhcmluaXN0cCkgYWwKCQkJCQkJICAgIChj
+ b25zIHZhciB0bXBzKSkpKSkKCQkgICAgICAgdmFyaW5pc3RwcykKCQkgICAgICwoaHlnOnVu
+ dGFnLWxpc3QgZXhpdC10ZXN0IGFsIHRtcHMyKQoJCSAgICxAKGh5Zzp1bnRhZy1saXN0IGJv
+ ZHkgYWwgdG1wczIpKSkpXQoJICAgW2h5Zzp1bnRhZy12YW5pbGxhCgkgICAgKGxhbWJkYSAo
+ ZSBhbCB0bXBzKQoJICAgICAgKGNvbmQgCgkgICAgICAgWyhwYWlyPyBlKQoJCShjb25zICho
+ eWc6dW50YWctdmFuaWxsYSAoY2FyIGUpIGFsIHRtcHMpCgkJICAgICAgKGh5Zzp1bnRhZy12
+ YW5pbGxhIChjZHIgZSkgYWwgdG1wcykpXQoJICAgICAgIFsodmVjdG9yPyBlKQoJCShsaXN0
+ LT52ZWN0b3IKCQkgKGh5Zzp1bnRhZy12YW5pbGxhICh2ZWN0b3ItPmxpc3QgZSkgYWwgdG1w
+ cykpXQoJICAgICAgIFsobm90IChzeW1ib2w/IGUpKSBlXQoJICAgICAgIFsobWVtcSBlIHRt
+ cHMpIGVdCgkgICAgICAgWyhhc3NxIGUgYWwpID0+IGNkcl0KCSAgICAgICBbZWxzZSBlXSkp
+ XQoJICAgW2h5ZzpmbGF0dGVuCgkgICAgKGxhbWJkYSAoZSkKCSAgICAgIChsZXQgbG9vcCAo
+ KGUgZSkgKHIgJygpKSkKCQkoY29uZCAKCQkgWyhwYWlyPyBlKSAobG9vcCAoY2FyIGUpCgkJ
+ CQkgIChsb29wIChjZHIgZSkgcikpXQoJCSBbKG51bGw/IGUpIHJdCgkJIFtlbHNlIChjb25z
+ IGUgcildKSkpXSkKICAgIChzZXQhIC06c3I6dGFnIGh5Zzp0YWcpCiAgICAoc2V0ISAtOnNy
+ OnVudGFnIGh5Zzp1bnRhZykKICAgIChzZXQhIC06c3I6ZmxhdHRlbiBoeWc6ZmxhdHRlbikp
+ CgogIChkZWZpbmUgLTpzcjptYXRjaGVzLXBhdHRlcm4/ICd1bmRlZmluZWQtLTpzcjptYXRj
+ aGVzLXBhdHRlcm4/KQogIChkZWZpbmUgLTpzcjpnZXQtYmluZGluZ3MgJ3VuZGVmaW5lZC0t
+ OnNyOmdldC1iaW5kaW5ncykKICAoZGVmaW5lIC06c3I6ZXhwYW5kLXBhdHRlcm4gJ3VuZGVm
+ aW5lZC0tOnNyOmV4cGFuZC1wYXR0ZXJuKQoKICAobGV0cmVjIChbbWJlOnBvc2l0aW9uCgkg
+ ICAgKGxhbWJkYSAoeCBsKQoJICAgICAgKGxldCBsb29wICgobCBsKSAoaSAwKSkKCQkoY29u
+ ZCAoKG5vdCAocGFpcj8gbCkpICNmKQoJCSAgICAgICgoZXF1YWw/IChjYXIgbCkgeCkgaSkK
+ CQkgICAgICAoZWxzZSAobG9vcCAoY2RyIGwpICgrIGkgMSkpKSkpKV0KICAgICAgICAgICBb
+ bWJlOmFwcGVuZC1tYXAKICAgICAgICAgICAgKGxhbWJkYSAoZiBsKQogICAgICAgICAgICAg
+ IChsZXQgbG9vcCAoKGwgbCkpCiAgICAgICAgICAgICAgICAoaWYgKG51bGw/IGwpICcoKQog
+ ICAgICAgICAgICAgICAgICAgIChhcHBlbmQgKGYgKGNhciBsKSkgKGxvb3AgKGNkciBsKSkp
+ KSkpXQoJICAgW21iZTptYXRjaGVzLXBhdHRlcm4/CgkgICAgKGxhbWJkYSAocCBlIGspCgkg
+ ICAgICAoY29uZCAKCSAgICAgICBbKG1iZTplbGxpcHNpcz8gcCkKCQkgICAgIChhbmQgKG9y
+ IChudWxsPyBlKSAocGFpcj8gZSkpCgkJCSAgKGxldCogKChwLWhlYWQgKGNhciBwKSkKCQkJ
+ CSAocC10YWlsIChjZGRyIHApKQoJCQkJIChlLWhlYWQ9ZS10YWlsIChtYmU6c3BsaXQtYXQt
+ ZWxsaXBzaXMgZSBwLXRhaWwpKSkKCQkJICAgIChhbmQgZS1oZWFkPWUtdGFpbAoJCQkJIChs
+ ZXQgKChlLWhlYWQgKGNhciBlLWhlYWQ9ZS10YWlsKSkKCQkJCSAgICAgICAoZS10YWlsIChj
+ ZHIgZS1oZWFkPWUtdGFpbCkpKQoJCQkJICAgKGFuZCAoYW5kbWFwCgkJCQkJIChsYW1iZGEg
+ KHgpIChtYmU6bWF0Y2hlcy1wYXR0ZXJuPyBwLWhlYWQgeCBrKSkKCQkJCQkgZS1oZWFkKQoJ
+ CQkJCShtYmU6bWF0Y2hlcy1wYXR0ZXJuPyBwLXRhaWwgZS10YWlsIGspKSkpKSldCgkgICAg
+ ICAgWyhwYWlyPyBwKQoJCShhbmQgKHBhaXI/IGUpCgkJICAgICAobWJlOm1hdGNoZXMtcGF0
+ dGVybj8gKGNhciBwKSAoY2FyIGUpIGspCgkJICAgICAobWJlOm1hdGNoZXMtcGF0dGVybj8g
+ KGNkciBwKSAoY2RyIGUpIGspKV0KCSAgICAgICBbKHN5bWJvbD8gcCkgKGlmIChtZW1xIHAg
+ aykgKGVxPyBwIGUpICN0KV0KCSAgICAgICBbZWxzZSAoZXF1YWw/IHAgZSldKSldCgkgICBb
+ bWJlOmdldC1iaW5kaW5ncwoJICAgIChsYW1iZGEgKHAgZSBrKQoJICAgICAgKGNvbmQgCgkg
+ ICAgICAgWyhtYmU6ZWxsaXBzaXM/IHApCgkJKGxldCogKChwLWhlYWQgKGNhciBwKSkKCQkg
+ ICAgICAgKHAtdGFpbCAoY2RkciBwKSkKCQkgICAgICAgKGUtaGVhZD1lLXRhaWwgKG1iZTpz
+ cGxpdC1hdC1lbGxpcHNpcyBlIHAtdGFpbCkpCgkJICAgICAgIChlLWhlYWQgKGNhciBlLWhl
+ YWQ9ZS10YWlsKSkKCQkgICAgICAgKGUtdGFpbCAoY2RyIGUtaGVhZD1lLXRhaWwpKSkKCQkg
+ IChjb25zIChjb25zIChtYmU6Z2V0LWVsbGlwc2lzLW5lc3RpbmdzIHAtaGVhZCBrKQoJCQkg
+ ICAgICAobWFwIChsYW1iZGEgKHgpIChtYmU6Z2V0LWJpbmRpbmdzIHAtaGVhZCB4IGspKQoJ
+ CQkJICAgZS1oZWFkKSkKCQkJKG1iZTpnZXQtYmluZGluZ3MgcC10YWlsIGUtdGFpbCBrKSkp
+ XQoJICAgICAgIFsocGFpcj8gcCkKCQkoYXBwZW5kIChtYmU6Z2V0LWJpbmRpbmdzIChjYXIg
+ cCkgKGNhciBlKSBrKQoJCQkobWJlOmdldC1iaW5kaW5ncyAoY2RyIHApIChjZHIgZSkgaykp
+ XQoJICAgICAgIFsoc3ltYm9sPyBwKQoJCShpZiAobWVtcSBwIGspICcoKSAobGlzdCAoY29u
+ cyBwIGUpKSldCgkgICAgICAgW2Vsc2UgJygpXSkpXQoJICAgW21iZTpleHBhbmQtcGF0dGVy
+ bgoJICAgIChsYW1iZGEgKHAgciBrKQoJICAgICAgKGNvbmQgCgkgICAgICAgWyhtYmU6ZWxs
+ aXBzaXM/IHApCgkJKGFwcGVuZCAobGV0KiAoKHAtaGVhZCAoY2FyIHApKQoJCQkgICAgICAg
+ KG5lc3RpbmdzIChtYmU6Z2V0LWVsbGlwc2lzLW5lc3RpbmdzIHAtaGVhZCBrKSkKCQkJICAg
+ ICAgIChyciAobWJlOmVsbGlwc2lzLXN1Yi1lbnZzIG5lc3RpbmdzIHIpKSkKCQkJICAobWFw
+ IChsYW1iZGEgKHIxKQoJCQkJIChtYmU6ZXhwYW5kLXBhdHRlcm4gcC1oZWFkIChhcHBlbmQg
+ cjEgcikgaykpCgkJCSAgICAgICBycikpCgkJCShtYmU6ZXhwYW5kLXBhdHRlcm4gKGNkZHIg
+ cCkgciBrKSldCgkgICAgICAgWyhwYWlyPyBwKQoJCShjb25zIChtYmU6ZXhwYW5kLXBhdHRl
+ cm4gKGNhciBwKSByIGspCgkJICAgICAgKG1iZTpleHBhbmQtcGF0dGVybiAoY2RyIHApIHIg
+ aykpXQoJICAgICAgIFsoc3ltYm9sPyBwKQoJCShpZiAobWVtcSBwIGspIHAKCQkgICAgKGxl
+ dCAoKHggKGFzc3EgcCByKSkpCgkJICAgICAgKGlmIHggKGNkciB4KSBwKSkpXQoJICAgICAg
+ IFtlbHNlIHBdKSldCgkgICBbbWJlOmdldC1lbGxpcHNpcy1uZXN0aW5ncwoJICAgIChsYW1i
+ ZGEgKHAgaykKCSAgICAgIChsZXQgc3ViICgocCBwKSkKCQkoY29uZCAKCQkgWyhtYmU6ZWxs
+ aXBzaXM/IHApIChjb25zIChzdWIgKGNhciBwKSkgKHN1YiAoY2RkciBwKSkpXQoJCSBbKHBh
+ aXI/IHApIChhcHBlbmQgKHN1YiAoY2FyIHApKSAoc3ViIChjZHIgcCkpKV0KCQkgWyhzeW1i
+ b2w/IHApIChpZiAobWVtcSBwIGspICcoKSAobGlzdCBwKSldCgkJIFtlbHNlICcoKV0pKSld
+ CgkgICBbbWJlOmVsbGlwc2lzLXN1Yi1lbnZzCiAgICAgICAgICAgIChsYW1iZGEgKG5lc3Rp
+ bmdzIHIpCiAgICAgICAgICAgICAgKGxldCAoKHN1Yi1lbnZzLWxpc3QgCiAgICAgICAgICAg
+ ICAgICAgICAgIChsZXQgbG9vcCAoKHIgcikgKHN1Yi1lbnZzLWxpc3QgJygpKSkKICAgICAg
+ ICAgICAgICAgICAgICAgICAoaWYgKG51bGw/IHIpIChyZXZlcnNlISBzdWItZW52cy1saXN0
+ KQogICAgICAgICAgICAgICAgICAgICAgICAgICAobGV0ICgoYyAoY2FyIHIpKSkKICAgICAg
+ ICAgICAgICAgICAgICAgICAgICAgICAobG9vcCAoY2RyIHIpCiAgICAgICAgICAgICAgICAg
+ ICAgICAgICAgICAgICAgICAgKGlmIChtYmU6Y29udGFpbmVkLWluPyBuZXN0aW5ncyAoY2Fy
+ IGMpKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAoY29ucyAoY2Ry
+ IGMpIHN1Yi1lbnZzLWxpc3QpCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg
+ ICAgIHN1Yi1lbnZzLWxpc3QpKSkpKSkpCiAgICAgICAgICAgICAgICAoY2FzZSAobGVuZ3Ro
+ IHN1Yi1lbnZzLWxpc3QpCiAgICAgICAgICAgICAgICAgICgoMCkgI2YpCiAgICAgICAgICAg
+ ICAgICAgICgoMSkgKGNhciBzdWItZW52cy1saXN0KSkKICAgICAgICAgICAgICAgICAgKGVs
+ c2UKICAgICAgICAgICAgICAgICAgIChsZXQgbG9vcCAoKHN1Yi1lbnZzLWxpc3Qgc3ViLWVu
+ dnMtbGlzdCkgKGZpbmFsLXN1Yi1lbnZzICcoKSkpCiAgICAgICAgICAgICAgICAgICAgIChp
+ ZiAob3JtYXAgbnVsbD8gc3ViLWVudnMtbGlzdCkgKHJldmVyc2UhIGZpbmFsLXN1Yi1lbnZz
+ KQogICAgICAgICAgICAgICAgICAgICAgICAgKGxvb3AgKG1hcCBjZHIgc3ViLWVudnMtbGlz
+ dCkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIChjb25zIChtYmU6YXBwZW5kLW1h
+ cCBjYXIgc3ViLWVudnMtbGlzdCkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg
+ ICAgIGZpbmFsLXN1Yi1lbnZzKSkpKSkpKSldCgkgICBbbWJlOmNvbnRhaW5lZC1pbj8KCSAg
+ ICAobGFtYmRhICh2IHkpCgkgICAgICAoaWYgKG9yIChzeW1ib2w/IHYpIChzeW1ib2w/IHkp
+ KSAoZXE/IHYgeSkKCQkgIChvcm1hcCAobGFtYmRhICh2X2kpCgkJCSAgIChvcm1hcCAobGFt
+ YmRhICh5X2opCgkJCQkgICAgKG1iZTpjb250YWluZWQtaW4/IHZfaSB5X2opKQoJCQkJICB5
+ KSkKCQkJIHYpKSldCgkgICBbbWJlOnNwbGl0LWF0LWVsbGlwc2lzCgkgICAgKGxhbWJkYSAo
+ ZSBwLXRhaWwpCgkgICAgICAoaWYgKG51bGw/IHAtdGFpbCkgKGNvbnMgZSAnKCkpCgkJICAo
+ bGV0ICgoaSAobWJlOnBvc2l0aW9uIChjYXIgcC10YWlsKSBlKSkpCgkJICAgIChpZiBpIChj
+ b25zIChjb21saXN0OmJ1dGxhc3QgZSAoLSAobGVuZ3RoIGUpIGkpKQoJCQkJKGxpc3QtdGFp
+ bCBlIGkpKQoJCQkoZXJyb3IgJ21iZTpzcGxpdC1hdC1lbGxpcHNpcyAiYmFkIGFyZ3VtZW50
+ IGluIHN5bnRheC1ydWxlcyIpKSkpKV0KCSAgIFttYmU6ZWxsaXBzaXM/CgkgICAgKGxhbWJk
+ YSAoeCkKCSAgICAgIChhbmQgKHBhaXI/IHgpIChwYWlyPyAoY2RyIHgpKSAoZXE/IChjYWRy
+ IHgpICcuLi4pKSldCgkgICBbY29tbGlzdDpidXRsYXN0CgkgICAgKGxhbWJkYSAobHN0IG4p
+ CgkgICAgICAobGV0cmVjICgobCAoLSAobGVuZ3RoIGxzdCkgbikpCgkJICAgICAgIChibCAo
+ bGFtYmRhIChsc3QgbikKCQkJICAgICAoY29uZCAoKG51bGw/IGxzdCkgbHN0KQoJCQkJICAg
+ KChwb3NpdGl2ZT8gbikKCQkJCSAgICAoY29ucyAoY2FyIGxzdCkgKGJsIChjZHIgbHN0KSAo
+ KyAtMSBuKSkpKQoJCQkJICAgKGVsc2UgJygpKSkpKSkKCQkoYmwgbHN0IChpZiAobmVnYXRp
+ dmU/IG4pCgkJCSAgICAoZXJyb3IgJ2J1dGxhc3QgIm5lZ2F0aXZlIGFyZ3VtZW50IGluIHN5
+ bnRheC1ydWxlczogfnMiCgkJCQkgICBuKQoJCQkgICAgbCkpKSldKQogICAgKHNldCEgLTpz
+ cjptYXRjaGVzLXBhdHRlcm4/IG1iZTptYXRjaGVzLXBhdHRlcm4/KQogICAgKHNldCEgLTpz
+ cjpnZXQtYmluZGluZ3MgbWJlOmdldC1iaW5kaW5ncykKICAgIChzZXQhIC06c3I6ZXhwYW5k
+ LXBhdHRlcm4gbWJlOmV4cGFuZC1wYXR0ZXJuKSkKCiAgKGRlZmluZSBtYWtlLWV4cGFuZGVy
+ CiAgICAobGFtYmRhICh3aG8gbWFjcm8tbmFtZSBzeW4tcnVsZXMpCiAgICAgIChpZiAob3Ig
+ KG5vdCAocGFpcj8gc3luLXJ1bGVzKSkKCSAgICAgIChub3QgKGVxPyAoY2FyIHN5bi1ydWxl
+ cykgJ3N5bnRheC1ydWxlcykpKQoJICAoZXJyb3Igd2hvICJ+cyBub3QgYW4gUjVSUyBtYWNy
+ bzogfnMiCgkJIG1hY3JvLW5hbWUgc3luLXJ1bGVzKQoJICAobGV0ICgoa2V5d29yZHMgKGNv
+ bnMgbWFjcm8tbmFtZSAoY2FkciBzeW4tcnVsZXMpKSkKCQkoY2xhdXNlcyAoY2RkciBzeW4t
+ cnVsZXMpKSkKCSAgICBgKGxhbWJkYSBtYWNyby1hcmcKCSAgICAgICAobGV0ICgobWFjcm8t
+ YXJnIChjb25zICcsbWFjcm8tbmFtZSBtYWNyby1hcmcpKQoJCSAgICAgKGtleXdvcmRzICcs
+ a2V5d29yZHMpKQoJCSAoY29uZCAsQChtYXAKCQkJICAobGFtYmRhIChjbGF1c2UpCgkJCSAg
+ ICAobGV0IChbaW4tcGF0dGVybiAoY2FyIGNsYXVzZSldCgkJCQkgIFtvdXQtcGF0dGVybiAo
+ Y2FkciBjbGF1c2UpXSkKCQkJICAgICAgYCgoLTpzcjptYXRjaGVzLXBhdHRlcm4/ICcsaW4t
+ cGF0dGVybiBtYWNyby1hcmcKCQkJCQkJICAgICAgIGtleXdvcmRzKQoJCQkJKGxldCAoW3Rh
+ Z2dlZC1vdXQtcGF0dGVybithbGlzdAoJCQkJICAgICAgICgtOnNyOnRhZwoJCQkJCScsb3V0
+ LXBhdHRlcm4KCQkJCQkoYXBwZW5kISAoLTpzcjpmbGF0dGVuICcsaW4tcGF0dGVybikKCQkJ
+ CQkJIGtleXdvcmRzKSAnKCkpXSkKCQkJCSAgKC06c3I6dW50YWcKCQkJCSAgICgtOnNyOmV4
+ cGFuZC1wYXR0ZXJuCgkJCQkgICAgKGNhciB0YWdnZWQtb3V0LXBhdHRlcm4rYWxpc3QpCgkJ
+ CQkgICAgKC06c3I6Z2V0LWJpbmRpbmdzICcsaW4tcGF0dGVybiBtYWNyby1hcmcKCQkJCQkJ
+ ICAgICAgIGtleXdvcmRzKQoJCQkJICAgIGtleXdvcmRzKQoJCQkJICAgKGNkciB0YWdnZWQt
+ b3V0LXBhdHRlcm4rYWxpc3QpCgkJCQkgICAnKCkpKSkpKQoJCQkgIGNsYXVzZXMpCgkJICAg
+ ICAgIChlbHNlIChlcnJvciAnLG1hY3JvLW5hbWUgIm5vIG1hdGNoaW5nIGNsYXVzZTogfnMi
+ CgkJCQkgICAgJyxjbGF1c2VzKSkpKSkpKSkpCgogIChkZWZpbmUgZGVmaW5lLXN5bnRheAog
+ ICAgKGxhbWJkYSAobWFjcm8tbmFtZSBzeW4tcnVsZXMpCiAgICAgIChsZXQgKFtleHBhbmRl
+ ciAobWFrZS1leHBhbmRlciAnZGVmaW5lLXN5bnRheCBtYWNyby1uYW1lIHN5bi1ydWxlcyld
+ KQoJYChkZWZpbmUtbWFjcm8gLG1hY3JvLW5hbWUgLGV4cGFuZGVyKSkpKSkK=
+ -----261958883394-------
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Tue Jun  6 12:53:53 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Tue Jun  6 12:53:57 2000
+State-Changed-Why:
+Fixed the immediate bug. Needs a test suite, though...
+
+ 
+>Unformatted:

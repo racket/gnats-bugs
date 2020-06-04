@@ -1,0 +1,252 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Apr  3 14:52:25 2015
+Received: from mail-ie0-f175.google.com (mail-ie0-f175.google.com [209.85.223.175])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t33IqKpg022181
+	for <bugs@bugs.plt-scheme.org>; Fri, 3 Apr 2015 14:52:20 -0400
+Message-Id: <201504031852.t33IqFIJ022173@winooski.ccs.neu.edu>
+Date: Fri, 3 Apr 2015 14:52:15 -0400
+From: gustavo@oma.org.ar
+To: bugs@racket-lang.org
+Subject: Optimizer: Inlining and types propagation
+
+>Number:         15028
+>Category:       mzscheme
+>Synopsis:       Optimizer: Inlining and types propagation
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Apr 03 14:56:02 -0400 2015
+>Last-Modified:  Thu Jul 30 15:57:38 -0400 2015
+>Originator:     Gustavo Massaccesi
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.2.0.2 (HEAD)
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 380017816
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog main-distribution)
+ racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog racket-lib)
+ [187 auto-installed packages not shown]
+User-specific for installation "6.1.1":
+ Package        Checksum                                    Source
+ disassemble    cf0ee3a5f8463e0867eba4c964d742a29325a996    (url github://github.com/samth/disassemble/master)
+
+
+
+Collections:
+("C:\\Users\\User\\AppData\\Roaming\\Racket\\6.1.1\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Racket\\collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) (main)) #t))
+>Description:
+This is a strange case. In the current HEAD, The optimizer sometimes don't propagate correctly the type of the variables when there is an inlined function. In the first function the propagation works, but it doesn't work in the second. (I didn't found a case where this causes a bug.)
+
+;[--original--
+#lang racket/base
+(define (kar x) (car x))
+(lambda (x) (kar x) (pair? x))
+(lambda (x) (kar x) (pair? x))
+;]----
+
+Is roughly optimized to 
+
+;[--optimized--
+#lang racket/base
+(define (kar x) (car x))
+(print-values (lambda (x) (car x) #t))
+(print-values (lambda (x) (car x) (pair? x))) ;<-- no optimized here
+;]----
+
+The same problem happens with the conversion cdr ---> unsafe-cdr, and with other types. So it's not a problem of the predicates' optimization.
+
+In a compressed notation the previous example is
+
+;[----
+#lang racket/base
+(define (kar x) (car x))
+(lambda (x) (kar x) (pair? x)) ;==> #t
+(lambda (x) (kar x) (pair? x)) ;==> pair? :(
+;]----
+
+The alternatives versions with car instead of kar are optimized to:
+
+;[----
+#lang racket/base
+(define (kar x) (car x))
+(lambda (x) (kar x) (pair? x)) ;==> #t
+(lambda (x) (car x) (pair? x)) ;==> #t
+;]----
+
+;[----
+#lang racket/base
+(define (kar x) (car x))
+(lambda (x) (car x) (pair? x)) ;==> #t
+(lambda (x) (kar x) (pair? x)) ;==> pair? :(
+;]----
+
+;[----
+#lang racket/base
+(define (kar x) (car x))
+(lambda (x) (car x) (pair? x)) ;==> #t
+(lambda (x) (car x) (pair? x)) ;==> #t
+;]----
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: gustavo@oma.org.ar, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15028: Optimizer: Inlining and types propagation
+Date: Tue, 7 Apr 2015 08:09:15 -0600
+
+ The `module` optimizer re-optimizes certain forms in the module body.
+ The intent is mostly to find a set of mutually recursive functions and
+ make a second pass, so that later functions can be inlined into earlier
+ functions. The exact set of forms that are collected for
+ re-optimization is determined by heuristics, though.
+ 
+ In this case,
+ 
+  (define (kar x) (car x))
+  (lambda (x) (kar x) (pair? x))
+ 
+ are re-optimized together. Roughly, the first pass sees
+ 
+  (define (kar x) (car x))
+  (lambda (x) (let ([x1 x]) (car x1)) (pair? x))
+ 
+ where the indirection through the extra `x1` is eliminated, but only
+ after `(car x1)` has failed to mark `x` as a pair. A second pass then
+ sees
+ 
+  (define (kar x) (car x))
+  (lambda (x) (car x) (pair? x))
+ 
+ so that `(pair? x)` is reduced to #t.
+ 
+ Continuing, the `module` form optimizer chooses *not* to re-optimize
+ the second
+ 
+   (lambda (x) (kar x) (pair? x))
+ 
+ and so `(pair? x)` is never specialized to #t.
+ 
+ At Fri, 3 Apr 2015 14:56:02 -0400, gustavo@oma.org.ar wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15028
+ > 
+ > Reported by Gustavo Massaccesi for release: 6.2.0.2 (HEAD)
+ > 
+ > *** Description:
+ > This is a strange case. In the current HEAD, The optimizer sometimes don't 
+ > propagate correctly the type of the variables when there is an inlined 
+ > function. In the first function the propagation works, but it doesn't work in 
+ > the second. (I didn't found a case where this causes a bug.)
+ > 
+ > ;[--original--
+ > #lang racket/base
+ > (define (kar x) (car x))
+ > (lambda (x) (kar x) (pair? x))
+ > (lambda (x) (kar x) (pair? x))
+ > ;]----
+ > 
+ > Is roughly optimized to 
+ > 
+ > ;[--optimized--
+ > #lang racket/base
+ > (define (kar x) (car x))
+ > (print-values (lambda (x) (car x) #t))
+ > (print-values (lambda (x) (car x) (pair? x))) ;<-- no optimized here
+ > ;]----
+ > 
+ > The same problem happens with the conversion cdr ---> unsafe-cdr, and with 
+ > other types. So it's not a problem of the predicates' optimization.
+ > 
+ > In a compressed notation the previous example is
+ > 
+ > ;[----
+ > #lang racket/base
+ > (define (kar x) (car x))
+ > (lambda (x) (kar x) (pair? x)) ;==> #t
+ > (lambda (x) (kar x) (pair? x)) ;==> pair? :(
+ > ;]----
+ > 
+ > The alternatives versions with car instead of kar are optimized to:
+ > 
+ > ;[----
+ > #lang racket/base
+ > (define (kar x) (car x))
+ > (lambda (x) (kar x) (pair? x)) ;==> #t
+ > (lambda (x) (car x) (pair? x)) ;==> #t
+ > ;]----
+ > 
+ > ;[----
+ > #lang racket/base
+ > (define (kar x) (car x))
+ > (lambda (x) (car x) (pair? x)) ;==> #t
+ > (lambda (x) (kar x) (pair? x)) ;==> pair? :(
+ > ;]----
+ > 
+ > ;[----
+ > #lang racket/base
+ > (define (kar x) (car x))
+ > (lambda (x) (car x) (pair? x)) ;==> #t
+ > (lambda (x) (car x) (pair? x)) ;==> #t
+ > ;]----
+ > 
+ > *** How to repeat:
+ > 
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) 
+ > (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 380017816
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package              Checksum                                    Source
+ >  main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog 
+ > main-distribution)
+ >  racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog 
+ > racket-lib)
+ >  [187 auto-installed packages not shown]
+ > User-specific for installation "6.1.1":
+ >  Package        Checksum                                    Source
+ >  disassemble    cf0ee3a5f8463e0867eba4c964d742a29325a996    (url 
+ > github://github.com/samth/disassemble/master)
+ > 
+ > 
+ > 
+ > Collections:
+ > ("C:\\Users\\User\\AppData\\Roaming\\Racket\\6.1.1\\collects"
+ >  (non-existent-path))
+ > ("C:\\Program Files\\Racket\\collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" 
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" 
+ > "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) 
+ > (main)) #t))
+From: Gustavo Massaccesi <gustavo@oma.org.ar>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Bugs Racket <bugs@racket-lang.org>, Nobody Racket <nobody@racket-lang.org>,
+        Bug Notification Racket <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15028: Optimizer: Inlining and types propagation
+Date: Mon, 13 Apr 2015 14:16:29 -0300
+
+ OK, I thought that only the define's were reoptimized.
+ 
+ Gustavo
+

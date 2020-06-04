@@ -1,0 +1,163 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Aug 31 20:32:47 2011
+Received: from mail-vw0-f44.google.com (mail-vw0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p810Wh5m011585
+	for <bugs@bugs.plt-scheme.org>; Wed, 31 Aug 2011 20:32:43 -0400
+Message-Id: <201109010032.p810WddN011566@champlain.ccs.neu.edu>
+Date: Wed, 31 Aug 2011 20:32:39 -0400
+From: page@ou.edu
+To: bugs@racket-lang.org
+Subject: doublecheck crash
+
+>Number:         12153
+>Category:       acl2
+>Synopsis:       doublecheck crash
+>Class:          sw-bug
+>Responsible:    cce
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Aug 31 20:36:01 -0400 2011
+>Closed-Date:    Fri Sep 02 02:58:35 -0400 2011
+>Last-Modified:  Fri Sep 02 02:58:35 -0400 2011
+>Originator:     Rex Page
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 167796160
+
+Collections:
+(("C:\\Users\\Rex Page\\AppData\\Roaming\\Racket\\5.0.1\\collects" non-existent-path) ("C:\\Program Files (x86)\\Racket\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "vers!
+ ion" "web-server" "wxme" "xml"))
+Computer Language: (("Dracula" "ACL2") #(#f write mixed-fraction #f #t none))
+>Description:
+Doublecheck runs 700 tests okay, then fails on 300 on a 1000-test run. I expected occasional failures to be reported, but was surprised that 700 in a row passed. The 300 in a row failing seems suspicious. Plus, when I try to inspect the failures, it goes silent and I cannot get it to recover.
+>How-To-Repeat:
+Run the following code:
+(include-book "doublecheck" :dir :teachpacks)
+(include-book "arithmetic-3/floor-mod/floor-mod" :dir :system)
+(defun encrypt-pair (m x x-nxt)
+  (mod (+ x x-nxt) m))
+(defun decrypt-pair (m x-encrypted y-decrypted)
+  (mod (- x-encrypted y-decrypted) m))
+(defun encrypt (m xs)
+  (if (consp (cdr xs))
+      (cons (encrypt-pair m (car xs) (cadr xs))
+            (encrypt m (cdr xs)))
+      (list (encrypt-pair m (car xs) (1- m)))))
+(defun decrypt (m ys)
+  (if (consp (cdr ys))
+      (let* ((decrypted-cdr (decrypt m (cdr ys))))
+        (cons (decrypt-pair m (car ys) (car decrypted-cdr))
+              decrypted-cdr))
+      (list (decrypt-pair m (car ys) (1- m)))))
+
+(defun codep (m x)
+  (and (natp x) (< x m)))
+(defun code-listp (m xs)
+  (and (natp m) (> m 1)
+       (if (consp xs)
+           (and (codep m (car xs)) (code-listp m (cdr xs)))
+           (null xs))))
+(defproperty decrypt-inverts-encrypt :repeat 1000
+  (m  :value (+ (random-natural) 2)
+   n  :value (random-natural)
+   xs :value (random-list-of (random-between 0 (- m 1)) :size (+ n 1)) ; correct version
+   ;xs :value (random-list-of (random-between 0 (+ m 1)) :size (+ n 1)) ;incorrect, still passes 700 tests, then 300 in a row blow up, which seems suspicious; detail report crashes
+   :where (and (natp m) (> m 1)
+               (consp xs) (true-listp xs) (code-listp m xs)))
+  (equal (decrypt m (encrypt m xs)) xs))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "cce" by samth at Wed, 31 Aug 2011 21:58:10 -0400
+Reason>>> dracula
+
+
+State changed from "open" to "analyzed" by cce at Wed, 31 Aug 2011 22:43:19 -0400
+Reason>>> explained in email
+
+From: Carl Eastlund <cce@plt-scheme.org>
+To: page@ou.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12153: doublecheck crash
+Date: Wed, 31 Aug 2011 22:42:08 -0400
+
+ Here's what's going on.  Basically, some of the default numbers in
+ DoubleCheck are not working well together, plus the output DoubleCheck
+ is giving does not illuminate the situation.
+ 
+ The default distribution for naturals is geometric with an expectation of 1,000.
+ The default number of attempts DoubleCheck will make to satisfy a set
+ of :where clauses is 2,500.
+ 
+ As a result, you are generating some very large lists.  This means
+ that the odds of picking at least one out-of-range element in each
+ list is reasonably high.  Out of 2,500 attempts, DoubleCheck comes up
+ with around 700 valid sets of data.  It runs these tests and they
+ pass; for the rest, it reports "Out of random values.  See trial #1000
+ for list of attempts".  In trial #1000, you have around 300 lists of
+ around 1000 elements each, each with around 3 digits.  The window for
+ trial 1,000 thus attempts to render something like 1-2 million
+ characters in a non-fixed-width font, and goes into a long loop trying
+ to work out the word-wrapping.  It does *eventually* show up, but it's
+ quite a wait.
+ 
+ I will see what I can do to make this easier to configure, smarter
+ with its defaults, and more informative (with less output overload) on
+ failure.
+ 
+ Carl Eastlund
+ 
+ On Wed, Aug 31, 2011 at 8:36 PM,  <page@ou.edu> wrote:
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=12153
+ >
+ > Reported by Rex Page for release: 5.0.1
+ >
+ > *** Description:
+ > Doublecheck runs 700 tests okay, then fails on 300 on a 1000-test run. I expected occasional failures to be reported, but was surprised that 700 in a row passed. The 300 in a row failing seems suspicious. Plus, when I try to inspect the failures, it goes silent and I cannot get it to recover.
+ >
+ > *** How to repeat:
+ > Run the following code:
+ > (include-book "doublecheck" :dir :teachpacks)
+ > (include-book "arithmetic-3/floor-mod/floor-mod" :dir :system)
+ > (defun encrypt-pair (m x x-nxt)
+ >  (mod (+ x x-nxt) m))
+ > (defun decrypt-pair (m x-encrypted y-decrypted)
+ >  (mod (- x-encrypted y-decrypted) m))
+ > (defun encrypt (m xs)
+ >  (if (consp (cdr xs))
+ >      (cons (encrypt-pair m (car xs) (cadr xs))
+ >            (encrypt m (cdr xs)))
+ >      (list (encrypt-pair m (car xs) (1- m)))))
+ > (defun decrypt (m ys)
+ >  (if (consp (cdr ys))
+ >      (let* ((decrypted-cdr (decrypt m (cdr ys))))
+ >        (cons (decrypt-pair m (car ys) (car decrypted-cdr))
+ >              decrypted-cdr))
+ >      (list (decrypt-pair m (car ys) (1- m)))))
+ >
+ > (defun codep (m x)
+ >  (and (natp x) (< x m)))
+ > (defun code-listp (m xs)
+ >  (and (natp m) (> m 1)
+ >       (if (consp xs)
+ >           (and (codep m (car xs)) (code-listp m (cdr xs)))
+ >           (null xs))))
+ > (defproperty decrypt-inverts-encrypt :repeat 1000
+ >  (m  :value (+ (random-natural) 2)
+ >   n  :value (random-natural)
+ >   xs :value (random-list-of (random-between 0 (- m 1)) :size (+ n 1)) ; correct version
+ >   ;xs :value (random-list-of (random-between 0 (+ m 1)) :size (+ n 1)) ;incorrect, still passes 700 tests, then 300 in a row blow up, which seems suspicious; detail report crashes
+ >   :where (and (natp m) (> m 1)
+ >               (consp xs) (true-listp xs) (code-listp m xs)))
+ >  (equal (decrypt m (encrypt m xs)) xs))
+ 
+
+State changed from "analyzed" to "closed" by cce at Fri, 02 Sep 2011 02:58:35 -0400
+Reason>>> Addressed in Dracula 8:20, released on Planet.
+

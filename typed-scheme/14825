@@ -1,0 +1,116 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Nov  5 15:37:30 2014
+Received: from mail-ig0-f176.google.com (mail-ig0-f176.google.com [209.85.213.176])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id sA5KbNYa031076
+	for <bugs@bugs.plt-scheme.org>; Wed, 5 Nov 2014 15:37:24 -0500
+Message-Id: <201411052037.sA5KbKNS031069@winooski.ccs.neu.edu>
+Date: Wed, 5 Nov 2014 15:37:20 -0500
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: TR: Exponential(?) typechecker time
+
+>Number:         14825
+>Category:       typed-scheme
+>Synopsis:       TR: Exponential(?) typechecker time
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Nov 05 15:40:01 -0500 2014
+>Closed-Date:    Tue Dec 30 18:41:15 -0500 2014
+>Last-Modified:  Tue Dec 30 18:41:15 -0500 2014
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1
+>Environment:
+unix "Linux home.barzilay.org 3.16.6-200.fc20.x86_64 #1 SMP Wed Oct 15 13:06:51 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 398296456
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    f07e2d4bf2708c1085be38eca18aa9eb6755e547    (catalog main-distribution)
+ racket-lib           41c7b3221006758c5a840a18dcc0d265632f14c2    (catalog racket-lib)
+ [181 auto-installed packages not shown]
+User-specific for installation "6.1":
+ [none]
+
+
+
+Collections:
+("/home/eli/.racket/6.1/collects"
+ ("info-domain" "pl"))
+("/home/eli/plt/x86_64-linux/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t test-coverage) (default) #() "#lang pl\n" #f #t ((test) (main)) #t))
+>Description:
+Running the code below on my machine takes an obnoxious amount of time -- more than 7 minutes.
+The thing is that doing any of the changes in the comments reduces the time back into a sane
+range (of less than 2 seconds).  The nested `list' patterns seem to lead to an exponentially
+longer typecheck time, but the other changes seem surprising -- especially the fact that
+switching from symbols to numbers in the `or' pattern resolves the huge time.
+
+This is a simplification of code I have in my class, which now takes around 30s to typecheck,
+sometimes a bit more than that -- and my evaluator's timeout was set to 30s, so I think that
+this is something that wasn't as problematic in the past.
+>How-To-Repeat:
+#lang typed/racket
+(: foo : Any -> Number)
+(define (foo x)
+  (match x
+    ;; -> remove the `or' and instead write two duplicate cases
+    ;; -> change (or 'x 'y) to (or 1 2)
+    [(cons (or 'x 'y) more)
+     (match x
+       ;; -> remove some parts of this pattern
+       ;; -> combine this nested `match' to the above with an `and' pattern
+       [(list _ (list (list (? number? x) y (? number? xs) ys))) 1]
+       ;; -> remove this else case
+       [_ 2])]))
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: bugs <bugs@racket-lang.org>
+Cc: 
+Subject: Fwd: [racket-bug] all/14825: TR: Exponential(?) typechecker time
+Date: Wed, 5 Nov 2014 16:57:49 -0500
+
+ On Wed, Nov 5, 2014 at 3:40 PM,  <eli@barzilay.org> wrote:
+ > Running the code below on my machine takes an obnoxious amount of time
+ > -- more than 7 minutes.  The thing is that doing any of the changes in
+ > the comments reduces the time back into a sane range (of less than 2
+ > seconds).  The nested `list' patterns seem to lead to an exponentially
+ > longer typecheck time, but the other changes seem surprising --
+ > especially the fact that switching from symbols to numbers in the `or'
+ > pattern resolves the huge time.
+ 
+ Updates:
+ 
+ 1. The runtime is actually worse -- it's 28 minutes.
+ 
+ 2. Following Sam's hint, avoiding the per-symbol type resolves the
+    runtime too.  For example, making the pattern be
+ 
+        (or (== (ann 'x Symbol)) (== (ann 'yx Symbol)))
+ 
+    or in my case, I have a `symbol:' match pattern that annotates its
+    contents with a `Symbol' type, so a pattern of
+ 
+        (symbol: (or 'x 'y))
+ 
+    works too.  But that doesn't work with a `sexpr:' that I have too.
+ 
+ --
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+
+
+State changed from "open" to "closed" by samth at Tue, 30 Dec 2014 18:41:15 -0500
+Reason>>> Fixed by https://github.com/racket/typed-racket/pull/1 and
+https://github.com/racket/typed-racket/pull/2
+

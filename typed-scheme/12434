@@ -1,0 +1,1330 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Dec  9 15:16:29 2011
+Received: from mail-pz0-f44.google.com (mail-pz0-f44.google.com [209.85.210.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id pB9KGORc001997
+	for <bugs@bugs.plt-scheme.org>; Fri, 9 Dec 2011 15:16:25 -0500
+Message-Id: <201112092016.pB9KGKUL001992@champlain.ccs.neu.edu>
+Date: Fri, 9 Dec 2011 15:16:20 -0500
+From: clements@brinckerhoff.org
+To: bugs@racket-lang.org
+Subject: match fails to signal type error?
+
+>Number:         12434
+>Category:       typed-scheme
+>Synopsis:       match fails to signal type error?
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Dec 09 15:20:01 -0500 2011
+>Closed-Date:    Fri Dec 09 20:03:34 -0500 2011
+>Last-Modified:  Sun Dec 11 08:52:01 -0500 2011
+>Originator:     John Clements
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.0.5--2011-12-05(53837f4/g)
+>Environment:
+macosx "Darwin pcp074390pcs.wireless.calpoly.edu 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 16:33:36 PDT 2011; root:xnu-1504.15.3~1/RELEASE_I386 i386" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 561062136
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/clements/git-clements/clements/collects"
+ (".gitignore" "badger" "clements-lib" "contour-letters" "file-size-checker" "gradeserver" "info-domain" "iTunes-helper" "java-helpers" "jbc-gnucash" "matrix-arithmetic" "mboxrd-read" "midi" "mnemisis" "profj-auto-runner" "projector" "shelly" "smootxes" "template-tester" "txomp" "web-utilities"))
+("/Users/clements/clements/matthias/collects"
+ ("info-domain" "web"))
+("/Users/clements/Library/Racket/5.2.0.5/collects"
+ (non-existent-path))
+("/Users/clements/plt/collects"
+ (".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs" "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine"!
+  "tests" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+Code using match to take apart opaque types
+signal runtime match failure rather than 
+a type-checking failure.
+>How-To-Repeat:
+Run this module
+
+#lang typed/racket
+
+(require/typed "foo-provider.rkt"
+               [opaque Foo foo?]
+               [foo-filter ((Foo -> Boolean) -> (Listof Foo))])
+
+(foo-filter
+ (lambda (f)
+   (match f
+     [(list s) #true])))
+
+
+... with this definition of foo-provider.rkt:
+
+#lang racket
+
+(provide foo?
+         foo-filter)
+
+(define (foo? l)
+  (and (list? l)
+       (= (length l) 1)
+       (symbol? (first l))))
+
+(define (foo-filter pred)
+  (filter pred '((a) (b) (c))))
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by samth at Fri, 09 Dec 2011 15:29:33 -0500
+Reason>>> not a bug
+
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: clements@brinckerhoff.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 15:29:10 -0500
+
+ I think what you're asking for is static errors for coverage failures
+ in `match' when used in Typed Racket.
+ 
+ There are two reasons this isn't something I'm planning on doing in general:
+ 1. It would be a significant change from the semantics of `match' in
+ Racket, which as you note raises a runtime error.
+ 2. It's unlikely to be precise enough in enough cases to be useful.
+ `match' is just too flexible, and TR insufficiently smart, for this to
+ be the right default.
+ 
+ However, for this purpose, Typed Racket provides the `typecheck-fail'
+ form [1], for raising explicit type errors.  Rewrite your match
+ expression to:
+ 
+ (match f
+     [(list s) #true]
+     [_ (typecheck-fail #'here #:covered-id f)])
+ 
+ and you get the error message:
+   Type Checker: Incomplete case coverage; missing coverage of Foo
+ 
+ [1] http://pre.racket-lang.org/docs/html/ts-reference/Utilities.html?q=type-e#%28form._%28%28lib._typed-racket/base-env/prims..rkt%29._typecheck-fail%29%29
+ 
+ On Fri, Dec 9, 2011 at 3:20 PM,  <clements@brinckerhoff.org> wrote:
+ > *** Description:
+ > Code using match to take apart opaque types
+ > signal runtime match failure rather than
+ > a type-checking failure.
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: clements@brinckerhoff.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 15:47:08 -0500
+
+ On Fri, Dec 9, 2011 at 3:29 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >
+ > However, for this purpose, Typed Racket provides the `typecheck-fail'
+ > form [1], for raising explicit type errors.  Rewrite your match
+ > expression to:
+ >
+ > (match f
+ >    [(list s) #true]
+ >    [_ (typecheck-fail #'here #:covered-id f)])
+ >
+ > and you get the error message:
+ >  Type Checker: Incomplete case coverage; missing coverage of Foo
+ 
+ Unfortunately, after sending this message, I realized that this works
+ too well.  The current architecture of `match' is such that this will
+ always fail to typecheck.  Probably you'd need a different `match'
+ implementation, or some hacks in Typed Racket, to make this strategy
+ viable.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: John Clements <clements@brinckerhoff.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 14:25:12 -0800
+
+ On Dec 9, 2011, at 12:29 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > I think what you're asking for is static errors for coverage failures
+ > in `match' when used in Typed Racket.
+ >=20
+ > There are two reasons this isn't something I'm planning on doing in =
+ general:
+ > 1. It would be a significant change from the semantics of `match' in
+ > Racket, which as you note raises a runtime error.
+ > 2. It's unlikely to be precise enough in enough cases to be useful.
+ > `match' is just too flexible, and TR insufficiently smart, for this to
+ > be the right default.
+ 
+ Hold on, one of us is confused.
+ 
+ In the example code I provided, the match would *succeed* in the absence =
+ of the type checker.
+ 
+ Put differently: I'm converting a piece of working racket code to =
+ typed/racket. My understanding of the general principle of typed racket =
+ was that if I decorate it sufficiently to make the type checker happy, =
+ it will then produce the same result as the original racket code (modulo =
+ the way the results are printed, perhaps). Is this not a reasonable =
+ understanding?
+ 
+ Here's more example code that illustrates what I'm saying. Consider this =
+ program:
+ 
+ #lang typed/racket
+ 
+ (require/typed "provides-a.rkt"
+                [opaque ListOfOneNumber loon?]
+                [a ListOfOneNumber])
+ 
+ (cond [(and (list? a) (number? (first a))) 'success]
+       [else 'failure])
+ ;; =3D> 'success
+ 
+ (match a
+   [(list n) 'success]
+   [other 'failure])
+ ;; =3D> 'failure
+ 
+ 
+ with this supporting file for "provides-a.rkt":
+ 
+ #lang racket
+ 
+ (provide a loon?)
+ 
+ (define a (list 3))
+ 
+ (define (loon? x)
+   (and (list? x)
+        (=3D (length x) 1)
+        (number? (first x))))
+ 
+ 
+ 
+ This code produces 'success for the first expression (the cond), and =
+ 'failure for the second one (the match).  That is, the second one failed =
+ to match, for a reason that I still can't divine. Something about the =
+ expansion of 'match' is causing the first clause to fail.
+ 
+ John
+ 
+From: Carl Eastlund <cce@ccs.neu.edu>
+To: John Clements <clements@brinckerhoff.org>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 17:40:27 -0500
+
+ On Fri, Dec 9, 2011 at 5:25 PM, John Clements <clements@brinckerhoff.org> wrote:
+ >
+ > On Dec 9, 2011, at 12:29 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> I think what you're asking for is static errors for coverage failures
+ >> in `match' when used in Typed Racket.
+ >>
+ >> There are two reasons this isn't something I'm planning on doing in general:
+ >> 1. It would be a significant change from the semantics of `match' in
+ >> Racket, which as you note raises a runtime error.
+ >> 2. It's unlikely to be precise enough in enough cases to be useful.
+ >> `match' is just too flexible, and TR insufficiently smart, for this to
+ >> be the right default.
+ >
+ > Hold on, one of us is confused.
+ >
+ > In the example code I provided, the match would *succeed* in the absence of the type
+ > checker.
+ >
+ > Put differently: I'm converting a piece of working racket code to typed/racket. My
+ > understanding of the general principle of typed racket was that if I decorate it sufficiently to
+ > make the type checker happy, it will then produce the same result as the original racket code
+ > (modulo the way the results are printed, perhaps). Is this not a reasonable understanding?
+ >
+ > Here's more example code that illustrates what I'm saying. Consider this program:
+ >
+ > #lang typed/racket
+ >
+ > (require/typed "provides-a.rkt"
+ >               [opaque ListOfOneNumber loon?]
+ >               [a ListOfOneNumber])
+ >
+ > (cond [(and (list? a) (number? (first a))) 'success]
+ >      [else 'failure])
+ > ;; => 'success
+ >
+ > (match a
+ >  [(list n) 'success]
+ >  [other 'failure])
+ > ;; => 'failure
+ >
+ >
+ > with this supporting file for "provides-a.rkt":
+ >
+ > #lang racket
+ >
+ > (provide a loon?)
+ >
+ > (define a (list 3))
+ >
+ > (define (loon? x)
+ >  (and (list? x)
+ >       (= (length x) 1)
+ >       (number? (first x))))
+ >
+ >
+ >
+ > This code produces 'success for the first expression (the cond), and 'failure for the second
+ > one (the match).  That is, the second one failed to match, for a reason that I still can't divine.
+ > Something about the expansion of 'match' is causing the first clause to fail.
+ 
+ As a side note, this example is best reproduced using racket/load,
+ thus without the need for "supporting files":
+ 
+ #lang racket/load
+ 
+ (module A racket
+ 
+   (provide a loon?)
+ 
+   (define a (list 3))
+ 
+   (define (loon? x)
+     (and (list? x)
+       (= (length x) 1)
+       (number? (first x)))))
+ 
+ (module B typed/racket
+ 
+   (require/typed 'A
+     [opaque ListOfOneNumber loon?]
+     [a ListOfOneNumber])
+ 
+   ;; => 'success
+   (cond [(and (list? a) (number? (first a))) 'success]
+     [else 'failure])
+ 
+   ;; => 'failure
+   (match a
+     [(list n) 'success]
+     [other 'failure]))
+ 
+ (require 'B)
+ 
+
+State changed from "closed" to "open" by samth at Fri, 09 Dec 2011 17:51:56 -0500
+Reason>>> is a bug after all
+
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: John Clements <clements@brinckerhoff.org>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 17:50:31 -0500
+
+ On Fri, Dec 9, 2011 at 5:25 PM, John Clements <clements@brinckerhoff.org> wrote:
+ > On Dec 9, 2011, at 12:29 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> I think what you're asking for is static errors for coverage failures
+ >> in `match' when used in Typed Racket.
+ >>
+ >> There are two reasons this isn't something I'm planning on doing in general:
+ >> 1. It would be a significant change from the semantics of `match' in
+ >> Racket, which as you note raises a runtime error.
+ >> 2. It's unlikely to be precise enough in enough cases to be useful.
+ >> `match' is just too flexible, and TR insufficiently smart, for this to
+ >> be the right default.
+ >
+ > Hold on, one of us is confused.
+ >
+ > In the example code I provided, the match would *succeed* in the absence of the type checker.
+ >
+ > Put differently: I'm converting a piece of working racket code to typed/racket. My understanding of the general principle of typed racket was that if I decorate it sufficiently to make the type checker happy, it will then produce the same result as the original racket code (modulo the way the results are printed, perhaps). Is this not a reasonable understanding?
+ 
+ Sorry, I was the confused one.  There's definitely a bug here: the TR
+ optimizer is incorrectly breaking your program.  We'll fix that.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+State changed from "open" to "closed" by samth@racket-lang.org at Fri, 09 Dec 2011 20:03:34 -0500
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/f23baef8aa
+From: John Clements <clements@brinckerhoff.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 17:22:20 -0800
+
+ On Dec 9, 2011, at 2:50 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Fri, Dec 9, 2011 at 5:25 PM, John Clements =
+ <clements@brinckerhoff.org> wrote:
+ >> On Dec 9, 2011, at 12:29 PM, Sam Tobin-Hochstadt wrote:
+ >>=20
+ >>> I think what you're asking for is static errors for coverage =
+ failures
+ >>> in `match' when used in Typed Racket.
+ >>>=20
+ >>> There are two reasons this isn't something I'm planning on doing in =
+ general:
+ >>> 1. It would be a significant change from the semantics of `match' in
+ >>> Racket, which as you note raises a runtime error.
+ >>> 2. It's unlikely to be precise enough in enough cases to be useful.
+ >>> `match' is just too flexible, and TR insufficiently smart, for this =
+ to
+ >>> be the right default.
+ >>=20
+ >> Hold on, one of us is confused.
+ >>=20
+ >> In the example code I provided, the match would *succeed* in the =
+ absence of the type checker.
+ >>=20
+ >> Put differently: I'm converting a piece of working racket code to =
+ typed/racket. My understanding of the general principle of typed racket =
+ was that if I decorate it sufficiently to make the type checker happy, =
+ it will then produce the same result as the original racket code (modulo =
+ the way the results are printed, perhaps). Is this not a reasonable =
+ understanding?
+ >=20
+ > Sorry, I was the confused one.  There's definitely a bug here: the TR
+ > optimizer is incorrectly breaking your program.  We'll fix that.
+ 
+ Is this the same problem?
+ 
+ #lang typed/racket
+ 
+ (require/typed racket
+                [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ 
+ (remove-duplicates '(a b a))
+ 
+ ;; =3D> '(a b a)
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: John Clements <clements@brinckerhoff.org>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 20:32:24 -0500
+
+ On Fri, Dec 9, 2011 at 8:22 PM, John Clements <clements@brinckerhoff.org> wrote:
+ > Is this the same problem?
+ >
+ > #lang typed/racket
+ > (require/typed racket
+ >               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ > (remove-duplicates '(a b a))
+ > ;; => '(a b a)
+ 
+ No, that's quite a different issue.  Typed Racket translates
+ polymorphic types into contracts that use dynamic sealing.   What you
+ see here is that it changes `remove-duplicates' from a function that
+ isn't parametric into one that is.  [1]  An alternative semantics that
+ more closely matches the intended semantics would give you a dynamic
+ contract error here.  Changing `T' to `Any' will produce the desired
+ behavior in this case, although not in the presence of higher-order
+ values.  How to enforce the behavior we "want" here dynamically is
+ still an open question, I think.
+ 
+ [1] Note that parametricity gives you a theorem that all functions of
+ that type merely re-arrange the elements of the list, and do not
+ examine the elements.  Thus, since `remove-duplicates' isn't like
+ that, it can't be parametric.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: John Clements <clements@brinckerhoff.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Christos Dimoulas <chrdimo@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Fri, 9 Dec 2011 20:37:26 -0800
+
+ On Dec 9, 2011, at 5:32 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Fri, Dec 9, 2011 at 8:22 PM, John Clements =
+ <clements@brinckerhoff.org> wrote:
+ >> Is this the same problem?
+ >>=20
+ >> #lang typed/racket
+ >> (require/typed racket
+ >>               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ >> (remove-duplicates '(a b a))
+ >> ;; =3D> '(a b a)
+ >=20
+ > No, that's quite a different issue.  Typed Racket translates
+ > polymorphic types into contracts that use dynamic sealing.   What you
+ > see here is that it changes `remove-duplicates' from a function that
+ > isn't parametric into one that is.  [1]  An alternative semantics that
+ > more closely matches the intended semantics would give you a dynamic
+ > contract error here.  Changing `T' to `Any' will produce the desired
+ > behavior in this case, although not in the presence of higher-order
+ > values.  How to enforce the behavior we "want" here dynamically is
+ > still an open question, I think.
+ >=20
+ > [1] Note that parametricity gives you a theorem that all functions of
+ > that type merely re-arrange the elements of the list, and do not
+ > examine the elements.  Thus, since `remove-duplicates' isn't like
+ > that, it can't be parametric.
+ 
+ Ah! Yep, that makes sense.
+ 
+ Thanks.
+ 
+ John
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>
+Cc: Christos Dimoulas <chrdimo@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 11:10:56 -0500
+
+ John, THANK YOU! This is a wonderful example. 
+ 
+ Sam, how often do you want to explain this problem when someone converts code with remove-duplicate to TR? 
+ 
+ 
+ On Dec 9, 2011, at 8:32 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > On Fri, Dec 9, 2011 at 8:22 PM, John Clements <clements@brinckerhoff.org> wrote:
+ >> Is this the same problem?
+ >> 
+ >> #lang typed/racket
+ >> (require/typed racket
+ >>               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ >> (remove-duplicates '(a b a))
+ >> ;; => '(a b a)
+ > 
+ > No, that's quite a different issue.  Typed Racket translates
+ > polymorphic types into contracts that use dynamic sealing.   What you
+ > see here is that it changes `remove-duplicates' from a function that
+ > isn't parametric into one that is.  [1]  An alternative semantics that
+ > more closely matches the intended semantics would give you a dynamic
+ > contract error here.  Changing `T' to `Any' will produce the desired
+ > behavior in this case, although not in the presence of higher-order
+ > values.  How to enforce the behavior we "want" here dynamically is
+ > still an open question, I think.
+ > 
+ > [1] Note that parametricity gives you a theorem that all functions of
+ > that type merely re-arrange the elements of the list, and do not
+ > examine the elements.  Thus, since `remove-duplicates' isn't like
+ > that, it can't be parametric.
+ > -- 
+ > sam th
+ > samth@ccs.neu.edu
+ 
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 12:35:01 -0500
+
+ --0016e65aef943601a004b3c052fb
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ Obviously, I don't ever want to have to explain this behavior. But that
+ desire isn't a fix.  A few points:
+ 
+ First, remove-duplicates has a type already in Typed Racket.
+ 
+ Second, I have a patch already to make remove-duplicates work with the Any
+ type.
+ 
+ Third, what do you think the semantics of that type should be when
+ converted to a contract?  As I said, a more appropriate semantics would be
+ to raise a contract error - surely not what John wanted.
+ 
+ Sam
+ On Dec 10, 2011 11:08 AM, "Matthias Felleisen" <matthias@ccs.neu.edu> wrote:
+ 
+ >
+ > John, THANK YOU! This is a wonderful example.
+ >
+ > Sam, how often do you want to explain this problem when someone converts
+ > code with remove-duplicate to TR?
+ >
+ >
+ > On Dec 9, 2011, at 8:32 PM, Sam Tobin-Hochstadt wrote:
+ >
+ > > On Fri, Dec 9, 2011 at 8:22 PM, John Clements <clements@brinckerhoff.org>
+ > wrote:
+ > >> Is this the same problem?
+ > >>
+ > >> #lang typed/racket
+ > >> (require/typed racket
+ > >>               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ > >> (remove-duplicates '(a b a))
+ > >> ;; => '(a b a)
+ > >
+ > > No, that's quite a different issue.  Typed Racket translates
+ > > polymorphic types into contracts that use dynamic sealing.   What you
+ > > see here is that it changes `remove-duplicates' from a function that
+ > > isn't parametric into one that is.  [1]  An alternative semantics that
+ > > more closely matches the intended semantics would give you a dynamic
+ > > contract error here.  Changing `T' to `Any' will produce the desired
+ > > behavior in this case, although not in the presence of higher-order
+ > > values.  How to enforce the behavior we "want" here dynamically is
+ > > still an open question, I think.
+ > >
+ > > [1] Note that parametricity gives you a theorem that all functions of
+ > > that type merely re-arrange the elements of the list, and do not
+ > > examine the elements.  Thus, since `remove-duplicates' isn't like
+ > > that, it can't be parametric.
+ > > --
+ > > sam th
+ > > samth@ccs.neu.edu
+ >
+ >
+ 
+ --0016e65aef943601a004b3c052fb
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p>Obviously, I don&#39;t ever want to have to explain this behavior. But t=
+ hat desire isn&#39;t a fix.=A0 A few points:</p>
+ <p>First, remove-duplicates has a type already in Typed Racket.</p>
+ <p>Second, I have a patch already to make remove-duplicates work with the A=
+ ny type.</p>
+ <p>Third, what do you think the semantics of that type should be when conve=
+ rted to a contract?=A0 As I said, a more appropriate semantics would be to =
+ raise a contract error - surely not what John wanted.</p>
+ <p>Sam</p>
+ <div class=3D"gmail_quote">On Dec 10, 2011 11:08 AM, &quot;Matthias Felleis=
+ en&quot; &lt;<a href=3D"mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</=
+ a>&gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" sty=
+ le=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ <br>
+ John, THANK YOU! This is a wonderful example.<br>
+ <br>
+ Sam, how often do you want to explain this problem when someone converts co=
+ de with remove-duplicate to TR?<br>
+ <br>
+ <br>
+ On Dec 9, 2011, at 8:32 PM, Sam Tobin-Hochstadt wrote:<br>
+ <br>
+ &gt; On Fri, Dec 9, 2011 at 8:22 PM, John Clements &lt;<a href=3D"mailto:cl=
+ ements@brinckerhoff.org">clements@brinckerhoff.org</a>&gt; wrote:<br>
+ &gt;&gt; Is this the same problem?<br>
+ &gt;&gt;<br>
+ &gt;&gt; #lang typed/racket<br>
+ &gt;&gt; (require/typed racket<br>
+ &gt;&gt; =A0 =A0 =A0 =A0 =A0 =A0 =A0 [remove-duplicates (All (T) (Listof T)=
+  -&gt; (Listof T))])<br>
+ &gt;&gt; (remove-duplicates &#39;(a b a))<br>
+ &gt;&gt; ;; =3D&gt; &#39;(a b a)<br>
+ &gt;<br>
+ &gt; No, that&#39;s quite a different issue. =A0Typed Racket translates<br>
+ &gt; polymorphic types into contracts that use dynamic sealing. =A0 What yo=
+ u<br>
+ &gt; see here is that it changes `remove-duplicates&#39; from a function th=
+ at<br>
+ &gt; isn&#39;t parametric into one that is. =A0[1] =A0An alternative semant=
+ ics that<br>
+ &gt; more closely matches the intended semantics would give you a dynamic<b=
+ r>
+ &gt; contract error here. =A0Changing `T&#39; to `Any&#39; will produce the=
+  desired<br>
+ &gt; behavior in this case, although not in the presence of higher-order<br=
+ >
+ &gt; values. =A0How to enforce the behavior we &quot;want&quot; here dynami=
+ cally is<br>
+ &gt; still an open question, I think.<br>
+ &gt;<br>
+ &gt; [1] Note that parametricity gives you a theorem that all functions of<=
+ br>
+ &gt; that type merely re-arrange the elements of the list, and do not<br>
+ &gt; examine the elements. =A0Thus, since `remove-duplicates&#39; isn&#39;t=
+  like<br>
+ &gt; that, it can&#39;t be parametric.<br>
+ &gt; --<br>
+ &gt; sam th<br>
+ &gt; <a href=3D"mailto:samth@ccs.neu.edu">samth@ccs.neu.edu</a><br>
+ <br>
+ </blockquote></div>
+ 
+ --0016e65aef943601a004b3c052fb--
+From: John Clements <clements@brinckerhoff.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 09:46:21 -0800
+
+ On Dec 10, 2011, at 9:35 AM, Sam Tobin-Hochstadt wrote:
+ 
+ > Obviously, I don't ever want to have to explain this behavior. But =
+ that desire isn't a fix.  A few points:
+ >=20
+ > First, remove-duplicates has a type already in Typed Racket.
+ 
+ This appears to be is technically true, but I still can't use it in the =
+ obvious way:
+ 
+ #lang typed/racket
+ 
+ (remove-duplicates '(a b a))
+ 
+ =3D>
+ 
+ Type Checker: untyped identifier remove-duplicates6 imported from module =
+ <racket/list> in: (remove-duplicates (quote (a b a)))
+ . Type Checker: untyped identifier remove-duplicates8 imported from =
+ module <racket/list> in: (remove-duplicates (quote (a b a)))
+ . Type Checker: Summary: 2 errors encountered in:
+   (remove-duplicates (quote (a b a)))
+   (remove-duplicates (quote (a b a)))
+ 
+ ... hence my clumsy attempt to assign it a type.
+ 
+ Apologies if this is no longer true in the git head.
+ 
+ >=20
+ > Second, I have a patch already to make remove-duplicates work with the =
+ Any type.
+ >=20
+ > Third, what do you think the semantics of that type should be when =
+ converted to a contract?  As I said, a more appropriate semantics would =
+ be to raise a contract error - surely not what John wanted.
+ 
+ This may fall into the category of violent agreement, but I would =
+ definitely have *preferred* a contract error in this case; the =
+ manifestation of the problem was many layers up, when a list of student =
+ ids was much longer than it should have been.
+ 
+ Anyhow, I've got my code working, so I'm happy :).
+ 
+ John
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 12:58:36 -0500
+
+ --Apple-Mail-7--512151033
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ 
+ As I have said many times, I think an error is mandatory. But I will =
+ admit I do not know what John could do once he gets the error message.=20=
+ 
+ 
+ That's what I consider the essential problem of such contracts, and =
+ until we have solved this problem, it is unsolved. Publications or not.=20=
+ 
+ 
+ 
+ 
+ On Dec 10, 2011, at 12:35 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > Obviously, I don't ever want to have to explain this behavior. But =
+ that desire isn't a fix.  A few points:
+ >=20
+ > First, remove-duplicates has a type already in Typed Racket.
+ >=20
+ > Second, I have a patch already to make remove-duplicates work with the =
+ Any type.
+ >=20
+ > Third, what do you think the semantics of that type should be when =
+ converted to a contract?  As I said, a more appropriate semantics would =
+ be to raise a contract error - surely not what John wanted.
+ >=20
+ > Sam
+ >=20
+ > On Dec 10, 2011 11:08 AM, "Matthias Felleisen" <matthias@ccs.neu.edu> =
+ wrote:
+ >=20
+ > John, THANK YOU! This is a wonderful example.
+ >=20
+ > Sam, how often do you want to explain this problem when someone =
+ converts code with remove-duplicate to TR?
+ >=20
+ >=20
+ > On Dec 9, 2011, at 8:32 PM, Sam Tobin-Hochstadt wrote:
+ >=20
+ > > On Fri, Dec 9, 2011 at 8:22 PM, John Clements =
+ <clements@brinckerhoff.org> wrote:
+ > >> Is this the same problem?
+ > >>
+ > >> #lang typed/racket
+ > >> (require/typed racket
+ > >>               [remove-duplicates (All (T) (Listof T) -> (Listof =
+ T))])
+ > >> (remove-duplicates '(a b a))
+ > >> ;; =3D> '(a b a)
+ > >
+ > > No, that's quite a different issue.  Typed Racket translates
+ > > polymorphic types into contracts that use dynamic sealing.   What =
+ you
+ > > see here is that it changes `remove-duplicates' from a function that
+ > > isn't parametric into one that is.  [1]  An alternative semantics =
+ that
+ > > more closely matches the intended semantics would give you a dynamic
+ > > contract error here.  Changing `T' to `Any' will produce the desired
+ > > behavior in this case, although not in the presence of higher-order
+ > > values.  How to enforce the behavior we "want" here dynamically is
+ > > still an open question, I think.
+ > >
+ > > [1] Note that parametricity gives you a theorem that all functions =
+ of
+ > > that type merely re-arrange the elements of the list, and do not
+ > > examine the elements.  Thus, since `remove-duplicates' isn't like
+ > > that, it can't be parametric.
+ > > --
+ > > sam th
+ > > samth@ccs.neu.edu
+ >=20
+ 
+ 
+ --Apple-Mail-7--512151033
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; =
+ "><div><br></div><div>As I have said many times, I think an error is =
+ mandatory. But I will admit I do not know what John could do once he =
+ gets the error message.&nbsp;</div><div><br></div><div>That's what I =
+ consider the essential problem of such contracts, and until we have =
+ solved this problem, it is unsolved. Publications or =
+ not.&nbsp;</div><div><br></div><div><br></div><br><div><div>On Dec 10, =
+ 2011, at 12:35 PM, Sam Tobin-Hochstadt wrote:</div><br =
+ class=3D"Apple-interchange-newline"><blockquote =
+ type=3D"cite"><p>Obviously, I don't ever want to have to explain this =
+ behavior. But that desire isn't a fix.&nbsp; A few points:</p><p>First, =
+ remove-duplicates has a type already in Typed Racket.</p><p>Second, I =
+ have a patch already to make remove-duplicates work with the Any =
+ type.</p><p>Third, what do you think the semantics of that type should =
+ be when converted to a contract?&nbsp; As I said, a more appropriate =
+ semantics would be to raise a contract error - surely not what John =
+ wanted.</p><p>Sam</p>
+ <div class=3D"gmail_quote">On Dec 10, 2011 11:08 AM, "Matthias =
+ Felleisen" &lt;<a =
+ href=3D"mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a>&gt; =
+ wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" =
+ style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ <br>
+ John, THANK YOU! This is a wonderful example.<br>
+ <br>
+ Sam, how often do you want to explain this problem when someone converts =
+ code with remove-duplicate to TR?<br>
+ <br>
+ <br>
+ On Dec 9, 2011, at 8:32 PM, Sam Tobin-Hochstadt wrote:<br>
+ <br>
+ &gt; On Fri, Dec 9, 2011 at 8:22 PM, John Clements &lt;<a =
+ href=3D"mailto:clements@brinckerhoff.org">clements@brinckerhoff.org</a>&gt=
+ ; wrote:<br>
+ &gt;&gt; Is this the same problem?<br>
+ &gt;&gt;<br>
+ &gt;&gt; #lang typed/racket<br>
+ &gt;&gt; (require/typed racket<br>
+ &gt;&gt; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =
+ [remove-duplicates (All (T) (Listof T) -&gt; (Listof T))])<br>
+ &gt;&gt; (remove-duplicates '(a b a))<br>
+ &gt;&gt; ;; =3D&gt; '(a b a)<br>
+ &gt;<br>
+ &gt; No, that's quite a different issue. &nbsp;Typed Racket =
+ translates<br>
+ &gt; polymorphic types into contracts that use dynamic sealing. &nbsp; =
+ What you<br>
+ &gt; see here is that it changes `remove-duplicates' from a function =
+ that<br>
+ &gt; isn't parametric into one that is. &nbsp;[1] &nbsp;An alternative =
+ semantics that<br>
+ &gt; more closely matches the intended semantics would give you a =
+ dynamic<br>
+ &gt; contract error here. &nbsp;Changing `T' to `Any' will produce the =
+ desired<br>
+ &gt; behavior in this case, although not in the presence of =
+ higher-order<br>
+ &gt; values. &nbsp;How to enforce the behavior we "want" here =
+ dynamically is<br>
+ &gt; still an open question, I think.<br>
+ &gt;<br>
+ &gt; [1] Note that parametricity gives you a theorem that all functions =
+ of<br>
+ &gt; that type merely re-arrange the elements of the list, and do =
+ not<br>
+ &gt; examine the elements. &nbsp;Thus, since `remove-duplicates' isn't =
+ like<br>
+ &gt; that, it can't be parametric.<br>
+ &gt; --<br>
+ &gt; sam th<br>
+ &gt; <a href=3D"mailto:samth@ccs.neu.edu">samth@ccs.neu.edu</a><br>
+ <br>
+ </blockquote></div>
+ </blockquote></div><br></body></html>=
+ 
+ --Apple-Mail-7--512151033--
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 14:21:10 -0500
+
+ On Sat, Dec 10, 2011 at 12:58 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > As I have said many times, I think an error is mandatory. But I will admit I
+ > do not know what John could do once he gets the error message.
+ 
+ Note that SML will let you run the `remove-duplicates' function,
+ exactly as you expect, provide you give it an equality type variable.
+ So I think the error here isn't as obvious as you suggest.
+ 
+ > That's what I consider the essential problem of such contracts, and until we
+ > have solved this problem, it is unsolved. Publications or not.
+ 
+ While I agree with this, it also means that means that I'll continuing
+ to explain this behavior.
+ 
+ >
+ >
+ >
+ > On Dec 10, 2011, at 12:35 PM, Sam Tobin-Hochstadt wrote:
+ >
+ > Obviously, I don't ever want to have to explain this behavior. But that
+ > desire isn't a fix.  A few points:
+ >
+ > First, remove-duplicates has a type already in Typed Racket.
+ >
+ > Second, I have a patch already to make remove-duplicates work with the Any
+ > type.
+ >
+ > Third, what do you think the semantics of that type should be when converted
+ > to a contract?  As I said, a more appropriate semantics would be to raise a
+ > contract error - surely not what John wanted.
+ >
+ > Sam
+ >
+ > On Dec 10, 2011 11:08 AM, "Matthias Felleisen" <matthias@ccs.neu.edu> wrote:
+ >>
+ >>
+ >> John, THANK YOU! This is a wonderful example.
+ >>
+ >> Sam, how often do you want to explain this problem when someone converts
+ >> code with remove-duplicate to TR?
+ >>
+ >>
+ >> On Dec 9, 2011, at 8:32 PM, Sam Tobin-Hochstadt wrote:
+ >>
+ >> > On Fri, Dec 9, 2011 at 8:22 PM, John Clements
+ >> > <clements@brinckerhoff.org> wrote:
+ >> >> Is this the same problem?
+ >> >>
+ >> >> #lang typed/racket
+ >> >> (require/typed racket
+ >> >>               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ >> >> (remove-duplicates '(a b a))
+ >> >> ;; => '(a b a)
+ >> >
+ >> > No, that's quite a different issue.  Typed Racket translates
+ >> > polymorphic types into contracts that use dynamic sealing.   What you
+ >> > see here is that it changes `remove-duplicates' from a function that
+ >> > isn't parametric into one that is.  [1]  An alternative semantics that
+ >> > more closely matches the intended semantics would give you a dynamic
+ >> > contract error here.  Changing `T' to `Any' will produce the desired
+ >> > behavior in this case, although not in the presence of higher-order
+ >> > values.  How to enforce the behavior we "want" here dynamically is
+ >> > still an open question, I think.
+ >> >
+ >> > [1] Note that parametricity gives you a theorem that all functions of
+ >> > that type merely re-arrange the elements of the list, and do not
+ >> > examine the elements.  Thus, since `remove-duplicates' isn't like
+ >> > that, it can't be parametric.
+ >> > --
+ >> > sam th
+ >> > samth@ccs.neu.edu
+ >>
+ >
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 15:35:19 -0500
+
+ On Dec 10, 2011, at 2:21 PM, Sam Tobin-Hochstadt wrote:
+ 
+ > Note that SML will let you run the `remove-duplicates' function,
+ > exactly as you expect, provide you give it an equality type variable.
+ > So I think the error here isn't as obvious as you suggest.
+ 
+ 
+ (Thanks. I think I was aware of this before you learned to program :-) 
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 15:37:47 -0500
+
+ On Sat, Dec 10, 2011 at 3:35 PM, Matthias Felleisen
+ <matthias@ccs.neu.edu> wrote:
+ >
+ > On Dec 10, 2011, at 2:21 PM, Sam Tobin-Hochstadt wrote:
+ >
+ >> Note that SML will let you run the `remove-duplicates' function,
+ >> exactly as you expect, provide you give it an equality type variable.
+ >> So I think the error here isn't as obvious as you suggest.
+ >
+ >
+ > (Thanks. I think I was aware of this before you learned to program :-)
+ 
+ Well, *I've* already forgotten most of the things I knew then, so I
+ was just making sure.  :)
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 16:12:41 -0600
+
+ There is a lot left unsaid in this conversation, so I just wanted to
+ check: is the solution that is being hinted at (but that isn't
+ implemented) the one where opaque polymorphic wrappers signal errors
+ when passed to things like equal? and number? (on the untyped side),
+ or is there something else?
+ 
+ Robby
+ 
+ On Sat, Dec 10, 2011 at 1:21 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Sat, Dec 10, 2011 at 12:58 PM, Matthias Felleisen
+ > <matthias@ccs.neu.edu> wrote:
+ >>
+ >> As I have said many times, I think an error is mandatory. But I will admit I
+ >> do not know what John could do once he gets the error message.
+ >
+ > Note that SML will let you run the `remove-duplicates' function,
+ > exactly as you expect, provide you give it an equality type variable.
+ > So I think the error here isn't as obvious as you suggest.
+ >
+ >> That's what I consider the essential problem of such contracts, and until we
+ >> have solved this problem, it is unsolved. Publications or not.
+ >
+ > While I agree with this, it also means that means that I'll continuing
+ > to explain this behavior.
+ >
+ >>
+ >>
+ >>
+ >> On Dec 10, 2011, at 12:35 PM, Sam Tobin-Hochstadt wrote:
+ >>
+ >> Obviously, I don't ever want to have to explain this behavior. But that
+ >> desire isn't a fix.  A few points:
+ >>
+ >> First, remove-duplicates has a type already in Typed Racket.
+ >>
+ >> Second, I have a patch already to make remove-duplicates work with the Any
+ >> type.
+ >>
+ >> Third, what do you think the semantics of that type should be when converted
+ >> to a contract?  As I said, a more appropriate semantics would be to raise a
+ >> contract error - surely not what John wanted.
+ >>
+ >> Sam
+ >>
+ >> On Dec 10, 2011 11:08 AM, "Matthias Felleisen" <matthias@ccs.neu.edu> wrote:
+ >>>
+ >>>
+ >>> John, THANK YOU! This is a wonderful example.
+ >>>
+ >>> Sam, how often do you want to explain this problem when someone converts
+ >>> code with remove-duplicate to TR?
+ >>>
+ >>>
+ >>> On Dec 9, 2011, at 8:32 PM, Sam Tobin-Hochstadt wrote:
+ >>>
+ >>> > On Fri, Dec 9, 2011 at 8:22 PM, John Clements
+ >>> > <clements@brinckerhoff.org> wrote:
+ >>> >> Is this the same problem?
+ >>> >>
+ >>> >> #lang typed/racket
+ >>> >> (require/typed racket
+ >>> >>               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ >>> >> (remove-duplicates '(a b a))
+ >>> >> ;; => '(a b a)
+ >>> >
+ >>> > No, that's quite a different issue.  Typed Racket translates
+ >>> > polymorphic types into contracts that use dynamic sealing.   What you
+ >>> > see here is that it changes `remove-duplicates' from a function that
+ >>> > isn't parametric into one that is.  [1]  An alternative semantics that
+ >>> > more closely matches the intended semantics would give you a dynamic
+ >>> > contract error here.  Changing `T' to `Any' will produce the desired
+ >>> > behavior in this case, although not in the presence of higher-order
+ >>> > values.  How to enforce the behavior we "want" here dynamically is
+ >>> > still an open question, I think.
+ >>> >
+ >>> > [1] Note that parametricity gives you a theorem that all functions of
+ >>> > that type merely re-arrange the elements of the list, and do not
+ >>> > examine the elements.  Thus, since `remove-duplicates' isn't like
+ >>> > that, it can't be parametric.
+ >>> > --
+ >>> > sam th
+ >>> > samth@ccs.neu.edu
+ >>>
+ >>
+ >
+ >
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+ 
+
+----------
+A commit by samth@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/eb38783750
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 17:34:28 -0500
+
+ That's the one I think we're talking about.
+ 
+ On Sat, Dec 10, 2011 at 5:12 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > There is a lot left unsaid in this conversation, so I just wanted to
+ > check: is the solution that is being hinted at (but that isn't
+ > implemented) the one where opaque polymorphic wrappers signal errors
+ > when passed to things like equal? and number? (on the untyped side),
+ > or is there something else?
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: John Clements <clements@brinckerhoff.org>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 17:33:46 -0500
+
+ On Sat, Dec 10, 2011 at 12:46 PM, John Clements
+ <clements@brinckerhoff.org> wrote:
+ >> Obviously, I don't ever want to have to explain this behavior. But that desire isn't a fix.  A few points:
+ >>
+ >> First, remove-duplicates has a type already in Typed Racket.
+ >
+ > This appears to be is technically true, but I still can't use it in the obvious way:
+ >
+ > #lang typed/racket
+ >
+ > (remove-duplicates '(a b a))
+ >
+ > =>
+ >
+ > Type Checker: untyped identifier remove-duplicates6 imported from module <racket/list> in: (remove-duplicates (quote (a b a)))
+ > . Type Checker: untyped identifier remove-duplicates8 imported from module <racket/list> in: (remove-duplicates (quote (a b a)))
+ > . Type Checker: Summary: 2 errors encountered in:
+ >  (remove-duplicates (quote (a b a)))
+ >  (remove-duplicates (quote (a b a)))
+ >
+ > ... hence my clumsy attempt to assign it a type.
+ >
+ > Apologies if this is no longer true in the git head.
+ 
+ Now, this is no longer true in git head (as in, I just fixed it).
+ 
+ As a side effect, (sort (list 1 2 3) >) now typechecks without annotations.
+ 
+ One other note:
+ 
+ If you had imported the two-argument variant of `remove-duplicates'
+ with `require/typed', and supplied the default of `equal?', everything
+ would have worked.  That's because the unwrapping would happen on the
+ call to `equal?', so everything would compare just fine.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>,
+        John Clements <clements@brinckerhoff.org>, bugs <bugs@racket-lang.org>,
+        nobody@racket-lang.org,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sat, 10 Dec 2011 16:47:08 -0600
+
+ I think we've avoided thinking very hard about this one because of
+ Matthew's position about the pain at the runtime-system level. But I
+ actually think that there are probably some interesting issues to work
+ out about how it should work exactly that we don't know about. Maybe
+ the right thing to try to make progress is to try to work out a model
+ that includes this opaque thingy (or multiple thingies) and fit it
+ into structs so we know what we're really dealing with? Maybe that
+ would at least quantify the runtime system pain more clearly if
+ someone other than Matthew were to make the attempt?
+ 
+ Robby
+ 
+ On Sat, Dec 10, 2011 at 4:34 PM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > That's the one I think we're talking about.
+ >
+ > On Sat, Dec 10, 2011 at 5:12 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> There is a lot left unsaid in this conversation, so I just wanted to
+ >> check: is the solution that is being hinted at (but that isn't
+ >> implemented) the one where opaque polymorphic wrappers signal errors
+ >> when passed to things like equal? and number? (on the untyped side),
+ >> or is there something else?
+ >
+ >
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: John Clements <clements@brinckerhoff.org>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sun, 11 Dec 2011 04:16:22 -0500
+
+ Two days ago, Sam Tobin-Hochstadt wrote:
+ > On Fri, Dec 9, 2011 at 8:22 PM, John Clements <clements@brinckerhoff.org> wrote:
+ > > Is this the same problem?
+ > >
+ > > #lang typed/racket
+ > > (require/typed racket
+ > >               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ > > (remove-duplicates '(a b a))
+ > > ;; => '(a b a)
+ > 
+ > No, that's quite a different issue.  Typed Racket translates
+ > polymorphic types into contracts that use dynamic sealing.  What you
+ > see here is that it changes `remove-duplicates' from a function that
+ > isn't parametric into one that is.  [1] An alternative semantics
+ > that more closely matches the intended semantics would give you a
+ > dynamic contract error here.  Changing `T' to `Any' will produce the
+ > desired behavior in this case, although not in the presence of
+ > higher-order values.  How to enforce the behavior we "want" here
+ > dynamically is still an open question, I think.
+ > 
+ > [1] Note that parametricity gives you a theorem that all functions
+ > of that type merely re-arrange the elements of the list, and do not
+ > examine the elements.  Thus, since `remove-duplicates' isn't like
+ > that, it can't be parametric.
+ 
+ What if the seal is interned?
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+ 
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: John Clements <clements@brinckerhoff.org>,
+        Christos Dimoulas <chrdimo@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12434: match fails to signal type error?
+Date: Sun, 11 Dec 2011 08:48:38 -0500
+
+ On Sun, Dec 11, 2011 at 4:16 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > Two days ago, Sam Tobin-Hochstadt wrote:
+ >> On Fri, Dec 9, 2011 at 8:22 PM, John Clements <clements@brinckerhoff.org> wrote:
+ >> > Is this the same problem?
+ >> >
+ >> > #lang typed/racket
+ >> > (require/typed racket
+ >> >               [remove-duplicates (All (T) (Listof T) -> (Listof T))])
+ >> > (remove-duplicates '(a b a))
+ >> > ;; => '(a b a)
+ >>
+ >> No, that's quite a different issue.  Typed Racket translates
+ >> polymorphic types into contracts that use dynamic sealing.  What you
+ >> see here is that it changes `remove-duplicates' from a function that
+ >> isn't parametric into one that is.  [1] An alternative semantics
+ >> that more closely matches the intended semantics would give you a
+ >> dynamic contract error here.  Changing `T' to `Any' will produce the
+ >> desired behavior in this case, although not in the presence of
+ >> higher-order values.  How to enforce the behavior we "want" here
+ >> dynamically is still an open question, I think.
+ >>
+ >> [1] Note that parametricity gives you a theorem that all functions
+ >> of that type merely re-arrange the elements of the list, and do not
+ >> examine the elements.  Thus, since `remove-duplicates' isn't like
+ >> that, it can't be parametric.
+ >
+ > What if the seal is interned?
+ 
+ There are a couple ways to do something like ML's eq-types in the
+ current system.  One is to intern, with problematic memory behavior, I
+ think.  The other is to define `prop:equal+hash' on the seals, just
+ delegating to the underlying value.  I believe these have the same
+ semantics.
+ 
+ This, of course, takes us further away from the "error-on-examine"
+ semantics, but I think it might well be a good idea.  It would
+ certainly fix John's issue.
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 

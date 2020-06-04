@@ -1,0 +1,156 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Dec 11 17:44:30 2013
+Received: from mail-oa0-f44.google.com (mail-oa0-f44.google.com [209.85.219.44])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id rBBMiSHG005610
+	for <bugs@bugs.plt-scheme.org>; Wed, 11 Dec 2013 17:44:29 -0500
+Message-Id: <201312112244.rBBMiQqD005603@winooski.ccs.neu.edu>
+Date: Wed, 11 Dec 2013 17:44:26 -0500
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: TR optimizer makes magnitude overflow
+
+>Number:         14242
+>Category:       typed-scheme
+>Synopsis:       TR optimizer makes magnitude overflow
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Dec 11 17:48:01 -0500 2013
+>Closed-Date:    Thu Dec 31 13:38:46 -0500 2015
+>Last-Modified:  Thu Dec 31 13:38:46 -0500 2015
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.0.1--2013-12-11(c321f6dd/d)
+>Environment:
+unix "Linux woodstock 3.8.0-31-generic #46-Ubuntu SMP Tue Sep 10 20:03:44 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 709952560
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = (#<path:/home/neil/plt/racket/share/pkgs/slideshow-latex> #<path:/home/neil/plt/racket/share/pkgs/rsound> #<path:/home/neil/plt/racket/share/pkgs/portaudio> #<path:/home/neil/plt/racket/share/pkgs/optimization-coach>)
+raco pkg (show):
+/home/neil/plt/racket/share/devel-pkgs:
+ Package              Checksum    Source
+ main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ plt-services         #f          (static-link ../../../pkgs/plt-services)
+ racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ [201 auto-installed packages not shown]
+Installation-wide:
+ Package               Checksum                                    Source
+ optimization-coach    cd3d98a4ce794fc15174bd35a3fbc47f5210a52b    (catalog optimization-coach)
+ rsound                d13f125a2609faa7a6d8aee5b6595da547f854c0    (catalog rsound)
+ slideshow-latex       9275fecbaaac14c6168f42cae73ed4c0cb7b2037    (catalog slideshow-latex)
+ [1 auto-installed package not shown]
+User-specific for installation "development":
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/development/collects"
+ (non-existent-path))
+("/home/neil/plt/racket/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((main) (test)) #t))
+>Description:
+The optimizer "unboxes" the real and imaginary parts of `x' in (magnitude x), and expands the expression into something that the JIT reduces to (unsafe-flsqrt (unsafe-fl* x x)). The inner expression overflows when `x' is large.
+
+Instead, the optimizer should check to see whether x : Real, and expand to (abs x) in that case.
+
+In the complex case, the optimization should use the algorithm in "number.c".
+>How-To-Repeat:
+#lang racket
+
+(module test1 typed/racket
+  (printf "~a~n" (magnitude 1e160))
+  (printf "~a~n" (magnitude 1e160+1e160i))
+  (newline))
+
+(module test2 typed/racket #:no-optimize
+  (printf "~a~n" (magnitude 1e160))
+  (printf "~a~n" (magnitude 1e160+1e160i))
+  (newline))
+
+(require 'test1 'test2)
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Neil Toronto <neil.toronto@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14242: TR optimizer makes magnitude overflow
+Date: Wed, 11 Dec 2013 15:01:13 -0800
+
+ I have this fixed in one of my development branches, I'll try to git
+ it pushed to head soon.
+ 
+ On Wed, Dec 11, 2013 at 2:48 PM,  <neil.toronto@gmail.com> wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14242
+ >
+ > Reported by Neil Toronto for release: 6.0.0.1--2013-12-11(c321f6dd/d)
+ >
+ > *** Description:
+ > The optimizer "unboxes" the real and imaginary parts of `x' in (magnitude x), and expands the expression into something that the JIT reduces to (unsafe-flsqrt (unsafe-fl* x x)). The inner expression overflows when `x' is large.
+ >
+ > Instead, the optimizer should check to see whether x : Real, and expand to (abs x) in that case.
+ >
+ > In the complex case, the optimization should use the algorithm in "number.c".
+ >
+ > *** How to repeat:
+ > #lang racket
+ >
+ > (module test1 typed/racket
+ >   (printf "~a~n" (magnitude 1e160))
+ >   (printf "~a~n" (magnitude 1e160+1e160i))
+ >   (newline))
+ >
+ > (module test2 typed/racket #:no-optimize
+ >   (printf "~a~n" (magnitude 1e160))
+ >   (printf "~a~n" (magnitude 1e160+1e160i))
+ >   (newline))
+ >
+ > (require 'test1 'test2)
+ >
+ > *** Environment:
+ > unix "Linux woodstock 3.8.0-31-generic #46-Ubuntu SMP Tue Sep 10 20:03:44 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 709952560
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = (#<path:/home/neil/plt/racket/share/pkgs/slideshow-latex> #<path:/home/neil/plt/racket/share/pkgs/rsound> #<path:/home/neil/plt/racket/share/pkgs/portaudio> #<path:/home/neil/plt/racket/share/pkgs/optimization-coach>)
+ > raco pkg (show):
+ > /home/neil/plt/racket/share/devel-pkgs:
+ >  Package              Checksum    Source
+ >  main-distribution    #f          (static-link ../../../pkgs/main-distribution)
+ >  plt-services         #f          (static-link ../../../pkgs/plt-services)
+ >  racket-lib           #f          (static-link ../../../pkgs/racket-pkgs/racket-lib)
+ >  [201 auto-installed packages not shown]
+ > Installation-wide:
+ >  Package               Checksum                                    Source
+ >  optimization-coach    cd3d98a4ce794fc15174bd35a3fbc47f5210a52b    (catalog optimization-coach)
+ >  rsound                d13f125a2609faa7a6d8aee5b6595da547f854c0    (catalog rsound)
+ >  slideshow-latex       9275fecbaaac14c6168f42cae73ed4c0cb7b2037    (catalog slideshow-latex)
+ >  [1 auto-installed package not shown]
+ > User-specific for installation "development":
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/home/neil/.racket/development/collects"
+ >  (non-existent-path))
+ > ("/home/neil/plt/racket/collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+ >
+ > Recent Internal Errors:
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((main) (test)) #t))
+ >
+ 
+
+
+State changed from "open" to "closed" by stamourv at Thu, 31 Dec 2015 13:38:46 -0500
+Reason>>> Has been fixed since.
+

@@ -1,0 +1,211 @@
+From nobody@cs.rice.edu  Thu Jun 10 08:43:01 1999
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id IAA14977
+	for <plt-gnats@cs.rice.edu>; Thu, 10 Jun 1999 08:43:01 -0500 (CDT)
+Message-Id: <199906101343.IAA07393@web.cs.rice.edu>
+Date: Thu, 10 Jun 1999 08:43:00 -0500 (CDT)
+From: robby@cs.rice.edu
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: insert method insertion point changes when frame resized 
+
+>Number:         1030
+>Category:       mred
+>Synopsis:       insert method insertion point changes when frame resized
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Jun 10 09:45:03 -0400 1999
+>Last-Modified:  Sun Mar 28 02:39:44 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        100alpha3
+>Organization:
+titan
+>Environment:
+Mac PowerPC
+>Description:
+Again, I am having trouble making this report any smaller. I guess it's
+reasonably small, but I am unahppy that my attempts to shrink it are for
+naught.
+
+>How-To-Repeat:
+1) load the code below.
+2) click "make blame"
+3) resize the window
+4) click "stop blame"
+5) scroll back through the window and see out of order numbers.
+
+(require-library "errortrace.ss" "errortrace")
+
+(define (raw-go)
+  (let loop ([n 0])
+    (display n port)
+    (newline port)
+    (let loop ([n 20])
+      (unless (zero? n)
+        (display #\.)
+        (loop (- n 1))))
+    (newline port)
+    (loop (+ n 1))))
+
+(define custodian (make-custodian))
+(define style (make-object style-delta% 'change-bold))
+(define kill void)
+(define (go)
+  (set! kill
+	(lambda ()
+	  (set! kill (void))
+	  (custodian-shutdown-all custodian)))
+  (send text erase)
+  (custodian-shutdown-all custodian)
+  (set! custodian (make-custodian))
+  (let/ec k
+	  (parameterize ([current-custodian custodian]
+			 [current-output-port port]
+			 [current-error-port port]
+			 [error-escape-handler (lambda () (k #f))])
+			(thread raw-go))))
+(define shutdown (make-semaphore 0))
+(define shutdown-frame%
+  (class frame% (title)
+	 (override
+	  [on-close
+	   (lambda ()
+	     (semaphore-post shutdown))])
+	 (sequence
+	   (super-init title))))
+(define frame (make-object shutdown-frame% "Make Blame"))
+(define panel (make-object horizontal-panel% frame))
+(send panel set-alignment 'center 'center)
+(define make-button (make-object button% "Make Blame" panel (lambda x (go))))
+(define stop-button (make-object button% "Stop Blame" panel (lambda x (kill))))
+(define text (make-object text%))
+
+(define strings-to-insert null)
+(define flush-event-running #f)
+
+(define port (make-output-port (lambda (x) 
+				 (queue-callback
+				  (lambda ()
+				    (set! strings-to-insert (cons x strings-to-insert))
+				    (unless flush-event-running
+					    (set! flush-event-running #t)
+					    (queue-callback
+					     (lambda ()
+					       (set! flush-event-running #f)
+					       (send text begin-edit-sequence)
+					       (for-each (lambda (s)
+							   (send text insert s))
+							 (reverse strings-to-insert))
+					       (send text end-edit-sequence))
+					     #f)))
+				  #f))
+			       void))
+(define canvas (make-object editor-canvas% frame text))
+(send make-button focus)
+(send text auto-wrap #t)
+(send canvas min-width 600)
+(send canvas min-height 400)
+(send frame show #t)
+(yield shutdown)
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Jun 13 09:09:59 1999
+Responsible-Changed-Why:
+
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1030: insert method insertion point changes when frame resized 
+Date: Sun, 13 Jun 1999 07:39:10 -0700 (PDT)
+
+ Quoting robby@cs.rice.edu:
+ > >How-To-Repeat:
+ > 1) load the code below.
+ > 2) click "make blame"
+ > 3) resize the window
+ > 4) click "stop blame"
+ > 5) scroll back through the window and see out of order numbers.
+ 
+ I see 0 - 197, then 0 - 309, then 0 - 635, etc. That's as expected,
+ since the queue of strings to print is never cleared:
+ 
+ > (queue-callback
+ > 				  (lambda ()
+ > 				    (set! strings-to-insert (cons x strings-to-insert))
+ > 				    (unless flush-event-running
+ > 					    (set! flush-event-running #t)
+ > 					    (queue-callback
+ > 					     (lambda ()
+ > 					       (set! flush-event-running #f)
+ > 					       (send text begin-edit-sequence)
+ > 					       (for-each (lambda (s)
+ > 							   (send text insert s))
+ > 							 (reverse strings-to-insert))
+ > 					       (send text end-edit-sequence))
+ 
+ I there something else that I'm missing?
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1030: insert method insertion point changes when frame resized 
+Date: Sun, 13 Jun 1999 14:31:14 -0500 (CDT)
+
+ Quoting Matthew Flatt:
+ > Quoting robby@cs.rice.edu:
+ > > >How-To-Repeat:
+ > > 1) load the code below.
+ > > 2) click "make blame"
+ > > 3) resize the window
+ > > 4) click "stop blame"
+ > > 5) scroll back through the window and see out of order numbers.
+ > 
+ > I see 0 - 197, then 0 - 309, then 0 - 635, etc. That's as expected,
+ > since the queue of strings to print is never cleared:
+ > 
+ > > (queue-callback
+ > > 				  (lambda ()
+ > > 				    (set! strings-to-insert (cons x strings-to-insert))
+ > > 				    (unless flush-event-running
+ > > 					    (set! flush-event-running #t)
+ > > 					    (queue-callback
+ > > 					     (lambda ()
+ > > 					       (set! flush-event-running #f)
+ > > 					       (send text begin-edit-sequence)
+ > > 					       (for-each (lambda (s)
+ > > 							   (send text insert s))
+ > > 							 (reverse strings-to-insert))
+ > > 					       (send text end-edit-sequence))
+ > 
+ > I there something else that I'm missing?
+ 
+ Yeah, I think that was the real problem. Sorry for the bogus pr.
+ 
+ Robby
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Thu Jul  8 22:03:47 1999
+State-Changed-Why:
+
+State-Changed-From-To: closed-closed
+State-Changed-By: steck
+State-Changed-When: Fri Jul  9 14:52:43 1999
+State-Changed-Why:
+Bogus, per Matthew.
+
+>Unformatted:

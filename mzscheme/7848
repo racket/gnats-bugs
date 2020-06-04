@@ -1,0 +1,164 @@
+From apache@plt-scheme.org Sun Jan 29 19:04:54 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k0U04rip019449
+	for <bugs@plt-scheme.org>; Sun, 29 Jan 2006 19:04:53 -0500
+Message-Id: <200601300004.k0U04rZw019447@champlain.ccs.neu.edu>
+Date: Sun, 29 Jan 2006 19:04:53 -0500
+From: la@iki.fi
+To: bugs@plt-scheme.org
+Subject: Output isn't flushed upon exit
+
+>Number:         7848
+>Category:       mzscheme
+>Synopsis:       Output isn't flushed upon exit
+>Class:          not-a-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Jan 29 19:05:00 -0500 2006
+>Last-Modified:  Tue Feb 21 11:20:00 -0500 2006
+>Originator:     Lauri Alanko
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        300.3, svn snapshot from 2006-12-31
+>Environment:
+linux-other
+>Description:
+The default output port isn't flushed when the scheme process exits. If stdout is a terminal, then everything that's not followed by a newline is lost. If stdout is a pipe or file, the last block is lost.
+
+Here are some sample runs:
+
+$ mzscheme -mve '(display "foo")'
+<no output>
+$ mzscheme -mve '(display "foo\n")'
+foo
+$ mzscheme -mve '(display (make-string 2048 #\x))' |wc
+      0       0       0
+$ mzscheme -mve '(display (make-string 2049 #\x))' |wc
+      0       1    1024
+
+Strace verifies that the mzscheme process really doesn't write anything.
+
+I'm running Debian-pure64 on an Athlon 64 system. Default mzscheme configuration straight from svn.
+>How-To-Repeat:
+mzscheme -mve '(display "foo")'
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: la@iki.fi, bugs@plt-scheme.org
+Cc: mflatt@cs.utah.edu
+Subject: Re: all/7848: Output isn't flushed upon exit
+Date: Sun, 29 Jan 2006 19:19:27 -0500
+
+ On Jan 29, la@iki.fi wrote:
+ > The default output port isn't flushed when the scheme process
+ > exits. If stdout is a terminal, then everything that's not followed
+ > by a newline is lost. If stdout is a pipe or file, the last block is
+ > lost.
+ > 
+ > Here are some sample runs:
+ > 
+ > $ mzscheme -mve '(display "foo")'
+ > <no output>
+ > $ mzscheme -mve '(display "foo\n")'
+ > foo
+ > $ mzscheme -mve '(display (make-string 2048 #\x))' |wc
+ >       0       0       0
+ > $ mzscheme -mve '(display (make-string 2049 #\x))' |wc
+ >       0       1    1024
+ > 
+ > Strace verifies that the mzscheme process really doesn't write anything.
+ > 
+ > I'm running Debian-pure64 on an Athlon 64 system. Default mzscheme
+ > configuration straight from svn.
+ 
+ Also -- seems like a platform dependent behavior, I get correct
+ behavior under solaris, and on Linux, but not on Windows (plain
+ mzscheme build, but running from a cygwin prompt).
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Lauri Alanko <la@iki.fi>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7848: Output isn't flushed upon exit
+Date: Mon, 30 Jan 2006 10:41:48 +0200
+
+ Oops, I found the real culprit. In my .mzschemerc I had
+ 
+ (define (re param f) (param (f (param) "ISO-8859-1" #"?" #t)))
+ (re current-input-port reencode-input-port)
+ (re current-output-port reencode-output-port)
+ (re current-error-port reencode-output-port))
+ 
+ Commenting these out made things work properly. So it's a problem with
+ port.ss or possibly custom ports in general.
+
+Class changed from "sw-bug" to "not-a-bug" by eli at Fri, 03 Feb 2006 15:09:13 -0500
+Reason>>> see the message.
+
+Responsible changed from "nobody" to "eli" by eli at Fri, 03 Feb 2006 15:09:13 -0500
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Fri, 03 Feb 2006 15:09:13 -0500
+Reason>>> not a bug
+
+From: Lauri Alanko <la@iki.fi>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: mzscheme/7848 Output isn't flushed upon exit
+Date: Fri, 3 Feb 2006 23:32:32 +0200
+
+ In what sense is this not a bug? A reencoded port should be a drop-in
+ replacement for the original port, but fd ports are closed automatically
+ upon exit (flush_if_output_fds) whereas custom ports are not, resulting
+ in the surprising behavior I reported.
+ 
+ All the machinery for fixing this is in place already:
+ scheme_make_output_port already supports the must_close flag for
+ making the port closed when its custodian shuts down. Custom ports
+ (make_output_port) just don't use this feature.
+ 
+ All right, maybe there is some rationale for this behaviour. What, then,
+ is the recommended workaround? Installing a will executor and dedicating
+ a thread to it? It should probably be mentioned in the port.ss
+ documentation, too.
+
+Responsible changed from "eli" to "mflatt" by eli at Tue, 21 Feb 2006 11:15:36 -0500
+Reason>>> Re-openning (closed due to a misunderstanding)
+
+State changed from "closed" to "open" by eli at Tue, 21 Feb 2006 11:15:36 -0500
+Reason>>> Re-openning (closed due to a misunderstanding)
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Lauri Alanko <la@iki.fi>, bugs@plt-scheme.org
+Cc: Matthew Flatt <mflatt@cs.utah.edu>
+Subject: Re: mzscheme/7848 Output isn't flushed upon exit
+Date: Tue, 21 Feb 2006 11:17:00 -0500
+
+ On Feb  3, Lauri Alanko wrote:
+ >  In what sense is this not a bug? A reencoded port should be a drop-in
+ >  replacement for the original port, but fd ports are closed automatically
+ >  upon exit (flush_if_output_fds) whereas custom ports are not, resulting
+ >  in the surprising behavior I reported.
+ >  
+ >  All the machinery for fixing this is in place already:
+ >  scheme_make_output_port already supports the must_close flag for
+ >  making the port closed when its custodian shuts down. Custom ports
+ >  (make_output_port) just don't use this feature.
+ >  
+ >  All right, maybe there is some rationale for this behaviour. What, then,
+ >  is the recommended workaround? Installing a will executor and dedicating
+ >  a thread to it? It should probably be mentioned in the port.ss
+ >  documentation, too.
+ 
+ Sorry, I misunderstood your last message on this as saying that there
+ is no bug...  I've reopened it and passed it on to Matthew.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!

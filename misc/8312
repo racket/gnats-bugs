@@ -1,0 +1,104 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Oct  4 21:17:11 2006
+Received: from nz-out-0102.google.com (nz-out-0102.google.com [64.233.162.197])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k951HA0v030842
+	for <bugs@bugs.plt-scheme.org>; Wed, 4 Oct 2006 21:17:10 -0400
+Message-Id: <200610050117.k951H9ED030836@champlain.ccs.neu.edu>
+Date: Wed, 4 Oct 2006 21:17:09 -0400
+From: wr@taxupdate.com
+To: bugs@plt-scheme.org
+Subject: gunzip-through-ports doesn't send eof object?
+
+>Number:         8312
+>Category:       misc
+>Synopsis:       gunzip-through-ports doesn't send eof object?
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Oct 04 21:20:01 -0400 2006
+>Closed-Date:    Thu Oct 05 01:42:46 -0400 2006
+>Last-Modified:  Thu Oct 05 01:45:01 -0400 2006
+>Originator:     wayne
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352
+>Environment:
+unix "Linux Server 2.6.16-gentoo-r7 #9 SMP PREEMPT Wed May 31 14:35:06 UTC 2006 i686 AMD Athlon(TM) XP 1500+ GNU/Linux" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+(("/home/wayne/.plt-scheme/352/doc" "insidemz") ("/usr/share/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 93159424
+
+Collections:
+(("/home/wayne/.plt-scheme/352/collects" "ssax" "sxml" "webscraperhelper" "custom") ("/usr/lib/plt/collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "web-server" "xml" "info-domain" "custom"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Graphical (MrEd, includes MzScheme)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+If I understand the documentation correctly, the gunzip-through-ports should eventually read the last char and then send an eof.  This code waits in a read for final char/eof which never comes.
+>How-To-Repeat:
+create any test.gz with a few chars or numbers, then
+
+(require (lib "inflate.ss"))
+
+;; wrap-gunzip: input-port -> input-port
+;; from schemecookbook.org
+(define (wrap-gunzip original-ip)
+  (define-values (ip op) (make-pipe 32768))
+  (thread (lambda () (gunzip-through-ports original-ip op)))
+  ip)
+
+;; now read the compressed file:
+(call-with-input-file "test.gz"
+  (lambda (in)
+    (let ((data-port (wrap-gunzip in)))
+       (let loop ((next (read data-port)))
+         (printf "next: ~a\n" next)
+         (cond
+           ((eof-object? next) 'done)
+           (else
+            (loop (read data-port))))))))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "eli" by eli at Thu, 05 Oct 2006 01:42:46 -0400
+Reason>>> Replying.
+
+State changed from "open" to "closed" by eli at Thu, 05 Oct 2006 01:42:46 -0400
+Reason>>> No bug.
+
+From: Eli Barzilay <eli@barzilay.org>
+To: wr@taxupdate.com, bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org
+Subject: Re: all/8312: gunzip-through-ports doesn't send eof object?
+Date: Thu, 5 Oct 2006 01:41:41 -0400
+
+ On Oct  4, wr@taxupdate.com wrote:
+ > If I understand the documentation correctly, the
+ > gunzip-through-ports should eventually read the last char and then
+ > send an eof.  This code waits in a read for final char/eof which
+ 
+ There is no "sending" of an eof -- you need to explicitly close
+ ports.  In your case, after the thread is done with its
+ `gunzip-through-ports', it dies, and leaves the output side of the
+ pipe (its input port) stuck because nobody is feeding its input (its
+ output port).  I modified wrap-gunzip to close the port:
+ 
+   ;; wrap-gunzip: input-port -> input-port
+   ;; from schemecookbook.org
+   (define (wrap-gunzip original-ip)
+     (define-values (ip op) (make-pipe 32768))
+     (thread (lambda ()
+               (gunzip-through-ports original-ip op)
+               (close-output-port op))) ; <---------- my addition
+     ip)
+ 
+ and things worked as expected.
+ 
+ (CCing Matthew in case I get something wrong, but I'm going to close
+ the bug now -- please reopen if needed.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!

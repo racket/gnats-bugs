@@ -1,0 +1,1013 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jul 22 21:10:30 2012
+Received: from mail-vc0-f172.google.com (mail-vc0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q6N1AAiu013327
+	for <bugs@bugs.plt-scheme.org>; Sun, 22 Jul 2012 21:10:11 -0400
+Message-Id: <201207230110.q6N1A7qe013321@champlain.ccs.neu.edu>
+Date: Sun, 22 Jul 2012 21:10:07 -0400
+From: zeppieri@gmail.com
+To: bugs@racket-lang.org
+Subject: Typed Racket internal error: contract violation in type-checking use of string-trim
+
+>Number:         12932
+>Category:       typed-scheme
+>Synopsis:       Typed Racket internal error: contract violation in type-checking use of string-trim
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jul 22 21:12:01 -0400 2012
+>Closed-Date:    Tue Aug 14 16:13:52 -0400 2012
+>Last-Modified:  Tue Aug 14 16:13:52 -0400 2012
+>Originator:     Jon Zeppieri
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.13--2012-07-04(467bde3/a)
+>Environment:
+macosx "Darwin Jon-Zeppieris-MacBook-Pro.local 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 16:33:36 PDT 2011; root:xnu-1504.15.3~1/RELEASE_I386 i386" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 425941136
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/jaz/Library/Racket/5.3.0.13/collects"
+ (non-existent-path))
+("/Applications/Racket v5.3.0.13/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+I was trying to compile some typed racket code that I wrote awhile back against an older version, and I saw the following error [complete, long stack trace follows]:
+
+format: contract violation
+  expected: string?
+  given: 'kw-convert
+  argument position: 1st
+  other arguments...:
+   "non-function type"
+   Nothing
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/utils/tc-utils.rkt: 160:0 
+  (define (int-err msg . args)
+  (raise (make-exn:fail:tc
+          (string-append
+           "Internal Typechecker Error: "
+           (apply format msg args)
+           (format "\nwhile typechecking:\n~a\noriginally:\n~a"
+                   (syntax->datum (current-orig-stx))
+                   (syntax->datum (locate-stx (current-orig-stx)))))
+          (current-continuation-marks))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/env/lexical-env.rkt: 45:38 
+    (lookup env i (λ (i) (lookup-type i (λ () 
+                                        (cond 
+                                          [(syntax-procedure-alias-property i) 
+                                           => (λ (prop)
+                                                (define orig (car (flatten prop)))
+                                                (define t (lookup-type/lexical orig env))
+                                                (register-type i t)
+                                                t)]
+                                          [(syntax-procedure-converted-arguments-property i)
+                                           => (λ (prop)
+                                                (define orig (car (flatten prop)))
+                                                (define t (kw-convert (lookup-type/lexical orig env)))
+                                                (register-type i t)
+                                                t)]
+                                          [else ((or fail lookup-fail) i)]))))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/env/global-env.rkt: 61:0 
+  (define (lookup-type id [fail-handler (λ () (lookup-type-fail id))])
+  (define v (free-id-table-ref the-mapping id fail-handler))
+  (cond [(box? v) (unbox v)] 
+        [(procedure? v) (define t (v)) (register-type id t) t]
+        [else v]))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-expr-unit.rkt: 375:0 
+  (define (tc-expr form)
+  ;; do the actual typechecking of form
+  ;; internal-tc-expr : syntax -> Type
+  (define (internal-tc-expr form)
+    (syntax-parse form
+      #:literal-sets (kernel-literals)
+      #:literals (#%app lambda find-method/who)
+      ;;
+      [stx
+       #:when (syntax-property form 'typechecker:with-handlers)
+       (let ([ty (check-subforms/with-handlers form)])
+         (unless ty
+           (int-err "internal error: with-handlers"))
+         ty)]
+      [stx
+       #:when (syntax-property form 'typechecker:ignore-some)
+       (let ([ty (check-subforms/ignore form)])
+         (unless ty
+           (int-err "internal error: ignore-some"))
+         ty)]
+      ;; explicit failure
+      [(quote-syntax ((~literal typecheck-fail-internal) stx msg var))
+       (explicit-fail #'stx #'msg #'var)]
+      ;; data
+      [(quote #f) (ret (-val #f) false-filter)]
+      [(quote #t) (ret (-val #t) true-filter)]
+
+      [(quote val)  (ret (tc-literal #'val) true-filter)]
+      ;; syntax
+      [(quote-syntax datum) (ret (-Syntax (tc-literal #'datum)) true-filter)]
+      ;; w-c-m
+      [(with-continuation-mark e1 e2 e3)
+       (begin (tc-expr/check/type #'e1 Univ)
+              (tc-expr/check/type #'e2 Univ)
+              (tc-expr #'e3))]
+      ;; lambda
+      [(#%plain-lambda formals . body)
+       (tc/lambda form #'(formals) #'(body))]
+      [(case-lambda [formals . body] ...)
+       (tc/lambda form #'(formals ...) #'(body ...))]
+      ;; send
+      [(let-values (((_) meth))
+         (let-values (((_) rcvr))
+           (let-values (((_) (~and find-app (#%plain-app find-method/who _ _ _))))
+             (#%plain-app _ _ args ...))))
+       (tc/send #'find-app #'rcvr #'meth #'(args ...))]
+      ;; let
+      [(let-values ([(name ...) expr] ...) . body)
+       (tc/let-values #'((name ...) ...) #'(expr ...) #'body form)]
+      [(letrec-values ([(name ...) expr] ...) . body)
+       (tc/letrec-values #'((name ...) ...) #'(expr ...) #'body form)]
+      ;; mutation!
+      [(set! id val)
+       (match-let* ([(tc-result1: id-t) (tc-expr #'id)]
+                    [(tc-result1: val-t) (tc-expr #'val)])
+         (unless (subtype val-t id-t)
+           (tc-error/expr "Mutation only allowed with compatible types:\n~a is not a subtype of ~a" val-t id-t))
+         (ret -Void))]
+      ;; top-level variable reference - occurs at top level
+      [(#%top . id) (tc-id #'id)]
+      ;; #%expression
+      [(#%expression e) (tc-expr #'e)]
+      ;; #%variable-reference
+      [(#%variable-reference . _)
+       (ret -Variable-Reference)]
+      ;; identifiers
+      [x:identifier (tc-id #'x)]
+      ;; application
+      [(#%plain-app . _) (tc/app form)]
+      ;; if
+      [(if tst thn els) (tc/if-twoarm #'tst #'thn #'els)]
+
+
+
+      ;; syntax
+      ;; for now, we ignore the rhs of macros
+      [(letrec-syntaxes+values stxs vals . body)
+       (tc-expr (syntax/loc form (letrec-values vals . body)))]
+
+      ;; begin
+      [(begin e . es) (tc-exprs (syntax->list #'(e . es)))]
+      [(begin0 e . es)
+       (begin (tc-exprs (syntax->list #'es))
+              (tc-expr #'e))]
+      ;; other
+      [_
+       (printf "~s\n" (continuation-mark-set->context (current-continuation-marks)))
+       (tc-error/expr #:return (ret (Un)) "cannot typecheck unknown form : ~a\n" (syntax->datum form))]))
+
+  (parameterize ([current-orig-stx form])
+    ;(printf "form: ~a\n" (syntax->datum form))
+    ;; the argument must be syntax
+    (unless (syntax? form)
+      (int-err "bad form input to tc-expr: ~a" form))
+    ;; typecheck form
+    (let ([ty (cond [(type-ascription form) => (lambda (ann)
+                                                 (tc-expr/check form ann))]
+                    [else (internal-tc-expr form)])])
+      (match ty
+        [(tc-results: ts fs os)
+         (let* ([ts* (do-inst form ts)]
+                [r (ret ts* fs os)])
+           (add-typeof-expr form r)
+           r)]))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-expr-unit.rkt: 497:0 
+  (define (single-value form [expected #f])
+  (define t (if expected (tc-expr/check form expected) (tc-expr form)))
+  (match t
+    [(tc-result1: _ _ _) t]
+    [_ (tc-error/expr
+          #:stx form
+          #:return (or expected (ret (Un)))
+     "expected single value, got multiple (or zero) values")]))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-app.rkt: 792:0 
+  (define (tc/app/check form expected)
+    (define t (tc/app/internal form expected))
+    (check-below t expected))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-expr-unit.rkt: 220:4 
+      (let loop ([form* form] [expected expected] [checked? #f])
+      (cond [(type-ascription form*)
+             =>
+             (lambda (ann)
+               (let* ([r (tc-expr/check/internal form* ann)]
+                      [r* (check-below r expected)])
+                 ;; add this to the *original* form, since the newer forms aren't really in the program
+                 (add-typeof-expr form ann)
+                 ;; around again in case there is an instantiation
+                 ;; remove the ascription so we don't loop infinitely
+                 (loop (remove-ascription form*) r* #t)))]
+            [(syntax-property form* 'type-inst)
+             ;; check without property first
+             ;; to get the appropriate type to instantiate
+             (match (tc-expr (syntax-property form* 'type-inst #f))
+               [(tc-results: ts fs os)
+                ;; do the instantiation on the old type
+                (let* ([ts* (do-inst form* ts)]
+                       [ts** (ret ts* fs os)])
+                  (add-typeof-expr form ts**)
+                  ;; make sure the new type is ok
+                  (check-below ts** expected))]
+               ;; no annotations possible on dotted results
+               [ty (add-typeof-expr form ty) ty])]
+            ;; nothing to see here
+            [checked? expected]
+            [else (let ([t (tc-expr/check/internal form* expected)])
+                    (add-typeof-expr form t)
+                    t)]))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-if.rkt: 24:0 
+  (define (tc/if-twoarm tst thn els [expected #f])
+  (define (tc expr reachable?)
+    (unless reachable? (warn-unreachable expr))
+    (cond
+      ;; if reachable? is #f, then we don't want to verify that this branch has the appropriate type
+      ;; in particular, it might be (void)
+      [(and expected reachable?)
+       (tc-expr/check expr (erase-filter expected))]
+      ;; this code is reachable, but we have no expected type
+      [reachable? (tc-expr expr)]
+      ;; otherwise, this code is unreachable
+      ;; and the resulting type should be the empty type
+      [(check-unreachable-code?)
+       (tc-expr/check expr Univ)
+       (ret (Un))]
+      [else (ret (Un))]))
+  (match (single-value tst)
+    [(tc-result1: _ (and f1 (FilterSet: fs+ fs-)) _)
+     (let*-values ([(flag+ flag-) (values (box #t) (box #t))])
+       (match-let* ([env-thn (env+ (lexical-env) (list fs+) flag+)]
+                    [env-els (env+ (lexical-env) (list fs-) flag-)]
+                    [new-thn-props (filter (λ (e) (and (atomic-filter? e) (not (memq e (env-props (lexical-env))))))
+                                           (env-props env-thn))]
+                    [new-els-props (filter (λ (e) (and (atomic-filter? e) (not (memq e (env-props (lexical-env))))))
+                                           (env-props env-els))]
+                    [(tc-results: ts fs2 os2) (with-lexical-env env-thn (tc thn (unbox flag+)))]
+                    [(tc-results: us fs3 os3) (with-lexical-env env-els (tc els (unbox flag-)))])
+         ;(printf "old props: ~a\n" (env-props (lexical-env)))
+         ;(printf "fs+: ~a\n" fs+)
+         ;(printf "fs-: ~a\n" fs-)
+         ;(printf "thn-props: ~a\n" (env-props env-thn))
+         ;(printf "els-props: ~a\n" (env-props env-els))
+         ;(printf "new-thn-props: ~a\n" new-thn-props)
+         ;(printf "new-els-props: ~a\n" new-els-props)
+
+         ;; record reachability
+         ;; since we may typecheck a given piece of code multiple times in different
+         ;; contexts, we need to take previous results into account
+         (cond [(and (not (unbox flag+)) ; maybe contradiction
+                     ;; to be an actual contradiction, we must have either previously
+                     ;; recorded this test as a contradiction, or have never seen it
+                     ;; before
+                     (not (tautology? tst))
+                     (not (neither? tst)))
+                (add-contradiction tst)]
+               [(and (not (unbox flag-)) ; maybe tautology
+                     ;; mirror case
+                     (not (contradiction? tst))
+                     (not (neither? tst)))
+                (add-tautology tst)]
+               [else
+                (add-neither tst)])
+
+         ;; if we have the same number of values in both cases
+         (cond [(= (length ts) (length us))
+                (let ([r (combine-results
+                          (for/list ([f2 fs2] [f3 fs3] [t2 ts] [t3 us] [o2 os2] [o3 os3])
+                            (let ([filter
+                                   (match* (f2 f3)
+                                     [((NoFilter:) _)
+                                      (-FS -top -top)]
+                                     [(_ (NoFilter:))
+                                      (-FS -top -top)]
+                                     [((FilterSet: f2+ f2-) (FilterSet: f3+ f3-))
+                                      ;(printf "f2- ~a f+ ~a\n" f2- fs+)
+                                      (-FS (-or (apply -and fs+ f2+ new-thn-props) (apply -and fs- f3+ new-els-props))
+                                           (-or (apply -and fs+ f2- new-thn-props) (apply -and fs- f3- new-els-props)))])]
+                                  [type (Un t2 t3)]
+                                  [object (if (object-equal? o2 o3) o2 (make-Empty))])
+                              ;(printf "result filter is: ~a\n" filter)
+                              (ret type filter object))))])
+                  (if expected (check-below r expected) r))]
+               ;; special case if one of the branches is unreachable
+               [(and (= 1 (length us)) (type-equal? (car us) (Un)))
+                (if expected (check-below (ret ts fs2 os2) expected) (ret ts fs2 os2))]
+               [(and (= 1 (length ts)) (type-equal? (car ts) (Un)))
+                (if expected (check-below (ret us fs3 os3) expected) (ret us fs3 os3))]
+               ;; otherwise, error
+               [else
+                (tc-error/expr #:return (ret (or expected Err))
+                               "Expected the same number of values from both branches of `if' expression, but got ~a and ~a"
+                               (length ts) (length us))])))]
+    [(tc-results: t _ _)
+     (tc-error/expr #:return (ret (or expected Err))
+                    "Test expression expects one value, given ~a" t)]))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-expr-unit.rkt: 220:4 
+      (let loop ([form* form] [expected expected] [checked? #f])
+      (cond [(type-ascription form*)
+             =>
+             (lambda (ann)
+               (let* ([r (tc-expr/check/internal form* ann)]
+                      [r* (check-below r expected)])
+                 ;; add this to the *original* form, since the newer forms aren't really in the program
+                 (add-typeof-expr form ann)
+                 ;; around again in case there is an instantiation
+                 ;; remove the ascription so we don't loop infinitely
+                 (loop (remove-ascription form*) r* #t)))]
+            [(syntax-property form* 'type-inst)
+             ;; check without property first
+             ;; to get the appropriate type to instantiate
+             (match (tc-expr (syntax-property form* 'type-inst #f))
+               [(tc-results: ts fs os)
+                ;; do the instantiation on the old type
+                (let* ([ts* (do-inst form* ts)]
+                       [ts** (ret ts* fs os)])
+                  (add-typeof-expr form ts**)
+                  ;; make sure the new type is ok
+                  (check-below ts** expected))]
+               ;; no annotations possible on dotted results
+               [ty (add-typeof-expr form ty) ty])]
+            ;; nothing to see here
+            [checked? expected]
+            [else (let ([t (tc-expr/check/internal form* expected)])
+                    (add-typeof-expr form t)
+                    t)]))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-expr-unit.rkt: 220:4 
+      (let loop ([form* form] [expected expected] [checked? #f])
+      (cond [(type-ascription form*)
+             =>
+             (lambda (ann)
+               (let* ([r (tc-expr/check/internal form* ann)]
+                      [r* (check-below r expected)])
+                 ;; add this to the *original* form, since the newer forms aren't really in the program
+                 (add-typeof-expr form ann)
+                 ;; around again in case there is an instantiation
+                 ;; remove the ascription so we don't loop infinitely
+                 (loop (remove-ascription form*) r* #t)))]
+            [(syntax-property form* 'type-inst)
+             ;; check without property first
+             ;; to get the appropriate type to instantiate
+             (match (tc-expr (syntax-property form* 'type-inst #f))
+               [(tc-results: ts fs os)
+                ;; do the instantiation on the old type
+                (let* ([ts* (do-inst form* ts)]
+                       [ts** (ret ts* fs os)])
+                  (add-typeof-expr form ts**)
+                  ;; make sure the new type is ok
+                  (check-below ts** expected))]
+               ;; no annotations possible on dotted results
+               [ty (add-typeof-expr form ty) ty])]
+            ;; nothing to see here
+            [checked? expected]
+            [else (let ([t (tc-expr/check/internal form* expected)])
+                    (add-typeof-expr form t)
+                    t)]))))
+
+/Applications/Racket v5.3.0.13/collects/racket/private/map.rkt: 21:13 
+               (case-lambda
+              [(f l)
+               (if (and (procedure? f)
+                        (procedure-arity-includes? f 1)
+                        (list? l))
+                   (let loop ([l l])
+                     (cond
+                      [(null? l) null]
+                      [else (cons (f (car l)) (loop (cdr l)))]))
+                   (map f l))]
+              [(f l1 l2)
+               (if (and (procedure? f)
+                        (procedure-arity-includes? f 2)
+                        (list? l1)
+                        (list? l2)
+                        (= (length l1) (length l2)))
+                   (let loop ([l1 l1][l2 l2])
+                     (cond
+                      [(null? l1) null]
+                      [else (cons (f (car l1) (car l2)) 
+                                  (loop (cdr l1) (cdr l2)))]))
+                   (map f l1 l2))]
+              [(f l . args) (apply map f l args)])])
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-app.rkt: 792:0 
+  (define (tc/app/check form expected)
+    (define t (tc/app/internal form expected))
+    (check-below t expected))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-expr-unit.rkt: 220:4 
+      (let loop ([form* form] [expected expected] [checked? #f])
+      (cond [(type-ascription form*)
+             =>
+             (lambda (ann)
+               (let* ([r (tc-expr/check/internal form* ann)]
+                      [r* (check-below r expected)])
+                 ;; add this to the *original* form, since the newer forms aren't really in the program
+                 (add-typeof-expr form ann)
+                 ;; around again in case there is an instantiation
+                 ;; remove the ascription so we don't loop infinitely
+                 (loop (remove-ascription form*) r* #t)))]
+            [(syntax-property form* 'type-inst)
+             ;; check without property first
+             ;; to get the appropriate type to instantiate
+             (match (tc-expr (syntax-property form* 'type-inst #f))
+               [(tc-results: ts fs os)
+                ;; do the instantiation on the old type
+                (let* ([ts* (do-inst form* ts)]
+                       [ts** (ret ts* fs os)])
+                  (add-typeof-expr form ts**)
+                  ;; make sure the new type is ok
+                  (check-below ts** expected))]
+               ;; no annotations possible on dotted results
+               [ty (add-typeof-expr form ty) ty])]
+            ;; nothing to see here
+            [checked? expected]
+            [else (let ([t (tc-expr/check/internal form* expected)])
+                    (add-typeof-expr form t)
+                    t)]))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-lambda-unit.rkt: 75:4 
+      (define (check-body)
+      (with-lexical-env/extend
+       arg-list arg-types
+       (make-lam-result (for/list ([al arg-list] [at arg-types] [a-ty arg-tys]) (list al at)) null
+                        (and rest-ty (list (or rest (generate-temporary)) rest-ty))
+                        ;; make up a fake name if none exists, this is an error case anyway
+                        (and drest (cons (or rest (generate-temporary)) drest))
+                        (tc-exprs/check (syntax->list body) ret-ty))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-lambda-unit.rkt: 251:19 
+                     (for/list ([args argss] [ret rets] [rest rests] [drest drests])
+                     (tc/lambda-clause/check 
+                      f* b* args (values->tc-results ret (formals->list f*)) rest drest))])))]
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-lambda-unit.rkt: 241:14 
+                (for/list ([f* formals*] [b* bodies*])                
+                (match (find-expected expected f*)
+                  ;; very conservative -- only do anything interesting if we get exactly one thing that matches
+                  [(list) 
+                   (if (and (= 1 (length formals*)) expected)
+                       (tc-error/expr #:return (list (lam-result null null (list #'here Univ) #f (ret (Un))))
+                                      "Expected a function of type ~a, but got a function with the wrong arity"
+                                      (match expected [(tc-result1: t) t]))
+                       (tc/lambda-clause f* b*))]
+                  [(list (arr: argss rets rests drests '()) ...) 
+                   (for/list ([args argss] [ret rets] [rest rests] [drest drests])
+                     (tc/lambda-clause/check 
+                      f* b* args (values->tc-results ret (formals->list f*)) rest drest))])))]
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-lambda-unit.rkt: 237:2 
+    (define (go expected formals bodies formals* bodies* nums-seen)
+    (cond
+      [(null? formals)
+       (apply append
+              (for/list ([f* formals*] [b* bodies*])                
+                (match (find-expected expected f*)
+                  ;; very conservative -- only do anything interesting if we get exactly one thing that matches
+                  [(list) 
+                   (if (and (= 1 (length formals*)) expected)
+                       (tc-error/expr #:return (list (lam-result null null (list #'here Univ) #f (ret (Un))))
+                                      "Expected a function of type ~a, but got a function with the wrong arity"
+                                      (match expected [(tc-result1: t) t]))
+                       (tc/lambda-clause f* b*))]
+                  [(list (arr: argss rets rests drests '()) ...) 
+                   (for/list ([args argss] [ret rets] [rest rests] [drest drests])
+                     (tc/lambda-clause/check 
+                      f* b* args (values->tc-results ret (formals->list f*)) rest drest))])))]
+      [(memv (syntax-len (car formals)) nums-seen)
+       ;; we check this clause, but it doesn't contribute to the overall type
+       (tc/lambda-clause (car formals) (car bodies))
+       ;; FIXME - warn about dead clause here       
+       (go expected (cdr formals) (cdr bodies) formals* bodies* nums-seen)]
+      [else
+       (go expected
+           (cdr formals) (cdr bodies)
+           (cons (car formals) formals*)
+           (cons (car bodies) bodies*)
+           (cons (syntax-len (car formals)) nums-seen))]))  
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-lambda-unit.rkt: 343:0 
+  (define (tc/lambda/internal form formals bodies expected)
+  (if (or (plambda-prop form)
+          (match expected
+            [(tc-result1: t) (or (Poly? t) (PolyDots? t))]
+            [_ #f]))
+      (ret (tc/plambda form formals bodies expected) true-filter)
+      (ret (tc/mono-lambda/type formals bodies expected) true-filter)))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-expr-unit.rkt: 220:4 
+      (let loop ([form* form] [expected expected] [checked? #f])
+      (cond [(type-ascription form*)
+             =>
+             (lambda (ann)
+               (let* ([r (tc-expr/check/internal form* ann)]
+                      [r* (check-below r expected)])
+                 ;; add this to the *original* form, since the newer forms aren't really in the program
+                 (add-typeof-expr form ann)
+                 ;; around again in case there is an instantiation
+                 ;; remove the ascription so we don't loop infinitely
+                 (loop (remove-ascription form*) r* #t)))]
+            [(syntax-property form* 'type-inst)
+             ;; check without property first
+             ;; to get the appropriate type to instantiate
+             (match (tc-expr (syntax-property form* 'type-inst #f))
+               [(tc-results: ts fs os)
+                ;; do the instantiation on the old type
+                (let* ([ts* (do-inst form* ts)]
+                       [ts** (ret ts* fs os)])
+                  (add-typeof-expr form ts**)
+                  ;; make sure the new type is ok
+                  (check-below ts** expected))]
+               ;; no annotations possible on dotted results
+               [ty (add-typeof-expr form ty) ty])]
+            ;; nothing to see here
+            [checked? expected]
+            [else (let ([t (tc-expr/check/internal form* expected)])
+                    (add-typeof-expr form t)
+                    t)]))))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/../../racket/private/map.rkt: 53:19 
+                     (let loop ([l l])
+                     (cond
+                      [(null? l) (void)]
+                      [else (begin (f (car l)) (loop (cdr l)))]))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typecheck/tc-toplevel.rkt: 267:0 
+  (define (type-check forms0)
+  (define forms (syntax->list forms0))
+  (define-values (type-aliases struct-defs stx-defs0 val-defs0 provs reqs)
+    (filter-multiple
+     forms
+     (internal-syntax-pred define-type-alias-internal)
+     (lambda (e) (or ((internal-syntax-pred define-typed-struct-internal) e)
+                     ((internal-syntax-pred define-typed-struct/exec-internal) e)))
+     parse-syntax-def
+     parse-def
+     provide?
+     define/fixup-contract?))
+  (do-time "Form splitting done")
+  (for-each (compose register-type-alias parse-type-alias) type-aliases)
+  ;; add the struct names to the type table
+  (for-each (compose add-type-name! names-of-struct) struct-defs)
+  ;; resolve all the type aliases, and error if there are cycles
+  (resolve-type-aliases parse-type)
+  (do-time "Starting pass1")
+  ;; do pass 1, and collect the defintions
+  (define defs (apply append (filter list? (map tc-toplevel/pass1 forms))))
+  (do-time "Finished pass1")
+  ;; separate the definitions into structures we'll handle for provides
+  (define def-tbl
+    (for/fold ([h (make-immutable-free-id-table)])
+      ([def (in-list defs)])
+      (dict-set h (binding-name def) def)))
+  ;; typecheck the expressions and the rhss of defintions
+  (do-time "Starting pass2")
+  (for-each tc-toplevel/pass2 forms)
+  (do-time "Finished pass2")
+  ;; check that declarations correspond to definitions
+  (check-all-registered-types)
+  ;; report delayed errors
+  (report-all-errors)
+  (define syntax-provide? #f)
+  (define provide-tbl
+    (for/fold ([h (make-immutable-free-id-table)]) ([p (in-list provs)])
+      (define-syntax-class unknown-provide-form
+        (pattern
+         (~and name
+               (~or (~datum protect) (~datum for-syntax) (~datum for-label) (~datum for-meta)
+                    (~datum struct) (~datum all-from) (~datum all-from-except)
+                    (~datum all-defined) (~datum all-defined-except)
+                    (~datum prefix-all-defined) (~datum prefix-all-defined-except)
+                    (~datum expand)))))
+      (syntax-parse p #:literals (#%provide)
+        [(#%provide form ...)
+         (for/fold ([h h]) ([f (syntax->list #'(form ...))])
+           (parameterize ([current-orig-stx f])
+             (syntax-parse f
+               [i:id
+                (when (def-stx-binding? (dict-ref def-tbl #'i #f))
+                  (set! syntax-provide? #t))
+                (dict-update h #'i (lambda (tail) (cons #'i tail)) '())]
+               [((~datum rename) in out)
+                (when (def-stx-binding? (dict-ref def-tbl #'in #f))
+                  (set! syntax-provide? #t))
+                (dict-update h #'in (lambda (tail) (cons #'out tail)) '())]
+               [(name:unknown-provide-form . _)
+                (tc-error "provide: ~a not supported by Typed Racket" (syntax-e #'name.name))]
+               [_ (int-err "unknown provide form")])))]
+        [_ (int-err "non-provide form! ~a" (syntax->datum p))])))
+  ;; compute the new provides
+  (define new-stx 
+    (with-syntax*
+        ([the-variable-reference (generate-temporary #'blame)]
+         [(new-provs ...)
+          (generate-prov def-tbl provide-tbl #'the-variable-reference)])
+      #`(begin
+          #,(if (null? (syntax-e #'(new-provs ...)))
+                #'(begin)
+                #'(define the-variable-reference (quote-module-name)))          
+          (begin-for-syntax #,(env-init-code syntax-provide? provide-tbl def-tbl)
+                            #,(tname-env-init-code)
+                            #,(talias-env-init-code)
+                            #,(make-struct-table-code))
+          (begin new-provs ...))))
+  (do-time "finished provide generation")
+  new-stx)
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typed-racket.rkt: 33:4 
+      (define-syntax (name stx)
+      (do-time (format "Calling ~a driver" 'name))      
+      (define f (dynamic-require 'typed-racket/core 'sym))
+      (do-time (format "Loaded core ~a" 'sym))
+      (begin0 (f stx do-standard-inits)
+              (do-time "Finished, returning to Racket")))
+
+/Applications/Racket v5.3.0.13/collects/compiler/cm.rkt: 308:0 
+  (define (compile-zo* mode path src-sha1 read-src-syntax zo-name up-to-date)
+  ;; The `path' argument has been converted to .rkt or .ss form,
+  ;;  as appropriate.
+  ;; External dependencies registered through reader guard and
+  ;; accomplice-logged events:
+  (define external-deps null)
+  (define reader-deps null)
+  (define deps-sema (make-semaphore 1))
+  (define done-key (gensym))
+  (define (external-dep! p)
+    (call-with-semaphore
+     deps-sema
+     (lambda ()
+       (set! external-deps (cons (path->bytes p) external-deps)))))
+  (define (reader-dep! p)
+    (call-with-semaphore
+     deps-sema
+     (lambda ()
+       (set! reader-deps (cons (path->bytes p) reader-deps)))))
+
+  ;; Set up a logger to receive and filter accomplice events:
+  (define accomplice-logger (make-logger))
+  (define log-th
+    (let ([orig-log (current-logger)]
+          [receiver (make-log-receiver accomplice-logger 'info)])
+      (thread (lambda ()
+                (let loop ()
+                  (let ([l (sync receiver)])
+                    (unless (eq? (vector-ref l 2) done-key)
+                      (if (and (eq? (vector-ref l 0) 'info)
+                               (file-dependency? (vector-ref l 2))
+                               (path? (file-dependency-path (vector-ref l 2))))
+                        (external-dep! (file-dependency-path (vector-ref l 2)))
+                        (log-message orig-log (vector-ref l 0) (vector-ref l 1)
+                                     (vector-ref l 2)))
+                      (loop))))))))
+
+  ;; Compile the code:
+  (define code
+    (parameterize ([current-reader-guard
+                    (let* ([rg (current-reader-guard)]
+                           [rg (if (ext-reader-guard? rg)
+                                 (ext-reader-guard-top rg)
+                                 rg)])
+                      (make-ext-reader-guard
+                       (lambda (d)
+                         ;; Start by calling the top installed guard to
+                         ;; transform the module path, avoiding redundant
+                         ;; dependencies by avoiding accumulation of these
+                         ;; guards.
+                         (let ([d (rg d)])
+                           (when (module-path? d)
+                             (let* ([p (resolved-module-path-name
+                                        (module-path-index-resolve
+                                         (module-path-index-join d #f)))]
+                                    [p (if (pair? p)
+                                           ;; Create a dependency only if 
+                                           ;; the corresponding submodule is
+                                           ;; declared:
+                                           (if (module-declared? d #t)
+                                               (car p)
+                                               #f)
+                                           p)])
+                               (when (path? p) (reader-dep! p))))
+                           d))
+                       rg))]
+                   [current-logger accomplice-logger])
+      (get-module-code path mode compile
+                       (lambda (a b) #f) ; extension handler
+                       #:source-reader read-src-syntax)))
+  (define code-dir (get-compilation-dir mode path))
+
+  ;; Wait for accomplice logging to finish:
+  (log-message accomplice-logger 'info "stop" done-key)
+  (sync log-th)
+
+  ;; Write the code and dependencies:
+  (when code
+    (with-compiler-security-guard (make-directory*/ignore-exists-exn code-dir))
+    (with-compile-output zo-name
+      (lambda (out tmp-name)
+        (with-handlers ([exn:fail?
+                         (lambda (ex)
+                           (close-output-port out)
+                           (compilation-failure mode path zo-name #f
+                                                (exn-message ex))
+                           (raise ex))])
+          (parameterize ([current-write-relative-directory
+                          (let* ([dir
+                                  (let-values ([(base name dir?) (split-path path)])
+                                    (if (eq? base 'relative)
+                                        (current-directory)
+                                        (path->complete-path base (current-directory))))]
+                                 [collects-dir (find-collects-dir)]
+                                 [e-dir (explode-path dir)]
+                                 [e-collects-dir (explode-path collects-dir)])
+                            (if (and ((length e-dir) . > . (length e-collects-dir))
+                                     (for/and ([a (in-list e-dir)]
+                                               [b (in-list e-collects-dir)])
+                                       (equal? a b)))
+                                ;; `dir' extends `collects-dir':
+                                (cons dir collects-dir)
+                                ;; `dir' doesn't extend `collects-dir':
+                                dir))])
+            (let ([b (open-output-bytes)])
+              ;; Write bytecode into string
+              (write code b)
+              ;; Compute SHA1 over modules within bytecode
+              (let* ([s (get-output-bytes b)])
+                (install-module-hashes! s 0 (bytes-length s))
+                ;; Write out the bytecode with module hash
+                (write-bytes s out)))))
+        ;; redundant, but close as early as possible:
+        (close-output-port out)
+        ;; Note that we check time and write .deps before returning from
+        ;; with-compile-output...
+        (verify-times path tmp-name)
+        (write-deps code mode path src-sha1 external-deps reader-deps up-to-date read-src-syntax)))))
+
+/Applications/Racket v5.3.0.13/collects/compiler/cm.rkt: 508:26 
+                            (lambda ()
+                            (when ok-to-compile?
+                              (when zo-exists? (try-delete-file zo-name #f))
+                              (log-info (format "cm: ~acompiling ~a" 
+                                                (build-string 
+                                                 (depth)
+                                                 (λ (x) (if (= 2 (modulo x 3)) #\| #\space)))
+                                                actual-path))
+                              (parameterize ([depth (+ (depth) 1)])
+                                (with-handlers
+                                    ([exn:get-module-code?
+                                      (lambda (ex)
+                                        (compilation-failure mode path zo-name
+                                                             (exn:get-module-code-path ex)
+                                                             (exn-message ex))
+                                        (raise ex))])
+                                  (compile-zo* mode path src-sha1 read-src-syntax zo-name up-to-date)))
+                              (log-info (format "cm: ~acompiled  ~a" 
+                                                (build-string 
+                                                 (depth)
+                                                 (λ (x) (if (= 2 (modulo x 3)) #\| #\space)))
+                                                actual-path))))
+
+/Applications/Racket v5.3.0.13/collects/compiler/cm.rkt: 501:42 
+                     ((if sha1-only? values (lambda (build) (build) #f))
+
+/Applications/Racket v5.3.0.13/collects/compiler/cm.rkt: 466:0 
+  (define (maybe-compile-zo sha1-only? deps mode path orig-path read-src-syntax up-to-date)
+  (let ([actual-path (actual-source-path orig-path)])
+    (unless sha1-only?
+      ((manager-compile-notify-handler) actual-path)
+      (trace-printf "compiling: ~a" actual-path))
+    (begin0
+     (parameterize ([indent (string-append "  " (indent))])
+       (let* ([zo-name (path-add-suffix (get-compilation-path mode path) #".zo")]
+              [zo-exists? (file-exists? zo-name)])
+         (if (and zo-exists? (trust-existing-zos))
+             (begin
+               (log-info (format "cm: ~atrusting ~a" 
+                                 (build-string 
+                                  (depth)
+                                  (λ (x) (if (= 2 (modulo x 3)) #\| #\space)))
+                                 zo-name))
+               (touch zo-name)
+               #f)
+             (let ([src-sha1 (and zo-exists?
+                                  deps
+                                  (cadr deps)
+                                  (get-source-sha1 path))])
+               (if (and zo-exists?
+                        src-sha1
+                        (equal? src-sha1 (caadr deps))
+                        (equal? (get-dep-sha1s (cddr deps) up-to-date read-src-syntax mode #f)
+                                (cdadr deps)))
+                   (begin
+                     (log-info (format "cm: ~ahash-equivalent ~a" 
+                                       (build-string 
+                                        (depth)
+                                        (λ (x) (if (= 2 (modulo x 3)) #\| #\space)))
+                                       zo-name))
+                     (touch zo-name)
+                     #f)
+                   ((if sha1-only? values (lambda (build) (build) #f))
+                    (lambda ()
+                      (let* ([lc (parallel-lock-client)]
+                             [locked? (and lc (lc 'lock zo-name))]
+                             [ok-to-compile? (or (not lc) locked?)])
+                        (dynamic-wind
+                          (lambda () (void))
+                          (lambda ()
+                            (when ok-to-compile?
+                              (when zo-exists? (try-delete-file zo-name #f))
+                              (log-info (format "cm: ~acompiling ~a" 
+                                                (build-string 
+                                                 (depth)
+                                                 (λ (x) (if (= 2 (modulo x 3)) #\| #\space)))
+                                                actual-path))
+                              (parameterize ([depth (+ (depth) 1)])
+                                (with-handlers
+                                    ([exn:get-module-code?
+                                      (lambda (ex)
+                                        (compilation-failure mode path zo-name
+                                                             (exn:get-module-code-path ex)
+                                                             (exn-message ex))
+                                        (raise ex))])
+                                  (compile-zo* mode path src-sha1 read-src-syntax zo-name up-to-date)))
+                              (log-info (format "cm: ~acompiled  ~a" 
+                                                (build-string 
+                                                 (depth)
+                                                 (λ (x) (if (= 2 (modulo x 3)) #\| #\space)))
+                                                actual-path))))
+                          (lambda ()
+                            (when locked?
+                              (lc 'unlock zo-name))))))))))))
+     (unless sha1-only?
+       (trace-printf "end compile: ~a" actual-path)))))
+
+/Applications/Racket v5.3.0.13/collects/compiler/cm.rkt: 579:2 
+    (define (do-check)
+    (let* ([main-path orig-path]
+           [alt-path (rkt->ss orig-path)]
+           [main-path-time (try-file-time main-path)]
+           [alt-path-time (and (not main-path-time)
+                               (not (eq? alt-path main-path))
+                               (try-file-time alt-path))]
+           [path (if alt-path-time alt-path main-path)]
+           [path-time (or main-path-time alt-path-time)]
+           [path-zo-time (get-compiled-time mode path)])
+      (cond
+       [(not path-time)
+        (trace-printf "~a does not exist" orig-path)
+        (or (hash-ref up-to-date orig-path #f)
+            (let ([stamp (cons path-zo-time
+                               (delay (get-compiled-sha1 mode path)))])
+              (hash-set! up-to-date main-path stamp)
+              (unless (eq? main-path alt-path)
+                (hash-set! up-to-date alt-path stamp))
+              stamp))]
+       [else
+        (let ([deps (read-deps path)])
+          (define build
+            (cond
+             [(not (and (pair? deps) (equal? (version) (car deps))))
+              (lambda ()
+                (trace-printf "newer version...")
+                (maybe-compile-zo #f #f mode path orig-path read-src-syntax up-to-date))]
+             [(> path-time path-zo-time)
+              (trace-printf "newer src...")
+              ;; If `sha1-only?', then `maybe-compile-zo' returns a #f or thunk:
+              (maybe-compile-zo sha1-only? deps mode path orig-path read-src-syntax up-to-date)]
+             [(ormap
+               (lambda (p)
+                 ;; (cons 'ext rel-path) => a non-module file (check date)
+                 ;; rel-path => a module file name (check transitive dates)
+                 (define ext? (and (pair? p) (eq? 'ext (car p))))
+                 (define d (main-collects-relative->path (if ext? (cdr p) p)))
+                 (define t
+                   (if ext?
+                       (cons (try-file-time d) #f)
+                       (compile-root mode d up-to-date read-src-syntax #f)))
+                 (and (car t)
+                      (> (car t) path-zo-time)
+                      (begin (trace-printf "newer: ~a (~a > ~a)..."
+                                           d (car t) path-zo-time)
+                             #t)))
+               (cddr deps))
+              ;; If `sha1-only?', then `maybe-compile-zo' returns a #f or thunk:
+              (maybe-compile-zo sha1-only? deps mode path orig-path read-src-syntax up-to-date)]
+             [else #f]))
+          (cond
+           [(and build sha1-only?) #f]
+           [else
+            (when build (build))
+            (let ([stamp (cons (get-compiled-time mode path)
+                               (delay (get-compiled-sha1 mode path)))])
+              (hash-set! up-to-date main-path stamp)
+              (unless (eq? main-path alt-path)
+                (hash-set! up-to-date alt-path stamp))
+              stamp)]))])))
+
+/Applications/Racket v5.3.0.13/collects/compiler/cm.rkt: 679:4 
+      (define (compilation-manager-load-handler path mod-name)
+      (cond [(or (not mod-name)
+                 ;; Don't trigger compilation if we're not supposed to work with source:
+                 (and (pair? mod-name)
+                      (not (car mod-name))))
+             (trace-printf "skipping:  ~a mod-name ~s" path mod-name)]
+            [(not (or (file-exists? path)
+                      (let ([p2 (rkt->ss path)])
+                        (and (not (eq? path p2))
+                             (file-exists? p2)))))
+             (trace-printf "skipping:  ~a file does not exist" path)
+             (when delete-zos-when-rkt-file-does-not-exist?
+               (unless (null? modes)
+                 (define to-delete (path-add-suffix (get-compilation-path (car modes) path) #".zo")) 
+                 (when (file-exists? to-delete)
+                   (trace-printf "deleting:  ~s" to-delete)
+                   (with-compiler-security-guard (delete-file to-delete)))))]
+            [(or (null? (use-compiled-file-paths))
+                 (not (equal? (car modes)
+                              (car (use-compiled-file-paths)))))
+             (trace-printf "skipping:  ~a compiled-paths's first element changed; current value ~s, first element was ~s"
+                           path 
+                           (use-compiled-file-paths)
+                           (car modes))]
+            [(not (eq? compilation-manager-load-handler
+                       (current-load/use-compiled)))
+             (trace-printf "skipping:  ~a current-load/use-compiled changed ~s"
+                           path (current-load/use-compiled))]
+            [(not (eq? orig-eval (current-eval)))
+             (trace-printf "skipping:  ~a orig-eval ~s current-eval ~s"
+                           path orig-eval (current-eval))]
+            [(not (eq? orig-load (current-load)))
+             (trace-printf "skipping:  ~a orig-load ~s current-load ~s"
+                           path orig-load (current-load))]
+            [(not (eq? orig-registry
+                       (namespace-module-registry (current-namespace))))
+             (trace-printf "skipping:  ~a orig-registry ~s current-registry ~s"
+                           path orig-registry
+                           (namespace-module-registry (current-namespace)))]
+            [else
+             (trace-printf "processing: ~a" path)
+             (parameterize ([compiler-security-guard security-guard])
+               (compile-root (car modes) path cache read-syntax #f))
+             (trace-printf "done: ~a" path)])
+      (default-handler path mod-name))
+
+/Applications/Racket v5.3.0.13/collects/typed-racket/typed-racket.rkt: 33:4 
+      (define-syntax (name stx)
+      (do-time (format "Calling ~a driver" 'name))      
+      (define f (dynamic-require 'typed-racket/core 'sym))
+      (do-time (format "Loaded core ~a" 'sym))
+      (begin0 (f stx do-standard-inits)
+              (do-time "Finished, returning to Racket")))
+>How-To-Repeat:
+Looks like this is all about string-trim. My program used to define its own string-trim but was also requiring racket/string. When I tried to compile the program against this version of racket, I was told that string-trim was already imported, so I deleted my definition and got this error. A simple test case, then, is:
+
+#lang typed/racket/base
+
+(require racket/string)
+
+(string-trim "  foo  ")
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: zeppieri@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12932: Typed Racket internal error: contract violation in type-checking use of string-trim
+Date: Mon, 23 Jul 2012 07:27:12 -0400
+
+ This appears to be a duplicate of the bug that I reported yesterday. 
+ 
+ 
+ On Jul 22, 2012, at 9:12 PM, zeppieri@gmail.com wrote:
+ 
+ > format: contract violation
+ >  expected: string?
+ >  given: 'kw-convert
+ >  argument position: 1st
+ >  other arguments...:
+ >   "non-function type"
+ >   Nothing
+ 
+
+State changed from "open" to "closed" by samth@racket-lang.org at Tue, 14 Aug 2012 16:13:52 -0400
+Reason>>> A commit by samth@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/9ef80edfef

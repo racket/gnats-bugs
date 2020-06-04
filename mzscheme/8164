@@ -1,0 +1,193 @@
+From apache@plt-scheme.org Tue Jul 11 10:43:26 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.13.6/8.13.6) with ESMTP id k6BEhQQt016290
+	for <bugs@plt-scheme.org>; Tue, 11 Jul 2006 10:43:26 -0400
+Message-Id: <200607111443.k6BEhQTQ016289@champlain.ccs.neu.edu>
+Date: Tue, 11 Jul 2006 10:43:26 -0400
+From: hdg@cox.net
+To: bugs@plt-scheme.org
+Subject: read/recursive ignores inserted ")"
+
+>Number:         8164
+>Category:       mzscheme
+>Synopsis:       read/recursive ignores inserted ")"
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jul 11 10:45:01 -0400 2006
+>Closed-Date:    Fri Aug 04 15:59:32 -0400 2006
+>Last-Modified:  Fri Aug 04 15:59:32 -0400 2006
+>Originator:     David Goering
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301
+>Environment:
+macosx "Darwin ip68-103-47-84.ks.ok.cox.net 8.7.0 Darwin Kernel Version 8.7.0: Fri May 26 15:20:53 PDT 2006; root:xnu-792.6.76.obj~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx) (get-display-depth) = 32
+Docs Installed:
+(#<path:/Applications/PLT Scheme v301/collects/doc/web-server> #<path:/Applications/PLT Scheme v301/collects/doc/tour> #<path:/Applications/PLT Scheme v301/collects/doc/tools> #<path:/Applications/PLT Scheme v301/collects/doc/tex2page> #<path:/Applications/PLT Scheme v301/collects/doc/teachpack> #<path:/Applications/PLT Scheme v301/collects/doc/t-y-scheme> #<path:/Applications/PLT Scheme v301/collects/doc/swindle> #<path:/Applications/PLT Scheme v301/collects/doc/srfi> #<path:/Applications/PLT Scheme v301/collects/doc/r5rs> #<path:/Applications/PLT Scheme v301/collects/doc/profj-intermediate> #<path:/Applications/PLT Scheme v301/collects/doc/profj-beginner> #<path:/Applications/PLT Scheme v301/collects/doc/profj-advanced> #<path:/Applications/PLT Scheme v301/collects/doc/plot> #<path:/Applications/PLT Scheme v301/collects/doc/mzscheme> #<path:/Applications/PLT Scheme v301/collects/doc/mzlib> #<path:/Applications/PLT Scheme v301/collects/doc/mzc> #<path:/Applications/PLT Scheme v301/collects/doc/mrlib> #<path:/Applications/PLT Scheme v301/collects/doc/mred> #<path:/Applications/PLT Scheme v301/collects/doc/misclib> #<path:/Applications/PLT Scheme v301/collects/doc/intermediate-lambda> #<path:/Applications/PLT Scheme v301/collects/doc/intermediate> #<path:/Applications/PLT Scheme v301/collects/doc/insidemz> #<path:/Applications/PLT Scheme v301/collects/doc/help> #<path:/Applications/PLT Scheme v301/collects/doc/framework> #<path:/Applications/PLT Scheme v301/collects/doc/foreign> #<path:/Applications/PLT Scheme v301/collects/doc/drscheme> #<path:/Applications/PLT Scheme v301/collects/doc/beginning-abbr> #<path:/Applications/PLT Scheme v301/collects/doc/beginning> #<path:/Applications/PLT Scheme v301/collects/doc/advanced>)
+Collections:
+((#<path:/Users/david/Library/PLT Scheme/301/collects> "non-existent path") (#<path:/Applications/PLT Scheme v301/collects> (#<path:afm> #<path:algol60> #<path:browser> #<path:compiler> #<path:defaults> #<path:doc> #<path:drscheme> #<path:dynext> #<path:embedded-gui> #<path:eopl> #<path:errortrace> #<path:ffi> #<path:framework> #<path:frtime> #<path:games> #<path:graphics> #<path:help> #<path:hierlist> #<path:htdch> #<path:htdp> #<path:html> #<path:icons> #<path:info-domain> #<path:lang> #<path:launcher> #<path:make> #<path:mred> #<path:mrlib> #<path:mzlib> #<path:mzscheme> #<path:mztake> #<path:net> #<path:openssl> #<path:parser-tools> #<path:planet> #<path:plot> #<path:preprocessor> #<path:profj> #<path:profjBoxes> #<path:r5rs> #<path:setup> #<path:sgl> #<path:slatex> #<path:slibinit> #<path:slideshow> #<path:srfi> #<path:ssax> #<path:stepper> #<path:string-constants> #<path:swindle> #<path:syntax> #<path:syntax-color> #<path:test-suite> #<path:tex2page> #<path:texpict> #<path:trace> #<path:version> #<path:web-server> #<path:xml>)))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+This bug involves custom readtables.
+
+A ")" inserted into a read stream by a reader-extension procedure is
+ignored during the subsequent recursive read.  "(" is read correctly.
+>How-To-Repeat:
+;; This readtable attempts to capture square brackets as symbols, 
+;; yet retain their function as delimiters.  
+;; For example, "(a [b c] d)" is to be read as "(a (|[| b c |]|) d)"
+;;
+;; This is done by replacing "[" with "(#[" and replacing
+;; "]" with "#])" and reading recursively.
+;;
+;; Bug: the inserted "(" is picked up, but ")" is ignored.
+
+
+
+(require (lib "port.ss"))
+
+; replaces "[" with "(#[" and rereads
+(define read-left-bracket
+  (case-lambda
+    [(ch port) 
+      ;; `read' mode
+      (read/recursive 
+        (left-bracket-reread-port ch port)
+        #f
+        test-readtable)]
+    [(ch port src line col pos)
+      ;; `read-syntax' mode
+      (read-syntax/recursive 
+        src
+        (left-bracket-reread-port ch port)
+        #f
+        test-readtable)
+       src]))
+
+(define (left-bracket-reread-port ch port)
+  (display "in left-bracket-reread-port; port = ") 
+    (display ch) (display (peek-char port))(display "...") (newline)
+  (input-port-append #f (open-input-string (list->string (list #\( #\# ch))) port))
+
+; reads "#[" and returns symbol |[|
+(define reread-left-bracket
+  (case-lambda
+    [(ch port) 
+      ;; `read' mode
+      (reread-left-bracket~ ch port)] 
+    [(ch port src line col pos)
+      ;; `read-syntax' mode
+      (datum->syntax-object
+         #f
+         (reread-left-bracket~ ch port)
+         (let-values ([(l c p) (port-next-location port)])
+           (list src line col pos (and pos (- p pos)))))]))
+
+(define (reread-left-bracket~ ch port)
+  (display "in reread-left-bracket~; port = ") 
+    (display ch) (display (peek-char port))(display "...") (newline)
+  (string->symbol (list->string (list ch))))
+   
+; replaces "]" with "#])" and rereads
+(define read-right-bracket
+  (case-lambda
+    [(ch port) 
+      ;; `read' mode
+      (read/recursive 
+        (right-bracket-reread-port ch port)
+        #f
+        test-readtable)]
+    [(ch port src line col pos)
+      ;; `read-syntax' mode
+      (read-syntax/recursive 
+        src
+        (right-bracket-reread-port ch port)
+        #f
+        test-readtable)
+       src]))
+
+(define (right-bracket-reread-port ch port)
+  (display "in right-bracket-reread-port; port = ") 
+    (display ch) (display (peek-char port))(display "...") (newline)
+  (input-port-append #f (open-input-string (list->string (list #\# ch #\) ))) port))  
+    
+; reads "#]" and returns symbo |]|
+(define reread-right-bracket
+  (case-lambda
+    [(ch port) 
+      ;; `read' mode
+      (reread-right-bracket~ ch port)] 
+    [(ch port src line col pos)
+      ;; `read-syntax' mode
+      (datum->syntax-object
+         #f
+         (reread-right-bracket~ ch port)
+         (let-values ([(l c p) (port-next-location port)])
+           (list src line col pos (and pos (- p pos)))))]))
+
+(define (reread-right-bracket~ ch port)
+  (display "in reread-right-bracket~; port = ") 
+    (display ch) (display (peek-char port))(display "...") (newline)
+  (string->symbol (list->string (list ch ))))
+
+;----------------------------------------------------------------
+
+(define test-readtable  ; treats { } [ ] | . , ' ` as normal characters, same as *
+  (make-readtable #f   
+    #\[ 'terminating-macro read-left-bracket
+    #\] 'terminating-macro read-right-bracket
+    #\[ 'dispatch-macro reread-left-bracket
+    #\] 'dispatch-macro reread-right-bracket
+  ))
+;----------------------------------------------------------------
+
+(define test1 (parameterize ([current-readtable test-readtable])
+  (read (open-input-string "( a[b c]d ))"))))
+test1 ; should fail with "read: uexpected ')'", but instead returns "(a (|[| b c |]| d))"
+
+(define test2 (parameterize ([current-readtable test-readtable])
+  (read (open-input-string "( a[b c]d )"))))
+test2 ; should return => (a (|[| b i |]|) j),  but fails with "read: expected a ')'"
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: hdg@cox.net, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8164: read/recursive ignores inserted ")"
+Date: Tue, 11 Jul 2006 10:00:37 -0600
+
+ At Tue, 11 Jul 2006 10:45:01 -0400, hdg@cox.net wrote:
+ > A ")" inserted into a read stream by a reader-extension procedure is
+ > ignored during the subsequent recursive read.  "(" is read correctly.
+ 
+ The ")" isn't actually inserted into the port, though. It is inserted
+ into a new port, which is used by `read/recursive' in
+ `read-right-bracket'; having read the "#[" part from the new port, the
+ `read/recursive' returns, and the enclosing read continues with the
+ original port.
+ 
+ Offhand, I'm not sure there's a simple way to re-use the list-/pair-
+ reading part of the original parser to do what you're trying to do. You
+ might be able to do with with a new kind of input port that lets you
+ insert characters into the stream imperatively.
+ 
+ (None of the existing input ports let you do that, and inserting
+ characters imperatively wouldn't work in general because it would make
+ peeks inconsistent with future reads. But the imperative operation
+ would probably work with the reader, since the reader is only looking
+ ahead by one character in this case.)
+ 
+ Matthew
+ 
+
+
+State changed from "open" to "closed" by mflatt at Fri, 04 Aug 2006 15:59:32 -0400
+Reason>>> See PR 8174
+

@@ -1,0 +1,3361 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Apr 13 14:41:18 2013
+Received: from mail-ob0-f173.google.com (mail-ob0-f173.google.com [209.85.214.173])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r3DIfFG4025145
+	for <bugs@bugs.plt-scheme.org>; Sat, 13 Apr 2013 14:41:15 -0400
+Message-Id: <201304131841.r3DIfCnJ025138@champlain.ccs.neu.edu>
+Date: Sat, 13 Apr 2013 14:41:12 -0400
+From: matthias@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: contract issues confusing error message (wrong 'blame direction')
+
+>Number:         13692
+>Category:       contract
+>Synopsis:       contract issues confusing error message (wrong 'blame direction')
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Apr 13 14:44:01 -0400 2013
+>Closed-Date:    Sat Apr 13 20:18:19 -0400 2013
+>Last-Modified:  Tue Apr 16 08:00:18 -0400 2013
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4.3--2013-04-12(6642c114/d)
+>Environment:
+macosx "Darwin europeii.westell.com 11.4.2 Darwin Kernel Version 11.4.2: Thu Aug 23 16:25:48 PDT 2012; root:xnu-1699.32.7~1/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 613452652
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.4.3):
+ [none]
+
+
+
+Collections:
+("/Users/matthias/0Unison/collects/"
+ ("._.DS_Store" ".DS_Store" "compiled" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web"))
+("/Users/matthias/Library/Racket/5.3.4.3/collects"
+ (non-existent-path))
+("/Users/matthias/plt/collects"
+ (".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "math" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "pkg" "plai" "planet" "planet2" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "realm" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs" "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constan!
+ ts" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "tool" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+I got the following error message from the contract system for an object callback: 
+
+callback: broke its contract
+ promised: boolean?
+ produced: 1
+ in: the 1st argument of
+     the callback method in
+     ...
+     the 1st argument of
+      (-> (instanceof/c c/c) any)
+ contract from: (anonymous-module server)
+ blaming: (anonymous-module server)
+ at: unsaved-editor14484:21.18
+
+The program to reproduce this problem is below; the expected answer should be that f broke 
+callback's contract by sending in an integer when callback expected a boolean.
+>How-To-Repeat:
+#lang racket
+
+(module cserver racket
+  (provide
+   c/c
+   (contract-out
+    (c% c/c)))
+  
+  (define c/c
+    (class/c (callback (->m boolean? any))))
+  
+  (define c% 
+    (class object% 
+      (super-new)
+      (define/public (callback x) 3))))
+
+(module server racket 
+  (require (submod ".." cserver))
+  
+  (provide
+   (contract-out (f (-> (instanceof/c c/c) any))))
+  
+  (define (f o)
+    (send o callback 1)
+    2))
+
+(module client racket 
+  (require (submod ".." cserver) (submod ".." server))
+  (f (new c%)))
+
+(require 'client)
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 14:34:54 -0500
+
+ --047d7b33c98a34692304da431d3e
+ Content-Type: text/plain; charset=UTF-8
+ 
+ This seems to be something about how instanceof/c works. I'm not really
+ clear on what that contract does, actually -- one might think from the name
+ that it is a first-order check, but it appears not to be.
+ 
+ Robby
+ 
+ 
+ On Sat, Apr 13, 2013 at 1:44 PM, <matthias@ccs.neu.edu> wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13692
+ >
+ > Reported by matthias for release: 5.3.4.3--2013-04-12(6642c114/d)
+ >
+ > *** Description:
+ > I got the following error message from the contract system for an object
+ > callback:
+ >
+ > callback: broke its contract
+ >  promised: boolean?
+ >  produced: 1
+ >  in: the 1st argument of
+ >      the callback method in
+ >      ...
+ >      the 1st argument of
+ >       (-> (instanceof/c c/c) any)
+ >  contract from: (anonymous-module server)
+ >  blaming: (anonymous-module server)
+ >  at: unsaved-editor14484:21.18
+ >
+ > The program to reproduce this problem is below; the expected answer should
+ > be that f broke
+ > callback's contract by sending in an integer when callback expected a
+ > boolean.
+ >
+ > *** How to repeat:
+ > #lang racket
+ >
+ > (module cserver racket
+ >   (provide
+ >    c/c
+ >    (contract-out
+ >     (c% c/c)))
+ >
+ >   (define c/c
+ >     (class/c (callback (->m boolean? any))))
+ >
+ >   (define c%
+ >     (class object%
+ >       (super-new)
+ >       (define/public (callback x) 3))))
+ >
+ > (module server racket
+ >   (require (submod ".." cserver))
+ >
+ >   (provide
+ >    (contract-out (f (-> (instanceof/c c/c) any))))
+ >
+ >   (define (f o)
+ >     (send o callback 1)
+ >     2))
+ >
+ > (module client racket
+ >   (require (submod ".." cserver) (submod ".." server))
+ >   (f (new c%)))
+ >
+ > (require 'client)
+ >
+ > *** Environment:
+ > macosx "Darwin europeii.westell.com 11.4.2 Darwin Kernel Version 11.4.2:
+ > Thu Aug 23 16:25:48 PDT 2012; root:xnu-1699.32.7~1/RELEASE_X86_64 x86_64"
+ > (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 613452652
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = ();
+ > (links #:user? #f #:root? #t) = ()
+ > raco pkg (show):
+ > Installation-wide:
+ >  [none]
+ > User-specific, all-version:
+ >  [none]
+ > User-specific, version-specific (5.3.4.3):
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/Users/matthias/0Unison/collects/"
+ >  ("._.DS_Store" ".DS_Store" "compiled" "date" "finance" "info-domain"
+ > "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils"
+ > "web"))
+ > ("/Users/matthias/Library/Racket/5.3.4.3/collects"
+ >  (non-existent-path))
+ > ("/Users/matthias/plt/collects"
+ >  (".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser"
+ > "combinator-parser" "compatibility" "compiler" "config" "data" "datalog"
+ > "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext"
+ > "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime"
+ > "future-visualizer" "games" "graphics" "gui-debugger" "guibuilder"
+ > "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html"
+ > "icons" "images" "info-domain" "json" "lang" "launcher" "lazy"
+ > "macro-debugger" "make" "math" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom"
+ > "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs"
+ > "pkg" "plai" "planet" "planet2" "plot" "preprocessor" "profile" "r5rs"
+ > "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader"
+ > "readline" "realm" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs"
+ > "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib"
+ > "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper"
+ > "string-constan!
+ >  ts" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery"
+ > "test-engine" "tests" "tex2page" "texpict" "tool" "trace" "typed"
+ > "typed-racket" "typed-scheme" "unstable" "version" "waterworld"
+ > "web-server" "wxme" "xml" "xrepl"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main)
+ > (test))))
+ >
+ >
+ 
+ --047d7b33c98a34692304da431d3e
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">This seems to be something about how instanceof/c works. I=
+ &#39;m not really clear on what that contract does, actually -- one might t=
+ hink from the name that it is a first-order check, but it appears not to be=
+ .<div>
+ <br></div><div style>Robby</div></div><div class=3D"gmail_extra"><br><br><d=
+ iv class=3D"gmail_quote">On Sat, Apr 13, 2013 at 1:44 PM,  <span dir=3D"ltr=
+ ">&lt;<a href=3D"mailto:matthias@ccs.neu.edu" target=3D"_blank">matthias@cc=
+ s.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 692" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13692</a><br>
+ <br>
+ Reported by matthias for release: 5.3.4.3--2013-04-12(6642c114/d)<br>
+ <br>
+ *** Description:<br>
+ I got the following error message from the contract system for an object ca=
+ llback:<br>
+ <br>
+ callback: broke its contract<br>
+ =C2=A0promised: boolean?<br>
+ =C2=A0produced: 1<br>
+ =C2=A0in: the 1st argument of<br>
+ =C2=A0 =C2=A0 =C2=A0the callback method in<br>
+ =C2=A0 =C2=A0 =C2=A0...<br>
+ =C2=A0 =C2=A0 =C2=A0the 1st argument of<br>
+ =C2=A0 =C2=A0 =C2=A0 (-&gt; (instanceof/c c/c) any)<br>
+ =C2=A0contract from: (anonymous-module server)<br>
+ =C2=A0blaming: (anonymous-module server)<br>
+ =C2=A0at: unsaved-editor14484:21.18<br>
+ <br>
+ The program to reproduce this problem is below; the expected answer should =
+ be that f broke<br>
+ callback&#39;s contract by sending in an integer when callback expected a b=
+ oolean.<br>
+ <br>
+ *** How to repeat:<br>
+ #lang racket<br>
+ <br>
+ (module cserver racket<br>
+ =C2=A0 (provide<br>
+ =C2=A0 =C2=A0c/c<br>
+ =C2=A0 =C2=A0(contract-out<br>
+ =C2=A0 =C2=A0 (c% c/c)))<br>
+ <br>
+ =C2=A0 (define c/c<br>
+ =C2=A0 =C2=A0 (class/c (callback (-&gt;m boolean? any))))<br>
+ <br>
+ =C2=A0 (define c%<br>
+ =C2=A0 =C2=A0 (class object%<br>
+ =C2=A0 =C2=A0 =C2=A0 (super-new)<br>
+ =C2=A0 =C2=A0 =C2=A0 (define/public (callback x) 3))))<br>
+ <br>
+ (module server racket<br>
+ =C2=A0 (require (submod &quot;..&quot; cserver))<br>
+ <br>
+ =C2=A0 (provide<br>
+ =C2=A0 =C2=A0(contract-out (f (-&gt; (instanceof/c c/c) any))))<br>
+ <br>
+ =C2=A0 (define (f o)<br>
+ =C2=A0 =C2=A0 (send o callback 1)<br>
+ =C2=A0 =C2=A0 2))<br>
+ <br>
+ (module client racket<br>
+ =C2=A0 (require (submod &quot;..&quot; cserver) (submod &quot;..&quot; serv=
+ er))<br>
+ =C2=A0 (f (new c%)))<br>
+ <br>
+ (require &#39;client)<br>
+ <br>
+ *** Environment:<br>
+ macosx &quot;Darwin <a href=3D"http://europeii.westell.com" target=3D"_blan=
+ k">europeii.westell.com</a> 11.4.2 Darwin Kernel Version 11.4.2: Thu Aug 23=
+  16:25:48 PDT 2012; root:xnu-1699.32.7~1/RELEASE_X86_64 x86_64&quot; (x86_6=
+ 4-macosx/3m) (get-display-depth) =3D 32<br>
+ 
+ Human Language: english<br>
+ (current-memory-use) 613452652<br>
+ Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t) =3D ()=
+ ; (links #:user? #f #:root? #t) =3D ()<br>
+ raco pkg (show):<br>
+ Installation-wide:<br>
+ =C2=A0[none]<br>
+ User-specific, all-version:<br>
+ =C2=A0[none]<br>
+ User-specific, version-specific (5.3.4.3):<br>
+ =C2=A0[none]<br>
+ <br>
+ <br>
+ <br>
+ Collections:<br>
+ (&quot;/Users/matthias/0Unison/collects/&quot;<br>
+ =C2=A0(&quot;._.DS_Store&quot; &quot;.DS_Store&quot; &quot;compiled&quot; &=
+ quot;date&quot; &quot;finance&quot; &quot;info-domain&quot; &quot;info.ss&q=
+ uot; &quot;pdf.ss~&quot; &quot;session&quot; &quot;short&quot; &quot;testin=
+ g&quot; &quot;tll-collects&quot; &quot;utils&quot; &quot;web&quot;))<br>
+ 
+ (&quot;/Users/matthias/Library/Racket/<a href=3D"http://5.3.4.3/collects" t=
+ arget=3D"_blank">5.3.4.3/collects</a>&quot;<br>
+ =C2=A0(non-existent-path))<br>
+ (&quot;/Users/matthias/plt/collects&quot;<br>
+ =C2=A0(&quot;.gitignore&quot; &quot;2htdp&quot; &quot;afm&quot; &quot;algol=
+ 60&quot; &quot;at-exp&quot; &quot;browser&quot; &quot;combinator-parser&quo=
+ t; &quot;compatibility&quot; &quot;compiler&quot; &quot;config&quot; &quot;=
+ data&quot; &quot;datalog&quot; &quot;db&quot; &quot;defaults&quot; &quot;de=
+ inprogramm&quot; &quot;drracket&quot; &quot;drscheme&quot; &quot;dynext&quo=
+ t; &quot;embedded-gui&quot; &quot;eopl&quot; &quot;errortrace&quot; &quot;f=
+ fi&quot; &quot;file&quot; &quot;framework&quot; &quot;frtime&quot; &quot;fu=
+ ture-visualizer&quot; &quot;games&quot; &quot;graphics&quot; &quot;gui-debu=
+ gger&quot; &quot;guibuilder&quot; &quot;handin-client&quot; &quot;handin-se=
+ rver&quot; &quot;help&quot; &quot;hierlist&quot; &quot;honu&quot; &quot;htd=
+ p&quot; &quot;html&quot; &quot;icons&quot; &quot;images&quot; &quot;info-do=
+ main&quot; &quot;json&quot; &quot;lang&quot; &quot;launcher&quot; &quot;laz=
+ y&quot; &quot;macro-debugger&quot; &quot;make&quot; &quot;math&quot; &quot;=
+ meta&quot; &quot;mred&quot; &quot;mrlib&quot; &quot;mysterx&quot; &quot;mz&=
+ quot; &quot;mzcom&quot; &quot;mzlib&quot; &quot;mzscheme&quot; &quot;net&qu=
+ ot; &quot;openssl&quot; &quot;parser-tools&quot; &quot;picturing-programs&q=
+ uot; &quot;pkg&quot; &quot;plai&quot; &quot;planet&quot; &quot;planet2&quot=
+ ; &quot;plot&quot; &quot;preprocessor&quot; &quot;profile&quot; &quot;r5rs&=
+ quot; &quot;r6rs&quot; &quot;racket&quot; &quot;racklog&quot; &quot;rackuni=
+ t&quot; &quot;raclog&quot; &quot;raco&quot; &quot;racunit&quot; &quot;reade=
+ r&quot; &quot;readline&quot; &quot;realm&quot; &quot;redex&quot; &quot;repo=
+ -time-stamp&quot; &quot;repos-time-stamp&quot; &quot;rnrs&quot; &quot;s-exp=
+ &quot; &quot;schelog&quot; &quot;scheme&quot; &quot;schemeunit&quot; &quot;=
+ scribble&quot; &quot;scribblings&quot; &quot;scriblib&quot; &quot;setup&quo=
+ t; &quot;sgl&quot; &quot;sirmail&quot; &quot;slatex&quot; &quot;slideshow&q=
+ uot; &quot;srfi&quot; &quot;srpersist&quot; &quot;stepper&quot; &quot;strin=
+ g-constan!<br>
+ 
+ =C2=A0ts&quot; &quot;swindle&quot; &quot;syntax&quot; &quot;syntax-color&qu=
+ ot; &quot;teachpack&quot; &quot;test-box-recovery&quot; &quot;test-engine&q=
+ uot; &quot;tests&quot; &quot;tex2page&quot; &quot;texpict&quot; &quot;tool&=
+ quot; &quot;trace&quot; &quot;typed&quot; &quot;typed-racket&quot; &quot;ty=
+ ped-scheme&quot; &quot;unstable&quot; &quot;version&quot; &quot;waterworld&=
+ quot; &quot;web-server&quot; &quot;wxme&quot; &quot;xml&quot; &quot;xrepl&q=
+ uot;))<br>
+ 
+ <br>
+ Computer Language: ((&quot;Determine language from source&quot;) (#(#t prin=
+ t mixed-fraction-e #f #t debug) (default) #() &quot;#lang racket\n&quot; #t=
+  #t ((main) (test))))<br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --047d7b33c98a34692304da431d3e--
+From: sstrickl@ccs.neu.edu
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 15:44:24 -0400 (EDT)
+
+ --Apple-Mail-64790917-3B92-4115-AC41-907040FB5EC1
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ Content-Transfer-Encoding: quoted-printable
+ 
+ It lifts a class contract to objects. I haven't had a chance to look at thi=
+ s yet, but plan to shortly.
+ 
+ Stevie
+ 
+ On Apr 13, 2013, at 3:35 PM, Robby Findler <robby@eecs.northwestern.edu> wr=
+ ote:
+ 
+ > This seems to be something about how instanceof/c works. I'm not really c=
+ lear on what that contract does, actually -- one might think from the name =
+ that it is a first-order check, but it appears not to be.
+ >=20
+ > Robby
+ >=20
+ >=20
+ > On Sat, Apr 13, 2013 at 1:44 PM, <matthias@ccs.neu.edu> wrote:
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D13692
+ >>=20
+ >> Reported by matthias for release: 5.3.4.3--2013-04-12(6642c114/d)
+ >>=20
+ >> *** Description:
+ >> I got the following error message from the contract system for an object=
+  callback:
+ >>=20
+ >> callback: broke its contract
+ >>  promised: boolean?
+ >>  produced: 1
+ >>  in: the 1st argument of
+ >>      the callback method in
+ >>      ...
+ >>      the 1st argument of
+ >>       (-> (instanceof/c c/c) any)
+ >>  contract from: (anonymous-module server)
+ >>  blaming: (anonymous-module server)
+ >>  at: unsaved-editor14484:21.18
+ >>=20
+ >> The program to reproduce this problem is below; the expected answer shou=
+ ld be that f broke
+ >> callback's contract by sending in an integer when callback expected a bo=
+ olean.
+ >>=20
+ >> *** How to repeat:
+ >> #lang racket
+ >>=20
+ >> (module cserver racket
+ >>   (provide
+ >>    c/c
+ >>    (contract-out
+ >>     (c% c/c)))
+ >>=20
+ >>   (define c/c
+ >>     (class/c (callback (->m boolean? any))))
+ >>=20
+ >>   (define c%
+ >>     (class object%
+ >>       (super-new)
+ >>       (define/public (callback x) 3))))
+ >>=20
+ >> (module server racket
+ >>   (require (submod ".." cserver))
+ >>=20
+ >>   (provide
+ >>    (contract-out (f (-> (instanceof/c c/c) any))))
+ >>=20
+ >>   (define (f o)
+ >>     (send o callback 1)
+ >>     2))
+ >>=20
+ >> (module client racket
+ >>   (require (submod ".." cserver) (submod ".." server))
+ >>   (f (new c%)))
+ >>=20
+ >> (require 'client)
+ >>=20
+ >> *** Environment:
+ >> macosx "Darwin europeii.westell.com 11.4.2 Darwin Kernel Version 11.4.2:=
+  Thu Aug 23 16:25:48 PDT 2012; root:xnu-1699.32.7~1/RELEASE_X86_64 x86_64" =
+ (x86_64-macosx/3m) (get-display-depth) =3D 32
+ >> Human Language: english
+ >> (current-memory-use) 613452652
+ >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t) =3D=
+  (); (links #:user? #f #:root? #t) =3D ()
+ >> raco pkg (show):
+ >> Installation-wide:
+ >>  [none]
+ >> User-specific, all-version:
+ >>  [none]
+ >> User-specific, version-specific (5.3.4.3):
+ >>  [none]
+ >>=20
+ >>=20
+ >>=20
+ >> Collections:
+ >> ("/Users/matthias/0Unison/collects/"
+ >>  ("._.DS_Store" ".DS_Store" "compiled" "date" "finance" "info-domain" "i=
+ nfo.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web")=
+ )
+ >> ("/Users/matthias/Library/Racket/5.3.4.3/collects"
+ >>  (non-existent-path))
+ >> ("/Users/matthias/plt/collects"
+ >>  (".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-pa=
+ rser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" =
+ "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errort=
+ race" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphi=
+ cs" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hie=
+ rlist" "honu" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "l=
+ auncher" "lazy" "macro-debugger" "make" "math" "meta" "mred" "mrlib" "myste=
+ rx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturi=
+ ng-programs" "pkg" "plai" "planet" "planet2" "plot" "preprocessor" "profile=
+ " "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "re=
+ ader" "readline" "realm" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs=
+ " "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scribli=
+ b" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper=
+ " "string-constan!
+ >>  ts" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "=
+ test-engine" "tests" "tex2page" "texpict" "tool" "trace" "typed" "typed-rac=
+ ket" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "=
+ xml" "xrepl"))
+ >>=20
+ >> Computer Language: (("Determine language from source") (#(#t print mixed=
+ -fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test=
+ ))))
+ >=20
+ 
+ --Apple-Mail-64790917-3B92-4115-AC41-907040FB5EC1
+ Content-Type: text/html;
+ 	charset=utf-8
+ Content-Transfer-Encoding: base64
+ 
+ PGh0bWw+PGhlYWQ+PG1ldGEgaHR0cC1lcXVpdj0iY29udGVudC10eXBlIiBjb250ZW50PSJ0ZXh0
+ L2h0bWw7IGNoYXJzZXQ9dXRmLTgiPjwvaGVhZD48Ym9keSBkaXI9ImF1dG8iPjxkaXY+SXQgbGlm
+ dHMgYSBjbGFzcyBjb250cmFjdCB0byBvYmplY3RzLiBJIGhhdmVuJ3QgaGFkIGEgY2hhbmNlIHRv
+ IGxvb2sgYXQgdGhpcyB5ZXQsIGJ1dCBwbGFuIHRvIHNob3J0bHkuPC9kaXY+PGRpdj48YnI+PC9k
+ aXY+PGRpdj5TdGV2aWU8L2Rpdj48ZGl2Pjxicj5PbiBBcHIgMTMsIDIwMTMsIGF0IDM6MzUgUE0s
+ IFJvYmJ5IEZpbmRsZXIgJmx0OzxhIGhyZWY9Im1haWx0bzpyb2JieUBlZWNzLm5vcnRod2VzdGVy
+ bi5lZHUiPnJvYmJ5QGVlY3Mubm9ydGh3ZXN0ZXJuLmVkdTwvYT4mZ3Q7IHdyb3RlOjxicj48YnI+
+ PC9kaXY+PGJsb2NrcXVvdGUgdHlwZT0iY2l0ZSI+PGRpdj48ZGl2IGRpcj0ibHRyIj5UaGlzIHNl
+ ZW1zIHRvIGJlIHNvbWV0aGluZyBhYm91dCBob3cgaW5zdGFuY2VvZi9jIHdvcmtzLiBJJ20gbm90
+ IHJlYWxseSBjbGVhciBvbiB3aGF0IHRoYXQgY29udHJhY3QgZG9lcywgYWN0dWFsbHkgLS0gb25l
+ IG1pZ2h0IHRoaW5rIGZyb20gdGhlIG5hbWUgdGhhdCBpdCBpcyBhIGZpcnN0LW9yZGVyIGNoZWNr
+ LCBidXQgaXQgYXBwZWFycyBub3QgdG8gYmUuPGRpdj4NCjxicj48L2Rpdj48ZGl2IHN0eWxlPSIi
+ PlJvYmJ5PC9kaXY+PC9kaXY+PGRpdiBjbGFzcz0iZ21haWxfZXh0cmEiPjxicj48YnI+PGRpdiBj
+ bGFzcz0iZ21haWxfcXVvdGUiPk9uIFNhdCwgQXByIDEzLCAyMDEzIGF0IDE6NDQgUE0sICA8c3Bh
+ biBkaXI9Imx0ciI+Jmx0OzxhIGhyZWY9Im1haWx0bzptYXR0aGlhc0BjY3MubmV1LmVkdSIgdGFy
+ Z2V0PSJfYmxhbmsiPm1hdHRoaWFzQGNjcy5uZXUuZWR1PC9hPiZndDs8L3NwYW4+IHdyb3RlOjxi
+ cj4NCjxibG9ja3F1b3RlIGNsYXNzPSJnbWFpbF9xdW90ZSIgc3R5bGU9Im1hcmdpbjowIDAgMCAu
+ OGV4O2JvcmRlci1sZWZ0OjFweCAjY2NjIHNvbGlkO3BhZGRpbmctbGVmdDoxZXgiPkEgbmV3IHBy
+ b2JsZW0gcmVwb3J0IGlzIHdhaXRpbmcgYXQ8YnI+DQombmJzcDsgPGEgaHJlZj0iaHR0cDovL2J1
+ Z3MucmFja2V0LWxhbmcub3JnL3F1ZXJ5Lz9jbWQ9dmlldyZhbXA7cHI9MTM2OTIiIHRhcmdldD0i
+ X2JsYW5rIj5odHRwOi8vYnVncy5yYWNrZXQtbGFuZy5vcmcvcXVlcnkvP2NtZD12aWV3JmFtcDtw
+ cj0xMzY5MjwvYT48YnI+DQo8YnI+DQpSZXBvcnRlZCBieSBtYXR0aGlhcyBmb3IgcmVsZWFzZTog
+ NS4zLjQuMy0tMjAxMy0wNC0xMig2NjQyYzExNC9kKTxicj4NCjxicj4NCioqKiBEZXNjcmlwdGlv
+ bjo8YnI+DQpJIGdvdCB0aGUgZm9sbG93aW5nIGVycm9yIG1lc3NhZ2UgZnJvbSB0aGUgY29udHJh
+ Y3Qgc3lzdGVtIGZvciBhbiBvYmplY3QgY2FsbGJhY2s6PGJyPg0KPGJyPg0KY2FsbGJhY2s6IGJy
+ b2tlIGl0cyBjb250cmFjdDxicj4NCiZuYnNwO3Byb21pc2VkOiBib29sZWFuPzxicj4NCiZuYnNw
+ O3Byb2R1Y2VkOiAxPGJyPg0KJm5ic3A7aW46IHRoZSAxc3QgYXJndW1lbnQgb2Y8YnI+DQombmJz
+ cDsgJm5ic3A7ICZuYnNwO3RoZSBjYWxsYmFjayBtZXRob2QgaW48YnI+DQombmJzcDsgJm5ic3A7
+ ICZuYnNwOy4uLjxicj4NCiZuYnNwOyAmbmJzcDsgJm5ic3A7dGhlIDFzdCBhcmd1bWVudCBvZjxi
+ cj4NCiZuYnNwOyAmbmJzcDsgJm5ic3A7ICgtJmd0OyAoaW5zdGFuY2VvZi9jIGMvYykgYW55KTxi
+ cj4NCiZuYnNwO2NvbnRyYWN0IGZyb206IChhbm9ueW1vdXMtbW9kdWxlIHNlcnZlcik8YnI+DQom
+ bmJzcDtibGFtaW5nOiAoYW5vbnltb3VzLW1vZHVsZSBzZXJ2ZXIpPGJyPg0KJm5ic3A7YXQ6IHVu
+ c2F2ZWQtZWRpdG9yMTQ0ODQ6MjEuMTg8YnI+DQo8YnI+DQpUaGUgcHJvZ3JhbSB0byByZXByb2R1
+ Y2UgdGhpcyBwcm9ibGVtIGlzIGJlbG93OyB0aGUgZXhwZWN0ZWQgYW5zd2VyIHNob3VsZCBiZSB0
+ aGF0IGYgYnJva2U8YnI+DQpjYWxsYmFjaydzIGNvbnRyYWN0IGJ5IHNlbmRpbmcgaW4gYW4gaW50
+ ZWdlciB3aGVuIGNhbGxiYWNrIGV4cGVjdGVkIGEgYm9vbGVhbi48YnI+DQo8YnI+DQoqKiogSG93
+ IHRvIHJlcGVhdDo8YnI+DQojbGFuZyByYWNrZXQ8YnI+DQo8YnI+DQoobW9kdWxlIGNzZXJ2ZXIg
+ cmFja2V0PGJyPg0KJm5ic3A7IChwcm92aWRlPGJyPg0KJm5ic3A7ICZuYnNwO2MvYzxicj4NCiZu
+ YnNwOyAmbmJzcDsoY29udHJhY3Qtb3V0PGJyPg0KJm5ic3A7ICZuYnNwOyAoYyUgYy9jKSkpPGJy
+ Pg0KPGJyPg0KJm5ic3A7IChkZWZpbmUgYy9jPGJyPg0KJm5ic3A7ICZuYnNwOyAoY2xhc3MvYyAo
+ Y2FsbGJhY2sgKC0mZ3Q7bSBib29sZWFuPyBhbnkpKSkpPGJyPg0KPGJyPg0KJm5ic3A7IChkZWZp
+ bmUgYyU8YnI+DQombmJzcDsgJm5ic3A7IChjbGFzcyBvYmplY3QlPGJyPg0KJm5ic3A7ICZuYnNw
+ OyAmbmJzcDsgKHN1cGVyLW5ldyk8YnI+DQombmJzcDsgJm5ic3A7ICZuYnNwOyAoZGVmaW5lL3B1
+ YmxpYyAoY2FsbGJhY2sgeCkgMykpKSk8YnI+DQo8YnI+DQoobW9kdWxlIHNlcnZlciByYWNrZXQ8
+ YnI+DQombmJzcDsgKHJlcXVpcmUgKHN1Ym1vZCAiLi4iIGNzZXJ2ZXIpKTxicj4NCjxicj4NCiZu
+ YnNwOyAocHJvdmlkZTxicj4NCiZuYnNwOyAmbmJzcDsoY29udHJhY3Qtb3V0IChmICgtJmd0OyAo
+ aW5zdGFuY2VvZi9jIGMvYykgYW55KSkpKTxicj4NCjxicj4NCiZuYnNwOyAoZGVmaW5lIChmIG8p
+ PGJyPg0KJm5ic3A7ICZuYnNwOyAoc2VuZCBvIGNhbGxiYWNrIDEpPGJyPg0KJm5ic3A7ICZuYnNw
+ OyAyKSk8YnI+DQo8YnI+DQoobW9kdWxlIGNsaWVudCByYWNrZXQ8YnI+DQombmJzcDsgKHJlcXVp
+ cmUgKHN1Ym1vZCAiLi4iIGNzZXJ2ZXIpIChzdWJtb2QgIi4uIiBzZXJ2ZXIpKTxicj4NCiZuYnNw
+ OyAoZiAobmV3IGMlKSkpPGJyPg0KPGJyPg0KKHJlcXVpcmUgJ2NsaWVudCk8YnI+DQo8YnI+DQoq
+ KiogRW52aXJvbm1lbnQ6PGJyPg0KbWFjb3N4ICJEYXJ3aW4gPGEgaHJlZj0iaHR0cDovL2V1cm9w
+ ZWlpLndlc3RlbGwuY29tIiB0YXJnZXQ9Il9ibGFuayI+ZXVyb3BlaWkud2VzdGVsbC5jb208L2E+
+ IDExLjQuMiBEYXJ3aW4gS2VybmVsIFZlcnNpb24gMTEuNC4yOiBUaHUgQXVnIDIzIDE2OjI1OjQ4
+ IFBEVCAyMDEyOyByb290OnhudS0xNjk5LjMyLjd+MS9SRUxFQVNFX1g4Nl82NCB4ODZfNjQiICh4
+ ODZfNjQtbWFjb3N4LzNtKSAoZ2V0LWRpc3BsYXktZGVwdGgpID0gMzI8YnI+DQoNCkh1bWFuIExh
+ bmd1YWdlOiBlbmdsaXNoPGJyPg0KKGN1cnJlbnQtbWVtb3J5LXVzZSkgNjEzNDUyNjUyPGJyPg0K
+ TGlua3M6IChsaW5rcykgPSAoKTsgKGxpbmtzICM6dXNlcj8gI2YpID0gKCk7IChsaW5rcyAjOnJv
+ b3Q/ICN0KSA9ICgpOyAobGlua3MgIzp1c2VyPyAjZiAjOnJvb3Q/ICN0KSA9ICgpPGJyPg0KcmFj
+ byBwa2cgKHNob3cpOjxicj4NCkluc3RhbGxhdGlvbi13aWRlOjxicj4NCiZuYnNwO1tub25lXTxi
+ cj4NClVzZXItc3BlY2lmaWMsIGFsbC12ZXJzaW9uOjxicj4NCiZuYnNwO1tub25lXTxicj4NClVz
+ ZXItc3BlY2lmaWMsIHZlcnNpb24tc3BlY2lmaWMgKDUuMy40LjMpOjxicj4NCiZuYnNwO1tub25l
+ XTxicj4NCjxicj4NCjxicj4NCjxicj4NCkNvbGxlY3Rpb25zOjxicj4NCigiL1VzZXJzL21hdHRo
+ aWFzLzBVbmlzb24vY29sbGVjdHMvIjxicj4NCiZuYnNwOygiLl8uRFNfU3RvcmUiICIuRFNfU3Rv
+ cmUiICJjb21waWxlZCIgImRhdGUiICJmaW5hbmNlIiAiaW5mby1kb21haW4iICJpbmZvLnNzIiAi
+ cGRmLnNzfiIgInNlc3Npb24iICJzaG9ydCIgInRlc3RpbmciICJ0bGwtY29sbGVjdHMiICJ1dGls
+ cyIgIndlYiIpKTxicj4NCg0KKCIvVXNlcnMvbWF0dGhpYXMvTGlicmFyeS9SYWNrZXQvPGEgaHJl
+ Zj0iaHR0cDovLzUuMy40LjMvY29sbGVjdHMiIHRhcmdldD0iX2JsYW5rIj41LjMuNC4zL2NvbGxl
+ Y3RzPC9hPiI8YnI+DQombmJzcDsobm9uLWV4aXN0ZW50LXBhdGgpKTxicj4NCigiL1VzZXJzL21h
+ dHRoaWFzL3BsdC9jb2xsZWN0cyI8YnI+DQombmJzcDsoIi5naXRpZ25vcmUiICIyaHRkcCIgImFm
+ bSIgImFsZ29sNjAiICJhdC1leHAiICJicm93c2VyIiAiY29tYmluYXRvci1wYXJzZXIiICJjb21w
+ YXRpYmlsaXR5IiAiY29tcGlsZXIiICJjb25maWciICJkYXRhIiAiZGF0YWxvZyIgImRiIiAiZGVm
+ YXVsdHMiICJkZWlucHJvZ3JhbW0iICJkcnJhY2tldCIgImRyc2NoZW1lIiAiZHluZXh0IiAiZW1i
+ ZWRkZWQtZ3VpIiAiZW9wbCIgImVycm9ydHJhY2UiICJmZmkiICJmaWxlIiAiZnJhbWV3b3JrIiAi
+ ZnJ0aW1lIiAiZnV0dXJlLXZpc3VhbGl6ZXIiICJnYW1lcyIgImdyYXBoaWNzIiAiZ3VpLWRlYnVn
+ Z2VyIiAiZ3VpYnVpbGRlciIgImhhbmRpbi1jbGllbnQiICJoYW5kaW4tc2VydmVyIiAiaGVscCIg
+ ImhpZXJsaXN0IiAiaG9udSIgImh0ZHAiICJodG1sIiAiaWNvbnMiICJpbWFnZXMiICJpbmZvLWRv
+ bWFpbiIgImpzb24iICJsYW5nIiAibGF1bmNoZXIiICJsYXp5IiAibWFjcm8tZGVidWdnZXIiICJt
+ YWtlIiAibWF0aCIgIm1ldGEiICJtcmVkIiAibXJsaWIiICJteXN0ZXJ4IiAibXoiICJtemNvbSIg
+ Im16bGliIiAibXpzY2hlbWUiICJuZXQiICJvcGVuc3NsIiAicGFyc2VyLXRvb2xzIiAicGljdHVy
+ aW5nLXByb2dyYW1zIiAicGtnIiAicGxhaSIgInBsYW5ldCIgInBsYW5ldDIiICJwbG90IiAicHJl
+ cHJvY2Vzc29yIiAicHJvZmlsZSIgInI1cnMiICJyNnJzIiAicmFja2V0IiAicmFja2xvZyIgInJh
+ Y2t1bml0IiAicmFjbG9nIiAicmFjbyIgInJhY3VuaXQiICJyZWFkZXIiICJyZWFkbGluZSIgInJl
+ YWxtIiAicmVkZXgiICJyZXBvLXRpbWUtc3RhbXAiICJyZXBvcy10aW1lLXN0YW1wIiAicm5ycyIg
+ InMtZXhwIiAic2NoZWxvZyIgInNjaGVtZSIgInNjaGVtZXVuaXQiICJzY3JpYmJsZSIgInNjcmli
+ YmxpbmdzIiAic2NyaWJsaWIiICJzZXR1cCIgInNnbCIgInNpcm1haWwiICJzbGF0ZXgiICJzbGlk
+ ZXNob3ciICJzcmZpIiAic3JwZXJzaXN0IiAic3RlcHBlciIgInN0cmluZy1jb25zdGFuITxicj4N
+ Cg0KJm5ic3A7dHMiICJzd2luZGxlIiAic3ludGF4IiAic3ludGF4LWNvbG9yIiAidGVhY2hwYWNr
+ IiAidGVzdC1ib3gtcmVjb3ZlcnkiICJ0ZXN0LWVuZ2luZSIgInRlc3RzIiAidGV4MnBhZ2UiICJ0
+ ZXhwaWN0IiAidG9vbCIgInRyYWNlIiAidHlwZWQiICJ0eXBlZC1yYWNrZXQiICJ0eXBlZC1zY2hl
+ bWUiICJ1bnN0YWJsZSIgInZlcnNpb24iICJ3YXRlcndvcmxkIiAid2ViLXNlcnZlciIgInd4bWUi
+ ICJ4bWwiICJ4cmVwbCIpKTxicj4NCg0KPGJyPg0KQ29tcHV0ZXIgTGFuZ3VhZ2U6ICgoIkRldGVy
+ bWluZSBsYW5ndWFnZSBmcm9tIHNvdXJjZSIpICgjKCN0IHByaW50IG1peGVkLWZyYWN0aW9uLWUg
+ I2YgI3QgZGVidWcpIChkZWZhdWx0KSAjKCkgIiNsYW5nIHJhY2tldFxuIiAjdCAjdCAoKG1haW4p
+ ICh0ZXN0KSkpKTxicj4NCjxicj4NCjwvYmxvY2txdW90ZT48L2Rpdj48YnI+PC9kaXY+DQo8L2Rp
+ dj48L2Jsb2NrcXVvdGU+PC9ib2R5PjwvaHRtbD4=
+ --Apple-Mail-64790917-3B92-4115-AC41-907040FB5EC1--
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: matthias@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 15:44:19 -0400
+
+ On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ > The program to reproduce this problem is below; the expected answer
+ > should be that f broke callback's contract by sending in an integer
+ > when callback expected a boolean.
+ 
+ I simplified the test case a little bit:
+ 
+   #lang racket
+ 
+   (module server racket
+     (define c/c
+       (class/c (callback (->m boolean? any))))
+     
+     (provide
+      (contract-out (f (-> c/c any))))
+     
+     (define (f c)
+       (send (new c) callback 1)
+       2))
+   
+   (module client racket
+     (require (submod ".." server))
+   
+     (define c%
+       (class object%
+         (super-new)
+         (define/public (callback x) 3)))
+   
+     (f c%))
+   
+   (require 'client)
+ 
+ It seems like the error message is confusing here because it is the
+ positive party that is violating the contract (hence "broke its
+ contract"), but the positive party didn't actually provide the method
+ that related to the failure.
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 15:45:48 -0400
+
+ On 2013-04-13 14:34:54 -0500, Robby Findler wrote:
+ >    This seems to be something about how instanceof/c works.
+ 
+ I don't think it's specific to `instanceof/c` since my simplified
+ example doesn't use it. (didn't get this e-mail until I already sent
+ mine, or I would've addressed that there)
+ 
+ Cheers,
+ Asumu
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: matthias@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 15:59:17 -0400
+
+ Right.  The error message _is_ confusing, but here's the chain of events:
+ 
+ 1) server provides a function f whose domain are classes with callback methods that take booleans.
+ 2) client calls this function with a class that contains such a method.
+ 3) server instantiates the class inside the function f and calls its callback method with a non-boolean
+ 
+ So the server said, "I promise to call the callback method of any objects of the class you give me with a boolean" and failed to do so.  So the server is at fault since it called the callback method with a non-boolean, and it is a piece of the contract on f that failed, which the server contracted, so it was the server's contract.  So I don't see an error in the blame assignment here.
+ 
+ (One thing that threw me off when looking at the result of running Asumu's version was the use of "produced" for the value instead of "provided" or "given", which made me initially think it was a return value error, not an argument error.  The path information quickly cleared that up though.  Maybe a more neutral verb should be used for that part of the error message?)
+ 
+ Stevie
+ 
+ On Apr 13, 2013, at 3:44 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ 
+ > On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ >> The program to reproduce this problem is below; the expected answer
+ >> should be that f broke callback's contract by sending in an integer
+ >> when callback expected a boolean.
+ > 
+ > I simplified the test case a little bit:
+ > 
+ >  #lang racket
+ > 
+ >  (module server racket
+ >    (define c/c
+ >      (class/c (callback (->m boolean? any))))
+ > 
+ >    (provide
+ >     (contract-out (f (-> c/c any))))
+ > 
+ >    (define (f c)
+ >      (send (new c) callback 1)
+ >      2))
+ > 
+ >  (module client racket
+ >    (require (submod ".." server))
+ > 
+ >    (define c%
+ >      (class object%
+ >        (super-new)
+ >        (define/public (callback x) 3)))
+ > 
+ >    (f c%))
+ > 
+ >  (require 'client)
+ > 
+ > It seems like the error message is confusing here because it is the
+ > positive party that is violating the contract (hence "broke its
+ > contract"), but the positive party didn't actually provide the method
+ > that related to the failure.
+ > 
+ > Cheers,
+ > Asumu
+ 
+ 
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: matthias@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:01:44 -0400
+
+ Oh, wait, I didn't see the main confusing thing (though it also threw me off at first, but then I ignored it).
+ 
+ The reason the contract error message is confusing is because the error message uses 'callback' as the name of the contracted party:
+ 
+ callback: broke its contract
+  promised: boolean?
+  produced: 1
+  in: the 1st argument of
+      the callback method in
+      the 1st argument of
+       (-> c/c any)
+  contract from: (anonymous-module server)
+  blaming: (anonymous-module server)
+  at: unsaved-editor320:8.19
+ 
+ Instead, it should be 'f: broke its contract...".  Hmm, need to check into why that's happening.
+ 
+ Stevie
+ 
+ On Apr 13, 2013, at 3:59 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ 
+ > Right.  The error message _is_ confusing, but here's the chain of events:
+ > 
+ > 1) server provides a function f whose domain are classes with callback methods that take booleans.
+ > 2) client calls this function with a class that contains such a method.
+ > 3) server instantiates the class inside the function f and calls its callback method with a non-boolean
+ > 
+ > So the server said, "I promise to call the callback method of any objects of the class you give me with a boolean" and failed to do so.  So the server is at fault since it called the callback method with a non-boolean, and it is a piece of the contract on f that failed, which the server contracted, so it was the server's contract.  So I don't see an error in the blame assignment here.
+ > 
+ > (One thing that threw me off when looking at the result of running Asumu's version was the use of "produced" for the value instead of "provided" or "given", which made me initially think it was a return value error, not an argument error.  The path information quickly cleared that up though.  Maybe a more neutral verb should be used for that part of the error message?)
+ > 
+ > Stevie
+ > 
+ > On Apr 13, 2013, at 3:44 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > 
+ >> On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ >>> The program to reproduce this problem is below; the expected answer
+ >>> should be that f broke callback's contract by sending in an integer
+ >>> when callback expected a boolean.
+ >> 
+ >> I simplified the test case a little bit:
+ >> 
+ >> #lang racket
+ >> 
+ >> (module server racket
+ >>   (define c/c
+ >>     (class/c (callback (->m boolean? any))))
+ >> 
+ >>   (provide
+ >>    (contract-out (f (-> c/c any))))
+ >> 
+ >>   (define (f c)
+ >>     (send (new c) callback 1)
+ >>     2))
+ >> 
+ >> (module client racket
+ >>   (require (submod ".." server))
+ >> 
+ >>   (define c%
+ >>     (class object%
+ >>       (super-new)
+ >>       (define/public (callback x) 3)))
+ >> 
+ >>   (f c%))
+ >> 
+ >> (require 'client)
+ >> 
+ >> It seems like the error message is confusing here because it is the
+ >> positive party that is violating the contract (hence "broke its
+ >> contract"), but the positive party didn't actually provide the method
+ >> that related to the failure.
+ >> 
+ >> Cheers,
+ >> Asumu
+ > 
+ 
+ 
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: matthias@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:09:05 -0400
+
+ Okay, after investigation, this happens because blame-add-method-context uses #:important when calling blame-add-context.  Robby, is there a reason this happens?  It seems like we'd always want to blame the original contracted entity (in terms of what goes before the colon on the first line), even if it's due to a mismatch deep in the contract.  The context information you've added should allow the user to determine exactly which part of the contract failed, which includes the fact that it's a call to the callback method.  Changing things via #:important seems like it'd cause people to think blame has been assigned incorrectly, as we see in this bug report.
+ 
+ Stevie
+ 
+ On Apr 13, 2013, at 4:01 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ 
+ > Oh, wait, I didn't see the main confusing thing (though it also threw me off at first, but then I ignored it).
+ > 
+ > The reason the contract error message is confusing is because the error message uses 'callback' as the name of the contracted party:
+ > 
+ > callback: broke its contract
+ > promised: boolean?
+ > produced: 1
+ > in: the 1st argument of
+ >     the callback method in
+ >     the 1st argument of
+ >      (-> c/c any)
+ > contract from: (anonymous-module server)
+ > blaming: (anonymous-module server)
+ > at: unsaved-editor320:8.19
+ > 
+ > Instead, it should be 'f: broke its contract...".  Hmm, need to check into why that's happening.
+ > 
+ > Stevie
+ > 
+ > On Apr 13, 2013, at 3:59 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ > 
+ >> Right.  The error message _is_ confusing, but here's the chain of events:
+ >> 
+ >> 1) server provides a function f whose domain are classes with callback methods that take booleans.
+ >> 2) client calls this function with a class that contains such a method.
+ >> 3) server instantiates the class inside the function f and calls its callback method with a non-boolean
+ >> 
+ >> So the server said, "I promise to call the callback method of any objects of the class you give me with a boolean" and failed to do so.  So the server is at fault since it called the callback method with a non-boolean, and it is a piece of the contract on f that failed, which the server contracted, so it was the server's contract.  So I don't see an error in the blame assignment here.
+ >> 
+ >> (One thing that threw me off when looking at the result of running Asumu's version was the use of "produced" for the value instead of "provided" or "given", which made me initially think it was a return value error, not an argument error.  The path information quickly cleared that up though.  Maybe a more neutral verb should be used for that part of the error message?)
+ >> 
+ >> Stevie
+ >> 
+ >> On Apr 13, 2013, at 3:44 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >> 
+ >>> On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ >>>> The program to reproduce this problem is below; the expected answer
+ >>>> should be that f broke callback's contract by sending in an integer
+ >>>> when callback expected a boolean.
+ >>> 
+ >>> I simplified the test case a little bit:
+ >>> 
+ >>> #lang racket
+ >>> 
+ >>> (module server racket
+ >>>  (define c/c
+ >>>    (class/c (callback (->m boolean? any))))
+ >>> 
+ >>>  (provide
+ >>>   (contract-out (f (-> c/c any))))
+ >>> 
+ >>>  (define (f c)
+ >>>    (send (new c) callback 1)
+ >>>    2))
+ >>> 
+ >>> (module client racket
+ >>>  (require (submod ".." server))
+ >>> 
+ >>>  (define c%
+ >>>    (class object%
+ >>>      (super-new)
+ >>>      (define/public (callback x) 3)))
+ >>> 
+ >>>  (f c%))
+ >>> 
+ >>> (require 'client)
+ >>> 
+ >>> It seems like the error message is confusing here because it is the
+ >>> positive party that is violating the contract (hence "broke its
+ >>> contract"), but the positive party didn't actually provide the method
+ >>> that related to the failure.
+ >>> 
+ >>> Cheers,
+ >>> Asumu
+ >> 
+ > 
+ 
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:10:49 -0400
+
+ Correct: 
+ 
+ 1. f should be blamed as my bug report says. 
+ 2. callback did not promised to be called with a boolean?, it requested it. But this could be a corollary of 1. 
+ 
+ 
+ 
+ On Apr 13, 2013, at 4:01 PM, Stevie Strickland wrote:
+ 
+ > Oh, wait, I didn't see the main confusing thing (though it also threw me off at first, but then I ignored it).
+ > 
+ > The reason the contract error message is confusing is because the error message uses 'callback' as the name of the contracted party:
+ > 
+ > callback: broke its contract
+ > promised: boolean?
+ > produced: 1
+ > in: the 1st argument of
+ >     the callback method in
+ >     the 1st argument of
+ >      (-> c/c any)
+ > contract from: (anonymous-module server)
+ > blaming: (anonymous-module server)
+ > at: unsaved-editor320:8.19
+ > 
+ > Instead, it should be 'f: broke its contract...".  Hmm, need to check into why that's happening.
+ > 
+ > Stevie
+ > 
+ > On Apr 13, 2013, at 3:59 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ > 
+ >> Right.  The error message _is_ confusing, but here's the chain of events:
+ >> 
+ >> 1) server provides a function f whose domain are classes with callback methods that take booleans.
+ >> 2) client calls this function with a class that contains such a method.
+ >> 3) server instantiates the class inside the function f and calls its callback method with a non-boolean
+ >> 
+ >> So the server said, "I promise to call the callback method of any objects of the class you give me with a boolean" and failed to do so.  So the server is at fault since it called the callback method with a non-boolean, and it is a piece of the contract on f that failed, which the server contracted, so it was the server's contract.  So I don't see an error in the blame assignment here.
+ >> 
+ >> (One thing that threw me off when looking at the result of running Asumu's version was the use of "produced" for the value instead of "provided" or "given", which made me initially think it was a return value error, not an argument error.  The path information quickly cleared that up though.  Maybe a more neutral verb should be used for that part of the error message?)
+ >> 
+ >> Stevie
+ >> 
+ >> On Apr 13, 2013, at 3:44 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >> 
+ >>> On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ >>>> The program to reproduce this problem is below; the expected answer
+ >>>> should be that f broke callback's contract by sending in an integer
+ >>>> when callback expected a boolean.
+ >>> 
+ >>> I simplified the test case a little bit:
+ >>> 
+ >>> #lang racket
+ >>> 
+ >>> (module server racket
+ >>>  (define c/c
+ >>>    (class/c (callback (->m boolean? any))))
+ >>> 
+ >>>  (provide
+ >>>   (contract-out (f (-> c/c any))))
+ >>> 
+ >>>  (define (f c)
+ >>>    (send (new c) callback 1)
+ >>>    2))
+ >>> 
+ >>> (module client racket
+ >>>  (require (submod ".." server))
+ >>> 
+ >>>  (define c%
+ >>>    (class object%
+ >>>      (super-new)
+ >>>      (define/public (callback x) 3)))
+ >>> 
+ >>>  (f c%))
+ >>> 
+ >>> (require 'client)
+ >>> 
+ >>> It seems like the error message is confusing here because it is the
+ >>> positive party that is violating the contract (hence "broke its
+ >>> contract"), but the positive party didn't actually provide the method
+ >>> that related to the failure.
+ >>> 
+ >>> Cheers,
+ >>> Asumu
+ >> 
+ > 
+ 
+ 
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:11:52 -0400
+
+ Right, it's a corollary of 1.  callback did _no_ requesting, f (or rather, the server) is the one that did the promising.
+ 
+ My followup email explains why this is happening.
+ 
+ Stevie
+ 
+ On Apr 13, 2013, at 4:10 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ 
+ > 
+ > Correct: 
+ > 
+ > 1. f should be blamed as my bug report says. 
+ > 2. callback did not promised to be called with a boolean?, it requested it. But this could be a corollary of 1. 
+ > 
+ > 
+ > 
+ > On Apr 13, 2013, at 4:01 PM, Stevie Strickland wrote:
+ > 
+ >> Oh, wait, I didn't see the main confusing thing (though it also threw me off at first, but then I ignored it).
+ >> 
+ >> The reason the contract error message is confusing is because the error message uses 'callback' as the name of the contracted party:
+ >> 
+ >> callback: broke its contract
+ >> promised: boolean?
+ >> produced: 1
+ >> in: the 1st argument of
+ >>    the callback method in
+ >>    the 1st argument of
+ >>     (-> c/c any)
+ >> contract from: (anonymous-module server)
+ >> blaming: (anonymous-module server)
+ >> at: unsaved-editor320:8.19
+ >> 
+ >> Instead, it should be 'f: broke its contract...".  Hmm, need to check into why that's happening.
+ >> 
+ >> Stevie
+ >> 
+ >> On Apr 13, 2013, at 3:59 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ >> 
+ >>> Right.  The error message _is_ confusing, but here's the chain of events:
+ >>> 
+ >>> 1) server provides a function f whose domain are classes with callback methods that take booleans.
+ >>> 2) client calls this function with a class that contains such a method.
+ >>> 3) server instantiates the class inside the function f and calls its callback method with a non-boolean
+ >>> 
+ >>> So the server said, "I promise to call the callback method of any objects of the class you give me with a boolean" and failed to do so.  So the server is at fault since it called the callback method with a non-boolean, and it is a piece of the contract on f that failed, which the server contracted, so it was the server's contract.  So I don't see an error in the blame assignment here.
+ >>> 
+ >>> (One thing that threw me off when looking at the result of running Asumu's version was the use of "produced" for the value instead of "provided" or "given", which made me initially think it was a return value error, not an argument error.  The path information quickly cleared that up though.  Maybe a more neutral verb should be used for that part of the error message?)
+ >>> 
+ >>> Stevie
+ >>> 
+ >>> On Apr 13, 2013, at 3:44 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ >>> 
+ >>>> On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ >>>>> The program to reproduce this problem is below; the expected answer
+ >>>>> should be that f broke callback's contract by sending in an integer
+ >>>>> when callback expected a boolean.
+ >>>> 
+ >>>> I simplified the test case a little bit:
+ >>>> 
+ >>>> #lang racket
+ >>>> 
+ >>>> (module server racket
+ >>>> (define c/c
+ >>>>   (class/c (callback (->m boolean? any))))
+ >>>> 
+ >>>> (provide
+ >>>>  (contract-out (f (-> c/c any))))
+ >>>> 
+ >>>> (define (f c)
+ >>>>   (send (new c) callback 1)
+ >>>>   2))
+ >>>> 
+ >>>> (module client racket
+ >>>> (require (submod ".." server))
+ >>>> 
+ >>>> (define c%
+ >>>>   (class object%
+ >>>>     (super-new)
+ >>>>     (define/public (callback x) 3)))
+ >>>> 
+ >>>> (f c%))
+ >>>> 
+ >>>> (require 'client)
+ >>>> 
+ >>>> It seems like the error message is confusing here because it is the
+ >>>> positive party that is violating the contract (hence "broke its
+ >>>> contract"), but the positive party didn't actually provide the method
+ >>>> that related to the failure.
+ >>>> 
+ >>>> Cheers,
+ >>>> Asumu
+ >>> 
+ >> 
+ > 
+ 
+ 
+
+Responsible changed from "nobody" to "robby" by sstrickl at Sat, 13 Apr 2013 16:19:19 -0400
+Reason>>> The issue lies within blame-add-method-context.  See reason changed for state 
+for more info.
+
+State changed from "open" to "analyzed" by sstrickl at Sat, 13 Apr 2013 16:19:19 -0400
+Reason>>> Discovered why the error message is unexpected, but not sure if the obvious fix 
+(removing #:important inside of blame-add-method-context) is correct.
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        Stevie Strickland <sstrickl@racket-lang.org>,
+        Matthias Felleisen <matthias@ccs.neu.edu>
+Subject: Re: [racket-bug] contract/13692: contract issues confusing error
+ message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 15:54:56 -0500
+
+ --001a11c305a2755b5e04da443bf3
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I'm pretty sure that's the wrong fix.
+ 
+ 
+ On Sat, Apr 13, 2013 at 3:19 PM, <sstrickl@racket-lang.org> wrote:
+ 
+ >
+ > Responsible changed from "nobody" to "robby" by sstrickl at Sat, 13 Apr
+ > 2013 16:19:19 -0400
+ > Reason>>> The issue lies within blame-add-method-context.  See reason
+ > changed for state
+ > for more info.
+ >
+ > State changed from "open" to "analyzed" by sstrickl at Sat, 13 Apr 2013
+ > 16:19:19 -0400
+ > Reason>>> Discovered why the error message is unexpected, but not sure if
+ > the obvious fix
+ > (removing #:important inside of blame-add-method-context) is correct.
+ >
+ >
+ > View:
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13692
+ >
+ >
+ 
+ --001a11c305a2755b5e04da443bf3
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I&#39;m pretty sure that&#39;s the wrong fix.=C2=A0</div><=
+ div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Sat, Apr 13=
+ , 2013 at 3:19 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:sstrickl@racket=
+ -lang.org" target=3D"_blank">sstrickl@racket-lang.org</a>&gt;</span> wrote:=
+ <br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><br>
+ Responsible changed from &quot;nobody&quot; to &quot;robby&quot; by sstrick=
+ l at Sat, 13 Apr 2013 16:19:19 -0400<br>
+ Reason&gt;&gt;&gt; The issue lies within blame-add-method-context. =C2=A0Se=
+ e reason changed for state<br>
+ for more info.<br>
+ <br>
+ State changed from &quot;open&quot; to &quot;analyzed&quot; by sstrickl at =
+ Sat, 13 Apr 2013 16:19:19 -0400<br>
+ Reason&gt;&gt;&gt; Discovered why the error message is unexpected, but not =
+ sure if the obvious fix<br>
+ (removing #:important inside of blame-add-method-context) is correct.<br>
+ <br>
+ <br>
+ View:<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 692" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13692</a><br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --001a11c305a2755b5e04da443bf3--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 15:53:03 -0500
+
+ --001a11c1ff72b7007a04da443428
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Why do you think callback is being blamed? The message says "blaming..."
+ for who gets blamed. The name at the beginning is not who is being blamed.
+ 
+ You don't say this about this example, even though "car" is at the front.
+ 
+ Welcome to Racket v5.3.4.3.
+ > (car 1)
+ car: contract violation
+   expected: pair?
+   given: 1
+   context...:
+    /Users/robby/git/exp/plt/collects/racket/private/misc.rkt:87:7
+ 
+ 
+ As for #:important, that's not determining who is blamed. It
+ is determining whose contract this is.
+ 
+ In this case, I think we want to say "this is the contract that is on the
+ callback method" not "this is a contract exported from module X" (which is
+ what we used to say and we changed it based on discussions with a large
+ subset of this conversation).
+ 
+ ------
+ 
+ Separately, the problem I understood to be that it says "promised:" and
+ "produced" in the second and third lines, not "expected".
+ 
+ Robby
+ 
+ 
+ 
+ On Sat, Apr 13, 2013 at 3:09 PM, Stevie Strickland <sstrickl@ccs.neu.edu>wrote:
+ 
+ > Okay, after investigation, this happens because blame-add-method-context
+ > uses #:important when calling blame-add-context.  Robby, is there a reason
+ > this happens?  It seems like we'd always want to blame the original
+ > contracted entity (in terms of what goes before the colon on the first
+ > line), even if it's due to a mismatch deep in the contract.  The context
+ > information you've added should allow the user to determine exactly which
+ > part of the contract failed, which includes the fact that it's a call to
+ > the callback method.  Changing things via #:important seems like it'd cause
+ > people to think blame has been assigned incorrectly, as we see in this bug
+ > report.
+ >
+ > Stevie
+ >
+ > On Apr 13, 2013, at 4:01 PM, Stevie Strickland <sstrickl@ccs.neu.edu>
+ > wrote:
+ >
+ > > Oh, wait, I didn't see the main confusing thing (though it also threw me
+ > off at first, but then I ignored it).
+ > >
+ > > The reason the contract error message is confusing is because the error
+ > message uses 'callback' as the name of the contracted party:
+ > >
+ > > callback: broke its contract
+ > > promised: boolean?
+ > > produced: 1
+ > > in: the 1st argument of
+ > >     the callback method in
+ > >     the 1st argument of
+ > >      (-> c/c any)
+ > > contract from: (anonymous-module server)
+ > > blaming: (anonymous-module server)
+ > > at: unsaved-editor320:8.19
+ > >
+ > > Instead, it should be 'f: broke its contract...".  Hmm, need to check
+ > into why that's happening.
+ > >
+ > > Stevie
+ > >
+ > > On Apr 13, 2013, at 3:59 PM, Stevie Strickland <sstrickl@ccs.neu.edu>
+ > wrote:
+ > >
+ > >> Right.  The error message _is_ confusing, but here's the chain of
+ > events:
+ > >>
+ > >> 1) server provides a function f whose domain are classes with callback
+ > methods that take booleans.
+ > >> 2) client calls this function with a class that contains such a method.
+ > >> 3) server instantiates the class inside the function f and calls its
+ > callback method with a non-boolean
+ > >>
+ > >> So the server said, "I promise to call the callback method of any
+ > objects of the class you give me with a boolean" and failed to do so.  So
+ > the server is at fault since it called the callback method with a
+ > non-boolean, and it is a piece of the contract on f that failed, which the
+ > server contracted, so it was the server's contract.  So I don't see an
+ > error in the blame assignment here.
+ > >>
+ > >> (One thing that threw me off when looking at the result of running
+ > Asumu's version was the use of "produced" for the value instead of
+ > "provided" or "given", which made me initially think it was a return value
+ > error, not an argument error.  The path information quickly cleared that up
+ > though.  Maybe a more neutral verb should be used for that part of the
+ > error message?)
+ > >>
+ > >> Stevie
+ > >>
+ > >> On Apr 13, 2013, at 3:44 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > >>
+ > >>> On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ > >>>> The program to reproduce this problem is below; the expected answer
+ > >>>> should be that f broke callback's contract by sending in an integer
+ > >>>> when callback expected a boolean.
+ > >>>
+ > >>> I simplified the test case a little bit:
+ > >>>
+ > >>> #lang racket
+ > >>>
+ > >>> (module server racket
+ > >>>  (define c/c
+ > >>>    (class/c (callback (->m boolean? any))))
+ > >>>
+ > >>>  (provide
+ > >>>   (contract-out (f (-> c/c any))))
+ > >>>
+ > >>>  (define (f c)
+ > >>>    (send (new c) callback 1)
+ > >>>    2))
+ > >>>
+ > >>> (module client racket
+ > >>>  (require (submod ".." server))
+ > >>>
+ > >>>  (define c%
+ > >>>    (class object%
+ > >>>      (super-new)
+ > >>>      (define/public (callback x) 3)))
+ > >>>
+ > >>>  (f c%))
+ > >>>
+ > >>> (require 'client)
+ > >>>
+ > >>> It seems like the error message is confusing here because it is the
+ > >>> positive party that is violating the contract (hence "broke its
+ > >>> contract"), but the positive party didn't actually provide the method
+ > >>> that related to the failure.
+ > >>>
+ > >>> Cheers,
+ > >>> Asumu
+ > >>
+ > >
+ >
+ >
+ 
+ --001a11c1ff72b7007a04da443428
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Why do you think callback is being blamed? The message say=
+ s &quot;blaming...&quot; for who gets blamed. The name at the beginning is =
+ not who is being blamed.=C2=A0<div><br></div><div style>You don&#39;t say t=
+ his about this example, even though &quot;car&quot; is at the front.</div>
+ <div style><br></div><div style><div>Welcome to Racket v5.3.4.3.</div><div>=
+ &gt; (car 1)</div><div>car: contract violation</div><div>=C2=A0 expected: p=
+ air?</div><div>=C2=A0 given: 1</div><div>=C2=A0 context...:</div><div>=C2=
+ =A0 =C2=A0/Users/robby/git/exp/plt/collects/racket/private/misc.rkt:87:7</d=
+ iv>
+ <div><br></div><div><br></div><div style>As for #:important, that&#39;s not=
+  determining who is blamed. It is=C2=A0determining=C2=A0whose contract this=
+  is.</div><div style><br></div><div style>In this case, I think we want to =
+ say &quot;this is the contract that is on the callback method&quot; not &qu=
+ ot;this is a contract exported from module X&quot; (which is what we used t=
+ o say and we changed it based on discussions with a large subset of this co=
+ nversation).</div>
+ <div style><br></div><div style>------</div><div style><br></div><div style=
+ >Separately, the problem I understood to be that it says &quot;promised:&qu=
+ ot; and &quot;produced&quot; in the second and third lines, not &quot;expec=
+ ted&quot;.</div>
+ <div style><br></div><div style>Robby</div><div><br></div></div></div><div =
+ class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Sat, Apr 13, 20=
+ 13 at 3:09 PM, Stevie Strickland <span dir=3D"ltr">&lt;<a href=3D"mailto:ss=
+ trickl@ccs.neu.edu" target=3D"_blank">sstrickl@ccs.neu.edu</a>&gt;</span> w=
+ rote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">Okay, after investigation, this happens beca=
+ use blame-add-method-context uses #:important when calling blame-add-contex=
+ t. =C2=A0Robby, is there a reason this happens? =C2=A0It seems like we&#39;=
+ d always want to blame the original contracted entity (in terms of what goe=
+ s before the colon on the first line), even if it&#39;s due to a mismatch d=
+ eep in the contract. =C2=A0The context information you&#39;ve added should =
+ allow the user to determine exactly which part of the contract failed, whic=
+ h includes the fact that it&#39;s a call to the callback method. =C2=A0Chan=
+ ging things via #:important seems like it&#39;d cause people to think blame=
+  has been assigned incorrectly, as we see in this bug report.<br>
+ 
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br>
+ Stevie<br>
+ </font></span><div class=3D"HOEnZb"><div class=3D"h5"><br>
+ On Apr 13, 2013, at 4:01 PM, Stevie Strickland &lt;<a href=3D"mailto:sstric=
+ kl@ccs.neu.edu">sstrickl@ccs.neu.edu</a>&gt; wrote:<br>
+ <br>
+ &gt; Oh, wait, I didn&#39;t see the main confusing thing (though it also th=
+ rew me off at first, but then I ignored it).<br>
+ &gt;<br>
+ &gt; The reason the contract error message is confusing is because the erro=
+ r message uses &#39;callback&#39; as the name of the contracted party:<br>
+ &gt;<br>
+ &gt; callback: broke its contract<br>
+ &gt; promised: boolean?<br>
+ &gt; produced: 1<br>
+ &gt; in: the 1st argument of<br>
+ &gt; =C2=A0 =C2=A0 the callback method in<br>
+ &gt; =C2=A0 =C2=A0 the 1st argument of<br>
+ &gt; =C2=A0 =C2=A0 =C2=A0(-&gt; c/c any)<br>
+ &gt; contract from: (anonymous-module server)<br>
+ &gt; blaming: (anonymous-module server)<br>
+ &gt; at: unsaved-editor320:8.19<br>
+ &gt;<br>
+ &gt; Instead, it should be &#39;f: broke its contract...&quot;. =C2=A0Hmm, =
+ need to check into why that&#39;s happening.<br>
+ &gt;<br>
+ &gt; Stevie<br>
+ &gt;<br>
+ &gt; On Apr 13, 2013, at 3:59 PM, Stevie Strickland &lt;<a href=3D"mailto:s=
+ strickl@ccs.neu.edu">sstrickl@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt;&gt; Right. =C2=A0The error message _is_ confusing, but here&#39;s the =
+ chain of events:<br>
+ &gt;&gt;<br>
+ &gt;&gt; 1) server provides a function f whose domain are classes with call=
+ back methods that take booleans.<br>
+ &gt;&gt; 2) client calls this function with a class that contains such a me=
+ thod.<br>
+ &gt;&gt; 3) server instantiates the class inside the function f and calls i=
+ ts callback method with a non-boolean<br>
+ &gt;&gt;<br>
+ &gt;&gt; So the server said, &quot;I promise to call the callback method of=
+  any objects of the class you give me with a boolean&quot; and failed to do=
+  so. =C2=A0So the server is at fault since it called the callback method wi=
+ th a non-boolean, and it is a piece of the contract on f that failed, which=
+  the server contracted, so it was the server&#39;s contract. =C2=A0So I don=
+ &#39;t see an error in the blame assignment here.<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt; (One thing that threw me off when looking at the result of running=
+  Asumu&#39;s version was the use of &quot;produced&quot; for the value inst=
+ ead of &quot;provided&quot; or &quot;given&quot;, which made me initially t=
+ hink it was a return value error, not an argument error. =C2=A0The path inf=
+ ormation quickly cleared that up though. =C2=A0Maybe a more neutral verb sh=
+ ould be used for that part of the error message?)<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt; Stevie<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Apr 13, 2013, at 3:44 PM, Asumu Takikawa &lt;<a href=3D"mailto:=
+ asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt;&gt; On 2013-04-13 14:44:02 -0400, <a href=3D"mailto:matthias@ccs.n=
+ eu.edu">matthias@ccs.neu.edu</a> wrote:<br>
+ &gt;&gt;&gt;&gt; The program to reproduce this problem is below; the expect=
+ ed answer<br>
+ &gt;&gt;&gt;&gt; should be that f broke callback&#39;s contract by sending =
+ in an integer<br>
+ &gt;&gt;&gt;&gt; when callback expected a boolean.<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; I simplified the test case a little bit:<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; #lang racket<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (module server racket<br>
+ &gt;&gt;&gt; =C2=A0(define c/c<br>
+ &gt;&gt;&gt; =C2=A0 =C2=A0(class/c (callback (-&gt;m boolean? any))))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; =C2=A0(provide<br>
+ &gt;&gt;&gt; =C2=A0 (contract-out (f (-&gt; c/c any))))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; =C2=A0(define (f c)<br>
+ &gt;&gt;&gt; =C2=A0 =C2=A0(send (new c) callback 1)<br>
+ &gt;&gt;&gt; =C2=A0 =C2=A02))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (module client racket<br>
+ &gt;&gt;&gt; =C2=A0(require (submod &quot;..&quot; server))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; =C2=A0(define c%<br>
+ &gt;&gt;&gt; =C2=A0 =C2=A0(class object%<br>
+ &gt;&gt;&gt; =C2=A0 =C2=A0 =C2=A0(super-new)<br>
+ &gt;&gt;&gt; =C2=A0 =C2=A0 =C2=A0(define/public (callback x) 3)))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; =C2=A0(f c%))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (require &#39;client)<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; It seems like the error message is confusing here because it i=
+ s the<br>
+ &gt;&gt;&gt; positive party that is violating the contract (hence &quot;bro=
+ ke its<br>
+ &gt;&gt;&gt; contract&quot;), but the positive party didn&#39;t actually pr=
+ ovide the method<br>
+ &gt;&gt;&gt; that related to the failure.<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; Cheers,<br>
+ &gt;&gt;&gt; Asumu<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ <br>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a11c1ff72b7007a04da443428--
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:58:24 -0400
+
+ --Apple-Mail=_3533BBA7-693B-42D9-9E41-837A9893404D
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ The problem I see with saying "callback: ..." is in the whole error =
+ message:
+ 
+ callback: broke its contract
+  promised: boolean?
+  produced: 1
+  in: the 1st argument of
+      the callback method in
+      the 1st argument of
+       (-> c/c any)
+  contract from: (anonymous-module server)
+  blaming: (anonymous-module server)
+  at: unsaved-editor320:8.19
+ >=20
+ 
+ 1) "its" seems to refer to the callback function (since it was mentioned =
+ earlier on the line), which did _not_ break its (non-existent) contract =
+ (instead, f broke _its_ contract)
+ 2) The contract path provided refers to the contract on f, not the =
+ subcontract on the callback method.
+ 
+ Both of these combine to make the error message confusing.
+ 
+ Stevie
+ 
+ On Apr 13, 2013, at 4:53 PM, Robby Findler <robby@eecs.northwestern.edu> =
+ wrote:
+ 
+ > Why do you think callback is being blamed? The message says =
+ "blaming..." for who gets blamed. The name at the beginning is not who =
+ is being blamed.=20
+ >=20
+ > You don't say this about this example, even though "car" is at the =
+ front.
+ >=20
+ > Welcome to Racket v5.3.4.3.
+ > > (car 1)
+ > car: contract violation
+ >   expected: pair?
+ >   given: 1
+ >   context...:
+ >    /Users/robby/git/exp/plt/collects/racket/private/misc.rkt:87:7
+ >=20
+ >=20
+ > As for #:important, that's not determining who is blamed. It is =
+ determining whose contract this is.
+ >=20
+ > In this case, I think we want to say "this is the contract that is on =
+ the callback method" not "this is a contract exported from module X" =
+ (which is what we used to say and we changed it based on discussions =
+ with a large subset of this conversation).
+ >=20
+ > ------
+ >=20
+ > Separately, the problem I understood to be that it says "promised:" =
+ and "produced" in the second and third lines, not "expected".
+ >=20
+ > Robby
+ >=20
+ >=20
+ >=20
+ > On Sat, Apr 13, 2013 at 3:09 PM, Stevie Strickland =
+ <sstrickl@ccs.neu.edu> wrote:
+ > Okay, after investigation, this happens because =
+ blame-add-method-context uses #:important when calling =
+ blame-add-context.  Robby, is there a reason this happens?  It seems =
+ like we'd always want to blame the original contracted entity (in terms =
+ of what goes before the colon on the first line), even if it's due to a =
+ mismatch deep in the contract.  The context information you've added =
+ should allow the user to determine exactly which part of the contract =
+ failed, which includes the fact that it's a call to the callback method. =
+  Changing things via #:important seems like it'd cause people to think =
+ blame has been assigned incorrectly, as we see in this bug report.
+ >=20
+ > Stevie
+ >=20
+ > On Apr 13, 2013, at 4:01 PM, Stevie Strickland <sstrickl@ccs.neu.edu> =
+ wrote:
+ >=20
+ > > Oh, wait, I didn't see the main confusing thing (though it also =
+ threw me off at first, but then I ignored it).
+ > >
+ > > The reason the contract error message is confusing is because the =
+ error message uses 'callback' as the name of the contracted party:
+ > >
+ > > callback: broke its contract
+ > > promised: boolean?
+ > > produced: 1
+ > > in: the 1st argument of
+ > >     the callback method in
+ > >     the 1st argument of
+ > >      (-> c/c any)
+ > > contract from: (anonymous-module server)
+ > > blaming: (anonymous-module server)
+ > > at: unsaved-editor320:8.19
+ > >
+ > > Instead, it should be 'f: broke its contract...".  Hmm, need to =
+ check into why that's happening.
+ > >
+ > > Stevie
+ > >
+ > > On Apr 13, 2013, at 3:59 PM, Stevie Strickland =
+ <sstrickl@ccs.neu.edu> wrote:
+ > >
+ > >> Right.  The error message _is_ confusing, but here's the chain of =
+ events:
+ > >>
+ > >> 1) server provides a function f whose domain are classes with =
+ callback methods that take booleans.
+ > >> 2) client calls this function with a class that contains such a =
+ method.
+ > >> 3) server instantiates the class inside the function f and calls =
+ its callback method with a non-boolean
+ > >>
+ > >> So the server said, "I promise to call the callback method of any =
+ objects of the class you give me with a boolean" and failed to do so.  =
+ So the server is at fault since it called the callback method with a =
+ non-boolean, and it is a piece of the contract on f that failed, which =
+ the server contracted, so it was the server's contract.  So I don't see =
+ an error in the blame assignment here.
+ > >>
+ > >> (One thing that threw me off when looking at the result of running =
+ Asumu's version was the use of "produced" for the value instead of =
+ "provided" or "given", which made me initially think it was a return =
+ value error, not an argument error.  The path information quickly =
+ cleared that up though.  Maybe a more neutral verb should be used for =
+ that part of the error message?)
+ > >>
+ > >> Stevie
+ > >>
+ > >> On Apr 13, 2013, at 3:44 PM, Asumu Takikawa <asumu@ccs.neu.edu> =
+ wrote:
+ > >>
+ > >>> On 2013-04-13 14:44:02 -0400, matthias@ccs.neu.edu wrote:
+ > >>>> The program to reproduce this problem is below; the expected =
+ answer
+ > >>>> should be that f broke callback's contract by sending in an =
+ integer
+ > >>>> when callback expected a boolean.
+ > >>>
+ > >>> I simplified the test case a little bit:
+ > >>>
+ > >>> #lang racket
+ > >>>
+ > >>> (module server racket
+ > >>>  (define c/c
+ > >>>    (class/c (callback (->m boolean? any))))
+ > >>>
+ > >>>  (provide
+ > >>>   (contract-out (f (-> c/c any))))
+ > >>>
+ > >>>  (define (f c)
+ > >>>    (send (new c) callback 1)
+ > >>>    2))
+ > >>>
+ > >>> (module client racket
+ > >>>  (require (submod ".." server))
+ > >>>
+ > >>>  (define c%
+ > >>>    (class object%
+ > >>>      (super-new)
+ > >>>      (define/public (callback x) 3)))
+ > >>>
+ > >>>  (f c%))
+ > >>>
+ > >>> (require 'client)
+ > >>>
+ > >>> It seems like the error message is confusing here because it is =
+ the
+ > >>> positive party that is violating the contract (hence "broke its
+ > >>> contract"), but the positive party didn't actually provide the =
+ method
+ > >>> that related to the failure.
+ > >>>
+ > >>> Cheers,
+ > >>> Asumu
+ > >>
+ > >
+ >=20
+ >=20
+ 
+ 
+ --Apple-Mail=_3533BBA7-693B-42D9-9E41-837A9893404D
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head><meta http-equiv=3D"Content-Type" content=3D"text/html =
+ charset=3Dus-ascii"></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; =
+ "><div>The problem I see with saying "callback: ..." is in the whole =
+ error message:</div><div><br></div><div><div class=3D"gmail_extra"><div =
+ class=3D"gmail_quote"><blockquote class=3D"gmail_quote" style=3D"margin: =
+ 0px 0px 0px 0.8ex; border-left-width: 1px; border-left-color: rgb(204, =
+ 204, 204); border-left-style: solid; padding-left: 1ex; position: =
+ relative; z-index: 0; "><div class=3D"HOEnZb"><div class=3D"h5">callback: =
+ broke its contract<br>&nbsp;promised: boolean?<br>&nbsp;produced: =
+ 1<br>&nbsp;in: the 1st argument of<br>&nbsp; &nbsp; &nbsp;the callback =
+ method in<br>&nbsp; &nbsp; &nbsp;the 1st argument of<br>&nbsp; &nbsp; =
+ &nbsp; (-&gt; c/c any)<br>&nbsp;contract from: (anonymous-module =
+ server)<br>&nbsp;blaming: (anonymous-module =
+ server)<br></div></div></blockquote></div></div><div =
+ class=3D"gmail_extra"><div class=3D"gmail_quote"><blockquote =
+ class=3D"gmail_quote" style=3D"margin: 0px 0px 0px 0.8ex; =
+ border-left-width: 1px; border-left-color: rgb(204, 204, 204); =
+ border-left-style: solid; padding-left: 1ex; position: relative; =
+ z-index: 0; "><div class=3D"HOEnZb"><div class=3D"h5">&nbsp;at: =
+ unsaved-editor320:8.19</div></div></blockquote></div></div><blockquote =
+ type=3D"cite"><div class=3D"gmail_extra"><div =
+ class=3D"gmail_quote"><blockquote class=3D"gmail_quote" style=3D"margin: =
+ 0px 0px 0px 0.8ex; border-left-width: 1px; border-left-color: rgb(204, =
+ 204, 204); border-left-style: solid; padding-left: 1ex; position: =
+ static; z-index: auto; "><div =
+ class=3D"HOEnZb"></div></blockquote></div></div></blockquote></div><br><di=
+ v><div>1) "its" seems to refer to the callback function (since it was =
+ mentioned earlier on the line), which did _not_ break its (non-existent) =
+ contract (instead, f broke _its_ contract)</div><div>2) The contract =
+ path provided refers to the contract on f, not the subcontract on the =
+ callback method.</div><div><br></div><div>Both of these combine to make =
+ the error message =
+ confusing.</div><div><br></div><div>Stevie</div><div><br></div><div>On =
+ Apr 13, 2013, at 4:53 PM, Robby Findler &lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a=
+ >&gt; wrote:</div><br class=3D"Apple-interchange-newline"><blockquote =
+ type=3D"cite"><div dir=3D"ltr">Why do you think callback is being =
+ blamed? The message says "blaming..." for who gets blamed. The name at =
+ the beginning is not who is being blamed.&nbsp;<div><br></div><div =
+ style=3D"">You don't say this about this example, even though "car" is =
+ at the front.</div>
+ <div style=3D""><br></div><div style=3D""><div>Welcome to Racket =
+ v5.3.4.3.</div><div>&gt; (car 1)</div><div>car: contract =
+ violation</div><div>&nbsp; expected: pair?</div><div>&nbsp; given: =
+ 1</div><div>&nbsp; context...:</div><div>&nbsp; =
+ &nbsp;/Users/robby/git/exp/plt/collects/racket/private/misc.rkt:87:7</div>=
+ 
+ <div><br></div><div><br></div><div style=3D"">As for #:important, that's =
+ not determining who is blamed. It is&nbsp;determining&nbsp;whose =
+ contract this is.</div><div style=3D""><br></div><div style=3D"">In this =
+ case, I think we want to say "this is the contract that is on the =
+ callback method" not "this is a contract exported from module X" (which =
+ is what we used to say and we changed it based on discussions with a =
+ large subset of this conversation).</div>
+ <div style=3D""><br></div><div style=3D"">------</div><div =
+ style=3D""><br></div><div style=3D"">Separately, the problem I =
+ understood to be that it says "promised:" and "produced" in the second =
+ and third lines, not "expected".</div>
+ <div style=3D""><br></div><div =
+ style=3D"">Robby</div><div><br></div></div></div><div =
+ class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Sat, Apr 13, =
+ 2013 at 3:09 PM, Stevie Strickland <span dir=3D"ltr">&lt;<a =
+ href=3D"mailto:sstrickl@ccs.neu.edu" =
+ target=3D"_blank">sstrickl@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin: 0px 0px 0px 0.8ex; =
+ border-left-width: 1px; border-left-color: rgb(204, 204, 204); =
+ border-left-style: solid; padding-left: 1ex; position: static; z-index: =
+ auto; ">Okay, after investigation, this happens because =
+ blame-add-method-context uses #:important when calling =
+ blame-add-context. &nbsp;Robby, is there a reason this happens? &nbsp;It =
+ seems like we'd always want to blame the original contracted entity (in =
+ terms of what goes before the colon on the first line), even if it's due =
+ to a mismatch deep in the contract. &nbsp;The context information you've =
+ added should allow the user to determine exactly which part of the =
+ contract failed, which includes the fact that it's a call to the =
+ callback method. &nbsp;Changing things via #:important seems like it'd =
+ cause people to think blame has been assigned incorrectly, as we see in =
+ this bug report.<br>
+ 
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br>
+ Stevie<br>
+ </font></span><div class=3D"HOEnZb"><div class=3D"h5"><br>
+ On Apr 13, 2013, at 4:01 PM, Stevie Strickland &lt;<a =
+ href=3D"mailto:sstrickl@ccs.neu.edu">sstrickl@ccs.neu.edu</a>&gt; =
+ wrote:<br>
+ <br>
+ &gt; Oh, wait, I didn't see the main confusing thing (though it also =
+ threw me off at first, but then I ignored it).<br>
+ &gt;<br>
+ &gt; The reason the contract error message is confusing is because the =
+ error message uses 'callback' as the name of the contracted party:<br>
+ &gt;<br>
+ &gt; callback: broke its contract<br>
+ &gt; promised: boolean?<br>
+ &gt; produced: 1<br>
+ &gt; in: the 1st argument of<br>
+ &gt; &nbsp; &nbsp; the callback method in<br>
+ &gt; &nbsp; &nbsp; the 1st argument of<br>
+ &gt; &nbsp; &nbsp; &nbsp;(-&gt; c/c any)<br>
+ &gt; contract from: (anonymous-module server)<br>
+ &gt; blaming: (anonymous-module server)<br>
+ &gt; at: unsaved-editor320:8.19<br>
+ &gt;<br>
+ &gt; Instead, it should be 'f: broke its contract...". &nbsp;Hmm, need =
+ to check into why that's happening.<br>
+ &gt;<br>
+ &gt; Stevie<br>
+ &gt;<br>
+ &gt; On Apr 13, 2013, at 3:59 PM, Stevie Strickland &lt;<a =
+ href=3D"mailto:sstrickl@ccs.neu.edu">sstrickl@ccs.neu.edu</a>&gt; =
+ wrote:<br>
+ &gt;<br>
+ &gt;&gt; Right. &nbsp;The error message _is_ confusing, but here's the =
+ chain of events:<br>
+ &gt;&gt;<br>
+ &gt;&gt; 1) server provides a function f whose domain are classes with =
+ callback methods that take booleans.<br>
+ &gt;&gt; 2) client calls this function with a class that contains such a =
+ method.<br>
+ &gt;&gt; 3) server instantiates the class inside the function f and =
+ calls its callback method with a non-boolean<br>
+ &gt;&gt;<br>
+ &gt;&gt; So the server said, "I promise to call the callback method of =
+ any objects of the class you give me with a boolean" and failed to do =
+ so. &nbsp;So the server is at fault since it called the callback method =
+ with a non-boolean, and it is a piece of the contract on f that failed, =
+ which the server contracted, so it was the server's contract. &nbsp;So I =
+ don't see an error in the blame assignment here.<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt; (One thing that threw me off when looking at the result of =
+ running Asumu's version was the use of "produced" for the value instead =
+ of "provided" or "given", which made me initially think it was a return =
+ value error, not an argument error. &nbsp;The path information quickly =
+ cleared that up though. &nbsp;Maybe a more neutral verb should be used =
+ for that part of the error message?)<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt; Stevie<br>
+ &gt;&gt;<br>
+ &gt;&gt; On Apr 13, 2013, at 3:44 PM, Asumu Takikawa &lt;<a =
+ href=3D"mailto:asumu@ccs.neu.edu">asumu@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt;<br>
+ &gt;&gt;&gt; On 2013-04-13 14:44:02 -0400, <a =
+ href=3D"mailto:matthias@ccs.neu.edu">matthias@ccs.neu.edu</a> wrote:<br>
+ &gt;&gt;&gt;&gt; The program to reproduce this problem is below; the =
+ expected answer<br>
+ &gt;&gt;&gt;&gt; should be that f broke callback's contract by sending =
+ in an integer<br>
+ &gt;&gt;&gt;&gt; when callback expected a boolean.<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; I simplified the test case a little bit:<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; #lang racket<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (module server racket<br>
+ &gt;&gt;&gt; &nbsp;(define c/c<br>
+ &gt;&gt;&gt; &nbsp; &nbsp;(class/c (callback (-&gt;m boolean? =
+ any))))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; &nbsp;(provide<br>
+ &gt;&gt;&gt; &nbsp; (contract-out (f (-&gt; c/c any))))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; &nbsp;(define (f c)<br>
+ &gt;&gt;&gt; &nbsp; &nbsp;(send (new c) callback 1)<br>
+ &gt;&gt;&gt; &nbsp; &nbsp;2))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (module client racket<br>
+ &gt;&gt;&gt; &nbsp;(require (submod ".." server))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; &nbsp;(define c%<br>
+ &gt;&gt;&gt; &nbsp; &nbsp;(class object%<br>
+ &gt;&gt;&gt; &nbsp; &nbsp; &nbsp;(super-new)<br>
+ &gt;&gt;&gt; &nbsp; &nbsp; &nbsp;(define/public (callback x) 3)))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; &nbsp;(f c%))<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; (require 'client)<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; It seems like the error message is confusing here because =
+ it is the<br>
+ &gt;&gt;&gt; positive party that is violating the contract (hence "broke =
+ its<br>
+ &gt;&gt;&gt; contract"), but the positive party didn't actually provide =
+ the method<br>
+ &gt;&gt;&gt; that related to the failure.<br>
+ &gt;&gt;&gt;<br>
+ &gt;&gt;&gt; Cheers,<br>
+ &gt;&gt;&gt; Asumu<br>
+ &gt;&gt;<br>
+ &gt;<br>
+ <br>
+ </div></div></blockquote></div><br></div>
+ </blockquote></div><br></body></html>=
+ 
+ --Apple-Mail=_3533BBA7-693B-42D9-9E41-837A9893404D--
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Stevie Strickland <sstrickl@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:57:37 -0400
+
+ On 2013-04-13 15:53:03 -0500, Robby Findler wrote:
+ >    > (car 1)
+ >    car: contract violation
+ 
+ I think this case is not confusing because it says "contract violation"
+ and not "broke its contract". I would be confused if it said "car: broke
+ its contract".
+ 
+ When I see "callback: broke its contract", I think that callback is
+ somehow responsible (I know this is not the case based on the blame
+ message, but I already know something about contracts). Maybe it could
+ say something like "callback: server broke its contract"?
+ 
+ Cheers,
+ Asumu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: Stevie Strickland <sstrickl@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:11:58 -0500
+
+ --e89a8fb200bc57ea9104da4478bd
+ Content-Type: text/plain; charset=UTF-8
+ 
+ What if the message had said this? Would you have been happy? (I changed
+ the first three lines in specific ways.)
+ 
+ callback: contract violation
+  expected: boolean?
+  given: 1
+  in: the 1st argument of
+      the callback method in
+      the 1st argument of
+       (-> c/c any)
+  contract from: (anonymous-module server)
+  blaming: (anonymous-module server)
+  at: unsaved-editor320:8.19
+ 
+ --e89a8fb200bc57ea9104da4478bd
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">What if the message had said this? Would you have been hap=
+ py? (I changed the first three lines in specific ways.)<div><br></div><div>=
+ <div class=3D"im" style=3D"font-family:monospace">callback: contract violat=
+ ion<br>
+ =C2=A0expected: boolean?<br>=C2=A0given: 1<br>=C2=A0in: the 1st argument of=
+ <br>=C2=A0 =C2=A0 =C2=A0the callback method in<br></div><span style=3D"font=
+ -family:monospace">=C2=A0 =C2=A0 =C2=A0the 1st argument of</span><br style=
+ =3D"font-family:monospace"><span style=3D"font-family:monospace">=C2=A0 =C2=
+ =A0 =C2=A0 (-&gt; c/c any)</span><br style=3D"font-family:monospace">
+ <div class=3D"im" style=3D"font-family:monospace">=C2=A0contract from: (ano=
+ nymous-module server)<br>=C2=A0blaming: (anonymous-module server)<br></div>=
+ <span style=3D"font-family:monospace">=C2=A0at: unsaved-editor320:8.19</spa=
+ n><br></div></div>
+ 
+ --e89a8fb200bc57ea9104da4478bd--
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 17:16:41 -0400
+
+ --Apple-Mail=_3419E494-4498-48A6-836E-FF9D9F65BDAA
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ The only way in which I'm not happy is that the context information is =
+ still in terms of the whole contract, not the subcontract.  =
+ Unfortunately, I don't see a good way of doing this.  Initially I'd just =
+ say throw away any context any time you hit an #:important, but the =
+ bottom of the context information is still the entire contract, right?  =
+ So it'd just be _really_ confusing, and you can at least look for a =
+ mention of "callback" in the contract text provided.
+ 
+ (Wait, now that I think about it, why is c/c not expanded below?  I =
+ thought that for non-recursive contracts, we never got names like this, =
+ but instead the full contract text, which would show the contract for =
+ the callback method.  With the error below, there's no way of knowing =
+ what that contract is without going and finding out what c/c is bound =
+ to.)
+ 
+ Stevie
+ 
+ On Apr 13, 2013, at 5:11 PM, Robby Findler <robby@eecs.northwestern.edu> =
+ wrote:
+ 
+ > What if the message had said this? Would you have been happy? (I =
+ changed the first three lines in specific ways.)
+ >=20
+ > callback: contract violation
+ >  expected: boolean?
+ >  given: 1
+ >  in: the 1st argument of
+ >      the callback method in
+ >      the 1st argument of
+ >       (-> c/c any)
+ >  contract from: (anonymous-module server)
+ >  blaming: (anonymous-module server)
+ >  at: unsaved-editor320:8.19
+ 
+ 
+ --Apple-Mail=_3419E494-4498-48A6-836E-FF9D9F65BDAA
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head><meta http-equiv=3D"Content-Type" content=3D"text/html =
+ charset=3Dus-ascii"></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; =
+ "><div>The only way in which I'm not happy is that the context =
+ information is still in terms of the whole contract, not the =
+ subcontract. &nbsp;Unfortunately, I don't see a good way of doing this. =
+ &nbsp;Initially I'd just say throw away any context any time you hit an =
+ #:important, but the bottom of the context information is still the =
+ entire contract, right? &nbsp;So it'd just be _really_ confusing, and =
+ you can at least look for a mention of "callback" in the contract text =
+ provided.</div><div><br></div><div>(Wait, now that I think about it, why =
+ is c/c not expanded below? &nbsp;I thought that for non-recursive =
+ contracts, we never got names like this, but instead the full contract =
+ text, which would show the contract for the callback method. &nbsp;With =
+ the error below, there's no way of knowing what that contract is without =
+ going and finding out what c/c is bound =
+ to.)</div><div><br></div><div>Stevie</div><br><div><div>On Apr 13, 2013, =
+ at 5:11 PM, Robby Findler &lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a=
+ >&gt; wrote:</div><br class=3D"Apple-interchange-newline"><blockquote =
+ type=3D"cite"><div dir=3D"ltr">What if the message had said this? Would =
+ you have been happy? (I changed the first three lines in specific =
+ ways.)<div><br></div><div><div class=3D"im" =
+ style=3D"font-family:monospace">callback: contract violation<br>
+ &nbsp;expected: boolean?<br>&nbsp;given: 1<br>&nbsp;in: the 1st argument =
+ of<br>&nbsp; &nbsp; &nbsp;the callback method in<br></div><span =
+ style=3D"font-family:monospace">&nbsp; &nbsp; &nbsp;the 1st argument =
+ of</span><br style=3D"font-family:monospace"><span =
+ style=3D"font-family:monospace">&nbsp; &nbsp; &nbsp; (-&gt; c/c =
+ any)</span><br style=3D"font-family:monospace">
+ <div class=3D"im" style=3D"font-family:monospace">&nbsp;contract from: =
+ (anonymous-module server)<br>&nbsp;blaming: (anonymous-module =
+ server)<br></div><span style=3D"font-family:monospace">&nbsp;at: =
+ unsaved-editor320:8.19</span><br></div></div>
+ </blockquote></div><br></body></html>=
+ 
+ --Apple-Mail=_3419E494-4498-48A6-836E-FF9D9F65BDAA--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 16:24:36 -0500
+
+ --089e015366048b04ce04da44a577
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland <sstrickl@ccs.neu.edu>wrote:
+ 
+ > The only way in which I'm not happy is that the context information is
+ > still in terms of the whole contract, not the subcontract.  Unfortunately,
+ > I don't see a good way of doing this.  Initially I'd just say throw away
+ > any context any time you hit an #:important, but the bottom of the context
+ > information is still the entire contract, right?  So it'd just be _really_
+ > confusing, and you can at least look for a mention of "callback" in the
+ > contract text provided.
+ >
+ >
+ I think that's a separate issue: if you otherwise like my revision then the
+ thing that is going wrong is that the blame-original? of the blame record
+ is getting flipped incorrectly.
+ 
+ 
+ > (Wait, now that I think about it, why is c/c not expanded below?  I
+ > thought that for non-recursive contracts, we never got names like this, but
+ > instead the full contract text, which would show the contract for the
+ > callback method.  With the error below, there's no way of knowing what that
+ > contract is without going and finding out what c/c is bound to.)
+ >
+ >
+ This is how class/c contracts are named. And it is a good idea in the
+ general case (think of the class contracts in the gui libraries). Maybe we
+ should have more refinements somehow, but class/c would be the place to
+ change that.
+ 
+ #lang racket
+ (define abcdef (class/c))
+ (contract-name abcdef) ;; = 'abcdef
+ 
+ Robby
+ 
+ 
+ > Stevie
+ >
+ > On Apr 13, 2013, at 5:11 PM, Robby Findler <robby@eecs.northwestern.edu>
+ > wrote:
+ >
+ > What if the message had said this? Would you have been happy? (I changed
+ > the first three lines in specific ways.)
+ >
+ > callback: contract violation
+ >  expected: boolean?
+ >  given: 1
+ >  in: the 1st argument of
+ >      the callback method in
+ >      the 1st argument of
+ >       (-> c/c any)
+ >  contract from: (anonymous-module server)
+ >  blaming: (anonymous-module server)
+ >  at: unsaved-editor320:8.19
+ >
+ >
+ >
+ 
+ --089e015366048b04ce04da44a577
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland <span dir=3D"ltr=
+ ">&lt;<a href=3D"mailto:sstrickl@ccs.neu.edu" target=3D"_blank">sstrickl@cc=
+ s.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-=
+ left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;p=
+ adding-left:1ex"><div style=3D"word-wrap:break-word"><div>The only way in w=
+ hich I&#39;m not happy is that the context information is still in terms of=
+  the whole contract, not the subcontract. =C2=A0Unfortunately, I don&#39;t =
+ see a good way of doing this. =C2=A0Initially I&#39;d just say throw away a=
+ ny context any time you hit an #:important, but the bottom of the context i=
+ nformation is still the entire contract, right? =C2=A0So it&#39;d just be _=
+ really_ confusing, and you can at least look for a mention of &quot;callbac=
+ k&quot; in the contract text provided.</div>
+ <div><br></div></div></blockquote><div><br></div><div style>I think that&#3=
+ 9;s a separate issue: if you otherwise like my revision then the thing that=
+  is going wrong is that the blame-original? of the blame record is getting =
+ flipped incorrectly.=C2=A0</div>
+ <div>=C2=A0</div><blockquote class=3D"gmail_quote" style=3D"margin:0px 0px =
+ 0px 0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204);border-l=
+ eft-style:solid;padding-left:1ex"><div style=3D"word-wrap:break-word"><div>=
+ </div><div>
+ (Wait, now that I think about it, why is c/c not expanded below? =C2=A0I th=
+ ought that for non-recursive contracts, we never got names like this, but i=
+ nstead the full contract text, which would show the contract for the callba=
+ ck method. =C2=A0With the error below, there&#39;s no way of knowing what t=
+ hat contract is without going and finding out what c/c is bound to.)</div>
+ <span class=3D""><font color=3D"#888888"><div><br></div></font></span></div=
+ ></blockquote><div><br></div><div style>This is how class/c contracts are n=
+ amed. And it is a good idea in the general case (think of the class contrac=
+ ts in the gui libraries). Maybe we should have more refinements somehow, bu=
+ t class/c would be the place to change that.</div>
+ <div style><br></div><div style><div>#lang racket</div><div>(define abcdef =
+ (class/c))</div><div>(contract-name abcdef) ;; =3D &#39;abcdef</div><div><b=
+ r></div><div>Robby</div></div><div>=C2=A0</div><blockquote class=3D"gmail_q=
+ uote" style=3D"margin:0px 0px 0px 0.8ex;border-left-width:1px;border-left-c=
+ olor:rgb(204,204,204);border-left-style:solid;padding-left:1ex">
+ <div style=3D"word-wrap:break-word"><span class=3D""><font color=3D"#888888=
+ "><div></div><div>Stevie</div></font></span><div><div class=3D"h5"><br><div=
+ ><div>On Apr 13, 2013, at 5:11 PM, Robby Findler &lt;<a href=3D"mailto:robb=
+ y@eecs.northwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&=
+ gt; wrote:</div>
+ <br><blockquote type=3D"cite"><div dir=3D"ltr">What if the message had said=
+  this? Would you have been happy? (I changed the first three lines in speci=
+ fic ways.)<div><br></div><div><div style=3D"font-family:monospace">callback=
+ : contract violation<br>
+ 
+ =C2=A0expected: boolean?<br>=C2=A0given: 1<br>=C2=A0in: the 1st argument of=
+ <br>=C2=A0 =C2=A0 =C2=A0the callback method in<br></div><span style=3D"font=
+ -family:monospace">=C2=A0 =C2=A0 =C2=A0the 1st argument of</span><br style=
+ =3D"font-family:monospace"><span style=3D"font-family:monospace">=C2=A0 =C2=
+ =A0 =C2=A0 (-&gt; c/c any)</span><br style=3D"font-family:monospace">
+ 
+ <div style=3D"font-family:monospace">=C2=A0contract from: (anonymous-module=
+  server)<br>=C2=A0blaming: (anonymous-module server)<br></div><span style=
+ =3D"font-family:monospace">=C2=A0at: unsaved-editor320:8.19</span><br></div=
+ ></div>
+ </blockquote></div><br></div></div></div></blockquote></div><br></div></div=
+ >
+ 
+ --089e015366048b04ce04da44a577--
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 17:30:58 -0400
+
+ --Apple-Mail=_717390F6-99AE-4ADE-B48A-061D9EA08542
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ 
+ On Apr 13, 2013, at 5:24 PM, Robby Findler <robby@eecs.northwestern.edu> =
+ wrote:
+ 
+ > On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland =
+ <sstrickl@ccs.neu.edu> wrote:
+ > The only way in which I'm not happy is that the context information is =
+ still in terms of the whole contract, not the subcontract.  =
+ Unfortunately, I don't see a good way of doing this.  Initially I'd just =
+ say throw away any context any time you hit an #:important, but the =
+ bottom of the context information is still the entire contract, right?  =
+ So it'd just be _really_ confusing, and you can at least look for a =
+ mention of "callback" in the contract text provided.
+ >=20
+ >=20
+ > I think that's a separate issue: if you otherwise like my revision =
+ then the thing that is going wrong is that the blame-original? of the =
+ blame record is getting flipped incorrectly.=20
+ 
+ I'd say that if you're changing what's being listed via #:important, =
+ then you should probably make blame-original? reflect the position of =
+ the "important" part.  Whenever #:important is provided, then if that =
+ part of the contract is in a negative position, then we should switch =
+ blame-original?, and if it's currently positive, then we leave it alone. =
+ (I don't know how this works, or should be changed, in the face of =
+ multiple contract parties, however.  It works fine for a two-party =
+ contract though.)
+ 
+ > (Wait, now that I think about it, why is c/c not expanded below?  I =
+ thought that for non-recursive contracts, we never got names like this, =
+ but instead the full contract text, which would show the contract for =
+ the callback method.  With the error below, there's no way of knowing =
+ what that contract is without going and finding out what c/c is bound =
+ to.)
+ >=20
+ >=20
+ > This is how class/c contracts are named. And it is a good idea in the =
+ general case (think of the class contracts in the gui libraries). Maybe =
+ we should have more refinements somehow, but class/c would be the place =
+ to change that.
+ >=20
+ > #lang racket
+ > (define abcdef (class/c))
+ > (contract-name abcdef) ;; =3D 'abcdef
+ 
+ Ah, okay, that makes sense given the huge class/c contracts there.  And =
+ I don't have an obvious solution to that, but it is unfortunate, since =
+ there's no way to determine which contract mentions callback without =
+ going and looking for it (since we've lost the information that the =
+ contract is on f).
+ 
+ Oh!  What if, when #:important is used, we create a new field in the =
+ error message (and set a field in the blame object) that contains the =
+ originally-contracted value's name and report that as well?  (If the =
+ field is already set in the blame object, then we leave it alone.)
+ 
+ Stevie
+ 
+ 
+ --Apple-Mail=_717390F6-99AE-4ADE-B48A-061D9EA08542
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head><meta http-equiv=3D"Content-Type" content=3D"text/html =
+ charset=3Dus-ascii"></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; =
+ "><br><div><div>On Apr 13, 2013, at 5:24 PM, Robby Findler &lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a=
+ >&gt; wrote:</div><br><blockquote type=3D"cite"><div dir=3D"ltr"><div =
+ class=3D"gmail_extra"><div class=3D"gmail_quote">On Sat, Apr 13, 2013 at =
+ 4:16 PM, Stevie Strickland <span dir=3D"ltr">&lt;<a =
+ href=3D"mailto:sstrickl@ccs.neu.edu" =
+ target=3D"_blank">sstrickl@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin: 0px 0px 0px 0.8ex; =
+ border-left-width: 1px; border-left-color: rgb(204, 204, 204); =
+ border-left-style: solid; padding-left: 1ex; position: static; z-index: =
+ auto; "><div style=3D"word-wrap:break-word"><div>The only way in which =
+ I'm not happy is that the context information is still in terms of the =
+ whole contract, not the subcontract. &nbsp;Unfortunately, I don't see a =
+ good way of doing this. &nbsp;Initially I'd just say throw away any =
+ context any time you hit an #:important, but the bottom of the context =
+ information is still the entire contract, right? &nbsp;So it'd just be =
+ _really_ confusing, and you can at least look for a mention of =
+ "callback" in the contract text provided.</div>
+ <div><br></div></div></blockquote><div><br></div><div style=3D"">I think =
+ that's a separate issue: if you otherwise like my revision then the =
+ thing that is going wrong is that the blame-original? of the blame =
+ record is getting flipped =
+ incorrectly.&nbsp;</div></div></div></div></blockquote><div><br></div><div=
+ >I'd say that if you're changing what's being listed via #:important, =
+ then you should probably make blame-original? reflect the position of =
+ the "important" part. &nbsp;Whenever #:important is provided, then if =
+ that part of the contract is in a negative position, then we should =
+ switch blame-original?, and if it's currently positive, then we leave it =
+ alone. (I don't know how this works, or should be changed, in the face =
+ of multiple contract parties, however. &nbsp;It works fine for a =
+ two-party contract though.)</div><br><blockquote type=3D"cite"><div =
+ dir=3D"ltr"><div class=3D"gmail_extra"><div =
+ class=3D"gmail_quote"><blockquote class=3D"gmail_quote" style=3D"margin: =
+ 0px 0px 0px 0.8ex; border-left-width: 1px; border-left-color: rgb(204, =
+ 204, 204); border-left-style: solid; padding-left: 1ex; position: =
+ static; z-index: auto; "><div =
+ style=3D"word-wrap:break-word"><div></div><div>
+ (Wait, now that I think about it, why is c/c not expanded below? &nbsp;I =
+ thought that for non-recursive contracts, we never got names like this, =
+ but instead the full contract text, which would show the contract for =
+ the callback method. &nbsp;With the error below, there's no way of =
+ knowing what that contract is without going and finding out what c/c is =
+ bound to.)</div>
+ <span class=3D""><font =
+ color=3D"#888888"><br></font></span></div></blockquote><div><br></div><div=
+  style=3D"">This is how class/c contracts are named. And it is a good =
+ idea in the general case (think of the class contracts in the gui =
+ libraries). Maybe we should have more refinements somehow, but class/c =
+ would be the place to change that.</div>
+ <div style=3D""><br></div><div style=3D""><div>#lang =
+ racket</div><div>(define abcdef (class/c))</div><div>(contract-name =
+ abcdef) ;; =3D =
+ 'abcdef</div></div></div></div></div></blockquote><br></div><div>Ah, =
+ okay, that makes sense given the huge class/c contracts there. &nbsp;And =
+ I don't have an obvious solution to that, but it is unfortunate, since =
+ there's no way to determine which contract mentions callback without =
+ going and looking for it (since we've lost the information that the =
+ contract is on f).<br><br></div><div>Oh! &nbsp;What if, when #:important =
+ is used, we create a new field in the error message (and set a field in =
+ the blame object) that contains the originally-contracted value's name =
+ and report that as well? &nbsp;(If the field is already set in the blame =
+ object, then we leave it =
+ alone.)</div><div><br></div><div>Stevie</div><br></body></html>=
+ 
+ --Apple-Mail=_717390F6-99AE-4ADE-B48A-061D9EA08542--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 18:15:02 -0500
+
+ --089e0153660474c8b604da4630ca
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland <sstrickl@ccs.neu.edu>wrote:
+ 
+ >
+ > On Apr 13, 2013, at 5:24 PM, Robby Findler <robby@eecs.northwestern.edu>
+ > wrote:
+ >
+ > On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland <sstrickl@ccs.neu.edu>wrote:
+ >
+ >> The only way in which I'm not happy is that the context information is
+ >> still in terms of the whole contract, not the subcontract.  Unfortunately,
+ >> I don't see a good way of doing this.  Initially I'd just say throw away
+ >> any context any time you hit an #:important, but the bottom of the context
+ >> information is still the entire contract, right?  So it'd just be _really_
+ >> confusing, and you can at least look for a mention of "callback" in the
+ >> contract text provided.
+ >>
+ >>
+ > I think that's a separate issue: if you otherwise like my revision then
+ > the thing that is going wrong is that the blame-original? of the blame
+ > record is getting flipped incorrectly.
+ >
+ >
+ > I'd say that if you're changing what's being listed via #:important, then
+ > you should probably make blame-original? reflect the position of the
+ > "important" part.  Whenever #:important is provided, then if that part of
+ > the contract is in a negative position, then we should switch
+ > blame-original?, and if it's currently positive, then we leave it alone. (I
+ > don't know how this works, or should be changed, in the face of multiple
+ > contract parties, however.  It works fine for a two-party contract though.)
+ >
+ >
+ Oh, that's it! Thanks for putting your finger on the issue. I think that's
+ the right fix.
+ 
+ I'll push a fix when you unbreak everything that your earlier commit just
+ broke. :)
+ 
+ 
+ >  (Wait, now that I think about it, why is c/c not expanded below?  I
+ >> thought that for non-recursive contracts, we never got names like this, but
+ >> instead the full contract text, which would show the contract for the
+ >> callback method.  With the error below, there's no way of knowing what that
+ >> contract is without going and finding out what c/c is bound to.)
+ >>
+ >>
+ > This is how class/c contracts are named. And it is a good idea in the
+ > general case (think of the class contracts in the gui libraries). Maybe we
+ > should have more refinements somehow, but class/c would be the place to
+ > change that.
+ >
+ > #lang racket
+ > (define abcdef (class/c))
+ > (contract-name abcdef) ;; = 'abcdef
+ >
+ >
+ > Ah, okay, that makes sense given the huge class/c contracts there.  And I
+ > don't have an obvious solution to that, but it is unfortunate, since
+ > there's no way to determine which contract mentions callback without going
+ > and looking for it (since we've lost the information that the contract is
+ > on f).
+ >
+ > Oh!  What if, when #:important is used, we create a new field in the error
+ > message (and set a field in the blame object) that contains the
+ > originally-contracted value's name and report that as well?  (If the field
+ > is already set in the blame object, then we leave it alone.)
+ >
+ >
+ What would the error message look like in this case if we did that?
+ 
+ Robby
+ 
+ --089e0153660474c8b604da4630ca
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland <span dir=3D"ltr=
+ ">&lt;<a href=3D"mailto:sstrickl@ccs.neu.edu" target=3D"_blank">sstrickl@cc=
+ s.neu.edu</a>&gt;</span> wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div style=3D"word-wrap:break-word"><br><div=
+ ><div><div>On Apr 13, 2013, at 5:24 PM, Robby Findler &lt;<a href=3D"mailto=
+ :robby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu=
+ </a>&gt; wrote:</div>
+ 
+ <br><blockquote type=3D"cite"><div dir=3D"ltr"><div class=3D"gmail_extra"><=
+ div class=3D"gmail_quote">On Sat, Apr 13, 2013 at 4:16 PM, Stevie Stricklan=
+ d <span dir=3D"ltr">&lt;<a href=3D"mailto:sstrickl@ccs.neu.edu" target=3D"_=
+ blank">sstrickl@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-=
+ left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;p=
+ adding-left:1ex"><div style=3D"word-wrap:break-word"><div>The only way in w=
+ hich I&#39;m not happy is that the context information is still in terms of=
+  the whole contract, not the subcontract. =C2=A0Unfortunately, I don&#39;t =
+ see a good way of doing this. =C2=A0Initially I&#39;d just say throw away a=
+ ny context any time you hit an #:important, but the bottom of the context i=
+ nformation is still the entire contract, right? =C2=A0So it&#39;d just be _=
+ really_ confusing, and you can at least look for a mention of &quot;callbac=
+ k&quot; in the contract text provided.</div>
+ 
+ 
+ <div><br></div></div></blockquote><div><br></div><div>I think that&#39;s a =
+ separate issue: if you otherwise like my revision then the thing that is go=
+ ing wrong is that the blame-original? of the blame record is getting flippe=
+ d incorrectly.=C2=A0</div>
+ 
+ </div></div></div></blockquote><div><br></div></div><div>I&#39;d say that i=
+ f you&#39;re changing what&#39;s being listed via #:important, then you sho=
+ uld probably make blame-original? reflect the position of the &quot;importa=
+ nt&quot; part. =C2=A0Whenever #:important is provided, then if that part of=
+  the contract is in a negative position, then we should switch blame-origin=
+ al?, and if it&#39;s currently positive, then we leave it alone. (I don&#39=
+ ;t know how this works, or should be changed, in the face of multiple contr=
+ act parties, however. =C2=A0It works fine for a two-party contract though.)=
+ </div>
+ 
+ <div><br></div></div></div></blockquote><div><br></div><div style>Oh, that&=
+ #39;s it! Thanks for putting your finger on the issue. I think that&#39;s t=
+ he right fix.</div><div style><br></div><div style>I&#39;ll push a fix when=
+  you unbreak everything that your earlier commit just broke. :)</div>
+ <div>=C2=A0</div><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8=
+ ex;border-left:1px #ccc solid;padding-left:1ex"><div style=3D"word-wrap:bre=
+ ak-word"><div><div><blockquote type=3D"cite"><div dir=3D"ltr"><div class=3D=
+ "gmail_extra">
+ <div class=3D"gmail_quote"><blockquote class=3D"gmail_quote" style=3D"margi=
+ n:0px 0px 0px 0.8ex;border-left-width:1px;border-left-color:rgb(204,204,204=
+ );border-left-style:solid;padding-left:1ex">
+ <div style=3D"word-wrap:break-word"><div></div><div>
+ (Wait, now that I think about it, why is c/c not expanded below? =C2=A0I th=
+ ought that for non-recursive contracts, we never got names like this, but i=
+ nstead the full contract text, which would show the contract for the callba=
+ ck method. =C2=A0With the error below, there&#39;s no way of knowing what t=
+ hat contract is without going and finding out what c/c is bound to.)</div>
+ 
+ 
+ <span><font color=3D"#888888"><br></font></span></div></blockquote><div><br=
+ ></div><div>This is how class/c contracts are named. And it is a good idea =
+ in the general case (think of the class contracts in the gui libraries). Ma=
+ ybe we should have more refinements somehow, but class/c would be the place=
+  to change that.</div>
+ 
+ 
+ <div><br></div><div><div>#lang racket</div><div>(define abcdef (class/c))</=
+ div><div>(contract-name abcdef) ;; =3D &#39;abcdef</div></div></div></div><=
+ /div></blockquote><br></div></div><div>Ah, okay, that makes sense given the=
+  huge class/c contracts there. =C2=A0And I don&#39;t have an obvious soluti=
+ on to that, but it is unfortunate, since there&#39;s no way to determine wh=
+ ich contract mentions callback without going and looking for it (since we&#=
+ 39;ve lost the information that the contract is on f).<br>
+ 
+ <br></div><div>Oh! =C2=A0What if, when #:important is used, we create a new=
+  field in the error message (and set a field in the blame object) that cont=
+ ains the originally-contracted value&#39;s name and report that as well? =
+ =C2=A0(If the field is already set in the blame object, then we leave it al=
+ one.)</div>
+ 
+ <span><font color=3D"#888888"><div><br></div></font></span></div></blockquo=
+ te><div><br></div><div>What would the error message look like in this case =
+ if we did that?</div><div><br></div></div></div>
+ <div class=3D"gmail_extra">Robby</div><div class=3D"gmail_extra"><br></div>=
+ </div>
+ 
+ --089e0153660474c8b604da4630ca--
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 19:20:34 -0400
+
+ On Apr 13, 2013, at 7:15 PM, Robby Findler <robby@eecs.northwestern.edu> wrote:
+ 
+ > 
+ > 
+ > 
+ > On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ > 
+ > On Apr 13, 2013, at 5:24 PM, Robby Findler <robby@eecs.northwestern.edu> wrote:
+ > 
+ >> On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland <sstrickl@ccs.neu.edu> wrote:
+ >> The only way in which I'm not happy is that the context information is still in terms of the whole contract, not the subcontract.  Unfortunately, I don't see a good way of doing this.  Initially I'd just say throw away any context any time you hit an #:important, but the bottom of the context information is still the entire contract, right?  So it'd just be _really_ confusing, and you can at least look for a mention of "callback" in the contract text provided.
+ >> 
+ >> 
+ >> I think that's a separate issue: if you otherwise like my revision then the thing that is going wrong is that the blame-original? of the blame record is getting flipped incorrectly. 
+ > 
+ > I'd say that if you're changing what's being listed via #:important, then you should probably make blame-original? reflect the position of the "important" part.  Whenever #:important is provided, then if that part of the contract is in a negative position, then we should switch blame-original?, and if it's currently positive, then we leave it alone. (I don't know how this works, or should be changed, in the face of multiple contract parties, however.  It works fine for a two-party contract though.)
+ > 
+ > 
+ > Oh, that's it! Thanks for putting your finger on the issue. I think that's the right fix.
+ > 
+ > I'll push a fix when you unbreak everything that your earlier commit just broke. :)
+ 
+ I've already reverted the commit that broke everything (the "fix" for init-fields), but left the fix for the contract error field spacing in, so you should be clear to go ahead with this :)
+ 
+ >> (Wait, now that I think about it, why is c/c not expanded below?  I thought that for non-recursive contracts, we never got names like this, but instead the full contract text, which would show the contract for the callback method.  With the error below, there's no way of knowing what that contract is without going and finding out what c/c is bound to.)
+ >> 
+ >> 
+ >> This is how class/c contracts are named. And it is a good idea in the general case (think of the class contracts in the gui libraries). Maybe we should have more refinements somehow, but class/c would be the place to change that.
+ >> 
+ >> #lang racket
+ >> (define abcdef (class/c))
+ >> (contract-name abcdef) ;; = 'abcdef
+ > 
+ > Ah, okay, that makes sense given the huge class/c contracts there.  And I don't have an obvious solution to that, but it is unfortunate, since there's no way to determine which contract mentions callback without going and looking for it (since we've lost the information that the contract is on f).
+ > 
+ > Oh!  What if, when #:important is used, we create a new field in the error message (and set a field in the blame object) that contains the originally-contracted value's name and report that as well?  (If the field is already set in the blame object, then we leave it alone.)
+ > 
+ > 
+ > What would the error message look like in this case if we did that?
+ 
+ That's an excellent question.  What would be a good name for that field?  Maybe something as simple as "on:" (after the "in:" field detailing the contract context)?  That'd look like this:
+ 
+ callback: contract violation
+  expected: boolean?
+  given: 1
+  in: the 1st argument of
+      the callback method in
+      the 1st argument of
+       (-> c/c any)
+  on: f
+  from: (anonymous-module server)
+  blaming: (anonymous-module server)
+  at: unsaved-editor320:8.19
+ 
+ (Maybe we should always report it in this fashion, even if #:important hasn't been used to refocus?  Not sure.)
+ 
+ I also changed the "contract from:" to just "from:" in that example, because I think that looks better in this case.  An alternative:
+ 
+ callback: contract violation
+  expected: boolean?
+  given: 1
+  in: the 1st argument of
+      the callback method in
+      the 1st argument of
+       (-> c/c any)
+  contract on: f
+  from: (anonymous-module server)
+  blaming: (anonymous-module server)
+  at: unsaved-editor320:8.19
+ 
+ Here, I've moved the "contract " part of the field name to "on:" from "from:" (when it appears, if it is only changed through use of #:important).
+ 
+ Stevie
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 18:34:36 -0500
+
+ --f46d0444e9257102d804da467630
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Sat, Apr 13, 2013 at 6:20 PM, Stevie Strickland <sstrickl@ccs.neu.edu>wrote:
+ 
+ >
+ > On Apr 13, 2013, at 7:15 PM, Robby Findler <robby@eecs.northwestern.edu>
+ > wrote:
+ >
+ > >
+ > >
+ > >
+ > > On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland <sstrickl@ccs.neu.edu>
+ > wrote:
+ > >
+ > > On Apr 13, 2013, at 5:24 PM, Robby Findler <robby@eecs.northwestern.edu>
+ > wrote:
+ > >
+ > >> On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland <
+ > sstrickl@ccs.neu.edu> wrote:
+ > >> The only way in which I'm not happy is that the context information is
+ > still in terms of the whole contract, not the subcontract.  Unfortunately,
+ > I don't see a good way of doing this.  Initially I'd just say throw away
+ > any context any time you hit an #:important, but the bottom of the context
+ > information is still the entire contract, right?  So it'd just be _really_
+ > confusing, and you can at least look for a mention of "callback" in the
+ > contract text provided.
+ > >>
+ > >>
+ > >> I think that's a separate issue: if you otherwise like my revision then
+ > the thing that is going wrong is that the blame-original? of the blame
+ > record is getting flipped incorrectly.
+ > >
+ > > I'd say that if you're changing what's being listed via #:important,
+ > then you should probably make blame-original? reflect the position of the
+ > "important" part.  Whenever #:important is provided, then if that part of
+ > the contract is in a negative position, then we should switch
+ > blame-original?, and if it's currently positive, then we leave it alone. (I
+ > don't know how this works, or should be changed, in the face of multiple
+ > contract parties, however.  It works fine for a two-party contract though.)
+ > >
+ > >
+ > > Oh, that's it! Thanks for putting your finger on the issue. I think
+ > that's the right fix.
+ > >
+ > > I'll push a fix when you unbreak everything that your earlier commit
+ > just broke. :)
+ >
+ > I've already reverted the commit that broke everything (the "fix" for
+ > init-fields), but left the fix for the contract error field spacing in, so
+ > you should be clear to go ahead with this :)
+ >
+ >
+ Oh, sorry about that.
+ 
+ 
+ > >> (Wait, now that I think about it, why is c/c not expanded below?  I
+ > thought that for non-recursive contracts, we never got names like this, but
+ > instead the full contract text, which would show the contract for the
+ > callback method.  With the error below, there's no way of knowing what that
+ > contract is without going and finding out what c/c is bound to.)
+ > >>
+ > >>
+ > >> This is how class/c contracts are named. And it is a good idea in the
+ > general case (think of the class contracts in the gui libraries). Maybe we
+ > should have more refinements somehow, but class/c would be the place to
+ > change that.
+ > >>
+ > >> #lang racket
+ > >> (define abcdef (class/c))
+ > >> (contract-name abcdef) ;; = 'abcdef
+ > >
+ > > Ah, okay, that makes sense given the huge class/c contracts there.  And
+ > I don't have an obvious solution to that, but it is unfortunate, since
+ > there's no way to determine which contract mentions callback without going
+ > and looking for it (since we've lost the information that the contract is
+ > on f).
+ > >
+ > > Oh!  What if, when #:important is used, we create a new field in the
+ > error message (and set a field in the blame object) that contains the
+ > originally-contracted value's name and report that as well?  (If the field
+ > is already set in the blame object, then we leave it alone.)
+ > >
+ > >
+ > > What would the error message look like in this case if we did that?
+ >
+ > That's an excellent question.  What would be a good name for that field?
+ >  Maybe something as simple as "on:" (after the "in:" field detailing the
+ > contract context)?  That'd look like this:
+ >
+ > callback: contract violation
+ >  expected: boolean?
+ >  given: 1
+ >  in: the 1st argument of
+ >      the callback method in
+ >      the 1st argument of
+ >       (-> c/c any)
+ >  on: f
+ >  from: (anonymous-module server)
+ >  blaming: (anonymous-module server)
+ >  at: unsaved-editor320:8.19
+ >
+ > (Maybe we should always report it in this fashion, even if #:important
+ > hasn't been used to refocus?  Not sure.)
+ >
+ > I also changed the "contract from:" to just "from:" in that example,
+ > because I think that looks better in this case.  An alternative:
+ >
+ > callback: contract violation
+ >  expected: boolean?
+ >  given: 1
+ >  in: the 1st argument of
+ >      the callback method in
+ >      the 1st argument of
+ >       (-> c/c any)
+ >  contract on: f
+ >  from: (anonymous-module server)
+ >  blaming: (anonymous-module server)
+ >  at: unsaved-editor320:8.19
+ >
+ > Here, I've moved the "contract " part of the field name to "on:" from
+ > "from:" (when it appears, if it is only changed through use of #:important).
+ >
+ >
+ Oh, I see. I like this idea.
+ 
+ What if there are two "#:important"s? We still only put the one extra line,
+ right?
+ 
+ Also, I think I like the "contract " part of the message; "contract on:"
+ and "contract from:" seem short for "original contract on:" and "original
+ contract from:" already to me.
+ 
+ Robby
+ 
+ --f46d0444e9257102d804da467630
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Sat, Apr 13, 2013 at 6:20 PM, Stevie Strickland <span dir=3D"ltr=
+ ">&lt;<a href=3D"mailto:sstrickl@ccs.neu.edu" target=3D"_blank">sstrickl@cc=
+ s.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div class=3D"im"><br>
+ On Apr 13, 2013, at 7:15 PM, Robby Findler &lt;<a href=3D"mailto:robby@eecs=
+ .northwestern.edu">robby@eecs.northwestern.edu</a>&gt; wrote:<br>
+ <br>
+ &gt;<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland &lt;<a href=3D"mail=
+ to:sstrickl@ccs.neu.edu">sstrickl@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt; On Apr 13, 2013, at 5:24 PM, Robby Findler &lt;<a href=3D"mailto:robby=
+ @eecs.northwestern.edu">robby@eecs.northwestern.edu</a>&gt; wrote:<br>
+ &gt;<br>
+ &gt;&gt; On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland &lt;<a href=3D"=
+ mailto:sstrickl@ccs.neu.edu">sstrickl@ccs.neu.edu</a>&gt; wrote:<br>
+ &gt;&gt; The only way in which I&#39;m not happy is that the context inform=
+ ation is still in terms of the whole contract, not the subcontract. =C2=A0U=
+ nfortunately, I don&#39;t see a good way of doing this. =C2=A0Initially I&#=
+ 39;d just say throw away any context any time you hit an #:important, but t=
+ he bottom of the context information is still the entire contract, right? =
+ =C2=A0So it&#39;d just be _really_ confusing, and you can at least look for=
+  a mention of &quot;callback&quot; in the contract text provided.<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; I think that&#39;s a separate issue: if you otherwise like my revi=
+ sion then the thing that is going wrong is that the blame-original? of the =
+ blame record is getting flipped incorrectly.<br>
+ &gt;<br>
+ &gt; I&#39;d say that if you&#39;re changing what&#39;s being listed via #:=
+ important, then you should probably make blame-original? reflect the positi=
+ on of the &quot;important&quot; part. =C2=A0Whenever #:important is provide=
+ d, then if that part of the contract is in a negative position, then we sho=
+ uld switch blame-original?, and if it&#39;s currently positive, then we lea=
+ ve it alone. (I don&#39;t know how this works, or should be changed, in the=
+  face of multiple contract parties, however. =C2=A0It works fine for a two-=
+ party contract though.)<br>
+ 
+ &gt;<br>
+ &gt;<br>
+ &gt; Oh, that&#39;s it! Thanks for putting your finger on the issue. I thin=
+ k that&#39;s the right fix.<br>
+ &gt;<br>
+ &gt; I&#39;ll push a fix when you unbreak everything that your earlier comm=
+ it just broke. :)<br>
+ <br>
+ </div>I&#39;ve already reverted the commit that broke everything (the &quot=
+ ;fix&quot; for init-fields), but left the fix for the contract error field =
+ spacing in, so you should be clear to go ahead with this :)<br>
+ <div class=3D"im"><br></div></blockquote><div><br></div><div style>Oh, sorr=
+ y about that.</div><div>=C2=A0</div><blockquote class=3D"gmail_quote" style=
+ =3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><div cla=
+ ss=3D"im">
+ 
+ &gt;&gt; (Wait, now that I think about it, why is c/c not expanded below? =
+ =C2=A0I thought that for non-recursive contracts, we never got names like t=
+ his, but instead the full contract text, which would show the contract for =
+ the callback method. =C2=A0With the error below, there&#39;s no way of know=
+ ing what that contract is without going and finding out what c/c is bound t=
+ o.)<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt;<br>
+ &gt;&gt; This is how class/c contracts are named. And it is a good idea in =
+ the general case (think of the class contracts in the gui libraries). Maybe=
+  we should have more refinements somehow, but class/c would be the place to=
+  change that.<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt; #lang racket<br>
+ &gt;&gt; (define abcdef (class/c))<br>
+ &gt;&gt; (contract-name abcdef) ;; =3D &#39;abcdef<br>
+ &gt;<br>
+ &gt; Ah, okay, that makes sense given the huge class/c contracts there. =C2=
+ =A0And I don&#39;t have an obvious solution to that, but it is unfortunate,=
+  since there&#39;s no way to determine which contract mentions callback wit=
+ hout going and looking for it (since we&#39;ve lost the information that th=
+ e contract is on f).<br>
+ 
+ &gt;<br>
+ &gt; Oh! =C2=A0What if, when #:important is used, we create a new field in =
+ the error message (and set a field in the blame object) that contains the o=
+ riginally-contracted value&#39;s name and report that as well? =C2=A0(If th=
+ e field is already set in the blame object, then we leave it alone.)<br>
+ 
+ &gt;<br>
+ &gt;<br>
+ &gt; What would the error message look like in this case if we did that?<br=
+ >
+ <br>
+ </div>That&#39;s an excellent question. =C2=A0What would be a good name for=
+  that field? =C2=A0Maybe something as simple as &quot;on:&quot; (after the =
+ &quot;in:&quot; field detailing the contract context)? =C2=A0That&#39;d loo=
+ k like this:<br>
+ 
+ <div class=3D"im"><br>
+ callback: contract violation<br>
+ =C2=A0expected: boolean?<br>
+ =C2=A0given: 1<br>
+ =C2=A0in: the 1st argument of<br>
+ =C2=A0 =C2=A0 =C2=A0the callback method in<br>
+ =C2=A0 =C2=A0 =C2=A0the 1st argument of<br>
+ =C2=A0 =C2=A0 =C2=A0 (-&gt; c/c any)<br>
+ </div>=C2=A0on: f<br>
+ <div class=3D"im">=C2=A0from: (anonymous-module server)<br>
+ =C2=A0blaming: (anonymous-module server)<br>
+ =C2=A0at: unsaved-editor320:8.19<br>
+ <br>
+ </div>(Maybe we should always report it in this fashion, even if #:importan=
+ t hasn&#39;t been used to refocus? =C2=A0Not sure.)<br>
+ <br>
+ I also changed the &quot;contract from:&quot; to just &quot;from:&quot; in =
+ that example, because I think that looks better in this case. =C2=A0An alte=
+ rnative:<br>
+ <div class=3D"im"><br>
+ callback: contract violation<br>
+ =C2=A0expected: boolean?<br>
+ =C2=A0given: 1<br>
+ =C2=A0in: the 1st argument of<br>
+ =C2=A0 =C2=A0 =C2=A0the callback method in<br>
+ =C2=A0 =C2=A0 =C2=A0the 1st argument of<br>
+ =C2=A0 =C2=A0 =C2=A0 (-&gt; c/c any)<br>
+ </div>=C2=A0contract on: f<br>
+ <div class=3D"im">=C2=A0from: (anonymous-module server)<br>
+ =C2=A0blaming: (anonymous-module server)<br>
+ =C2=A0at: unsaved-editor320:8.19<br>
+ <br>
+ </div>Here, I&#39;ve moved the &quot;contract &quot; part of the field name=
+  to &quot;on:&quot; from &quot;from:&quot; (when it appears, if it is only =
+ changed through use of #:important).<br><br></blockquote><div><br></div>
+ <div>Oh, I see. I like this idea.</div><div><br></div><div style>What if th=
+ ere are two &quot;#:important&quot;s? We still only put the one extra line,=
+  right?</div><div style><br></div><div style>Also, I think I like the &quot=
+ ;contract &quot; part of the message; &quot;contract on:&quot; and &quot;co=
+ ntract from:&quot; seem short for &quot;original contract on:&quot; and &qu=
+ ot;original contract from:&quot; already to me.</div>
+ </div><br></div><div class=3D"gmail_extra" style>Robby</div></div>
+ 
+ --f46d0444e9257102d804da467630--
+From: sstrickl@ccs.neu.edu
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Sat, 13 Apr 2013 19:38:59 -0400 (EDT)
+
+ --Apple-Mail-B77BCA8A-4A7A-4343-B17F-869CE9CEBC7F
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ Content-Transfer-Encoding: quoted-printable
+ 
+ 
+ 
+ On Apr 13, 2013, at 7:34 PM, Robby Findler <robby@eecs.northwestern.edu> wr=
+ ote:
+ 
+ > On Sat, Apr 13, 2013 at 6:20 PM, Stevie Strickland <sstrickl@ccs.neu.edu>=
+  wrote:
+ >>=20
+ >> On Apr 13, 2013, at 7:15 PM, Robby Findler <robby@eecs.northwestern.edu>=
+  wrote:
+ >>=20
+ >> > On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland <sstrickl@ccs.neu.e=
+ du> wrote:
+ >> > Oh!  What if, when #:important is used, we create a new field in the e=
+ rror message (and set a field in the blame object) that contains the origin=
+ ally-contracted value's name and report that as well?  (If the field is alr=
+ eady set in the blame object, then we leave it alone.)
+ >> >
+ >> >
+ >> > What would the error message look like in this case if we did that?
+ >>=20
+ >> That's an excellent question.  What would be a good name for that field?=
+   Maybe something as simple as "on:" (after the "in:" field detailing the c=
+ ontract context)?  That'd look like this:
+ >>=20
+ >> callback: contract violation
+ >>  expected: boolean?
+ >>  given: 1
+ >>  in: the 1st argument of
+ >>      the callback method in
+ >>      the 1st argument of
+ >>       (-> c/c any)
+ >>  on: f
+ >>  from: (anonymous-module server)
+ >>  blaming: (anonymous-module server)
+ >>  at: unsaved-editor320:8.19
+ >>=20
+ >> (Maybe we should always report it in this fashion, even if #:important h=
+ asn't been used to refocus?  Not sure.)
+ >>=20
+ >> I also changed the "contract from:" to just "from:" in that example, bec=
+ ause I think that looks better in this case.  An alternative:
+ >>=20
+ >> callback: contract violation
+ >>  expected: boolean?
+ >>  given: 1
+ >>  in: the 1st argument of
+ >>      the callback method in
+ >>      the 1st argument of
+ >>       (-> c/c any)
+ >>  contract on: f
+ >>  from: (anonymous-module server)
+ >>  blaming: (anonymous-module server)
+ >>  at: unsaved-editor320:8.19
+ >>=20
+ >> Here, I've moved the "contract " part of the field name to "on:" from "f=
+ rom:" (when it appears, if it is only changed through use of #:important).
+ >>=20
+ >=20
+ > Oh, I see. I like this idea.
+ >=20
+ > What if there are two "#:important"s? We still only put the one extra lin=
+ e, right?
+ 
+ Yes, it should only be the original contract target, not every "important" =
+ point in between. It's just so the contract can be found in the source (if =
+ needed).
+ 
+ > Also, I think I like the "contract " part of the message; "contract on:" =
+ and "contract from:" seem short for "original contract on:" and "original c=
+ ontract from:" already to me.
+ 
+ Gotcha. Works for me!
+ 
+ Stevie
+ --Apple-Mail-B77BCA8A-4A7A-4343-B17F-869CE9CEBC7F
+ Content-Type: text/html;
+ 	charset=utf-8
+ Content-Transfer-Encoding: 7bit
+ 
+ <html><head><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body dir="auto"><div><br></div><div><br>On Apr 13, 2013, at 7:34 PM, Robby Findler &lt;<a href="mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a>&gt; wrote:<br><br></div><blockquote type="cite"><div dir="ltr"><div class="gmail_extra"><div class="gmail_quote">On Sat, Apr 13, 2013 at 6:20 PM, Stevie Strickland <span dir="ltr">&lt;<a href="mailto:sstrickl@ccs.neu.edu" target="_blank">sstrickl@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class="gmail_quote" style="margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><div class="im"><br>
+ On Apr 13, 2013, at 7:15 PM, Robby Findler &lt;<a href="mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a>&gt; wrote:<br>
+ <br>
+ &gt; On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland &lt;<a href="mailto:sstrickl@ccs.neu.edu">sstrickl@ccs.neu.edu</a>&gt; wrote:<br></div></blockquote><blockquote class="gmail_quote" style="margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex"><div class="im">
+ &gt; Oh! &nbsp;What if, when #:important is used, we create a new field in the error message (and set a field in the blame object) that contains the originally-contracted value's name and report that as well? &nbsp;(If the field is already set in the blame object, then we leave it alone.)<br>
+ 
+ &gt;<br>
+ &gt;<br>
+ &gt; What would the error message look like in this case if we did that?<br>
+ <br>
+ </div>That's an excellent question. &nbsp;What would be a good name for that field? &nbsp;Maybe something as simple as "on:" (after the "in:" field detailing the contract context)? &nbsp;That'd look like this:<br>
+ 
+ <div class="im"><br>
+ callback: contract violation<br>
+ &nbsp;expected: boolean?<br>
+ &nbsp;given: 1<br>
+ &nbsp;in: the 1st argument of<br>
+ &nbsp; &nbsp; &nbsp;the callback method in<br>
+ &nbsp; &nbsp; &nbsp;the 1st argument of<br>
+ &nbsp; &nbsp; &nbsp; (-&gt; c/c any)<br>
+ </div>&nbsp;on: f<br>
+ <div class="im">&nbsp;from: (anonymous-module server)<br>
+ &nbsp;blaming: (anonymous-module server)<br>
+ &nbsp;at: unsaved-editor320:8.19<br>
+ <br>
+ </div>(Maybe we should always report it in this fashion, even if #:important hasn't been used to refocus? &nbsp;Not sure.)<br>
+ <br>
+ I also changed the "contract from:" to just "from:" in that example, because I think that looks better in this case. &nbsp;An alternative:<br>
+ <div class="im"><br>
+ callback: contract violation<br>
+ &nbsp;expected: boolean?<br>
+ &nbsp;given: 1<br>
+ &nbsp;in: the 1st argument of<br>
+ &nbsp; &nbsp; &nbsp;the callback method in<br>
+ &nbsp; &nbsp; &nbsp;the 1st argument of<br>
+ &nbsp; &nbsp; &nbsp; (-&gt; c/c any)<br>
+ </div>&nbsp;contract on: f<br>
+ <div class="im">&nbsp;from: (anonymous-module server)<br>
+ &nbsp;blaming: (anonymous-module server)<br>
+ &nbsp;at: unsaved-editor320:8.19<br>
+ <br>
+ </div>Here, I've moved the "contract " part of the field name to "on:" from "from:" (when it appears, if it is only changed through use of #:important).<br><br></blockquote><div><br></div>
+ <div>Oh, I see. I like this idea.</div><div><br></div><div style="">What if there are two "#:important"s? We still only put the one extra line, right?</div></div></div></div></blockquote><div><br></div>Yes, it should only be the original contract target, not every "important" point in between. It's just so the contract can be found in the source (if needed).<div><br><blockquote type="cite"><div dir="ltr"><div class="gmail_extra"><div class="gmail_quote"><div style="">Also, I think I like the "contract " part of the message; "contract on:" and "contract from:" seem short for "original contract on:" and "original contract from:" already to me.</div></div></div></div>
+ </blockquote><br></div><div>Gotcha. Works for me!</div><div><br></div><div>Stevie</div></body></html>
+ --Apple-Mail-B77BCA8A-4A7A-4343-B17F-869CE9CEBC7F--
+
+----------
+A commit by robby@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/24ee49b7a2
+  | add an "contract on:" line for the case when an #:important argument
+  | overrides the name of the value so we can keep that original name somewhere
+  | 
+  | related to PR 13692
+
+State changed from "analyzed" to "closed" by robby@racket-lang.org at Sat, 13 Apr 2013 20:18:19 -0400
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/79955e1204
+  | fix the sense of the blame aspects of the blame object has a #:important
+  | 
+  | closes PR 13692
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Mon, 15 Apr 2013 21:46:37 -0500
+
+ --bcaec5523a56d4840a04da71601f
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ On Sat, Apr 13, 2013 at 6:15 PM, Robby Findler
+ <robby@eecs.northwestern.edu>wrote:
+ 
+ >
+ >
+ >
+ > On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland <sstrickl@ccs.neu.edu>=
+ wrote:
+ >
+ >>
+ >> On Apr 13, 2013, at 5:24 PM, Robby Findler <robby@eecs.northwestern.edu>
+ >> wrote:
+ >>
+ >> On Sat, Apr 13, 2013 at 4:16 PM, Stevie Strickland <sstrickl@ccs.neu.edu=
+ >wrote:
+ >>
+ >>> The only way in which I'm not happy is that the context information is
+ >>> still in terms of the whole contract, not the subcontract.  Unfortunate=
+ ly,
+ >>> I don't see a good way of doing this.  Initially I'd just say throw awa=
+ y
+ >>> any context any time you hit an #:important, but the bottom of the cont=
+ ext
+ >>> information is still the entire contract, right?  So it'd just be _real=
+ ly_
+ >>> confusing, and you can at least look for a mention of "callback" in the
+ >>> contract text provided.
+ >>>
+ >>>
+ >> I think that's a separate issue: if you otherwise like my revision then
+ >> the thing that is going wrong is that the blame-original? of the blame
+ >> record is getting flipped incorrectly.
+ >>
+ >>
+ >> I'd say that if you're changing what's being listed via #:important, the=
+ n
+ >> you should probably make blame-original? reflect the position of the
+ >> "important" part.  Whenever #:important is provided, then if that part o=
+ f
+ >> the contract is in a negative position, then we should switch
+ >> blame-original?, and if it's currently positive, then we leave it alone.=
+  (I
+ >> don't know how this works, or should be changed, in the face of multiple
+ >> contract parties, however.  It works fine for a two-party contract thoug=
+ h.)
+ >>
+ >>
+ > Oh, that's it! Thanks for putting your finger on the issue. I think that'=
+ s
+ > the right fix.
+ >
+ >
+ 
+ Turns out I didn't do this right. Here are some more examples.
+ 
+ #lang racket
+ 
+ (define-syntax-rule
+   (try e)
+   (with-handlers ((exn? (=CE=BB (x)
+                           (display (exn-message x) (current-error-port))
+                           (newline (current-error-port))
+                           (newline (current-error-port)))))
+     e))
+ 
+ (try (send (new (contract (class/c [free (->m number? void)])
+                           (class object%
+                             (super-new)
+                             (define/public (free n) (void)))
+                           'pos
+                           'neg))
+            free "not a number"))
+ 
+ (try ((contract (-> (class/c (callback (->m boolean? any)))
+                     any)
+                 (=CE=BB (c%) (send (new c%) callback 1))
+                 'pos 'neg)
+       (class object%
+         (super-new)
+         (define/public (callback x) 3))))
+ 
+ (try ((contract (-> (class/c (callback (->m (-> boolean? void?) any)))
+                     any)
+                 (=CE=BB (c%) (send (new c%) callback void))
+                 'pos 'neg)
+       (class object%
+         (super-new)
+         (define/public (callback f) (f 3)))))
+ 
+ 
+ I think what I need to do is to consider the relative alignment of the
+ place where #:important was passed to the current. If they are the same, I
+ write "XXX: contract violation" and if they are different I write "XXX:
+ broke its contract".
+ 
+ Robby
+ 
+ --bcaec5523a56d4840a04da71601f
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Sat, Apr 13, 2013 at 6:15 PM, Robby Findler <span dir=3D"ltr">&l=
+ t;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">robby@ee=
+ cs.northwestern.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-=
+ left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;p=
+ adding-left:1ex"><div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><d=
+ iv class=3D"gmail_quote">
+ <div class=3D"im">On Sat, Apr 13, 2013 at 4:30 PM, Stevie Strickland <span =
+ dir=3D"ltr">&lt;<a href=3D"mailto:sstrickl@ccs.neu.edu" target=3D"_blank">s=
+ strickl@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-=
+ left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;p=
+ adding-left:1ex"><div style=3D"word-wrap:break-word"><br><div><div><div>On =
+ Apr 13, 2013, at 5:24 PM, Robby Findler &lt;<a href=3D"mailto:robby@eecs.no=
+ rthwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt; wrote=
+ :</div>
+ 
+ 
+ <br><blockquote type=3D"cite"><div dir=3D"ltr"><div class=3D"gmail_extra"><=
+ div class=3D"gmail_quote">On Sat, Apr 13, 2013 at 4:16 PM, Stevie Stricklan=
+ d <span dir=3D"ltr">&lt;<a href=3D"mailto:sstrickl@ccs.neu.edu" target=3D"_=
+ blank">sstrickl@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ 
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-=
+ left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;p=
+ adding-left:1ex"><div style=3D"word-wrap:break-word"><div>The only way in w=
+ hich I&#39;m not happy is that the context information is still in terms of=
+  the whole contract, not the subcontract. =C2=A0Unfortunately, I don&#39;t =
+ see a good way of doing this. =C2=A0Initially I&#39;d just say throw away a=
+ ny context any time you hit an #:important, but the bottom of the context i=
+ nformation is still the entire contract, right? =C2=A0So it&#39;d just be _=
+ really_ confusing, and you can at least look for a mention of &quot;callbac=
+ k&quot; in the contract text provided.</div>
+ 
+ 
+ 
+ <div><br></div></div></blockquote><div><br></div><div>I think that&#39;s a =
+ separate issue: if you otherwise like my revision then the thing that is go=
+ ing wrong is that the blame-original? of the blame record is getting flippe=
+ d incorrectly.=C2=A0</div>
+ 
+ 
+ </div></div></div></blockquote><div><br></div></div><div>I&#39;d say that i=
+ f you&#39;re changing what&#39;s being listed via #:important, then you sho=
+ uld probably make blame-original? reflect the position of the &quot;importa=
+ nt&quot; part. =C2=A0Whenever #:important is provided, then if that part of=
+  the contract is in a negative position, then we should switch blame-origin=
+ al?, and if it&#39;s currently positive, then we leave it alone. (I don&#39=
+ ;t know how this works, or should be changed, in the face of multiple contr=
+ act parties, however. =C2=A0It works fine for a two-party contract though.)=
+ </div>
+ 
+ 
+ <div><br></div></div></div></blockquote><div><br></div></div><div>Oh, that&=
+ #39;s it! Thanks for putting your finger on the issue. I think that&#39;s t=
+ he right fix.</div><div><br></div></div></div></div></blockquote><div>
+ <br></div><div><br></div><div style>Turns out I didn&#39;t do this right. H=
+ ere are some more examples.</div><div style><br></div><div style><div>#lang=
+  racket</div><div><br></div><div>(define-syntax-rule=C2=A0</div><div>=C2=A0=
+  (try e)</div>
+ <div>=C2=A0 (with-handlers ((exn? (=CE=BB (x)=C2=A0</div><div>=C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (display (exn-message x) (current-error-port))</div><div>=C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (newline (current-error-port))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (newline (cu=
+ rrent-error-port)))))</div>
+ <div>=C2=A0 =C2=A0 e))</div><div><br></div><div>(try (send (new (contract (=
+ class/c [free (-&gt;m number? void)])</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (class obje=
+ ct%</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (super-new)</div><div>=C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 (define/public (free n) (void)))</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 &#39;pos</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;neg))</div><di=
+ v>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0free &quot;not a number&quot;))<=
+ /div><div><br></div><div>(try ((contract (-&gt; (class/c (callback (-&gt;m =
+ boolean? any)))</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ any)</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (=CE=
+ =BB (c%) (send (new c%) callback 1))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;pos &#39;neg)</div><div>=C2=A0 =C2=A0 =C2=
+ =A0 (class object%</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 (super-new)</div><=
+ div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 (define/public (callback x) 3))))</div>
+ <div><br></div><div>(try ((contract (-&gt; (class/c (callback (-&gt;m (-&gt=
+ ; boolean? void?) any)))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 any)</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 (=CE=BB (c%) (send (new c%) callback void))</di=
+ v><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 &#39;pos &#3=
+ 9;neg)</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 (class object%</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (super-new)</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 (define/public (callb=
+ ack f) (f 3)))))</div></div><div>=C2=A0</div><div><br></div><div style>I th=
+ ink what I need to do is to consider the relative alignment of the place wh=
+ ere #:important was passed to the current. If they are the same, I write &q=
+ uot;XXX: contract violation&quot; and if they are different I write &quot;X=
+ XX: broke its contract&quot;.</div>
+ <div style><br></div><div style>Robby</div></div></div></div>
+ 
+ --bcaec5523a56d4840a04da71601f--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: Asumu Takikawa <asumu@ccs.neu.edu>,
+        Matthias Felleisen <matthias@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message
+ (wrong 'blame direction')
+Date: Mon, 15 Apr 2013 21:47:04 -0500
+
+ --f46d0444e92573888b04da7162ec
+ Content-Type: text/plain; charset=UTF-8
+ 
+ PS: thanks to Jay & Matthias for this!!
+ 
+ http://drdr.racket-lang.org/26636/collects/tests/unstable/temp-c/ex-matthias-ctc.rkt
+ 
+ Robby
+ 
+ --f46d0444e92573888b04da7162ec
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><div class=3D"gmail_extra" style>PS: thanks to Jay &amp; M=
+ atthias for this!!</div><div class=3D"gmail_extra" style><br></div><div cla=
+ ss=3D"gmail_extra" style><a href=3D"http://drdr.racket-lang.org/26636/colle=
+ cts/tests/unstable/temp-c/ex-matthias-ctc.rkt">http://drdr.racket-lang.org/=
+ 26636/collects/tests/unstable/temp-c/ex-matthias-ctc.rkt</a><br>
+ </div><div class=3D"gmail_extra" style><br></div><div class=3D"gmail_extra"=
+  style>Robby</div></div>
+ 
+ --f46d0444e92573888b04da7162ec--
+
+----------
+A commit by robby@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/ffd7b8fde3
+  | another attempt to handle the #:important flag properly for blame objects
+  | 
+  | related to PR 13692
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Stevie Strickland <sstrickl@ccs.neu.edu>,
+        Asumu Takikawa <asumu@ccs.neu.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13692: contract issues confusing error message (wrong 'blame direction')
+Date: Tue, 16 Apr 2013 07:59:44 -0400
+
+ --Apple-Mail=_3E8B25B6-8C50-4D78-858E-C3EBBB36EF29
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ 
+ Cute.=20
+ 
+ On Apr 15, 2013, at 10:47 PM, Robby Findler wrote:
+ 
+ > PS: thanks to Jay & Matthias for this!!
+ >=20
+ > =
+ http://drdr.racket-lang.org/26636/collects/tests/unstable/temp-c/ex-matthi=
+ as-ctc.rkt
+ >=20
+ > Robby
+ 
+ 
+ --Apple-Mail=_3E8B25B6-8C50-4D78-858E-C3EBBB36EF29
+ Content-Transfer-Encoding: 7bit
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head></head><body style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space; "><div><br></div><div>Cute.&nbsp;</div><br><div><div>On Apr 15, 2013, at 10:47 PM, Robby Findler wrote:</div><br class="Apple-interchange-newline"><blockquote type="cite"><div dir="ltr"><div class="gmail_extra" style="">PS: thanks to Jay &amp; Matthias for this!!</div><div class="gmail_extra" style=""><br></div><div class="gmail_extra" style=""><a href="http://drdr.racket-lang.org/26636/collects/tests/unstable/temp-c/ex-matthias-ctc.rkt">http://drdr.racket-lang.org/26636/collects/tests/unstable/temp-c/ex-matthias-ctc.rkt</a><br>
+ </div><div class="gmail_extra" style=""><br></div><div class="gmail_extra" style="">Robby</div></div>
+ </blockquote></div><br></body></html>
+ --Apple-Mail=_3E8B25B6-8C50-4D78-858E-C3EBBB36EF29--

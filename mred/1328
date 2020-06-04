@@ -1,0 +1,127 @@
+From robby@cs.rice.edu  Wed Jan 12 10:34:29 2000
+Received: from localhost (kyoto.cs.rice.edu [128.42.3.168])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id KAA16605
+	for <plt-gnats>; Wed, 12 Jan 2000 10:34:29 -0600 (CST)
+Message-Id: <200001121634.KAA16605@cs.rice.edu>
+Date: Wed, 12 Jan 2000 10:34:29 -0600 (CST)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: text% wrapps negative number as hyphenated words
+
+>Number:         1328
+>Category:       mred
+>Synopsis:       text% wrapps negative number as hyphenated words
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jan 12 11:45:02 -0500 2000
+>Closed-Date:    Fri Dec 02 15:20:30 -0500 2011
+>Last-Modified:  Fri Dec 02 15:20:30 -0500 2011
+>Originator:     Robert Bruce Findler
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        102/6
+>Environment:
+unix (i386-linux)
+Tools: ("CVS" "analysis" "debug" "stepper" "syncheck" "unit-bundle" "project-manager" "test" "typeset")
+Docs Installed:
+("help" "teachpack" "r5rs" "mzscheme" "mred" "drscheme" "misclib" "framework" "tools" "mzc" "icons" "insidemz" "match" "mrspidey")
+Collections:
+(("/home/robby/robby/collects" ("CVS" "account" "backgammon" "checkers" "doonesbury" "friendly" "icfp-pc-99" "mahjongg" "paper-utils" "pente" "pop-pop" "sample-solutions" "set-fonts" "solutions" "test-image-map" "xmahjongg")) ("/home/robby/robby/proj/talks" ("CVS" "bundle-proposal" "icfp98" "lc" "lunch1" "unit-patterns" "unit-proposal" "util")) ("/home/robby/robby/proj/papers" ("CVS" "c+u.save" "drafthead.sty" "dr" "dr-column" "geometric-control" "graphical-units" "include" "inputs" "sba-procedures" "senior-thesis" "signature-constraints" "type-safety" "typed-unit-calculus" "unit" "unit-semantics" "dr-journal")) ("/home/robby/plt/collects" ("CVS" "afm" "doc" "browser" "cogen" "compiler" "countdwn" "drjava" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "typeset" "help" "hierarchy" "hierlist" "htdp" "decimal-string" "icons" "launcher" "make" "mred" "mrspidey" "mysterx" "mzlib" "mzscheme" "net" "quasiquote" "readline" "slatex" "slibinit" "srpersist" "stepper" "tests" "texpict" "userspce" "xml" "zodiac")) ("/home/robby/mflatt/collects" ("CVS" "sirmail")))
+>Description:
+>How-To-Repeat:
+(define f (make-object frame% "frame"))
+(define t (make-object text%))
+(make-object editor-canvas% f t)
+(send t insert "xxxxxxxx -123456789012345678901234567890")
+(send f show #t)
+(send t auto-wrap #t)
+
+;; size the window so that some of the number should fit, but not all.
+;; mred will treat the minus sign as a hyphen
+>Fix:
+>Release-Note:
+>Audit-Trail:
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sat Jan 22 11:15:49 2000
+Responsible-Changed-Why:
+
+From: Danny Yoo <dyoo@hkn.eecs.berkeley.edu>
+To: bugs@plt-scheme.org
+Cc: robby@cs.rice.edu
+Subject: Re: mred/1328: text% wrapps negative number as hyphenated words
+Date: Fri, 26 Aug 2005 20:04:26 -0700 (PDT)
+
+ Hi Robby,
+ 
+ I've been looking into the source of this; it appears that the default
+ line-wrapping function lives in src/mred/gc2/xsrc/wx_media.cc as the C
+ function StandardWordbreak().  It's absolutely hideous to read.  *grin*
+ 
+ Fixing this bug involves writing a custom linebreaking function; I did a
+ quick-and-dirty experiment with this:
+ 
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ (define f (make-object frame% "frame"))
+ (define t (make-object text%))
+ (make-object editor-canvas% f t)
+ (define big-text "xxxxxxxx -123456789012345678901234567890")
+ (send t insert big-text)
+ (send f show #t)
+ (send t auto-wrap #t)
+ 
+ ;; size the window so that some of the number should fit, but not all.
+ ;; mred will treat the minus sign as a hyphen
+ 
+ ;; The standard word breaking algorithm lives in mred/gc2/wx_media.cc
+ ;; as the function StandardWordbreak.
+ 
+ 
+ ;; This is a silly function that allows wordbreaks only on spaces.  We
+ ;; completely ignore 'reason for the moment.
+ 
+ (define-syntax while
+   (syntax-rules ()
+     [(while test body ...)
+      (let loop () (when test body ... (loop)))]))
+ 
+ (define (my-word-break text<%> start end reason)
+   (define (whitespace? ch)
+     (member ch (list #\space #\t #\n)))
+   (define (char-at i) (send text<%> get-character i))
+   ;; scan backward
+   (while (and start (> (unbox start) 0) (not (whitespace? (char-at (unbox
+ start)))))
+          (set-box! start (sub1 (unbox start))))
+   ;; scan forward
+   (while (and end
+               (< (unbox end)
+                  (send text<%> get-end-position))
+               (not (whitespace? (char-at (unbox start)))))
+          (set-box! end (sub1 (unbox end)))))
+ 
+ (send t set-wordbreak-func my-word-break)
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ 
+ 
+ This shows that setting a custom word breaking function is effective and
+ is probably the way to go here.  Of course, the code above isn't exactly
+ right yet.  When I have time, I'll try to decipher what
+ StandardWordbreak() is doing, and rewrite it in Scheme later.
+ 
+ But there is a problem that after calling set-linebreak-func, I don't
+ believe we have a good way to get the default function back.  It'd be nice
+ if there was an equivalent get-linebreak-func in mred.
+ 
+ 
+ Hope this helps!
+ 
+State changed from "open" to "closed" by samth at Fri, 02 Dec 2011 15:20:30 -0500
+Reason>>> fixed
+
+>Unformatted:

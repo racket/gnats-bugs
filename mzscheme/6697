@@ -1,0 +1,146 @@
+From blake@integra-online.com  Sun Feb  8 22:36:02 2004
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.9.3) with ESMTP id WAA06138
+	for <bugs>; Sun, 8 Feb 2004 22:35:56 -0500
+Message-Id: <200402090335.WAA06138@champlain.ccs.neu.edu>
+Date: Sun, 8 Feb 2004 22:35:56 -0500
+From: Blake McBride <blake@integra-online.com>
+To: bugs@plt-scheme.org
+Subject: Socket memory leak under Windows
+
+>Number:         6697
+>Category:       mzscheme
+>Synopsis:       Socket memory leak under Windows
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Feb 08 22:40:01 -0500 2004
+>Closed-Date:    Mon Jan 17 17:36:21 -0500 2011
+>Last-Modified:  Mon Jan 17 17:36:21 -0500 2011
+>Originator:     Blake McBride
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        206
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 1" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+("C:\\Program Files\\PLT\\collects\\doc\\tour" "C:\\Program Files\\PLT\\collects\\doc\\tools" "C:\\Program Files\\PLT\\collects\\doc\\tex2page" "C:\\Program Files\\PLT\\collects\\doc\\teachpack" "C:\\Program Files\\PLT\\collects\\doc\\t-y-scheme" "C:\\Program Files\\PLT\\collects\\doc\\srfi" "C:\\Program Files\\PLT\\collects\\doc\\r5rs" "C:\\Program Files\\PLT\\collects\\doc\\profj-intermediate" "C:\\Program Files\\PLT\\collects\\doc\\profj-beginner" "C:\\Program Files\\PLT\\collects\\doc\\profj-advanced" "C:\\Program Files\\PLT\\collects\\doc\\mzscheme" "C:\\Program Files\\PLT\\collects\\doc\\mzlib" "C:\\Program Files\\PLT\\collects\\doc\\mzc" "C:\\Program Files\\PLT\\collects\\doc\\mred" "C:\\Program Files\\PLT\\collects\\doc\\misclib" "C:\\Program Files\\PLT\\collects\\doc\\intermediate-lambda" "C:\\Program Files\\PLT\\collects\\doc\\intermediate" "C:\\Program Files\\PLT\\collects\\doc\\insidemz" "C:\\Program Files\\PLT\\collects\\doc\\help" "C:\\Program Files\\PLT\\collects\\doc\\framework" "C:\\Program Files\\PLT\\collects\\doc\\drscheme" "C:\\Program Files\\PLT\\collects\\doc\\beginning-abbr" "C:\\Program Files\\PLT\\collects\\doc\\beginning" "C:\\Program Files\\PLT\\collects\\doc\\advanced")
+Collections: 
+(("C:\\Documents and Settings\\Blake\\Application Data\\PLT Scheme\\206\\collects" "non-existent path") ("C:\\Program Files\\PLT\\collects" ("afm" "algol60" "browser" "compiler" "defaults" "doc" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "preprocessor" "profj" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "syntax" "syntax-color" "test-suite" "tex2page" "texpict" "version" "web-server" "xml")))
+ 
+Human Language: english
+ 
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Pretty Big (includes MrEd and Advanced)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+I have encountered a significant memory leak using sockets in
+MzScheme 206 under Windows.  I have spent several days on this problem
+and discovered some interesting facts.  I believe there is some sort
+of conflict between MzScheme's use of native threads in concert with
+the Windows socket API.  Any help or pointers would be greatly
+appreciated.
+
+I have reduced the problem down to simply making repeated socket
+connection and disconnections.  The two functions I am running
+(one per instance of MzScheme) are as follows:
+
+
+(define server
+  (lambda ()
+    (let ((srv (tcp-listen 8888)))
+      (let loop ()
+	(let-values (((in out) (tcp-accept srv)))
+		    (close-input-port in)
+		    (close-output-port out))
+	(loop)))))
+    
+(define client
+  (lambda ()
+    (let-values (((in out) (tcp-connect "localhost" 8888)))
+		(close-input-port in)
+		(close-output-port out)
+		(sleep .1)
+		(client))))
+
+The program is designed to make a single connection over and over.
+There is no use of scheme threads since only a single connection is
+being made at a time and I wished to make the test program as simple
+as possible.  (The real program handles multiple connections via
+threads.)
+
+When this client/server scenario is run under Windows one can monitor
+the memory usage of the server process and it will continually
+increase its memory footprint.  If run long enough it will render the
+machine useless.  Given this situation it is not possible to use
+MzScheme in a socket server environment under Windows.  Presuming
+others have successfully used MzScheme as a socket server under
+Windows I believe they must either reboot often enough to make the
+small leak unimportant or they make a relatively small number of
+connections (i.e. not in the thousands per hour).
+
+After several days of investigation I have discovered the following:
+
+1.  The problem exists under Windows and not under Linux.
+
+2.  The problem also exists in MzScheme 103 (so has probably always
+    been there)
+
+3.  I wrote an equivalent server in C using the Windows API (as
+    MzScheme does internally) and there was no leak.
+
+4.  I re-build MzScheme 103 as "Win32 Release" instead of "Win32
+    Threads" and the problem went away but of course I wouldn't be
+    able to use threads anymore.  This is interesting because my test
+    program doesn't use any threads although I believe MzScheme does
+    some things with threads if they are compiled in.  That is exactly
+    what seems to be the key.
+
+5.  I looked at the MzScheme network code in depth.  It seems to be
+    correct and have no memory leaks.
+
+6.  I ran numerous tests designed to determine if MzScheme has
+    interpreter or memory management leaks.  I couldn't find any.
+
+7.  I took my tested C socket code and linked it into MzScheme so that
+    scheme functions could use my tested socket code instead of
+    MzScheme's.  The leak remained even though the C code by itself
+    proved solid.  However, if I changed my functions to do nothing
+    (no real socket calls but keep all the scheme and scheme/c
+    interface code) there was no leak.  This helped me validate that
+    it wasn't the interpreter or my interface code.
+
+I am using this application in a production environment so this is a
+very very significant problem for me.  Any help or pointers are
+greatly appreciated.
+
+>How-To-Repeat:
+>Fix:
+>Release-Note:
+>Audit-Trail:
+Responsible-Changed-From-To: eli->nobody
+Responsible-Changed-By: gnats@champlain.ccs.neu.edu
+Responsible-Changed-When: Fri, 26 Mar 2004 05:13:45 -0500
+Responsible-Changed-Why:
+
+
+Responsible changed from "nobody" to "mflatt" by eli at Thu, 01 Apr 2004 18:24:12 -0500
+Reason: mzscheme
+
+View:
+  http://bugs.plt-scheme.org/query/?cmd=view+audit-trail&pr=6697
+
+State changed from "open" to "closed" by eli at Mon, 17 Jan 2011 17:36:21 -0500
+Reason>>> closed as "obsolete" with respect to v5.0.99.6 and later; 
+either the bug
+is long-since fixed, the relevant code doesn't exist 
+anymore, the
+relevant platform hasn't been supported recently, or a new 
+bug report is
+needed if the problem really isn't fixed and someone 
+actually cares
+
+>Unformatted:

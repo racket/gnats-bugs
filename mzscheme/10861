@@ -1,0 +1,156 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Apr 16 14:51:41 2010
+Received: from mail-yw0-f200.google.com (mail-yw0-f200.google.com [209.85.211.200])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o3GIpcSD013808
+	for <bugs@bugs.plt-scheme.org>; Fri, 16 Apr 2010 14:51:38 -0400
+Message-Id: <201004161851.o3GIpXdm013797@champlain.ccs.neu.edu>
+Date: Fri, 16 Apr 2010 14:51:33 -0400
+From: goetter@mazama.net
+To: bugs@plt-scheme.org
+Subject: get-directory crashes on Windows
+
+>Number:         10861
+>Category:       mzscheme
+>Synopsis:       get-directory crashes on Windows
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Apr 16 14:52:01 -0400 2010
+>Closed-Date:    Tue May 03 18:28:56 -0400 2011
+>Last-Modified:  Tue May 03 18:28:56 -0400 2011
+>Originator:     Ben Goetter
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.5.10-svn16apr2010
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 116871704
+
+Collections:
+(("C:\\Documents and Settings\\Ben Goetter\\Application Data\\PLT Scheme\\4.2.5.10\\collects" non-existent-path) ("C:\\Documents and Settings\\Ben Goetter\\My Documents\\plt\\collects" ".svn" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "profj" "profjWizard" "r5rs" "r6rs" "racket" "reader" "readline" "redex" "repos-time-stamp" "rico" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants"!
+  "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Determine language from source") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+The get-directory procedure dereferences a NULL pointer on Windows 3m builds of mred and drscheme.
+
+Tested on 64-bit Windows 7 and 32-bit Windows XP SP3, versions 4.2.5 through 4.2.5.10-svn16apr2010.
+
+file src/wxwindow/src/msw/wx_cmdlg.cxx, function DoGetDir (a callback) -- eax is 0, so mov eax, dword ptr [eax] crashes
+>How-To-Repeat:
+either
+ 1. run mred.exe
+ 2. (get-directory)
+or
+ 1. run drscheme.exe
+ 2. #lang scheme
+    (require scheme/gui)
+    (get-directory)
+ 3. Run
+>Fix:
+>Audit-Trail:
+From: Ben Goetter <goetter@mazama.net>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10861: get-directory crashes on Windows
+Date: Fri, 16 Apr 2010 13:02:58 -0700
+
+ Upon closer inspection, the crash occurs in a DECL_RET_SAVE (BOOL) 
+ PREPARE_VAR_STACK(3) sequence presumably emitted by xform.  This has 
+ called into scheme_external_get_thread_local_variables, which is 
+ returning 0.  The subsequent dereference of that 0 looking for 
+ gc_var_stack causes the crash.
+ 
+ Perhaps salloc needs some per-thread initialization missing in this 
+ case.  Reviewing wxPrimitiveDialog and DoPrim in wx_pdf.cxx, I see no 
+ such setup in the new thread spawned for the dialog.
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: goetter@mazama.net, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10861: get-directory crashes on Windows
+Date: Fri, 16 Apr 2010 14:33:38 -0600
+
+ Thanks for tracking down the bug!
+ 
+ Can you try adding XFORM_SKIP_PROC to the three "Do" functions in
+ wx_cmdlg.cxx?:
+ 
+ 
+ static BOOL DoGetSaveFileName(OPENFILENAMEW *of, HWND parent)
+   XFORM_SKIP_PROC
+ {
+   if (!of->hwndOwner)
+     of->hwndOwner = parent;
+   return GetSaveFileNameW(of);
+ }
+ 
+ static BOOL DoGetOpenFileName(OPENFILENAMEW *of, HWND parent)
+   XFORM_SKIP_PROC
+ {
+   if (!of->hwndOwner)
+     of->hwndOwner = parent;
+   return GetOpenFileNameW(of);
+ }
+ 
+ static BOOL DoGetDir(BROWSEINFOW *b, HWND parent)
+   XFORM_SKIP_PROC
+ {
+ 
+ 
+From: Ben Goetter <goetter@mazama.net>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10861: get-directory crashes on Windows
+Date: Fri, 16 Apr 2010 14:05:22 -0700
+
+ On 4/16/2010 1:33 PM, Matthew Flatt wrote:
+ > static BOOL DoGetSaveFileName(OPENFILENAMEW *of, HWND parent)
+ >    XFORM_SKIP_PROC
+ > {
+ >    if (!of->hwndOwner)
+ >      of->hwndOwner = parent;
+ >    return GetSaveFileNameW(of);
+ > }
+ >
+ >    
+ 
+ That fixed it!  One can't use that particular form because the source is 
+ C++ ("WX_CMDLG.cxx(194) : error C3646: 'XFORM_SKIP_PROC' : unknown 
+ override specifier"), so I bracketed the three function definitions with 
+ #ifdef MZ_PRECISE_GC START_XFORM_SKIP END_XFORM_SKIP etc.  I imagine 
+ that every instance of a function passed to wxPrimitiveDialog needs this 
+ decoration, e.g., DoPrintDlg in wxwindow/src/msw/wx_dc.cxx.
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ben Goetter <goetter@mazama.net>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10861: get-directory crashes on Windows
+Date: Fri, 16 Apr 2010 15:11:23 -0600
+
+ At Fri, 16 Apr 2010 14:05:22 -0700, Ben Goetter wrote:
+ > One can't use that particular form because the source is 
+ > C++ ("WX_CMDLG.cxx(194) : error C3646: 'XFORM_SKIP_PROC' : unknown 
+ > override specifier"), so I bracketed the three function definitions with 
+ > #ifdef MZ_PRECISE_GC START_XFORM_SKIP END_XFORM_SKIP etc. 
+ 
+ Ok.
+ 
+ > I imagine 
+ > that every instance of a function passed to wxPrimitiveDialog needs this 
+ > decoration, e.g., DoPrintDlg in wxwindow/src/msw/wx_dc.cxx.
+ 
+ Yep, that one, too.
+ 
+ I've committed those change in SVN.
+ 
+ Again: Thanks!
+ 
+
+State changed from "open" to "closed" by ryanc at Tue, 03 May 2011 18:28:56 -0400
+Reason>>> fixed
+

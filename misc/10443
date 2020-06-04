@@ -1,0 +1,804 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Sep 10 23:30:44 2009
+Received: from mail-yx0-f172.google.com (mail-yx0-f172.google.com [209.85.210.172])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n8B3UdL1018864
+	for <bugs@bugs.plt-scheme.org>; Thu, 10 Sep 2009 23:30:39 -0400
+Message-Id: <200909110330.n8B3UbjX018857@champlain.ccs.neu.edu>
+Date: Thu, 10 Sep 2009 23:30:37 -0400
+From: gmarceau@gmail.com
+To: bugs@plt-scheme.org
+Subject: Various issues when running BSL program under scheme/sandbox
+
+>Number:         10443
+>Category:       misc
+>Synopsis:       Various issues when running BSL program under scheme/sandbox
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Sep 10 23:32:01 -0400 2009
+>Closed-Date:    Mon Dec 05 16:37:20 -0500 2011
+>Last-Modified:  Mon Dec 05 16:37:20 -0500 2011
+>Originator:     Guillaume Marceau
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.1
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 3" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 154696388
+
+Collections:
+(("C:\\Documents and Settings\\Guillaume\\Application Data\\PLT Scheme\\4.2.1\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Beginning Student") (#(#t constructor repeating-decimal #f #t none) #f ((lib "world.ss" "teachpack" "htdp"))))
+>Description:
+During PLT Day I mentionned that the functionnality provided by scheme/sandbox to run BSL programs didn't work for me. Here here the five issues that I encountered.
+>How-To-Repeat:
+#lang scheme
+(require scheme/sandbox)
+
+(define (sandbox-eval/get-output lang code)
+  (parameterize ([sandbox-output 'string])
+    (get-output (make-evaluator `(special ,lang)
+                                code))))
+
+
+
+;; [1] Memory leaks.
+
+;; This code leaks memory:
+(for ([i (in-range 10000)])
+  (sandbox-eval/get-output 'beginner '(+ 5 6)))
+
+;; This one doesn't:
+(for ([i (in-range 10000)])
+  (let ([c (make-custodian)])
+    (parameterize ([current-custodian c])
+      (sandbox-eval/get-output 'beginner '(+ 5 6)))
+    (custodian-shutdown-all c)))
+
+
+
+;; [2] The values printed by BSL's module transformer are printed to the wrong port.
+   
+   (sandbox-eval/get-output 'beginner 5)
+
+;; I would have expected this to return the string "5\n", but it returns the empty string instead.
+
+
+
+;; [3] Test coverage warnings are not run.
+
+   (sandbox-eval/get-output 'beginner '(define (add a b) (+ a b)))
+
+;; I would have expected this to return the string "This program should be tested.",
+;; but it returns the empty string instead.
+
+
+
+;; [4] The handling of CHECK-EXPECT by BSL's module transformer breaks for some reason.
+
+   (sandbox-eval/get-output 'beginner '(check-expect (+ 1 2) 0))
+
+;; I would expected this to return the empty string, or some handle to receive the results of the tests,
+;; but instead it crashes with "check-expect: found a test that is not at the top level."
+
+
+
+;; [5] This fifth item is actually a feature request. It would be useful when writing 
+;; automated graders to have access to the location information for exceptions thrown by 
+;; beginner programs ran in the sandbox. As of now, the locations are stored with the exception under 
+;; a private continuation mark key, which is defined at htdp-langs.ss:943. Similarily, it would be
+;; useful to have some way to access to the result of the test coverage.
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: gmarceau@gmail.com, bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Thu, 10 Sep 2009 22:51:44 -0500
+
+ 3,4 and possibly 5 are sandbox issues insofar as the sandbox's
+ "beginner" argument promises to be like drscheme's beginner language
+ (those things are all things that drscheme sets up specially for the
+ teaching languages).
+ 
+ Issue 2 is probably the current-print or a related parameter, as
+ discussed in plt day. That is, it sounds like a sandbox issue to me in
+ the spirit of the above paragraph.
+ 
+ Robby
+ 
+ On Thu, Sep 10, 2009 at 10:48 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > There are some very different issues here, do you mind submitting
+ > separate reports for each of them?
+ >
+ >
+ > On Sep 10, gmarceau@gmail.com wrote:
+ >> During PLT Day I mentionned that the functionnality provided by
+ >> scheme/sandbox to run BSL programs didn't work for me. Here here the
+ >> five issues that I encountered.
+ >> [...]
+ >> ;; [1] Memory leaks.
+ >
+ > This is a sandbox issue.
+ >
+ >> ;; [2] The values printed by BSL's module transformer are printed to
+ >> ;; the wrong port.
+ >
+ > This is likely an issue with the beginner language not printing the
+ > values of expressions, or something similar.
+ >
+ >> ;; [3] Test coverage warnings are not run.
+ >
+ > This is a test-engine issue.
+ >
+ >> ;; [4] The handling of CHECK-EXPECT by BSL's module transformer
+ >> ;; breaks for some reason.
+ >
+ > This is either a test-engine issue or a beginner language one.
+ >
+ >> ;; [5] This fifth item is actually a feature request. It would be
+ >> ;; useful when writing automated graders to have access to the
+ >> ;; location information for exceptions thrown by beginner programs
+ >> ;; ran in the sandbox. As of now, the locations are stored with the
+ >> ;; exception under a private continuation mark key, which is defined
+ >> ;; at htdp-langs.ss:943. Similarily, it would be useful to have some
+ >> ;; way to access to the result of the test coverage.
+ >
+ > This is also a beginner language issue.
+ >
+ > --
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0((lambda (x) (x x)) (lambda (x) (x x)))=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Eli Barzilay:
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0http=
+ ://barzilay.org/ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 Maze is Life!
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: gmarceau@gmail.com, bugs@plt-scheme.org
+Cc: bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program under scheme/sandbox
+Date: Thu, 10 Sep 2009 23:48:32 -0400
+
+ There are some very different issues here, do you mind submitting
+ separate reports for each of them?
+ 
+ 
+ On Sep 10, gmarceau@gmail.com wrote:
+ > During PLT Day I mentionned that the functionnality provided by
+ > scheme/sandbox to run BSL programs didn't work for me. Here here the
+ > five issues that I encountered.
+ > [...]
+ > ;; [1] Memory leaks.
+ 
+ This is a sandbox issue.
+ 
+ > ;; [2] The values printed by BSL's module transformer are printed to
+ > ;; the wrong port.
+ 
+ This is likely an issue with the beginner language not printing the
+ values of expressions, or something similar.
+ 
+ > ;; [3] Test coverage warnings are not run.
+ 
+ This is a test-engine issue.
+ 
+ > ;; [4] The handling of CHECK-EXPECT by BSL's module transformer
+ > ;; breaks for some reason.
+ 
+ This is either a test-engine issue or a beginner language one.
+ 
+ > ;; [5] This fifth item is actually a feature request. It would be
+ > ;; useful when writing automated graders to have access to the
+ > ;; location information for exceptions thrown by beginner programs
+ > ;; ran in the sandbox. As of now, the locations are stored with the
+ > ;; exception under a private continuation mark key, which is defined
+ > ;; at htdp-langs.ss:943. Similarily, it would be useful to have some
+ > ;; way to access to the result of the test coverage.
+ 
+ This is also a beginner language issue.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: gmarceau@gmail.com, bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Thu, 10 Sep 2009 22:53:09 -0500
+
+ PS: there was some talk that drscheme should be using the sandbox to
+ run everything. Fixing these things would be a step in that direction
+ and so I'd be happy to help, but I can't do them in the short term,
+ I'm sorry to say.
+ 
+ Robby
+ 
+ On Thu, Sep 10, 2009 at 10:51 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > 3,4 and possibly 5 are sandbox issues insofar as the sandbox's
+ > "beginner" argument promises to be like drscheme's beginner language
+ > (those things are all things that drscheme sets up specially for the
+ > teaching languages).
+ >
+ > Issue 2 is probably the current-print or a related parameter, as
+ > discussed in plt day. That is, it sounds like a sandbox issue to me in
+ > the spirit of the above paragraph.
+ >
+ > Robby
+ >
+ > On Thu, Sep 10, 2009 at 10:48 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> There are some very different issues here, do you mind submitting
+ >> separate reports for each of them?
+ >>
+ >>
+ >> On Sep 10, gmarceau@gmail.com wrote:
+ >>> During PLT Day I mentionned that the functionnality provided by
+ >>> scheme/sandbox to run BSL programs didn't work for me. Here here the
+ >>> five issues that I encountered.
+ >>> [...]
+ >>> ;; [1] Memory leaks.
+ >>
+ >> This is a sandbox issue.
+ >>
+ >>> ;; [2] The values printed by BSL's module transformer are printed to
+ >>> ;; the wrong port.
+ >>
+ >> This is likely an issue with the beginner language not printing the
+ >> values of expressions, or something similar.
+ >>
+ >>> ;; [3] Test coverage warnings are not run.
+ >>
+ >> This is a test-engine issue.
+ >>
+ >>> ;; [4] The handling of CHECK-EXPECT by BSL's module transformer
+ >>> ;; breaks for some reason.
+ >>
+ >> This is either a test-engine issue or a beginner language one.
+ >>
+ >>> ;; [5] This fifth item is actually a feature request. It would be
+ >>> ;; useful when writing automated graders to have access to the
+ >>> ;; location information for exceptions thrown by beginner programs
+ >>> ;; ran in the sandbox. As of now, the locations are stored with the
+ >>> ;; exception under a private continuation mark key, which is defined
+ >>> ;; at htdp-langs.ss:943. Similarily, it would be useful to have some
+ >>> ;; way to access to the result of the test coverage.
+ >>
+ >> This is also a beginner language issue.
+ >>
+ >> --
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0((lambda (x) (x x)) (lambda (x) (x x))=
+ ) =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Eli Barzilay:
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0htt=
+ p://barzilay.org/ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 Maze is Life!
+ >>
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: gmarceau@gmail.com, bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Fri, 11 Sep 2009 00:04:54 -0400
+
+ In theory you're right about 3,4 but in practice the test-engine is
+ doing things in a way that makes it impossible (or at least "very very
+ hard") to use.  IOW, currently it's as if the test-engine interface is
+ GUI-only, so it cannot be done in the sandbox.
+ 
+ 5 is definitely something that is a BSL issue.  If there's a way to
+ get that information from a plain module, it would work also with the
+ sandbox.  (At most it would require `call-in-sandbox-context'.)
+ 
+ And 2 could be thought of as the student language support in the
+ sandbox, but at this stage I think that it's much better to focus on
+ getting rid of all the specific drscheme hacks for them and make them
+ be well-behaved `#lang's.  (Actually 3,4 is test-engine-related work
+ that goes in the same direction.)
+ 
+ 1 is different from all of them in that it's just a plain sandbox bug.
+ 
+ 
+ On Sep 10, Robby Findler wrote:
+ > 3,4 and possibly 5 are sandbox issues insofar as the sandbox's
+ > "beginner" argument promises to be like drscheme's beginner language
+ > (those things are all things that drscheme sets up specially for the
+ > teaching languages).
+ >=20
+ > Issue 2 is probably the current-print or a related parameter, as
+ > discussed in plt day. That is, it sounds like a sandbox issue to me i=
+ n
+ > the spirit of the above paragraph.
+ >=20
+ > Robby
+ >=20
+ > On Thu, Sep 10, 2009 at 10:48 PM, Eli Barzilay <eli@barzilay.org> wro=
+ te:
+ > > There are some very different issues here, do you mind submitting
+ > > separate reports for each of them=3F
+ > >
+ > >
+ > > On Sep 10, gmarceau@gmail.com wrote:
+ > >> During PLT Day I mentionned that the functionnality provided by
+ > >> scheme/sandbox to run BSL programs didn't work for me. Here here t=
+ he
+ > >> five issues that I encountered.
+ > >> [...]
+ > >> ;; [1] Memory leaks.
+ > >
+ > > This is a sandbox issue.
+ > >
+ > >> ;; [2] The values printed by BSL's module transformer are printed =
+ to
+ > >> ;; the wrong port.
+ > >
+ > > This is likely an issue with the beginner language not printing the=
+ 
+ > > values of expressions, or something similar.
+ > >
+ > >> ;; [3] Test coverage warnings are not run.
+ > >
+ > > This is a test-engine issue.
+ > >
+ > >> ;; [4] The handling of CHECK-EXPECT by BSL's module transformer
+ > >> ;; breaks for some reason.
+ > >
+ > > This is either a test-engine issue or a beginner language one.
+ > >
+ > >> ;; [5] This fifth item is actually a feature request. It would be
+ > >> ;; useful when writing automated graders to have access to the
+ > >> ;; location information for exceptions thrown by beginner programs=
+ 
+ > >> ;; ran in the sandbox. As of now, the locations are stored with th=
+ e
+ > >> ;; exception under a private continuation mark key, which is defin=
+ ed
+ > >> ;; at htdp-langs.ss:943. Similarily, it would be useful to have so=
+ me
+ > >> ;; way to access to the result of the test coverage.
+ > >
+ > > This is also a beginner language issue.
+ > >
+ > > --
+ > > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0((lambda (x) (x x)) (lambda (x) (=
+ x x))) =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Eli Barzilay:
+ > > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+ http://barzilay.org/ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 Maze is Life!
+ > >
+ 
+ --=20
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay=
+ :
+                     http://barzilay.org/                   Maze is Life=
+ !
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: gmarceau@gmail.com, bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Fri, 11 Sep 2009 00:05:50 -0400
+
+ On Sep 10, Robby Findler wrote:
+ > run everything. Fixing these things would be a step in that
+ > direction and so I'd be happy to help, but I can't do them in the
+ > short term, I'm sorry to say.
+ 
+ (That also would be much easier to do once drscheme needs to deal with
+ the module language only...)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: gmarceau@gmail.com, bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Thu, 10 Sep 2009 23:09:30 -0500
+
+ I think that, in the case of the teaching languages, we're probably
+ not going to get all the way there for some time. They just have too
+ too many hooks that are there just for them. So I think it still makes
+ sense to keep special arguments to the sandbox for them and move
+ drscheme towards using that instead of using its current setup.
+ 
+ And yes, I was wrong about 5. Sorry about that.
+ 
+ Robby
+ 
+ On Thu, Sep 10, 2009 at 11:04 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > In theory you're right about 3,4 but in practice the test-engine is
+ > doing things in a way that makes it impossible (or at least "very very
+ > hard") to use. =C2=A0IOW, currently it's as if the test-engine interface =
+ is
+ > GUI-only, so it cannot be done in the sandbox.
+ >
+ > 5 is definitely something that is a BSL issue. =C2=A0If there's a way to
+ > get that information from a plain module, it would work also with the
+ > sandbox. =C2=A0(At most it would require `call-in-sandbox-context'.)
+ >
+ > And 2 could be thought of as the student language support in the
+ > sandbox, but at this stage I think that it's much better to focus on
+ > getting rid of all the specific drscheme hacks for them and make them
+ > be well-behaved `#lang's. =C2=A0(Actually 3,4 is test-engine-related work
+ > that goes in the same direction.)
+ >
+ > 1 is different from all of them in that it's just a plain sandbox bug.
+ >
+ >
+ > On Sep 10, Robby Findler wrote:
+ >> 3,4 and possibly 5 are sandbox issues insofar as the sandbox's
+ >> "beginner" argument promises to be like drscheme's beginner language
+ >> (those things are all things that drscheme sets up specially for the
+ >> teaching languages).
+ >>
+ >> Issue 2 is probably the current-print or a related parameter, as
+ >> discussed in plt day. That is, it sounds like a sandbox issue to me in
+ >> the spirit of the above paragraph.
+ >>
+ >> Robby
+ >>
+ >> On Thu, Sep 10, 2009 at 10:48 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> > There are some very different issues here, do you mind submitting
+ >> > separate reports for each of them?
+ >> >
+ >> >
+ >> > On Sep 10, gmarceau@gmail.com wrote:
+ >> >> During PLT Day I mentionned that the functionnality provided by
+ >> >> scheme/sandbox to run BSL programs didn't work for me. Here here the
+ >> >> five issues that I encountered.
+ >> >> [...]
+ >> >> ;; [1] Memory leaks.
+ >> >
+ >> > This is a sandbox issue.
+ >> >
+ >> >> ;; [2] The values printed by BSL's module transformer are printed to
+ >> >> ;; the wrong port.
+ >> >
+ >> > This is likely an issue with the beginner language not printing the
+ >> > values of expressions, or something similar.
+ >> >
+ >> >> ;; [3] Test coverage warnings are not run.
+ >> >
+ >> > This is a test-engine issue.
+ >> >
+ >> >> ;; [4] The handling of CHECK-EXPECT by BSL's module transformer
+ >> >> ;; breaks for some reason.
+ >> >
+ >> > This is either a test-engine issue or a beginner language one.
+ >> >
+ >> >> ;; [5] This fifth item is actually a feature request. It would be
+ >> >> ;; useful when writing automated graders to have access to the
+ >> >> ;; location information for exceptions thrown by beginner programs
+ >> >> ;; ran in the sandbox. As of now, the locations are stored with the
+ >> >> ;; exception under a private continuation mark key, which is defined
+ >> >> ;; at htdp-langs.ss:943. Similarily, it would be useful to have some
+ >> >> ;; way to access to the result of the test coverage.
+ >> >
+ >> > This is also a beginner language issue.
+ >> >
+ >> > --
+ >> > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0((lambda (x) (x x)) (lambda (x) (x x=
+ ))) =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Eli Barzilay:
+ >> > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0h=
+ ttp://barzilay.org/ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 Maze is Life!
+ >> >
+ >
+ > --
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0((lambda (x) (x x)) (lambda (x) (x x)))=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0Eli Barzilay:
+ > =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0http=
+ ://barzilay.org/ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 Maze is Life!
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: gmarceau@gmail.com, bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Fri, 11 Sep 2009 00:13:20 -0400
+
+ On Sep 10, Robby Findler wrote:
+ > I think that, in the case of the teaching languages, we're probably
+ > not going to get all the way there for some time. They just have too
+ > too many hooks that are there just for them. So I think it still
+ > makes sense to keep special arguments to the sandbox for them and
+ > move drscheme towards using that instead of using its current setup.
+ 
+ So the decision is between working on eliminating these hooks and
+ moving them into a plain module or adding their equivalents to the
+ sandbox...  Not only does the first sound easier, it is going to be
+ done anyway...
+ 
+ (But in any case, I still think that this PR needs to be split to be
+ practical.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Guillaume Marceau <gmarceau@gmail.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Fri, 11 Sep 2009 00:17:35 -0400
+
+ --000e0cd70dbe7132e5047345990a
+ Content-Type: text/plain; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ If it can help, I ended writing code that addresses 3 and 4 from
+ outside of the sandbox.  It would be a matter of moving that
+ functionality into scheme/sandbox.I'm attaching my code. The relevant
+ file is running.ss. There is nothing interesting in loading.ss or
+ utils.ss but you'll need them if you want to try executing running.ss
+ 
+ 
+ There is actually a sixth issue I need to mention. But give me a
+ second, I'll split everything up into a bunch of PRs.
+ 
+ 
+ 
+ 
+ On Fri, Sep 11, 2009 at 12:13 AM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Sep 10, Robby Findler wrote:
+ >> I think that, in the case of the teaching languages, we're probably
+ >> not going to get all the way there for some time. They just have too
+ >> too many hooks that are there just for them. So I think it still
+ >> makes sense to keep special arguments to the sandbox for them and
+ >> move drscheme towards using that instead of using its current setup.
+ >
+ > So the decision is between working on eliminating these hooks and
+ > moving them into a plain module or adding their equivalents to the
+ > sandbox... =A0Not only does the first sound easier, it is going to be
+ > done anyway...
+ >
+ > (But in any case, I still think that this PR needs to be split to be
+ > practical.)
+ >
+ > --
+ > =A0 =A0 =A0 =A0 =A0((lambda (x) (x x)) (lambda (x) (x x))) =A0 =A0 =A0 =
+ =A0 =A0Eli Barzilay:
+ > =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0http://barzilay.org/ =A0 =A0 =A0 =
+ =A0 =A0 =A0 =A0 =A0 =A0 Maze is Life!
+ >
+ 
+ --000e0cd70dbe7132e5047345990a
+ Content-Type: application/octet-stream; name="running.ss"
+ Content-Disposition: attachment; filename="running.ss"
+ Content-Transfer-Encoding: base64
+ X-Attachment-Id: f_fzgezi0f0
+ 
+ I2xhbmcgc2NoZW1lDQoNCihyZXF1aXJlIChyZW5hbWUtaW4NCiAgICAgICAgICAocGxhbmV0ICJj
+ dXQuc3MiICgiZHlvbyIgInNyZmktYWxpYXMucGx0IiAxIDMpKQ0KICAgICAgICAgIFtjdXQgLy9d
+ KQ0KICAgICAgICAgbGFuZy9ydW4tdGVhY2hpbmctcHJvZ3JhbQ0KICAgICAgICAgbGFuZy9odGRw
+ LXJlYWRlcg0KICAgICAgICAgc2NoZW1lL3NhbmRib3gNCiAgICAgICAgIHNjaGVtZS9ndWkvYmFz
+ ZQ0KICAgICAgICAgImxvYWRpbmcuc3MiDQogICAgICAgICAidXRpbHMuc3MiKQ0KDQoocHJvdmlk
+ ZSBydW4taXRlbSBkZWZhdWx0LXRlYWNocGFja3MgbGFuZ3VhZ2VzKQ0KDQooZGVmaW5lIChtYWtl
+ LWJlZ2lubmVyLXJlYWRlciBsYW5nLXJlcXVpcmUpDQogIChkZWZpbmUgYm9kaWVzICNmKQ0KICAo
+ bGFtYmRhIChuYW1lIHBvcnQpDQogICAgICAobWF0Y2ggYm9kaWVzDQogICAgICAgIFsjZg0KICAg
+ ICAgICAgKGxldCAoW3N0eCAoKG1ha2UtcmVhZC1zeW50YXggbGFuZy1yZXF1aXJlKSBuYW1lIHBv
+ cnQpXSkNCiAgICAgICAgICAgKHN5bnRheC1jYXNlIHN0eCAoKQ0KICAgICAgICAgICAgIFsobW9k
+ dWxlIG5hbWUgbGFuZyBiIGJzIC4uLikgDQogICAgICAgICAgICAgIChzZXQhIGJvZGllcyAoc3lu
+ dGF4LT5saXN0ICMnKGJzIC4uLikpKQ0KICAgICAgICAgICAgICAjJ2JdKSldDQogICAgICAgIFso
+ bGlzdCkgZW9mXQ0KICAgICAgICBbKGxpc3QgZiBycyAuLi4pDQogICAgICAgICAoc2V0ISBib2Rp
+ ZXMgcnMpDQogICAgICAgICBmXSkpKQ0KICANCihkZWZpbmUgKHJ1bi1wcm9ncmFtIHRleHQgbGFu
+ Zy1yZXF1aXJlIHRlYWNocGFja3MpDQogIChkZWZpbmUgZXhwYW5kb3INCiAgICAoZXhwYW5kLXRl
+ YWNoaW5nLXByb2dyYW0gDQogICAgIChvcGVuLWlucHV0LXZhbHVlIHRleHQpDQogICAgIChtYWtl
+ LWJlZ2lubmVyLXJlYWRlciBsYW5nLXJlcXVpcmUpDQogICAgIGxhbmctcmVxdWlyZSANCiAgICAg
+ dGVhY2hwYWNrcyAjZikpDQogIDs7IE9uY2UgdG8gZXZhbHVhdGUgdGhlIG1vZHVsZS4NCiAgKGRl
+ ZmluZSBldmFsdWF0b3INCiAgICAobWFrZS1tb2R1bGUtZXZhbHVhdG9yIChleHBhbmRvcikpKQ0K
+ ICA7OyBPbmNlIHRvIGdldCBpbnNpZGUgdGhlIG1vZHVsZSdzIG5hbWVzcGFjZS4NCiAgKGV2YWx1
+ YXRvciAoZXhwYW5kb3IpKQ0KICA7OyBPbmNlIHRvIHRyaWdnZXIgYW55IGV4Y2VwdGlvbiB0aGF0
+ IHdhcyBzYXZlZCBmcm9tIGFueSBvZiB0aGUgcHJldmlvdXMgdHdvLg0KICAoZXhwYW5kb3IpDQog
+ IGV2YWx1YXRvcikNCg0KKGRlZmluZSAod3JhcC1jb2RlLXdpdGgtYmVnaW5uZXItbWV0YWRhdGEg
+ dGV4dCkNCiAgKGRlZmluZSBsaW5lcw0KICAgIChmb3JtYXQgIn5zXG4iDQogICAgICAgICAgICBg
+ KChtb2RuYW1lICcjJWh0ZHApDQogICAgICAgICAgICAgIChyZWFkLWNhc2Utc2Vuc2l0aXZlICN0
+ KQ0KICAgICAgICAgICAgICAodGVhY2hwYWNrcyAoKSkNCiAgICAgICAgICAgICAgKGh0ZHAtc2V0
+ dGluZ3MgDQogICAgICAgICAgICAgICAjKCN0IGNvbnN0cnVjdG9yIHJlcGVhdGluZy1kZWNpbWFs
+ ICNmICN0IG5vbmUgI2YpKSkpKQ0KICAoc2VuZCB0ZXh0IGluc2VydCBsaW5lcyAwKSkNCg0KKGRl
+ ZmluZSAob3Blbi1pbnB1dC12YWx1ZSB2KQ0KICAobGV0IChbcA0KICAgICAgICAgKGNvbmQgWyhp
+ cy1hPyB2IHRleHQlKQ0KICAgICAgICAgICAgICAgIChvcGVuLWlucHV0LXRleHQtZWRpdG9yIHYp
+ XQ0KICAgICAgICAgICAgICAgWyhzdHJpbmc/IHYpDQogICAgICAgICAgICAgICAgKG9wZW4taW5w
+ dXQtZmlsZSB2KV0NCiAgICAgICAgICAgICAgIFsoYnl0ZXM/IHYpDQogICAgICAgICAgICAgICAg
+ KG9wZW4taW5wdXQtYnl0ZXMgdildDQogICAgICAgICAgICAgICBbZWxzZSB2XSldKQ0KICAgICh3
+ aGVuIChwb3J0PyBwKSANCiAgICAgIChwb3J0LWNvdW50LWxpbmVzISBwKSkNCiAgICBwKSkNCg0K
+ KGRlZmluZSAobmV0d29yay1ndWFyZCBwcm9jLW5hbWUgaG9zdG5hbWUgcG9ydCBjbGllbnQtb3It
+ c2VydmVyKQ0KICAodW5sZXNzIChlcXVhbD8gaG9zdG5hbWUgInBsYW5ldC5wbHQtc2NoZW1lLm9y
+ ZyIpDQogICAgKHJhaXNlIChmb3JtYXQgInNhbmRib3ggc2VjdXJpdHk6IH5hIH5hIH5hIH5hIiBw
+ cm9jLW5hbWUgaG9zdG5hbWUgcG9ydCBjbGllbnQtb3Itc2VydmVyKSkpKQ0KDQooZGVmaW5lICh3
+ aXRoLXNvZnQtc2VjdXJpdHkgdGh1bmspDQogIChwYXJhbWV0ZXJpemUgDQogICAgICAoW3NhbmRi
+ b3gtcGF0aC1wZXJtaXNzaW9ucyBgKChyZWFkICwoYnl0ZS1yZWdleHAgIyJwbHQtcHJlZnMiKSkN
+ CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKHJlYWQgLChieXRlLXJlZ2V4cCAj
+ Ii9sb2dnaW5nLXRvb2wvYW5hbHlzaXMvIikpDQogICAgICAgICAgICAgICAgICAgICAgICAgICAg
+ ICAgICAgIChleGlzdHMgLChieXRlLXJlZ2V4cCAjIiIpKQ0KICAgICAgICAgICAgICAgICAgICAg
+ ICAgICAgICAgICAgICAod3JpdGUgLChieXRlLXJlZ2V4cCAjIl4vdG1wLyIpKSldDQogICAgICAg
+ W3NhbmRib3gtbmV0d29yay1ndWFyZCBuZXR3b3JrLWd1YXJkXSkNCiAgICAodGh1bmspKSkNCg0K
+ KGRlZmluZSAocnVuLXByb2dyYW0vY2FwdHVyZS1hbGwgdGV4dCBsYW5nLXJlcXVpcmUgdGVhY2hw
+ YWNrcykNCiAgKGRlZmluZSBvIChvcGVuLW91dHB1dC1zdHJpbmcpKQ0KICAoZGVmaW5lIGVyciAo
+ b3Blbi1vdXRwdXQtc3RyaW5nKSkNCiAgKHBhcmFtZXRlcml6ZSAoW3NhbmRib3gtaW5wdXQgICAg
+ ICAgICNmXQ0KICAgICAgICAgICAgICAgICBbc2FuZGJveC1vdXRwdXQgICAgICAgb10NCiAgICAg
+ ICAgICAgICAgICAgW3NhbmRib3gtZXJyb3Itb3V0cHV0IGVycl0pDQogICAgKGRlZmluZSBleG4g
+ I2YpDQogICAgKHdpdGgtaGFuZGxlcnMNCiAgICAgICAgKFt2b2lkIChsYW1iZGEgKHYpIChzZXQh
+ IGV4biB2KSldKQ0KICAgICAgKGNhbGwtd2l0aC10cnVzdGVkLXNhbmRib3gtY29uZmlndXJhdGlv
+ bg0KICAgICAgIChsYW1iZGEgKCkgKHJ1bi1wcm9ncmFtIHRleHQgbGFuZy1yZXF1aXJlIHRlYWNo
+ cGFja3MpKSkpDQogICAgKGxpc3QgKGdldC1vdXRwdXQtc3RyaW5nIG8pIChnZXQtb3V0cHV0LXN0
+ cmluZyBlcnIpIGV4bikpKQ0KDQoNCihkZWZpbmUgKHJ1bi1pdGVtIGl0ZW0gdGVhY2hwYWNrcykN
+ CiAgKGxldCogKFtpdGVtIChpZiAoaGFzaC1oYXMta2V5PyBpdGVtICd0ZXh0JSkNCiAgICAgICAg
+ ICAgICAgICAgICBpdGVtDQogICAgICAgICAgICAgICAgICAgKGxvYWQtY29kZSBpdGVtKSldDQog
+ ICAgICAgICBbdGV4dCAoaGFzaC1yZWYgaXRlbSAndGV4dCUpXQ0KICAgICAgICAgW18gKHdyYXAt
+ Y29kZS13aXRoLWJlZ2lubmVyLW1ldGFkYXRhIHRleHQpXQ0KICAgICAgICAgW2xhbmd1YWdlLXJl
+ cXVpcmUNCiAgICAgICAgICAoaGFzaC1yZWYgbGFuZ3VhZ2VzIChoYXNoLXJlZiBpdGVtICdsYW5n
+ KSldDQogICAgICAgICBbYyAobWFrZS1jdXN0b2RpYW4pXQ0KICAgICAgICAgW3Jlc3VsdCAocGFy
+ YW1ldGVyaXplIChbY3VycmVudC1jdXN0b2RpYW4gY10pDQogICAgICAgICAgICAgICAgICAgKHJ1
+ bi1wcm9ncmFtL2NhcHR1cmUtYWxsIHRleHQgbGFuZ3VhZ2UtcmVxdWlyZSB0ZWFjaHBhY2tzKSld
+ KQ0KICAgIChjdXN0b2RpYW4tc2h1dGRvd24tYWxsIGMpDQogICAgKG1hdGNoIHJlc3VsdA0KICAg
+ ICAgWyhsaXN0IG8gZXJyIGV4bikNCiAgICAgICAoaGFzaC1zZXQtYWxsIGl0ZW0NCiAgICAgICAg
+ ICAgICAgICAgICAgIGAoKHJ1bi1vdXRwdXQgLG8pDQogICAgICAgICAgICAgICAgICAgICAgIChy
+ dW4tZXJyb3Itb3V0cHV0ICxlcnIpDQogICAgICAgICAgICAgICAgICAgICAgIChydW4tbWVzc2Fn
+ ZSAsKGFuZCBleG4gKGV4bi1tZXNzYWdlIGV4bikpKSkpXSkpKQ0KDQooZGVmaW5lIGRlZmF1bHQt
+ dGVhY2hwYWNrcyANCiAgJygobGliICJ3b3JsZC5zcyIgImh0ZHAiKSAobGliICJkaXIuc3MiICJo
+ dGRwIikpKQ0KDQooZGVmaW5lIGxhbmd1YWdlcw0KICAobWFrZS1pbW11dGFibGUtaGFzaA0KICAg
+ JygoIkJlZ2lubmluZyBTdHVkZW50IiAuIChsaWIgImh0ZHAtYmVnaW5uZXIuc3MiICJsYW5nIikp
+ DQogICAgICgiQmVnaW5uaW5nIFN0dWRlbnQgd2l0aCBMaXN0IEFiYnJldmlhdGlvbnMiIC4gKGxp
+ YiAiaHRkcC1iZWdpbm5lci1hYmJyLnNzIikpDQogICAgICgiSW50ZXJtZWRpYXRlIFN0dWRlbnQi
+ IC4gKGxpYiAiaHRkcC1pbnRlcm1lZGlhdGUuc3MiICJsYW5nIikpDQogICAgICgiQWR2YW5jZWQg
+ U3R1ZGVudCIgLiAobGliICJodGRwLWFkdmFuY2VkLnNzIiAibGFuZyIpKQ0KICAgICAoIkludGVy
+ bWVkaWF0ZSBTdHVkZW50IHdpdGggbGFtYmRhIiAuIChsaWIgImh0ZHAtaW50ZXJtZWRpYXRlLWxh
+ bWJkYS5zcyIgImxhbmciKSkpKSkNCg0KKGRlZmluZSByZXBsJQ0KICAoY2xhc3MqIG9iamVjdCUg
+ KCkNCiAgICAoc3VwZXItbmV3KQ0KICAgIChkZWZpbmUvcHVibGljIChkaXNwbGF5LXJlc3VsdHMv
+ dm9pZCB2KQ0KICAgICAgKHByZXR0eS1wcmludCB2KSkNCiAgICAoZGVmaW5lL3B1YmxpYyAoZGlz
+ cGxheS11bnRlc3RlZC1zdW1tYXJ5IHYpDQogICAgICAocHJldHR5LXByaW50IHYpKSkpDQoNCjs7
+ IHR3byBydW4gdGhpcywgSSBuZWVkIHRvIGZpeA0KOzsgICAgKGRlZmluZSAoZGlzcGxheS11bnRl
+ c3RlZC1zdW1tYXJ5IHBvcnQpDQo7OyBhbmQgdHVybiBpdCBpbnRvDQo7OyAgICAoZGVmaW5lL3B1
+ YmxpYyAoZGlzcGxheS11bnRlc3RlZC1zdW1tYXJ5IHBvcnQpDQo7OyBpbiBjb2xsZWN0cy90ZXN0
+ LWVuZ2luZS90ZXN0LWVuZ2luZS5zY20NCiANCiM7DQooYmVnaW4NCiAgKGRlZmluZSB0IChtYWtl
+ LW9iamVjdCB0ZXh0JSkpDQogIChzZW5kIHQgaW5zZXJ0ICIoY2lyY2xlIDUwICdzb2xpZCAncmVk
+ KSAoZGVmaW5lIChpZCBpKSBpKSAoY2hlY2stZXhwZWN0IChpZCAxKSAxKSIpDQogICh3cmFwLWNv
+ ZGUtd2l0aC1iZWdpbm5lci1tZXRhZGF0YSB0KQ0KICAocnVuLXByb2dyYW0gdCBkZWZhdWx0LXRl
+ YWNocGFja3MpDQogIA0KICAoZGVmaW5lIGNvZGUgIyIoZGVmaW5lIChpZCBpKSBpKSAoY2hlY2st
+ ZXhwZWN0IChpZCAyKSAxKSIpDQogIChkZWZpbmUgaXRlbSAobWFrZS1pbW11dGFibGUtaGFzaCBg
+ KCh0ZXh0IC4gLGNvZGUpICh0aW1lIC4gI2YpIChsb2dmaWxlIC4gImxvZ2ZpbGUiKSkpKQ0KICAo
+ ZGVmaW5lIHJhbiAocnVuLWl0ZW0gaXRlbSBlbXB0eSkpDQogIHJhbg0KKQ0KDQoNCg==
+ --000e0cd70dbe7132e5047345990a
+ Content-Type: application/octet-stream; name="utils.ss"
+ Content-Disposition: attachment; filename="utils.ss"
+ Content-Transfer-Encoding: base64
+ X-Attachment-Id: f_fzgf0lbt1
+ 
+ I2xhbmcgc2NoZW1lDQoNCihwcm92aWRlIChhbGwtZGVmaW5lZC1vdXQpKQ0KKHJlcXVpcmUgKHJl
+ bmFtZS1pbg0KICAgICAgICAgIChwbGFuZXQgImN1dC5zcyIgKCJkeW9vIiAic3JmaS1hbGlhcy5w
+ bHQiIDEgMykpDQogICAgICAgICAgW2N1dCAvL10pKQ0KDQooZGVmaW5lIChmb3JtYXQtcGVyY2Vu
+ dCBuKSAoZm9ybWF0ICJ+YSUiICh0cnVuY2F0ZSAoKiAxMDAgbikpKSkNCg0KKGRlZmluZSAoaXRl
+ bS1uYW1lIGl0ZW0pDQogIChmb3JtYXQgIn5hfmEiIChoYXNoLXJlZiBpdGVtICdsb2dmaWxlKSAo
+ aGFzaC1yZWYgaXRlbSAndGltZSkpKQ0KDQooZGVmaW5lIChldmVudC10eXBlPyB0eXBlIGV2dCkN
+ CiAgKGVxPyAoaGFzaC1yZWYgZXZ0ICdldmVudCkgdHlwZSkpDQoNCihkZWZpbmUgKGZpbHRlci1i
+ eS10eXBlIHR5cGUgZXZlbnRzKQ0KICAoZmlsdGVyICgvLyBldmVudC10eXBlPyB0eXBlIDw+KSBl
+ dmVudHMpKQ0KDQooZGVmaW5lIChmaW5kLWJ5LW5hbWUgbmFtZSBldmVudHMpDQogIChmb3IvZmly
+ c3QgKFtldnQgZXZlbnRzXSAjOndoZW4gKGVxdWFsPyBuYW1lIChpdGVtLW5hbWUgZXZ0KSkpDQog
+ ICAgZXZ0KSkNCg0KKGRlZmluZSAoaGFzaC1yZWYtYWxsIGggcGFpcnMpDQogICAgKG1hcCAobGFt
+ YmRhIChrKSAobGlzdCBrIChoYXNoLXJlZiBoIGspKSkgcGFpcnMpKQ0KDQooZGVmaW5lIChoYXNo
+ LXNldC1hbGwgaCBwYWlycykNCiAgKGZvci9mb2xkIChbaCBoXSkgKFtwIHBhaXJzXSkNCiAgICAo
+ bWF0Y2ggcCBbKGxpc3QgayB2KSAoaGFzaC1zZXQgaCBrIHYpXSkpKQ0KDQooZGVmaW5lIChtYXBt
+ YXAgZm4gbHN0bHN0KQ0KICAobWFwICgvLyBtYXAgZm4gPD4pIGxzdGxzdCkpDQoNCihkZWZpbmUg
+ KG1hcF4zIGZuIGxzdGxzdGxzdCkNCiAgKG1hcG1hcCAoLy8gbWFwIGZuIDw+KSBsc3Rsc3Rsc3Qp
+ KQ0KDQooZGVmaW5lIChyZWFkLWFsbCBwb3J0KQ0KICAobGV0IChbdiAocmVhZCBwb3J0KV0pDQog
+ ICAgKGlmIChlb2Ytb2JqZWN0PyB2KQ0KICAgICAgICBlbXB0eQ0KICAgICAgICAoY29ucyB2IChy
+ ZWFkLWFsbCBwb3J0KSkpKSkNCg0KKGRlZmluZSAocmVhZC1hbGwtc3ludGF4IHNvdXJjZS1uYW1l
+ IHBvcnQpDQogIChsZXQgKFt2IChyZWFkLXN5bnRheCBzb3VyY2UtbmFtZSBwb3J0KV0pDQogICAg
+ KGlmIChlb2Ytb2JqZWN0PyB2KQ0KICAgICAgICBlbXB0eQ0KICAgICAgICAoY29ucyB2IChyZWFk
+ LWFsbC1zeW50YXggc291cmNlLW5hbWUgcG9ydCkpKSkpDQoNCjs7IHJlYWQtYWxsLXN5bnRheC9y
+ ZWFkZXI6IHBvcnQgLT4gKGxpc3RvZiBzeW50YXg/KQ0KKGRlZmluZSAocmVhZC1hbGwtc3ludGF4
+ L3JlYWRlciBwb3J0KQ0KICAocG9ydC1jb3VudC1saW5lcyEgcG9ydCkNCiAgKHBhcmFtZXRlcml6
+ ZSAoW3JlYWQtYWNjZXB0LXJlYWRlciAjdF0pDQogICAgKHJlYWQtYWxsLXN5bnRheCAncHJvZ3Jh
+ bSBwb3J0KSkpDQoNCihkZWZpbmUgKGxpc3QtPmRvdHRlZC1wYWlyIGxzdCkgKGNvbnMgKGZpcnN0
+ IGxzdCkgKHNlY29uZCBsc3QpKSkNCg0KKGRlZmluZSAoJSUgcHJvYyAuIGFyZ3MpIA0KICAocHJp
+ bnRmICJ+c35uIiAobGlzdCogJyUlIHByb2MgYXJncykpDQogIChsZXQgKFtyZXN1bHQgKGFwcGx5
+ IHByb2MgYXJncyldKQ0KICAgIChwcmludGYgIi0+IH5zfm4iIHJlc3VsdCkNCiAgICByZXN1bHQp
+ KQ0KDQooZGVmaW5lIChoYXNoLW1hcC12YWx1ZXMgaGFzaCBwcm9jKQ0KICAoZm9yL2ZvbGQgKFty
+ ZXN1bHQgKG1ha2UtaW1tdXRhYmxlLWhhc2ggZW1wdHkpXSkNCiAgICAoWyhrIHYpIGhhc2hdKQ0K
+ ICAgIChoYXNoLXNldCByZXN1bHQgayAocHJvYyB2KSkpKQ0KDQooZGVmaW5lIChoYXNoLT5saXN0
+ IGhhc2gpIChoYXNoLW1hcCBoYXNoIGxpc3QpKQ0KKGRlZmluZSAoaGFzaC0+YXNzb2MgaGFzaCkg
+ KGhhc2gtbWFwIGhhc2ggY29ucykpDQooZGVmaW5lIChsaXN0LT5oYXNoIGxzdCkgKG1ha2UtaW1t
+ dXRhYmxlLWhhc2ggKG1hcCAobWF0Y2gtbGFtYmRhIFsobGlzdCBhIGIpIChjb25zIGEgYildKSBs
+ c3QpKSkNCihkZWZpbmUgKGhhc2gtbWFwOmggaGFzaCBmbikgKGxpc3QtPmhhc2ggKGhhc2gtbWFw
+ IGhhc2ggZm4pKSkNCihkZWZpbmUgKGhhc2gta2V5cyBoYXNoKSAoaGFzaC1tYXAgaGFzaCAobGFt
+ YmRhIChrIHYpIGspKSkNCihkZWZpbmUgKGhhc2gtdmFsdWVzIGhhc2gpIChoYXNoLW1hcCBoYXNo
+ IChsYW1iZGEgKGsgdikgdikpKQ0KDQooZGVmaW5lIGVtcHR5LWhhc2ggKG1ha2UtaW1tdXRhYmxl
+ LWhhc2ggZW1wdHkpKQ0KDQooZGVmaW5lIChpZCBpKSBpKQ0KDQooZGVmaW5lICh0cmFuc3Bvc2Ug
+ bHN0bHN0KSAoYXBwbHkgbWFwIGxpc3QgbHN0bHN0KSkNCg0KKGRlZmluZSAoYXZlcmFnZSBsc3Qp
+ ICgvIChhcHBseSArIGxzdCkgKGxlbmd0aCBsc3QpKSk=
+ --000e0cd70dbe7132e5047345990a
+ Content-Type: application/octet-stream; name="loading.ss"
+ Content-Disposition: attachment; filename="loading.ss"
+ Content-Transfer-Encoding: base64
+ X-Attachment-Id: f_fzgf0rnv2
+ 
+ I2xhbmcgc2NoZW1lL2d1aQ0KKHJlcXVpcmUgKHJlbmFtZS1pbg0KICAgICAgICAgIChwbGFuZXQg
+ ImN1dC5zcyIgKCJkeW9vIiAic3JmaS1hbGlhcy5wbHQiIDEgMykpDQogICAgICAgICAgW2N1dCAv
+ L10pDQogICAgICAgICAiZGF0ZS10aW1lLnNzIg0KICAgICAgICAgInV0aWxzLnNzIikNCg0KKHBy
+ b3ZpZGUgbG9hZC1jb2RlIG9wZW4tbG9nIG9wZW4tYWxsLWxvZ3MgaXRlbS1hZGQtc3R1ZGVudCkN
+ Cg0KKGRlZmluZSAoZml4LWRhdGUgaXRlbSkNCiAgKGhhc2gtdXBkYXRlIGl0ZW0gJ3RpbWUgcHJl
+ ZmFiLT5kYXRlKSkNCg0KKGRlZmluZSAoZml4LWJ1ZyBpdGVtKQ0KICAobWF0Y2ggaXRlbQ0KICAg
+ IDs7IEFjY29tb2RhdGUgZm9yIHRoZSBidWcgaW4gdGhlIGJldGENCiAgICBbKGxpc3QgZXZ0ICdm
+ aWxlbmFtZSBwYXRoIHJlc3QgLi4uKQ0KICAgICAobGlzdCogZXZ0IGAoZmlsZW5hbWUgLHBhdGgp
+ IHJlc3QpXQ0KICAgIFtlbHNlIGl0ZW1dKSkNCg0KKGRlZmluZSAoKGZpeC1sb2dmaWxlLWVudHJ5
+ IGxvZ2ZpbGUpIGl0ZW0pDQogIChpZiAoYXNzb2MgJ2xvZ2ZpbGUgaXRlbSkNCiAgICAgIGl0ZW0N
+ CiAgICAgIChjb25zIGAobG9nZmlsZSAsKG1ha2UtcGF0aCAoc3lzdGVtLXR5cGUpIChwYXRoLT5i
+ eXRlcyBsb2dmaWxlKSkpIGl0ZW0pKSkNCg0KKGRlZmluZSAoZml4LWRvdHMgaXRlbSkNCiAgKG1h
+ cCBsaXN0LT5kb3R0ZWQtcGFpciBpdGVtKSkNCg0KKGRlZmluZSAobG9nZmlsZS1zdHVkZW50IGxv
+ Z2ZpbGUpDQogIChyZXN0IChyZWdleHAtbWF0Y2ggI3J4InJ1bi0oLiopLSguKikubG9nIiBsb2dm
+ aWxlKSkpDQoNCihkZWZpbmUgKGl0ZW0tYWRkLXN0dWRlbnQgaXRlbSkNCiAgKGhhc2gtc2V0IGl0
+ ZW0gJ3N0dWRlbnQgKGxvZ2ZpbGUtc3R1ZGVudCAocGF0aC1zdHIgKGhhc2gtcmVmIGl0ZW0gJ2xv
+ Z2ZpbGUpKSkpKQ0KDQojOw0KKGRlZmluZSAoZml4LWRheSBpdGVtKQ0KICAoZGVmaW5lIGxvZ2Zp
+ bGUgKGJ5dGVzLT5zdHJpbmcvbGF0aW4tMSAocGF0aC1zdHIgKGNkciAoYXNzb2MgJ2xvZ2ZpbGUg
+ aXRlbSkpKSkpDQogIChkZWZpbmUgZGF5IChzdHJpbmctPm51bWJlciAoc2Vjb25kIChyZWdleHAt
+ bWF0Y2ggI3J4ImRheS0oLikiIGxvZ2ZpbGUpKSkpDQogIChsaXN0KiBgKGRheSAuICxkYXkpDQog
+ ICAgICAgICBgKHN0dWRlbnQgLiAsKGxvZ2ZpbGUtc3R1ZGVudCBsb2dmaWxlKSkNCiAgICAgICAg
+ IGl0ZW0pKQ0KDQooZGVmaW5lIChmaXgtaXQgbG9nZmlsZSBhbGwtaXRlbXMpDQogIChmb3IvbGlz
+ dCAoW2l0ZW0gYWxsLWl0ZW1zXSkNCiAgICAobGV0IChbaCAoaWYgKGhhc2g/IGl0ZW0pIGl0ZW0N
+ CiAgICAgICAgICAgICAgICAgKChjb21wb3NlDQogICAgICAgICAgICAgICAgICAgbWFrZS1pbW11
+ dGFibGUtaGFzaCANCiAgICAgICAgICAgICAgICAgICBmaXgtZG90cw0KICAgICAgICAgICAgICAg
+ ICAgIChmaXgtbG9nZmlsZS1lbnRyeSBsb2dmaWxlKSANCiAgICAgICAgICAgICAgICAgICBmaXgt
+ YnVnKQ0KICAgICAgICAgICAgICAgICAgaXRlbSkpXSkNCiAgICAgIChmaXgtZGF0ZSBoKSkpKQ0K
+ DQoNCihkZWZpbmUtc3RydWN0IHBhdGggKHBsYXRmb3JtIHN0cikgIzpwcmVmYWIpDQooZGVmaW5l
+ IGF1dG9zYXZlLXJlZ2V4cHMgJygjcngibXJlZGF1dG8iICNyeCJcXC5bMC05XSskIikpDQoNCihk
+ ZWZpbmUgKGlzLWF1dG9zYXZlIGV2dCkNCiAgKG1hdGNoIGV2dA0KICAgIFsoaGFzaC10YWJsZSAo
+ J2V2ZW50ICdzYXZlKSAoJ2ZpbGVuYW1lIChzdHJ1Y3QgcGF0aCAoc3RyIHMpKSkgKGsgdikgLi4u
+ KQ0KICAgICAob3JtYXAgKC8vIHJlZ2V4cC1tYXRjaCA8PiBzKSBhdXRvc2F2ZS1yZWdleHBzKV0N
+ CiAgICBbXyAjZl0pKQ0KDQooZGVmaW5lIChtYXliZS0+cGF0aCB2KQ0KICAoaWYgKHN0cmluZz8g
+ dikgKHN0cmluZy0+cGF0aCB2KSB2KSkNCg0KKGRlZmluZSAob3Blbi1sb2cgZmlsZW5hbWUpDQog
+ IChkZWZpbmUgcmVkIChyZWFkLWFsbCAob3Blbi1pbnB1dC1maWxlIGZpbGVuYW1lKSkpDQogIChk
+ ZWZpbmUgbGlmdGVkIChmaXgtaXQgKG1heWJlLT5wYXRoIGZpbGVuYW1lKSByZWQpKQ0KICAoZmls
+ dGVyICgvLyAoY29tcG9zZSBub3QgaXMtYXV0b3NhdmUpIDw+KSBsaWZ0ZWQpKQ0KDQooZGVmaW5l
+ IChhbGwtbG9nLWZpbGVuYW1lcyBsb2ctZGlyKQ0KICAobWFwICgvLyBsb2ctZmlsZW5hbWVzLWZv
+ ci1kYXkgbG9nLWRpciA8PikgJygxIDIgMyA0IDUpKSkNCg0KKGRlZmluZSAobG9nLWZpbGVuYW1l
+ cy1mb3ItZGF5IGxvZy1kaXIgbnVtYmVyKQ0KICAoZGVmaW5lIGRpciAoYnVpbGQtcGF0aCBsb2ct
+ ZGlyIChmb3JtYXQgImRheS1+YSIgbnVtYmVyKSkpDQogIChzb3J0DQogICAoZm9yL2xpc3QgKFtm
+ aWxlIChkaXJlY3RvcnktbGlzdCBkaXIpXSkNCiAgICAgKGJ1aWxkLXBhdGggZGlyIGZpbGUpKQ0K
+ ICAgc3RyaW5nPD8gIzprZXkgcGF0aC0+c3RyaW5nKSkNCg0KKGRlZmluZSAob3Blbi1hbGwtbG9n
+ cyBsb2ctZGlyKQ0KICAobWFwbWFwIG9wZW4tbG9nIChhbGwtbG9nLWZpbGVuYW1lcyBsb2ctZGly
+ KSkpDQoNCjs7IHBhcnNlLXNzLWZpbGUgOiBieXRlcyAtPiB0ZXh0JQ0KKGRlZmluZSAocGFyc2Ut
+ c3MtZmlsZSBieXRlcykNCiAgKGRlZmluZSBwb3J0IChvcGVuLWlucHV0LWJ5dGVzIGJ5dGVzKSkN
+ CiAgKGRlZmluZSB0eHQgKG5ldyB0ZXh0JSkpDQogIChwb3J0LWNvdW50LWxpbmVzISBwb3J0KQ0K
+ ICAoc2VuZCB0eHQgaW5zZXJ0LXBvcnQgcG9ydCkNCiAgdHh0KQ0KDQo7OyBsb2FkLWNvZGU6IGhh
+ c2ggLT4gaGFzaA0KKGRlZmluZSAobG9hZC1jb2RlIGl0ZW0pDQogIChkZWZpbmUgdHh0IChwYXJz
+ ZS1zcy1maWxlIChoYXNoLXJlZiBpdGVtICd0ZXh0KSkpDQogIChzZW5kIHR4dCBzZXQtZmlsZW5h
+ bWUgDQogICAgICAgIChmb3JtYXQgIn5hOn5hIiAoaGFzaC1yZWYgaXRlbSAnbG9nZmlsZSkNCiAg
+ ICAgICAgICAgICAgICAoaGFzaC1yZWYgaXRlbSAndGltZSkpKQ0KICAoaGFzaC1zZXQgaXRlbSAn
+ dGV4dCUgdHh0KSkNCiAgDQogICAgDQogICAgDQogICAgDQogICAgDQogICAg
+ --000e0cd70dbe7132e5047345990a--
+From: Eli Barzilay <eli@barzilay.org>
+To: Guillaume Marceau <gmarceau@gmail.com>
+Cc: Robby Findler <robby@eecs.northwestern.edu>, bugs@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10443: Various issues when running BSL program 
+	under scheme/sandbox
+Date: Fri, 11 Sep 2009 01:23:25 -0400
+
+ On Sep 11, Guillaume Marceau wrote:
+ > If it can help, I ended writing code that addresses 3 and 4 from
+ > outside of the sandbox.  It would be a matter of moving that
+ > functionality into scheme/sandbox. [...]
+ 
+ This is definitely not code that can go into the sandbox!
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+
+Responsible changed from "nobody" to "eli" by samth at Sun, 20 Nov 2011 18:25:29 -0500
+Reason>>> sandbox
+
+
+State changed from "open" to "closed" by eli at Mon, 05 Dec 2011 16:37:20 -0500
+Reason>>> Later split into multiple PRs.
+

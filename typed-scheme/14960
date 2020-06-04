@@ -1,0 +1,146 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Feb  1 14:50:11 2015
+Received: from mail-ob0-f179.google.com (mail-ob0-f179.google.com [209.85.214.179])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t11JoAf3010531
+	for <bugs@bugs.plt-scheme.org>; Sun, 1 Feb 2015 14:50:10 -0500
+Message-Id: <201502011950.t11Jo7oM010498@winooski.ccs.neu.edu>
+Date: Sun, 1 Feb 2015 14:50:07 -0500
+From: lexi.lambda@gmail.com
+To: bugs@racket-lang.org
+Subject: Using racket/match in Typed Racket with structs declared in another module causes typechecking to go exponential
+
+>Number:         14960
+>Category:       typed-scheme
+>Synopsis:       Using racket/match in Typed Racket with structs declared in another module causes typechecking to go exponential
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Feb 01 14:52:01 -0500 2015
+>Last-Modified:  Mon Feb 02 01:57:32 -0500 2015
+>Originator:     Alexis King
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1.8--2015-01-30(3029867/a)
+>Environment:
+macosx "Darwin jbook 14.1.0 Darwin Kernel Version 14.1.0: Mon Dec 22 23:10:38 PST 2014; root:xnu-2782.10.72~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 610657492
+raco pkg (show):
+Installation-wide:
+ Package            Checksum             Source
+ main-distribution  eca7d6a1...          catalog...tribution
+ racket-lib         26012dfd...          catalog racket-lib
+ typed-racket-lib   032a11fd...          clone...-racket-lib
+ typed-racket-more  032a11fd...          clone...racket-more
+ [186 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ Package        Checksum              Source
+ 2htdp-typed                          link...-racket-2htdp
+ cover          53a58eba...           catalog...ence/cover
+ irc            1f6f8a56...           clone...cket-irc.git
+ irc-client                           link...et-irc-client
+ mongodb        76b8b080...           catalog...odb/master
+ qalbot                               link...qalbot-racket
+ racket-fchat                         link.../racket-fchat
+ rackjure       67c5ef40...           catalog...ure/master
+ rfc6455        14c33328...           catalog...et-rfc6455
+ semver                               link...racket-semver
+ vector-struct                        link...vector-struct
+ whalesong      00271704...           clone...halesong.git
+
+
+
+Collections:
+("/Users/Jake/Library/Racket/snapshot/collects"
+ (non-existent-path))
+("/Applications/Racket v6.1.1.8/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((test) (main)) #t))
+>Description:
+This is an odd bug. I ran into it while using racket/match on structs. Note that this behavior ONLY occurs when the struct declarations are in another module. If the declarations are within the same module, typechecking completes fine.
+
+Anyway, I've included some code that produces the behavior. Typechecking takes an absurd amount of time. Removing some of the match clauses allows typechecking to complete, but it clearly gets exponentially higher as the clauses are added in. Also, explicitly adding type annotations to log-type and log-data makes it typecheck fine, so it clearly has something to do with TR trying to infer the types.
+>How-To-Repeat:
+#lang racket/base
+ 
+(module structs typed/racket/base
+  (provide (struct-out IrcUser)
+           (struct-out IrcMessage)
+           (struct-out IrcMessage-ChatMessage)
+           (struct-out IrcMessage-ActionMessage)
+           (struct-out IrcMessage-Notice)
+           (struct-out IrcMessage-Join)
+           (struct-out IrcMessage-Part)
+           (struct-out IrcMessage-Quit)
+           (struct-out IrcMessage-Kick)
+           (struct-out IrcMessage-Kill)
+           (struct-out IrcMessage-Nick))
+  (struct IrcUser ([nick : String] [username : String] [host : String]) #:transparent)
+ 
+  (struct IrcMessage () #:transparent)
+  (struct IrcMessage-Message IrcMessage ([sender : IrcUser]
+                                         [recipient : String]
+                                         [content : String])
+    #:transparent)
+  (struct IrcMessage-ChatMessage IrcMessage-Message () #:transparent)
+  (struct IrcMessage-ActionMessage IrcMessage-Message () #:transparent)
+  (struct IrcMessage-Notice IrcMessage ([sender : IrcUser]
+                                        [recipient : String]
+                                        [content : String]) #:transparent)
+  (struct IrcMessage-Join IrcMessage ([user : IrcUser] [channel : String]) #:transparent)
+  (struct IrcMessage-Part IrcMessage ([user : IrcUser] [channel : String] [reason : String]) #:transparent)
+  (struct IrcMessage-Quit IrcMessage ([user : IrcUser] [reason : String]) #:transparent)
+  (struct IrcMessage-Kick IrcMessage ([user : IrcUser] [channel : String] [kicked-user : String] [reason : String]) #:transparent)
+  (struct IrcMessage-Kill IrcMessage ([user : IrcUser] [killed-user : String] [reason : String]) #:transparent)
+  (struct IrcMessage-Nick IrcMessage ([user : IrcUser] [new-nick : String]) #:transparent))
+ 
+(module matching typed/racket/base
+  (require racket/match
+           (submod ".." structs))
+  (: log-irc-message (IrcMessage -> Void))
+  (define (log-irc-message message)
+    ; get the data to store in the DB
+    (define-values (log-type log-data)
+      (match message
+        [(IrcMessage-Join (IrcUser nick username host) channel)
+         (values "join" (make-immutable-hasheq `((nick . ,nick)
+                                                 (username . ,username)
+                                                 (host . ,host)
+                                                 (channel . ,channel))))]
+        [(IrcMessage-Part (IrcUser nick username host) channel reason)
+         (values "part" (make-immutable-hasheq `((nick . ,nick)
+                                                 (username . ,username)
+                                                 (host . ,host)
+                                                 (channel . ,channel)
+                                                 (reason . ,reason))))]
+        [(IrcMessage-Quit (IrcUser nick username host) reason)
+         (values "quit" (make-immutable-hasheq `((nick . ,nick)
+                                                 (username . ,username)
+                                                 (host . ,host)
+                                                 (reason . ,reason))))]
+        [(IrcMessage-Kick (IrcUser nick _ _) channel kicked-user reason)
+         (values "kick" (make-immutable-hasheq `((nick . ,nick)
+                                                 (channel . ,channel)
+                                                 (kicked-user . ,kicked-user)
+                                                 (reason . ,reason))))]
+        [(IrcMessage-Kill (IrcUser nick _ _) killed-user reason)
+         (values "kill" (make-immutable-hasheq `((nick . ,nick)
+                                                 (killed-user . ,killed-user)
+                                                 (reason . ,reason))))]
+        [(IrcMessage-Nick (IrcUser old-nick _ _) new-nick)
+         (values "nick" (make-immutable-hasheq `((old-nick . ,old-nick)
+                                                 (new-nick . ,new-nick))))]
+        [(IrcMessage-ChatMessage (IrcUser nick _ _) _ message)
+         (values "chat" (make-immutable-hasheq `((nick . ,nick)
+                                                 (message . ,message))))]
+        [(IrcMessage-ActionMessage (IrcUser nick _ _) _ message)
+         (values "action" (make-immutable-hasheq `((nick . ,nick)
+                                                   (message . ,message))))]
+        [_ (values #f #f)]))
+    (void)))
+>Fix:

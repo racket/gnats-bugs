@@ -1,0 +1,1341 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jan  3 09:15:32 2011
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id p03EFOaY006247
+	for <bugs@bugs.plt-scheme.org>; Mon, 3 Jan 2011 09:15:25 -0500
+Message-Id: <201101031415.p03EFLXk006240@champlain.ccs.neu.edu>
+Date: Mon, 3 Jan 2011 09:15:21 -0500
+From: jay@racket-lang.org
+To: bugs@racket-lang.org
+Subject: Rackunit does not protect itself against errors that kill the thread
+
+>Number:         11586
+>Category:       misc
+>Synopsis:       Rackunit does not protect itself against errors that kill the thread
+>Class:          sw-bug
+>Responsible:    ryanc
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jan 03 09:16:02 -0500 2011
+>Closed-Date:    Fri Jan 07 12:33:25 -0500 2011
+>Last-Modified:  Fri Oct 07 21:47:27 -0400 2011
+>Originator:     Jay McCarthy
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.99.4--2010-12-07(823da43/g)
+>Environment:
+macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel Version 10.5.0: Fri Nov  5 23:20:39 PDT 2010; root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 185043484
+
+Collections:
+(("/Users/jay/Library/Racket/5.0.99.4/collects" non-existent-path) ("/Users/jay/Dev/scm/plt/collects" ".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" "repos-time-stamp" "rico" "rktunit" "rnrs" "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersi!
+ st" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+>Description:
+If a test case kills the current thread, then Rackunit's output can be the same as when it succeeds. This is bad because it means that Rackunit cannot be used to test certain behavior.
+>How-To-Repeat:
+#lang racket
+(require rackunit
+         rackunit/text-ui)
+
+(run-tests
+ (test-suite "Some tests"
+             (test-case "1 is 1"
+                        (check-equal? 1 1))
+             
+             (test-case "1 is end of world"
+                        (check-equal? 1 (kill-thread (current-thread))))
+             
+             (test-case "1 is 2"
+                        (check-equal? 1 2))))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "ryanc" by ryanc at Mon, 03 Jan 2011 15:54:09 -0500
+Reason>>> rackunit
+
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: jay@racket-lang.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 03 Jan 2011 13:56:14 -0700
+
+ Rackunit doesn't do any kind of sandboxing, aside from catching 
+ exceptions. If you want to test the behavior of threads, you should 
+ create the threads yourself. Likewise for continuations, custodians, 
+ namespaces, etc.
+ 
+ BTW, here are the ways I know of that a test case can kill Rackunit (in 
+ order of increasing difficulty of interception):
+ 
+   1 abort the current continuation
+   2 kill the current thread
+   3 shutdown the current custodian
+   4 call (exit)
+   5 call (system (format "kill -TERM ~a" (getpid)))
+   6 capture the current thread/custodian/exit-handler at test-case 
+ creation time, then kill/shutdown/apply
+   7 ffi, unsafe operations, etc
+ 
+ My conclusion is that it's better to leave it in the hands of the test 
+ programmer. And writing test-case abstractions is easy.
+ 
+ Ryan
+ 
+ 
+ On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=11586
+ >
+ > Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/g)
+ >
+ > *** Description:
+ > If a test case kills the current thread, then Rackunit's output can be the same as when it succeeds. This is bad because it means that Rackunit cannot be used to test certain behavior.
+ >
+ > *** How to repeat:
+ > #lang racket
+ > (require rackunit
+ >           rackunit/text-ui)
+ >
+ > (run-tests
+ >   (test-suite "Some tests"
+ >               (test-case "1 is 1"
+ >                          (check-equal? 1 1))
+ >
+ >               (test-case "1 is end of world"
+ >                          (check-equal? 1 (kill-thread (current-thread))))
+ >
+ >               (test-case "1 is 2"
+ >                          (check-equal? 1 2))))
+ >
+ > *** Environment:
+ > macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel Version 10.5.0: Fri Nov  5 23:20:39 PDT 2010; root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 185043484
+ >
+ > Collections:
+ > (("/Users/jay/Library/Racket/5.0.99.4/collects" non-existent-path) ("/Users/jay/Dev/scm/plt/collects" ".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" "repos-time-stamp" "rico" "rktunit" "rnrs" "s-exp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpers
+ i!
+ >   st" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: jay@racket-lang.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 14:57:24 -0600
+
+ Also, rackunit should be printing some kind of an "all tests passed"
+ output when it succeeds, no?
+ 
+ Robby
+ 
+ On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ > Rackunit doesn't do any kind of sandboxing, aside from catching exception=
+ s.
+ > If you want to test the behavior of threads, you should create the thread=
+ s
+ > yourself. Likewise for continuations, custodians, namespaces, etc.
+ >
+ > BTW, here are the ways I know of that a test case can kill Rackunit (in
+ > order of increasing difficulty of interception):
+ >
+ > =C2=A01 abort the current continuation
+ > =C2=A02 kill the current thread
+ > =C2=A03 shutdown the current custodian
+ > =C2=A04 call (exit)
+ > =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ > =C2=A06 capture the current thread/custodian/exit-handler at test-case cr=
+ eation
+ > time, then kill/shutdown/apply
+ > =C2=A07 ffi, unsafe operations, etc
+ >
+ > My conclusion is that it's better to leave it in the hands of the test
+ > programmer. And writing test-case abstractions is easy.
+ >
+ > Ryan
+ >
+ >
+ > On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>
+ >> A new problem report is waiting at
+ >> =C2=A0 http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>
+ >> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/g)
+ >>
+ >> *** Description:
+ >> If a test case kills the current thread, then Rackunit's output can be t=
+ he
+ >> same as when it succeeds. This is bad because it means that Rackunit can=
+ not
+ >> be used to test certain behavior.
+ >>
+ >> *** How to repeat:
+ >> #lang racket
+ >> (require rackunit
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0rackunit/text-ui)
+ >>
+ >> (run-tests
+ >> =C2=A0(test-suite "Some tests"
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 1"
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 1))
+ >>
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is end of =
+ world"
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 (kill-thread (current-thread))))
+ >>
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 2"
+ >> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 2))))
+ >>
+ >> *** Environment:
+ >> macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel
+ >> Version 10.5.0: Fri Nov =C2=A05 23:20:39 PDT 2010;
+ >> root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-de=
+ pth)
+ >> =3D 32
+ >> Human Language: english
+ >> (current-memory-use) 185043484
+ >>
+ >> Collections:
+ >> (("/Users/jay/Library/Racket/5.0.99.4/collects" non-existent-path)
+ >> ("/Users/jay/Dev/scm/plt/collects" ".gitignore" "2htdp" "afm" "algol60"
+ >> "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datal=
+ og"
+ >> "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui"
+ >> "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics"
+ >> "gui-debugger" "guibuilder" "handin-client" "handin-server" "help"
+ >> "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher"
+ >> "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzc=
+ om"
+ >> "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs"
+ >> "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket"
+ >> "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "rede=
+ x"
+ >> "repo-time-stamp" "repos-time-stamp" "rico" "rktunit" "rnrs" "s-exp"
+ >> "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "set=
+ up"
+ >> "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpers
+ >
+ > i!
+ >>
+ >> =C2=A0st" "stepper" "string-constants" "swindle" "syntax" "syntax-color"
+ >> "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpic=
+ t"
+ >> "trace" "typed" "typed-scheme" "unstable" "version" "waterworld"
+ >> "web-server" "wxme" "xml"))
+ >> Computer Language: (("Determine language from source") (#(#t print
+ >> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+ >>
+ >
+From: Jay McCarthy <jay@racket-lang.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 14:01:35 -0700
+
+ It doesn't do that by default Robby.
+ 
+ Jay
+ 
+ 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ > Also, rackunit should be printing some kind of an "all tests passed"
+ > output when it succeeds, no?
+ >
+ > Robby
+ >
+ > On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ >> Rackunit doesn't do any kind of sandboxing, aside from catching exceptio=
+ ns.
+ >> If you want to test the behavior of threads, you should create the threa=
+ ds
+ >> yourself. Likewise for continuations, custodians, namespaces, etc.
+ >>
+ >> BTW, here are the ways I know of that a test case can kill Rackunit (in
+ >> order of increasing difficulty of interception):
+ >>
+ >> =C2=A01 abort the current continuation
+ >> =C2=A02 kill the current thread
+ >> =C2=A03 shutdown the current custodian
+ >> =C2=A04 call (exit)
+ >> =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ >> =C2=A06 capture the current thread/custodian/exit-handler at test-case c=
+ reation
+ >> time, then kill/shutdown/apply
+ >> =C2=A07 ffi, unsafe operations, etc
+ >>
+ >> My conclusion is that it's better to leave it in the hands of the test
+ >> programmer. And writing test-case abstractions is easy.
+ >>
+ >> Ryan
+ >>
+ >>
+ >> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>
+ >>> A new problem report is waiting at
+ >>> =C2=A0 http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>>
+ >>> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/g)
+ >>>
+ >>> *** Description:
+ >>> If a test case kills the current thread, then Rackunit's output can be =
+ the
+ >>> same as when it succeeds. This is bad because it means that Rackunit ca=
+ nnot
+ >>> be used to test certain behavior.
+ >>>
+ >>> *** How to repeat:
+ >>> #lang racket
+ >>> (require rackunit
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0rackunit/text-ui)
+ >>>
+ >>> (run-tests
+ >>> =C2=A0(test-suite "Some tests"
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 1"
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 1))
+ >>>
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is end of=
+  world"
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 (kill-thread (current-thread))))
+ >>>
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 2"
+ >>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 2))))
+ >>>
+ >>> *** Environment:
+ >>> macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel
+ >>> Version 10.5.0: Fri Nov =C2=A05 23:20:39 PDT 2010;
+ >>> root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-d=
+ epth)
+ >>> =3D 32
+ >>> Human Language: english
+ >>> (current-memory-use) 185043484
+ >>>
+ >>> Collections:
+ >>> (("/Users/jay/Library/Racket/5.0.99.4/collects" non-existent-path)
+ >>> ("/Users/jay/Dev/scm/plt/collects" ".gitignore" "2htdp" "afm" "algol60"
+ >>> "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "data=
+ log"
+ >>> "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui"
+ >>> "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics=
+ "
+ >>> "gui-debugger" "guibuilder" "handin-client" "handin-server" "help"
+ >>> "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher"
+ >>> "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mz=
+ com"
+ >>> "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs"
+ >>> "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket"
+ >>> "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "red=
+ ex"
+ >>> "repo-time-stamp" "repos-time-stamp" "rico" "rktunit" "rnrs" "s-exp"
+ >>> "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "se=
+ tup"
+ >>> "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpers
+ >>
+ >> i!
+ >>>
+ >>> =C2=A0st" "stepper" "string-constants" "swindle" "syntax" "syntax-color=
+ "
+ >>> "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpi=
+ ct"
+ >>> "trace" "typed" "typed-scheme" "unstable" "version" "waterworld"
+ >>> "web-server" "wxme" "xml"))
+ >>> Computer Language: (("Determine language from source") (#(#t print
+ >>> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+ >>>
+ >>
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Jay McCarthy <jay@racket-lang.org>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 15:08:27 -0600
+
+ Sorry, bad phrasing on my part. Would it suffice if it did?
+ 
+ Robby
+ 
+ On Mon, Jan 3, 2011 at 3:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > It doesn't do that by default Robby.
+ >
+ > Jay
+ >
+ > 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >> Also, rackunit should be printing some kind of an "all tests passed"
+ >> output when it succeeds, no?
+ >>
+ >> Robby
+ >>
+ >> On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote=
+ :
+ >>> Rackunit doesn't do any kind of sandboxing, aside from catching excepti=
+ ons.
+ >>> If you want to test the behavior of threads, you should create the thre=
+ ads
+ >>> yourself. Likewise for continuations, custodians, namespaces, etc.
+ >>>
+ >>> BTW, here are the ways I know of that a test case can kill Rackunit (in
+ >>> order of increasing difficulty of interception):
+ >>>
+ >>> =C2=A01 abort the current continuation
+ >>> =C2=A02 kill the current thread
+ >>> =C2=A03 shutdown the current custodian
+ >>> =C2=A04 call (exit)
+ >>> =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ >>> =C2=A06 capture the current thread/custodian/exit-handler at test-case =
+ creation
+ >>> time, then kill/shutdown/apply
+ >>> =C2=A07 ffi, unsafe operations, etc
+ >>>
+ >>> My conclusion is that it's better to leave it in the hands of the test
+ >>> programmer. And writing test-case abstractions is easy.
+ >>>
+ >>> Ryan
+ >>>
+ >>>
+ >>> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>>
+ >>>> A new problem report is waiting at
+ >>>> =C2=A0 http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>>>
+ >>>> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/g)
+ >>>>
+ >>>> *** Description:
+ >>>> If a test case kills the current thread, then Rackunit's output can be=
+  the
+ >>>> same as when it succeeds. This is bad because it means that Rackunit c=
+ annot
+ >>>> be used to test certain behavior.
+ >>>>
+ >>>> *** How to repeat:
+ >>>> #lang racket
+ >>>> (require rackunit
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0rackunit/text-ui)
+ >>>>
+ >>>> (run-tests
+ >>>> =C2=A0(test-suite "Some tests"
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 1"
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 1))
+ >>>>
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is end o=
+ f world"
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 (kill-thread (current-thread))))
+ >>>>
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 2"
+ >>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 (check-equal? 1 2))))
+ >>>>
+ >>>> *** Environment:
+ >>>> macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel
+ >>>> Version 10.5.0: Fri Nov =C2=A05 23:20:39 PDT 2010;
+ >>>> root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-=
+ depth)
+ >>>> =3D 32
+ >>>> Human Language: english
+ >>>> (current-memory-use) 185043484
+ >>>>
+ >>>> Collections:
+ >>>> (("/Users/jay/Library/Racket/5.0.99.4/collects" non-existent-path)
+ >>>> ("/Users/jay/Dev/scm/plt/collects" ".gitignore" "2htdp" "afm" "algol60=
+ "
+ >>>> "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "dat=
+ alog"
+ >>>> "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui=
+ "
+ >>>> "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphic=
+ s"
+ >>>> "gui-debugger" "guibuilder" "handin-client" "handin-server" "help"
+ >>>> "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher=
+ "
+ >>>> "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "m=
+ zcom"
+ >>>> "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs"
+ >>>> "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket"
+ >>>> "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "re=
+ dex"
+ >>>> "repo-time-stamp" "repos-time-stamp" "rico" "rktunit" "rnrs" "s-exp"
+ >>>> "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "s=
+ etup"
+ >>>> "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpers
+ >>>
+ >>> i!
+ >>>>
+ >>>> =C2=A0st" "stepper" "string-constants" "swindle" "syntax" "syntax-colo=
+ r"
+ >>>> "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texp=
+ ict"
+ >>>> "trace" "typed" "typed-scheme" "unstable" "version" "waterworld"
+ >>>> "web-server" "wxme" "xml"))
+ >>>> Computer Language: (("Determine language from source") (#(#t print
+ >>>> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+ >>>>
+ >>>
+ >>
+ >
+From: Jay McCarthy <jay@racket-lang.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 14:20:33 -0700
+
+ Yes, although that wouldn't help detecting the error (although Ryan
+ seems to think it is not an error) in DrDr because that's just a small
+ change in the stdout
+ 
+ Jay
+ 
+ 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ > Sorry, bad phrasing on my part. Would it suffice if it did?
+ >
+ > Robby
+ >
+ > On Mon, Jan 3, 2011 at 3:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> It doesn't do that by default Robby.
+ >>
+ >> Jay
+ >>
+ >> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>> Also, rackunit should be printing some kind of an "all tests passed"
+ >>> output when it succeeds, no?
+ >>>
+ >>> Robby
+ >>>
+ >>> On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrot=
+ e:
+ >>>> Rackunit doesn't do any kind of sandboxing, aside from catching except=
+ ions.
+ >>>> If you want to test the behavior of threads, you should create the thr=
+ eads
+ >>>> yourself. Likewise for continuations, custodians, namespaces, etc.
+ >>>>
+ >>>> BTW, here are the ways I know of that a test case can kill Rackunit (i=
+ n
+ >>>> order of increasing difficulty of interception):
+ >>>>
+ >>>> =C2=A01 abort the current continuation
+ >>>> =C2=A02 kill the current thread
+ >>>> =C2=A03 shutdown the current custodian
+ >>>> =C2=A04 call (exit)
+ >>>> =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ >>>> =C2=A06 capture the current thread/custodian/exit-handler at test-case=
+  creation
+ >>>> time, then kill/shutdown/apply
+ >>>> =C2=A07 ffi, unsafe operations, etc
+ >>>>
+ >>>> My conclusion is that it's better to leave it in the hands of the test
+ >>>> programmer. And writing test-case abstractions is easy.
+ >>>>
+ >>>> Ryan
+ >>>>
+ >>>>
+ >>>> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>>>
+ >>>>> A new problem report is waiting at
+ >>>>> =C2=A0 http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>>>>
+ >>>>> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/g)
+ >>>>>
+ >>>>> *** Description:
+ >>>>> If a test case kills the current thread, then Rackunit's output can b=
+ e the
+ >>>>> same as when it succeeds. This is bad because it means that Rackunit =
+ cannot
+ >>>>> be used to test certain behavior.
+ >>>>>
+ >>>>> *** How to repeat:
+ >>>>> #lang racket
+ >>>>> (require rackunit
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0rackunit/text-ui)
+ >>>>>
+ >>>>> (run-tests
+ >>>>> =C2=A0(test-suite "Some tests"
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 1"
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 (check-equal? 1 1))
+ >>>>>
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is end =
+ of world"
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 (check-equal? 1 (kill-thread (current-thread))))
+ >>>>>
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 2"
+ >>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  =C2=A0 =C2=A0 (check-equal? 1 2))))
+ >>>>>
+ >>>>> *** Environment:
+ >>>>> macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel
+ >>>>> Version 10.5.0: Fri Nov =C2=A05 23:20:39 PDT 2010;
+ >>>>> root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display=
+ -depth)
+ >>>>> =3D 32
+ >>>>> Human Language: english
+ >>>>> (current-memory-use) 185043484
+ >>>>>
+ >>>>> Collections:
+ >>>>> (("/Users/jay/Library/Racket/5.0.99.4/collects" non-existent-path)
+ >>>>> ("/Users/jay/Dev/scm/plt/collects" ".gitignore" "2htdp" "afm" "algol6=
+ 0"
+ >>>>> "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "da=
+ talog"
+ >>>>> "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gu=
+ i"
+ >>>>> "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphi=
+ cs"
+ >>>>> "gui-debugger" "guibuilder" "handin-client" "handin-server" "help"
+ >>>>> "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launche=
+ r"
+ >>>>> "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "=
+ mzcom"
+ >>>>> "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs=
+ "
+ >>>>> "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket=
+ "
+ >>>>> "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "r=
+ edex"
+ >>>>> "repo-time-stamp" "repos-time-stamp" "rico" "rktunit" "rnrs" "s-exp"
+ >>>>> "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "=
+ setup"
+ >>>>> "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpers
+ >>>>
+ >>>> i!
+ >>>>>
+ >>>>> =C2=A0st" "stepper" "string-constants" "swindle" "syntax" "syntax-col=
+ or"
+ >>>>> "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "tex=
+ pict"
+ >>>>> "trace" "typed" "typed-scheme" "unstable" "version" "waterworld"
+ >>>>> "web-server" "wxme" "xml"))
+ >>>>> Computer Language: (("Determine language from source") (#(#t print
+ >>>>> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t))
+ >>>>>
+ >>>>
+ >>>
+ >>
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Jay McCarthy <jay@racket-lang.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 15:39:27 -0600
+
+ How about adding a (protect ..) expression (possibly built into
+ test-suite) that monitors for all of these bad possibilities and
+ prints to stderr when something goes wrong?
+ 
+ FWIW, I also generally lean towards the test suite infrastructure
+ doing relatively little in terms of adding handlers, creating watcher
+ threads, etc so I don't get surprises when the program I'm testing is
+ doing that stuff.
+ 
+ Robby
+ 
+ On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ > Yes, although that wouldn't help detecting the error (although Ryan
+ > seems to think it is not an error) in DrDr because that's just a small
+ > change in the stdout
+ >
+ > Jay
+ >
+ > 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >> Sorry, bad phrasing on my part. Would it suffice if it did?
+ >>
+ >> Robby
+ >>
+ >> On Mon, Jan 3, 2011 at 3:01 PM, Jay McCarthy <jay@racket-lang.org> wrote=
+ :
+ >>> It doesn't do that by default Robby.
+ >>>
+ >>> Jay
+ >>>
+ >>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>> Also, rackunit should be printing some kind of an "all tests passed"
+ >>>> output when it succeeds, no?
+ >>>>
+ >>>> Robby
+ >>>>
+ >>>> On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wro=
+ te:
+ >>>>> Rackunit doesn't do any kind of sandboxing, aside from catching excep=
+ tions.
+ >>>>> If you want to test the behavior of threads, you should create the th=
+ reads
+ >>>>> yourself. Likewise for continuations, custodians, namespaces, etc.
+ >>>>>
+ >>>>> BTW, here are the ways I know of that a test case can kill Rackunit (=
+ in
+ >>>>> order of increasing difficulty of interception):
+ >>>>>
+ >>>>> =C2=A01 abort the current continuation
+ >>>>> =C2=A02 kill the current thread
+ >>>>> =C2=A03 shutdown the current custodian
+ >>>>> =C2=A04 call (exit)
+ >>>>> =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ >>>>> =C2=A06 capture the current thread/custodian/exit-handler at test-cas=
+ e creation
+ >>>>> time, then kill/shutdown/apply
+ >>>>> =C2=A07 ffi, unsafe operations, etc
+ >>>>>
+ >>>>> My conclusion is that it's better to leave it in the hands of the tes=
+ t
+ >>>>> programmer. And writing test-case abstractions is easy.
+ >>>>>
+ >>>>> Ryan
+ >>>>>
+ >>>>>
+ >>>>> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>>>>
+ >>>>>> A new problem report is waiting at
+ >>>>>> =C2=A0 http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>>>>>
+ >>>>>> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/g=
+ )
+ >>>>>>
+ >>>>>> *** Description:
+ >>>>>> If a test case kills the current thread, then Rackunit's output can =
+ be the
+ >>>>>> same as when it succeeds. This is bad because it means that Rackunit=
+  cannot
+ >>>>>> be used to test certain behavior.
+ >>>>>>
+ >>>>>> *** How to repeat:
+ >>>>>> #lang racket
+ >>>>>> (require rackunit
+ >>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0rackunit/text-ui)
+ >>>>>>
+ >>>>>> (run-tests
+ >>>>>> =C2=A0(test-suite "Some tests"
+ >>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 1"
+ >>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (check-equal? 1 1))
+ >>>>>>
+ >>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is end=
+  of world"
+ >>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (check-equal? 1 (kill-thread (current-thread))))
+ >>>>>>
+ >>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 2"
+ >>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (check-equal? 1 2))))
+ >>>>>>
+ >>>>>> *** Environment:
+ >>>>>> macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel
+ >>>>>> Version 10.5.0: Fri Nov =C2=A05 23:20:39 PDT 2010;
+ >>>>>> root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-displa=
+ y-depth)
+ >>>>>> =3D 32
+ >>>>>> Human Language: english
+ >>>>>> (current-memory-use) 185043484
+ >>>>>>
+ >>>>>> Collections:
+ >>>>>> (("/Users/jay/Library/Rac
+From: Jay McCarthy <jay@racket-lang.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 14:42:18 -0700
+
+ That seems reasonable, although I imagine it's the sort of thing where
+ we have a FAQ: "Why doesn't Rackunit catch this error?" "Look at
+ (protect ...)" and the newbie says "Why wasn't that turned on always
+ if you know how to do it...?"
+ 
+ Jay
+ 
+ 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ > How about adding a (protect ..) expression (possibly built into
+ > test-suite) that monitors for all of these bad possibilities and
+ > prints to stderr when something goes wrong?
+ >
+ > FWIW, I also generally lean towards the test suite infrastructure
+ > doing relatively little in terms of adding handlers, creating watcher
+ > threads, etc so I don't get surprises when the program I'm testing is
+ > doing that stuff.
+ >
+ > Robby
+ >
+ > On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> Yes, although that wouldn't help detecting the error (although Ryan
+ >> seems to think it is not an error) in DrDr because that's just a small
+ >> change in the stdout
+ >>
+ >> Jay
+ >>
+ >> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>> Sorry, bad phrasing on my part. Would it suffice if it did?
+ >>>
+ >>> Robby
+ >>>
+ >>> On Mon, Jan 3, 2011 at 3:01 PM, Jay McCarthy <jay@racket-lang.org> wrot=
+ e:
+ >>>> It doesn't do that by default Robby.
+ >>>>
+ >>>> Jay
+ >>>>
+ >>>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>>> Also, rackunit should be printing some kind of an "all tests passed"
+ >>>>> output when it succeeds, no?
+ >>>>>
+ >>>>> Robby
+ >>>>>
+ >>>>> On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wr=
+ ote:
+ >>>>>> Rackunit doesn't do any kind of sandboxing, aside from catching exce=
+ ptions.
+ >>>>>> If you want to test the behavior of threads, you should create the t=
+ hreads
+ >>>>>> yourself. Likewise for continuations, custodians, namespaces, etc.
+ >>>>>>
+ >>>>>> BTW, here are the ways I know of that a test case can kill Rackunit =
+ (in
+ >>>>>> order of increasing difficulty of interception):
+ >>>>>>
+ >>>>>> =C2=A01 abort the current continuation
+ >>>>>> =C2=A02 kill the current thread
+ >>>>>> =C2=A03 shutdown the current custodian
+ >>>>>> =C2=A04 call (exit)
+ >>>>>> =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ >>>>>> =C2=A06 capture the current thread/custodian/exit-handler at test-ca=
+ se creation
+ >>>>>> time, then kill/shutdown/apply
+ >>>>>> =C2=A07 ffi, unsafe operations, etc
+ >>>>>>
+ >>>>>> My conclusion is that it's better to leave it in the hands of the te=
+ st
+ >>>>>> programmer. And writing test-case abstractions is easy.
+ >>>>>>
+ >>>>>> Ryan
+ >>>>>>
+ >>>>>>
+ >>>>>> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>>>>>
+ >>>>>>> A new problem report is waiting at
+ >>>>>>> =C2=A0 http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>>>>>>
+ >>>>>>> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/=
+ g)
+ >>>>>>>
+ >>>>>>> *** Description:
+ >>>>>>> If a test case kills the current thread, then Rackunit's output can=
+  be the
+ >>>>>>> same as when it succeeds. This is bad because it means that Rackuni=
+ t cannot
+ >>>>>>> be used to test certain behavior.
+ >>>>>>>
+ >>>>>>> *** How to repeat:
+ >>>>>>> #lang racket
+ >>>>>>> (require rackunit
+ >>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0rackunit/text-ui)
+ >>>>>>>
+ >>>>>>> (run-tests
+ >>>>>>> =C2=A0(test-suite "Some tests"
+ >>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 1"
+ >>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (check-equal? 1 1))
+ >>>>>>>
+ >>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is en=
+ d of world"
+ >>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (check-equal? 1 (kill-thread (current-thread))))
+ >>>>>>>
+ >>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(test-case "1 is 2"
+ >>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (check-equal? 1 2))))
+ >>>>>>>
+ >>>>>>> *** Environment:
+ >>>>>>> macosx "Darwin Jay-McCarthys-MacBook-Air.local 10.5.0 Darwin Kernel
+ >>>>>>> Version 10.5.0: Fri Nov =C2=A05 23:20:39 PDT 2010;
+ >>>>>>> root:xnu-1504.9.17~1/RELEASE_I386 i386" (i386-macosx/3m) (get-displ=
+ ay-depth)
+ >>>>>>> =3D 32
+ >>>>>>> Human Language: english
+ >>>>>>> (current-memory-use) 185043484
+ >>>>>>>
+ >>>>>>> Collections:
+ >>>>>>> (("/Users/jay/Library/Rac
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Jay McCarthy <jay@racket-lang.org>
+Cc: Robby Findler <robby@eecs.northwestern.edu>,
+        Ryan Culpepper <ryanc@ccs.neu.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 16:11:58 -0600
+
+ Threads dying, calling, custodians shutting down, call/cc --- they
+ don't really seem
+ like newbie corners. Was there some other way to get there?
+ 
+ Robby
+ 
+ On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ > That seems reasonable, although I imagine it's the sort of thing where
+ > we have a FAQ: "Why doesn't Rackunit catch this error?" "Look at
+ > (protect ...)" and the newbie says "Why wasn't that turned on always
+ > if you know how to do it...?"
+ >
+ > Jay
+ >
+ > 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >> How about adding a (protect ..) expression (possibly built into
+ >> test-suite) that monitors for all of these bad possibilities and
+ >> prints to stderr when something goes wrong?
+ >>
+ >> FWIW, I also generally lean towards the test suite infrastructure
+ >> doing relatively little in terms of adding handlers, creating watcher
+ >> threads, etc so I don't get surprises when the program I'm testing is
+ >> doing that stuff.
+ >>
+ >> Robby
+ >>
+ >> On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>> Yes, although that wouldn't help detecting the error (although Ryan
+ >>> seems to think it is not an error) in DrDr because that's just a small
+ >>> change in the stdout
+ >>>
+ >>> Jay
+ >>>
+ >>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>> Sorry, bad phrasing on my part. Would it suffice if it did?
+ >>>>
+ >>>> Robby
+ >>>>
+ >>>> On Mon, Jan 3, 2011 at 3:01 PM, Jay McCarthy <jay@racket-lang.org> wro=
+ te:
+ >>>>> It doesn't do that by default Robby.
+ >>>>>
+ >>>>> Jay
+ >>>>>
+ >>>>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>>>> Also, rackunit should be printing some kind of an "all tests passed"
+ >>>>>> output when it succeeds, no?
+ >>>>>>
+ >>>>>> Robby
+ >>>>>>
+ >>>>>> On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> w=
+ rote:
+ >>>>>>> Rackunit doesn't do any kind of sandboxing, aside from catching exc=
+ eptions.
+ >>>>>>> If you want to test the behavior of threads, you should create the =
+ threads
+ >>>>>>> yourself. Likewise for continuations, custodians, namespaces, etc.
+ >>>>>>>
+ >>>>>>> BTW, here are the ways I know of that a test case can kill Rackunit=
+  (in
+ >>>>>>> order of increasing difficulty of interception):
+ >>>>>>>
+ >>>>>>> =C2=A01 abort the current continuation
+ >>>>>>> =C2=A02 kill the current thread
+ >>>>>>> =C2=A03 shutdown the current custodian
+ >>>>>>> =C2=A04 call (exit)
+ >>>>>>> =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ >>>>>>> =C2=A06 capture the current thread/custodian/exit-handler at test-c=
+ ase creation
+ >>>>>>> time, then kill/shutdown/apply
+ >>>>>>> =C2=A07 ffi, unsafe operations, etc
+ >>>>>>>
+ >>>>>>> My conclusion is that it's better to leave it in the hands of the t=
+ est
+ >>>>>>> programmer. And writing test-case abstractions is easy.
+ >>>>>>>
+ >>>>>>> Ryan
+ >>>>>>>
+ >>>>>>>
+ >>>>>>> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>>>>>>
+ >>>>>>>> A new problem report is waiting at
+ >>>>>>>> =C2=A0 http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>>>>>>>
+ >>>>>>>> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43=
+ /g)
+ >>>>>>>>
+ >>>>>>>> *** Description:
+ >>>>>>>> If a test case kills the current thread, then Rackunit's output ca=
+ n be the
+ >>>>>>>> same as when it succeeds. This is bad because it means that Rackun=
+ it cannot
+ >>>>>>>> be used to test certain behavior.
+ >>>>>>>>
+ >>>>>>>> *** How to repeat:
+ >>>>>>>> #lang racket
+ >>>>>>>> (require rackunit
+ >>>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0rackunit/text-ui)
+ >>>>>>>>
+ >
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Jay McCarthy <jay@racket-lang.org>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 03 Jan 2011 15:42:00 -0700
+
+ More generally, it is the test writer's responsibility to make sure that 
+   *any side effects* in a test case body don't interfere with the 
+ execution of Rackunit (or, ideally, with other test cases). There are 
+ all sorts of other antisocial things that test cases can do, like 
+ closing the current output port or changing the module name resolver. 
+ Perhaps there are a few common situations that can be automated, but 
+ automagically masking all side effects is not possible. I'll add a 
+ section to the Rackunit docs.
+ 
+ Also, new sandboxing work should probably go in racket/sandbox, not 
+ rackunit. Use call-in-sandbox-context to bypass the eval-nature of 
+ sandboxes.
+ 
+ Ryan
+ 
+ 
+ Robby Findler wrote:
+ > Threads dying, calling, custodians shutting down, call/cc --- they
+ > don't really seem
+ > like newbie corners. Was there some other way to get there?
+ > 
+ > Robby
+ > 
+ > On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ >> That seems reasonable, although I imagine it's the sort of thing where
+ >> we have a FAQ: "Why doesn't Rackunit catch this error?" "Look at
+ >> (protect ...)" and the newbie says "Why wasn't that turned on always
+ >> if you know how to do it...?"
+ >>
+ >> Jay
+ >>
+ >> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>> How about adding a (protect ..) expression (possibly built into
+ >>> test-suite) that monitors for all of these bad possibilities and
+ >>> prints to stderr when something goes wrong?
+ >>>
+ >>> FWIW, I also generally lean towards the test suite infrastructure
+ >>> doing relatively little in terms of adding handlers, creating watcher
+ >>> threads, etc so I don't get surprises when the program I'm testing is
+ >>> doing that stuff.
+ >>>
+ >>> Robby
+ >>>
+ >>> On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>>> Yes, although that wouldn't help detecting the error (although Ryan
+ >>>> seems to think it is not an error) in DrDr because that's just a small
+ >>>> change in the stdout
+ >>>>
+ >>>> Jay
+ >>>>
+ >>>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>>> Sorry, bad phrasing on my part. Would it suffice if it did?
+ >>>>>
+ >>>>> Robby
+ >>>>>
+ >>>>> On Mon, Jan 3, 2011 at 3:01 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>>>>> It doesn't do that by default Robby.
+ >>>>>>
+ >>>>>> Jay
+ >>>>>>
+ >>>>>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>>>>> Also, rackunit should be printing some kind of an "all tests passed"
+ >>>>>>> output when it succeeds, no?
+ >>>>>>>
+ >>>>>>> Robby
+ >>>>>>>
+ >>>>>>> On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ >>>>>>>> Rackunit doesn't do any kind of sandboxing, aside from catching exceptions.
+ >>>>>>>> If you want to test the behavior of threads, you should create the threads
+ >>>>>>>> yourself. Likewise for continuations, custodians, namespaces, etc.
+ >>>>>>>>
+ >>>>>>>> BTW, here are the ways I know of that a test case can kill Rackunit (in
+ >>>>>>>> order of increasing difficulty of interception):
+ >>>>>>>>
+ >>>>>>>>  1 abort the current continuation
+ >>>>>>>>  2 kill the current thread
+ >>>>>>>>  3 shutdown the current custodian
+ >>>>>>>>  4 call (exit)
+ >>>>>>>>  5 call (system (format "kill -TERM ~a" (getpid)))
+ >>>>>>>>  6 capture the current thread/custodian/exit-handler at test-case creation
+ >>>>>>>> time, then kill/shutdown/apply
+ >>>>>>>>  7 ffi, unsafe operations, etc
+ >>>>>>>>
+ >>>>>>>> My conclusion is that it's better to leave it in the hands of the test
+ >>>>>>>> programmer. And writing test-case abstractions is easy.
+ >>>>>>>>
+ >>>>>>>> Ryan
+ >>>>>>>>
+ >>>>>>>>
+ >>>>>>>> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>>>>>>> A new problem report is waiting at
+ >>>>>>>>>   http://bugs.racket-lang.org/query/?cmd=view&pr=11586
+ >>>>>>>>>
+ >>>>>>>>> Reported by Jay McCarthy for release: 5.0.99.4--2010-12-07(823da43/g)
+ >>>>>>>>>
+ >>>>>>>>> *** Description:
+ >>>>>>>>> If a test case kills the current thread, then Rackunit's output can be the
+ >>>>>>>>> same as when it succeeds. This is bad because it means that Rackunit cannot
+ >>>>>>>>> be used to test certain behavior.
+ >>>>>>>>>
+ >>>>>>>>> *** How to repeat:
+ >>>>>>>>> #lang racket
+ >>>>>>>>> (require rackunit
+ >>>>>>>>>          rackunit/text-ui)
+ >>>>>>>>>
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: Jay McCarthy <jay@racket-lang.org>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Mon, 3 Jan 2011 17:38:49 -0600
+
+ On Mon, Jan 3, 2011 at 4:42 PM, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ > More generally, it is the test writer's responsibility to make sure that
+ > =C2=A0*any side effects* in a test case body don't interfere with the exe=
+ cution
+ > of Rackunit (or, ideally, with other test cases). There are all sorts of
+ > other antisocial things that test cases can do, like closing the current
+ > output port or changing the module name resolver. Perhaps there are a few
+ > common situations that can be automated, but automagically masking all si=
+ de
+ > effects is not possible. I'll add a section to the Rackunit docs.
+ 
+ Those are all things that can (must!) be captured, just like DrRacket
+ captures them and doesn't let user programs interfere with itself.
+ 
+ > Also, new sandboxing work should probably go in racket/sandbox, not
+ > rackunit. Use call-in-sandbox-context to bypass the eval-nature of
+ > sandboxes.
+ 
+ Yes, I'm suggesting that possibly test-suite should come with an
+ option (perhaps on by default perhaps not) that makes it robust to all
+ of this stuff and also detects if the test suite "died" instead of
+ completing successfully.
+ 
+ I would imagine that this would be implemented via the sandbox, of
+ course. I don't think any new sandboxing work is required.
+ 
+ Robby
+ 
+ > Ryan
+ >
+ >
+ > Robby Findler wrote:
+ >>
+ >> Threads dying, calling, custodians shutting down, call/cc --- they
+ >> don't really seem
+ >> like newbie corners. Was there some other way to get there?
+ >>
+ >> Robby
+ >>
+ >> On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>>
+ >>> That seems reasonable, although I imagine it's the sort of thing where
+ >>> we have a FAQ: "Why doesn't Rackunit catch this error?" "Look at
+ >>> (protect ...)" and the newbie says "Why wasn't that turned on always
+ >>> if you know how to do it...?"
+ >>>
+ >>> Jay
+ >>>
+ >>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>>
+ >>>> How about adding a (protect ..) expression (possibly built into
+ >>>> test-suite) that monitors for all of these bad possibilities and
+ >>>> prints to stderr when something goes wrong?
+ >>>>
+ >>>> FWIW, I also generally lean towards the test suite infrastructure
+ >>>> doing relatively little in terms of adding handlers, creating watcher
+ >>>> threads, etc so I don't get surprises when the program I'm testing is
+ >>>> doing that stuff.
+ >>>>
+ >>>> Robby
+ >>>>
+ >>>> On Monday, January 3, 2011, Jay McCarthy <jay@racket-lang.org> wrote:
+ >>>>>
+ >>>>> Yes, although that wouldn't help detecting the error (although Ryan
+ >>>>> seems to think it is not an error) in DrDr because that's just a smal=
+ l
+ >>>>> change in the stdout
+ >>>>>
+ >>>>> Jay
+ >>>>>
+ >>>>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>>>>
+ >>>>>> Sorry, bad phrasing on my part. Would it suffice if it did?
+ >>>>>>
+ >>>>>> Robby
+ >>>>>>
+ >>>>>> On Mon, Jan 3, 2011 at 3:01 PM, Jay McCarthy <jay@racket-lang.org>
+ >>>>>> wrote:
+ >>>>>>>
+ >>>>>>> It doesn't do that by default Robby.
+ >>>>>>>
+ >>>>>>> Jay
+ >>>>>>>
+ >>>>>>> 2011/1/3 Robby Findler <robby@eecs.northwestern.edu>:
+ >>>>>>>>
+ >>>>>>>> Also, rackunit should be printing some kind of an "all tests passe=
+ d"
+ >>>>>>>> output when it succeeds, no?
+ >>>>>>>>
+ >>>>>>>> Robby
+ >>>>>>>>
+ >>>>>>>> On Mon, Jan 3, 2011 at 2:56 PM, Ryan Culpepper <ryanc@ccs.neu.edu>
+ >>>>>>>> wrote:
+ >>>>>>>>>
+ >>>>>>>>> Rackunit doesn't do any kind of sandboxing, aside from catching
+ >>>>>>>>> exceptions.
+ >>>>>>>>> If you want to test the behavior of threads, you should create th=
+ e
+ >>>>>>>>> threads
+ >>>>>>>>> yourself. Likewise for continuations, custodians, namespaces, etc=
+ .
+ >>>>>>>>>
+ >>>>>>>>> BTW, here are the ways I know of that a test case can kill Rackun=
+ it
+ >>>>>>>>> (in
+ >>>>>>>>> order of increasing difficulty of interception):
+ >>>>>>>>>
+ >>>>>>>>> =C2=A01 abort the current continuation
+ >>>>>>>>> =C2=A02 kill the current thread
+ >>>>>>>>> =C2=A03 shutdown the current custodian
+ >>>>>>>>> =C2=A04 call (exit)
+ >>>>>>>>> =C2=A05 call (system (format "kill -TERM ~a" (getpid)))
+ >>>>>>>>> =C2=A06 capture the current thread/custodian/exit-handler at test=
+ -case
+ >>>>>>>>> creation
+ >>>>>>>>> time, then kill/shutdown/apply
+ >>>>>>>>> =C2=A07 ffi, unsafe operations, etc
+ >>>>>>>>>
+ >>>>>>>>> My conclusion is that it's better to leave it in the hands of the
+ >>>>>>>>> test
+ >>>>>>>>> programmer. And writing test-case abstractions is easy.
+ >>>>>>>>>
+ >>>>>>>>> Ryan
+ >>>>>>>>>
+ >>>>>>>>>
+ >>>>>>>>> On 01/03/2011 07:16 AM, jay@racket-lang.org wrote:
+ >>>>>>>>>>
+ >>>>>>>>>> A new problem report is waiting at
+ >>>>>>>>>> =C2=A0http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D11586
+ >>>>>>>>>>
+ >>>>>>>>>> Reported by Jay McCarthy for release:
+ >>>>>>>>>> 5.0.99.4--2010-12-07(823da43/g)
+ >>>>>>>>>>
+ >>>>>>>>>> *** Description:
+ >>>>>>>>>> If a test case kills the current thread, then Rackunit's output
+ >>>>>>>>>> can be the
+ >>>>>>>>>> same as when it succeeds. This is bad because it means that
+ >>>>>>>>>> Rackunit cannot
+ >>>>>>>>>> be used to test certain behavior.
+ >>>>>>>>>>
+ >>>>>>>>>> *** How to repeat:
+ >>>>>>>>>> #lang racket
+ >>>>>>>>>> (require rackunit
+ >>>>>>>>>> =C2=A0 =C2=A0 =C2=A0 =C2=A0 rackunit/text-ui)
+ >>>>>>>>>>
+ >
+ >
+
+State changed from "open" to "closed" by jay at Fri, 07 Jan 2011 12:33:25 -0500
+Reason>>> Not a problem Rackunit should deal with
+
+From: Jay McCarthy <jay@racket-lang.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        dev <dev@racket-lang.org>
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Sun, 24 Jul 2011 15:25:48 -0400
+
+ I'm replying-all to a thread about an old problem report:
+ http://bugs.racket-lang.org/query/?cmd=view&pr=11586
+ 
+ I've just discovered that the Web server test suite has been failing
+ for a very long time.
+ 
+ There was a test that killed the current thread.
+ 
+ The text ui for Rackunit does not protect against this or show you it
+ has happened, or even that there have been failing tests. Since I run
+ my tests from the command line, I've never known, because it's a very
+ late test and the suite runs for a long time.
+ 
+ As an experiment, I tried in the GUI for Rackunit and it does protect itself.
+ 
+ I found this "problem" in January just by thinking of funny test
+ cases, without even realizing I had a test suite that actually
+ exhibited this problem.
+ 
+ I think this is very bad. I'm working on fixing the Web server now.
+ 
+ Jay
+From: Jay McCarthy <jay@racket-lang.org>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Ryan Culpepper <ryanc@ccs.neu.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        dev <dev@racket-lang.org>
+Subject: Re: [racket-bug] all/11586: Rackunit does not protect itself against
+ errors that kill the thread
+Date: Sun, 24 Jul 2011 16:17:25 -0400
+
+ FWIW, there's actually no problems in the server. There were just broken tests.
+ 
+ Jay
+ 
+ On Sun, Jul 24, 2011 at 3:25 PM, Jay McCarthy <jay@racket-lang.org> wrote:
+ > I'm replying-all to a thread about an old problem report:
+ > http://bugs.racket-lang.org/query/?cmd=view&pr=11586
+ >
+ > I've just discovered that the Web server test suite has been failing
+ > for a very long time.
+ >
+ > There was a test that killed the current thread.
+ >
+ > The text ui for Rackunit does not protect against this or show you it
+ > has happened, or even that there have been failing tests. Since I run
+ > my tests from the command line, I've never known, because it's a very
+ > late test and the suite runs for a long time.
+ >
+ > As an experiment, I tried in the GUI for Rackunit and it does protect itself.
+ >
+ > I found this "problem" in January just by thinking of funny test
+ > cases, without even realizing I had a test suite that actually
+ > exhibited this problem.
+ >
+ > I think this is very bad. I'm working on fixing the Web server now.
+ >
+ > Jay
+ >
+
+----------
+A commit by ryanc@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/a100395626

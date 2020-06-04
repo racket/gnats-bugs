@@ -1,0 +1,628 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug 24 11:42:20 2012
+Received: from mail-iy0-f172.google.com (mail-iy0-f172.google.com [209.85.210.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7OFgHEa024148
+	for <bugs@bugs.plt-scheme.org>; Fri, 24 Aug 2012 11:42:18 -0400
+Message-Id: <201208241541.q7OFfxMQ024133@champlain.ccs.neu.edu>
+Date: Fri, 24 Aug 2012 11:41:59 -0400
+From: johnthescavenger@gmail.com
+To: bugs@racket-lang.org
+Subject: racket REPL goes into death spiral when stdout is closed pipe
+
+>Number:         13058
+>Category:       all
+>Synopsis:       racket REPL goes into death spiral when stdout is closed pipe
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 24 11:44:01 -0400 2012
+>Closed-Date:    Fri Aug 24 18:08:30 -0400 2012
+>Last-Modified:  Fri Aug 24 22:32:01 -0400 2012
+>Originator:     John Boyle
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3
+>Environment:
+macosx "Darwin Tau.local 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 16:32:41 PDT 2011; root:xnu-1504.15.3~1/RELEASE_X86_64 x86_64 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 270026316
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/john/Library/Racket/5.3/collects"
+ (non-existent-path))
+("/Applications/Racket/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+The problem manifested itself as "rlwrap racket" causing, upon closing of the terminal window, "racket" to continue running and using 100% CPU until manually killed.  Curiously, this seems to be new behavior as of sometime between the v5.3 release and the current git version.  This seems probably due to a rearranging of error printing, as we shall see:
+
+The problem is that, when the REPL (invoked with simply "racket" or "racket -i <other stuff>") attempts to write to stdout and finds a broken pipe, it prints a "Broken pipe" error to stderr, and--it seems--prints another "> " prompt to stdout, which causes another broken pipe error, so it prints "Broken pipe" to stderr and attempts to write "> " to stdout again, and so on.  Death spiral.
+
+This can be seen by running "racket | cat", killing the "cat" process (if you aren't running any other cats, "killall cat" is convenient), and entering something like "blah" (followed by newline) into the racket process.
+
+  ~ $ racket | cat
+  Welcome to Racket v5.3.0.20.
+  > a   ;before entering this, I kill "cat"
+  a: undefined;
+   cannot reference undefined identifier
+  error writing to stream port
+    system error: Broken pipe; errno=32
+  error writing to stream port
+    system error: Broken pipe; errno=32
+  error writing to stream port
+    system error: Broken pipe; errno=32
+  [... until ^C]
+
+It works as well, though is less illustrative, to pipe racket into "sleep" and write things to it after the sleep is done:
+
+  ~ $ (sleep 4; echo 1) | racket | sleep 3
+  error writing to stream port
+    system error: Broken pipe; errno=32
+  error writing to stream port
+  [...]
+
+My problems with rlwrap and a headless looping "racket" obviously stem from similar problems.  (Why is it worse now than with v5.3?  Well, it turns out that, upon receiving SIGHUP, v5.3 prints its "Hangup" error to stdout, while the current version prints "hang-up break" to stderr; and it seems that rlwrap is less good at closing up stderr on SIGHUP.  Closing "rlwrap racket 2>/dev/null" doesn't cause problems.  Anyway, I digress.)
+
+I suspect some people will pipe racket into a process that might be killed, so the death-spiral-on-write-to-broken-pipe is probably worth fixing (it seems clearly wrong behavior to write self-triggered error messages as fast as resources allow).  So how should it be handled?  racket could kill itself, but that seems bad behavior--it's possible someone could take control of it and even give it a useful (current-output-port).  The spiral is caused by repeatedly writing a prompt to stdout, raising an error, and printing another prompt (after printing error).
+
+... It turns out the REPL is also stupid about what happens after (close-output-port (current-output-port)), going into a spiral of "write-string: output port is closed".  I would suggest teaching the REPL to not print prompts to a closed output port (perhaps killing itself at that point, perhaps not), or to an output port leading to a broken pipe.  (I would also suggest that when an output port is discovered to lead to a broken pipe, it should be immediately closed.)
+
+Or, as a horrible kludge, you could make the prompt shut up (and perhaps kill itself) after raising 100 consecutive errors or something.  (This idea comes from scsh, which kills itself after 101 EOFs at an error prompt.)  And there are other solutions of varying degrees of kludginess.
+>How-To-Repeat:
+Run this:
+
+  ~ $ (sleep 4; echo 1) | racket | sleep 3
+
+Wait 4 seconds and observe the resulting torrent of "Broken pipe" error messages that continue until you personally kill the racket process.
+
+The rule is to have the racket REPL attempt to write to a closed pipe.  See description for variations and detailed explanation.
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: johnthescavenger@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13058: racket REPL goes into death spiral when stdout is closed pipe
+Date: Fri, 24 Aug 2012 15:08:16 -0600
+
+ Racket v5.3.0.20 doesn't immediately abort on SIGHUP as previous
+ versions did, but instead raises a `exn:break:hang-up' exception.
+ 
+ I think it makes sense for the default exception handle to not try to
+ print a `exn:break:hang-up' exception message, since SIGHUP more or
+ less means that output has gone away. That would fix the main problem
+ in the report, which I agree is important.
+ 
+ I'm less sure about trying to make the REPL detect when it should give
+ up more generally. After thinking about the problem (again; this has
+ come up before), I'm inclined to set it aside for now.
+ 
+ At Fri, 24 Aug 2012 11:44:01 -0400, johnthescavenger@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13058
+ > 
+ > Reported by John Boyle for release: 5.3
+ > 
+ > *** Description:
+ > The problem manifested itself as "rlwrap racket" causing, upon closing of the 
+ > terminal window, "racket" to continue running and using 100% CPU until manually 
+ > killed.  Curiously, this seems to be new behavior as of sometime between the 
+ > v5.3 release and the current git version.  This seems probably due to a 
+ > rearranging of error printing, as we shall see:
+ > 
+ > The problem is that, when the REPL (invoked with simply "racket" or "racket -i 
+ > <other stuff>") attempts to write to stdout and finds a broken pipe, it prints 
+ > a "Broken pipe" error to stderr, and--it seems--prints another "> " prompt to 
+ > stdout, which causes another broken pipe error, so it prints "Broken pipe" to 
+ > stderr and attempts to write "> " to stdout again, and so on.  Death spiral.
+ > 
+ > This can be seen by running "racket | cat", killing the "cat" process (if you 
+ > aren't running any other cats, "killall cat" is convenient), and entering 
+ > something like "blah" (followed by newline) into the racket process.
+ > 
+ >   ~ $ racket | cat
+ >   Welcome to Racket v5.3.0.20.
+ >   > a   ;before entering this, I kill "cat"
+ >   a: undefined;
+ >    cannot reference undefined identifier
+ >   error writing to stream port
+ >     system error: Broken pipe; errno=32
+ >   error writing to stream port
+ >     system error: Broken pipe; errno=32
+ >   error writing to stream port
+ >     system error: Broken pipe; errno=32
+ >   [... until ^C]
+ > 
+ > It works as well, though is less illustrative, to pipe racket into "sleep" and 
+ > write things to it after the sleep is done:
+ > 
+ >   ~ $ (sleep 4; echo 1) | racket | sleep 3
+ >   error writing to stream port
+ >     system error: Broken pipe; errno=32
+ >   error writing to stream port
+ >   [...]
+ > 
+ > My problems with rlwrap and a headless looping "racket" obviously stem from 
+ > similar problems.  (Why is it worse now than with v5.3?  Well, it turns out 
+ > that, upon receiving SIGHUP, v5.3 prints its "Hangup" error to stdout, while 
+ > the current version prints "hang-up break" to stderr; and it seems that rlwrap 
+ > is less good at closing up stderr on SIGHUP.  Closing "rlwrap racket 
+ > 2>/dev/null" doesn't cause problems.  Anyway, I digress.)
+ > 
+ > I suspect some people will pipe racket into a process that might be killed, so 
+ > the death-spiral-on-write-to-broken-pipe is probably worth fixing (it seems 
+ > clearly wrong behavior to write self-triggered error messages as fast as 
+ > resources allow).  So how should it be handled?  racket could kill itself, but 
+ > that seems bad behavior--it's possible someone could take control of it and 
+ > even give it a useful (current-output-port).  The spiral is caused by 
+ > repeatedly writing a prompt to stdout, raising an error, and printing another 
+ > prompt (after printing error).
+ > 
+ > ... It turns out the REPL is also stupid about what happens after 
+ > (close-output-port (current-output-port)), going into a spiral of 
+ > "write-string: output port is closed".  I would suggest teaching the REPL to 
+ > not print prompts to a closed output port (perhaps killing itself at that 
+ > point, perhaps not), or to an output port leading to a broken pipe.  (I would 
+ > also suggest that when an output port is discovered to lead to a broken pipe, 
+ > it should be immediately closed.)
+ > 
+ > Or, as a horrible kludge, you could make the prompt shut up (and perhaps kill 
+ > itself) after raising 100 consecutive errors or something.  (This idea comes 
+ > from scsh, which kills itself after 101 EOFs at an error prompt.)  And there 
+ > are other solutions of varying degrees of kludginess.
+ > 
+ > *** How to repeat:
+ > Run this:
+ > 
+ >   ~ $ (sleep 4; echo 1) | racket | sleep 3
+ > 
+ > Wait 4 seconds and observe the resulting torrent of "Broken pipe" error 
+ > messages that continue until you personally kill the racket process.
+ > 
+ > The rule is to have the racket REPL attempt to write to a closed pipe.  See 
+ > description for variations and detailed explanation.
+ > 
+ > *** Environment:
+ > macosx "Darwin Tau.local 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 
+ > 16:32:41 PDT 2011; root:xnu-1504.15.3~1/RELEASE_X86_64 x86_64 i386" 
+ > (i386-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 270026316
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links 
+ > #:user? #f #:root? #t) = ()
+ > 
+ > 
+ > Collections:
+ > ("/Users/john/Library/Racket/5.3/collects"
+ >  (non-existent-path))
+ > ("/Applications/Racket/collects"
+ >  ("2htdp" "algol60" "at-exp" "browser" "compiler" "config" "data" "datalog" 
+ > "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" 
+ > "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" 
+ > "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" 
+ > "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" 
+ > "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" 
+ > "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" 
+ > "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" 
+ > "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" 
+ > "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" 
+ > "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" 
+ > "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" 
+ > "web-server" "wxme" "xml" "xrepl"))
+ > 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) 
+ > (test))))
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 24 Aug 2012 18:08:30 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/23722e64c2
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 24 Aug 2012 18:08:30 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/23722e64c2
+From: John Boyle <johnthescavenger@gmail.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13058: racket REPL goes into death spiral when
+ stdout is closed pipe
+Date: Fri, 24 Aug 2012 19:29:02 -0700
+
+ --0023543333f210db2b04c80ddbab
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Heh heh.  I agree that not printing anything on SIGHUP is a correct
+ improvement, and it does solve my problem.  I don't have a real use case
+ that is still problematic, so it does seem all right to leave this be.
+ --John Boyle
+ *Science is what we understand well enough to explain to a computer. Art is
+ everything else we do.* --Knuth
+ 
+ 
+ 
+ On Fri, Aug 24, 2012 at 2:08 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ 
+ > Racket v5.3.0.20 doesn't immediately abort on SIGHUP as previous
+ > versions did, but instead raises a `exn:break:hang-up' exception.
+ >
+ > I think it makes sense for the default exception handle to not try to
+ > print a `exn:break:hang-up' exception message, since SIGHUP more or
+ > less means that output has gone away. That would fix the main problem
+ > in the report, which I agree is important.
+ >
+ > I'm less sure about trying to make the REPL detect when it should give
+ > up more generally. After thinking about the problem (again; this has
+ > come up before), I'm inclined to set it aside for now.
+ >
+ > At Fri, 24 Aug 2012 11:44:01 -0400, johnthescavenger@gmail.com wrote:
+ > > A new problem report is waiting at
+ > >   http://bugs.racket-lang.org/query/?cmd=view&pr=13058
+ > >
+ > > Reported by John Boyle for release: 5.3
+ > >
+ > > *** Description:
+ > > The problem manifested itself as "rlwrap racket" causing, upon closing
+ > of the
+ > > terminal window, "racket" to continue running and using 100% CPU until
+ > manually
+ > > killed.  Curiously, this seems to be new behavior as of sometime between
+ > the
+ > > v5.3 release and the current git version.  This seems probably due to a
+ > > rearranging of error printing, as we shall see:
+ > >
+ > > The problem is that, when the REPL (invoked with simply "racket" or
+ > "racket -i
+ > > <other stuff>") attempts to write to stdout and finds a broken pipe, it
+ > prints
+ > > a "Broken pipe" error to stderr, and--it seems--prints another "> "
+ > prompt to
+ > > stdout, which causes another broken pipe error, so it prints "Broken
+ > pipe" to
+ > > stderr and attempts to write "> " to stdout again, and so on.  Death
+ > spiral.
+ > >
+ > > This can be seen by running "racket | cat", killing the "cat" process
+ > (if you
+ > > aren't running any other cats, "killall cat" is convenient), and entering
+ > > something like "blah" (followed by newline) into the racket process.
+ > >
+ > >   ~ $ racket | cat
+ > >   Welcome to Racket v5.3.0.20.
+ > >   > a   ;before entering this, I kill "cat"
+ > >   a: undefined;
+ > >    cannot reference undefined identifier
+ > >   error writing to stream port
+ > >     system error: Broken pipe; errno=32
+ > >   error writing to stream port
+ > >     system error: Broken pipe; errno=32
+ > >   error writing to stream port
+ > >     system error: Broken pipe; errno=32
+ > >   [... until ^C]
+ > >
+ > > It works as well, though is less illustrative, to pipe racket into
+ > "sleep" and
+ > > write things to it after the sleep is done:
+ > >
+ > >   ~ $ (sleep 4; echo 1) | racket | sleep 3
+ > >   error writing to stream port
+ > >     system error: Broken pipe; errno=32
+ > >   error writing to stream port
+ > >   [...]
+ > >
+ > > My problems with rlwrap and a headless looping "racket" obviously stem
+ > from
+ > > similar problems.  (Why is it worse now than with v5.3?  Well, it turns
+ > out
+ > > that, upon receiving SIGHUP, v5.3 prints its "Hangup" error to stdout,
+ > while
+ > > the current version prints "hang-up break" to stderr; and it seems that
+ > rlwrap
+ > > is less good at closing up stderr on SIGHUP.  Closing "rlwrap racket
+ > > 2>/dev/null" doesn't cause problems.  Anyway, I digress.)
+ > >
+ > > I suspect some people will pipe racket into a process that might be
+ > killed, so
+ > > the death-spiral-on-write-to-broken-pipe is probably worth fixing (it
+ > seems
+ > > clearly wrong behavior to write self-triggered error messages as fast as
+ > > resources allow).  So how should it be handled?  racket could kill
+ > itself, but
+ > > that seems bad behavior--it's possible someone could take control of it
+ > and
+ > > even give it a useful (current-output-port).  The spiral is caused by
+ > > repeatedly writing a prompt to stdout, raising an error, and printing
+ > another
+ > > prompt (after printing error).
+ > >
+ > > ... It turns out the REPL is also stupid about what happens after
+ > > (close-output-port (current-output-port)), going into a spiral of
+ > > "write-string: output port is closed".  I would suggest teaching the
+ > REPL to
+ > > not print prompts to a closed output port (perhaps killing itself at that
+ > > point, perhaps not), or to an output port leading to a broken pipe.  (I
+ > would
+ > > also suggest that when an output port is discovered to lead to a broken
+ > pipe,
+ > > it should be immediately closed.)
+ > >
+ > > Or, as a horrible kludge, you could make the prompt shut up (and perhaps
+ > kill
+ > > itself) after raising 100 consecutive errors or something.  (This idea
+ > comes
+ > > from scsh, which kills itself after 101 EOFs at an error prompt.)  And
+ > there
+ > > are other solutions of varying degrees of kludginess.
+ > >
+ > > *** How to repeat:
+ > > Run this:
+ > >
+ > >   ~ $ (sleep 4; echo 1) | racket | sleep 3
+ > >
+ > > Wait 4 seconds and observe the resulting torrent of "Broken pipe" error
+ > > messages that continue until you personally kill the racket process.
+ > >
+ > > The rule is to have the racket REPL attempt to write to a closed pipe.
+ >  See
+ > > description for variations and detailed explanation.
+ > >
+ > > *** Environment:
+ > > macosx "Darwin Tau.local 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7
+ > > 16:32:41 PDT 2011; root:xnu-1504.15.3~1/RELEASE_X86_64 x86_64 i386"
+ > > (i386-macosx/3m) (get-display-depth) = 32
+ > > Human Language: english
+ > > (current-memory-use) 270026316
+ > > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = ();
+ > (links
+ > > #:user? #f #:root? #t) = ()
+ > >
+ > >
+ > > Collections:
+ > > ("/Users/john/Library/Racket/5.3/collects"
+ > >  (non-existent-path))
+ > > ("/Applications/Racket/collects"
+ > >  ("2htdp" "algol60" "at-exp" "browser" "compiler" "config" "data"
+ > "datalog"
+ > > "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext"
+ > "embedded-gui"
+ > > "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer"
+ > > "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons"
+ > > "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger"
+ > "make"
+ > > "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl"
+ > > "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor"
+ > > "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader"
+ > > "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble"
+ > > "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi"
+ > "stepper"
+ > > "string-constants" "swindle" "syntax" "syntax-color" "teachpack"
+ > "test-engine"
+ > > "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable"
+ > "version"
+ > > "web-server" "wxme" "xml" "xrepl"))
+ > >
+ > > Computer Language: (("Determine language from source") (#(#t print
+ > > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t
+ > ((main)
+ > > (test))))
+ >
+ 
+ --0023543333f210db2b04c80ddbab
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Heh heh.=C2=A0 I agree that not printing anything on SIGHUP is a correct im=
+ provement, and it does solve my problem.=C2=A0 I don&#39;t have a real use =
+ case that is still problematic, so it does seem all right to leave this be.=
+ <br clear=3D"all">
+ <font face=3D"arial, sans-serif">--John Boyle</font><div></div><div><font f=
+ ace=3D"arial, sans-serif"><i>Science is what we understand well enough to e=
+ xplain to a computer. Art is everything else we do.</i> --Knuth</font></div=
+ >
+ <br>
+ <br><br><div class=3D"gmail_quote">On Fri, Aug 24, 2012 at 2:08 PM, Matthew=
+  Flatt <span dir=3D"ltr">&lt;<a href=3D"mailto:mflatt@cs.utah.edu" target=
+ =3D"_blank">mflatt@cs.utah.edu</a>&gt;</span> wrote:<br><blockquote class=
+ =3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padd=
+ ing-left:1ex">
+ Racket v5.3.0.20 doesn&#39;t immediately abort on SIGHUP as previous<br>
+ versions did, but instead raises a `exn:break:hang-up&#39; exception.<br>
+ <br>
+ I think it makes sense for the default exception handle to not try to<br>
+ print a `exn:break:hang-up&#39; exception message, since SIGHUP more or<br>
+ less means that output has gone away. That would fix the main problem<br>
+ in the report, which I agree is important.<br>
+ <br>
+ I&#39;m less sure about trying to make the REPL detect when it should give<=
+ br>
+ up more generally. After thinking about the problem (again; this has<br>
+ come up before), I&#39;m inclined to set it aside for now.<br>
+ <br>
+ At Fri, 24 Aug 2012 11:44:01 -0400, <a href=3D"mailto:johnthescavenger@gmai=
+ l.com">johnthescavenger@gmail.com</a> wrote:<br>
+ &gt; A new problem report is waiting at<br>
+ &gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13058" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&a=
+ mp;pr=3D13058</a><br>
+ &gt;<br>
+ &gt; Reported by John Boyle for release: 5.3<br>
+ &gt;<br>
+ &gt; *** Description:<br>
+ &gt; The problem manifested itself as &quot;rlwrap racket&quot; causing, up=
+ on closing of the<br>
+ &gt; terminal window, &quot;racket&quot; to continue running and using 100%=
+  CPU until manually<br>
+ &gt; killed. =C2=A0Curiously, this seems to be new behavior as of sometime =
+ between the<br>
+ &gt; v5.3 release and the current git version. =C2=A0This seems probably du=
+ e to a<br>
+ &gt; rearranging of error printing, as we shall see:<br>
+ &gt;<br>
+ &gt; The problem is that, when the REPL (invoked with simply &quot;racket&q=
+ uot; or &quot;racket -i<br>
+ &gt; &lt;other stuff&gt;&quot;) attempts to write to stdout and finds a bro=
+ ken pipe, it prints<br>
+ &gt; a &quot;Broken pipe&quot; error to stderr, and--it seems--prints anoth=
+ er &quot;&gt; &quot; prompt to<br>
+ &gt; stdout, which causes another broken pipe error, so it prints &quot;Bro=
+ ken pipe&quot; to<br>
+ &gt; stderr and attempts to write &quot;&gt; &quot; to stdout again, and so=
+  on. =C2=A0Death spiral.<br>
+ &gt;<br>
+ &gt; This can be seen by running &quot;racket | cat&quot;, killing the &quo=
+ t;cat&quot; process (if you<br>
+ &gt; aren&#39;t running any other cats, &quot;killall cat&quot; is convenie=
+ nt), and entering<br>
+ &gt; something like &quot;blah&quot; (followed by newline) into the racket =
+ process.<br>
+ &gt;<br>
+ &gt; =C2=A0 ~ $ racket | cat<br>
+ &gt; =C2=A0 Welcome to Racket v5.3.0.20.<br>
+ &gt; =C2=A0 &gt; a =C2=A0 ;before entering this, I kill &quot;cat&quot;<br>
+ &gt; =C2=A0 a: undefined;<br>
+ &gt; =C2=A0 =C2=A0cannot reference undefined identifier<br>
+ &gt; =C2=A0 error writing to stream port<br>
+ &gt; =C2=A0 =C2=A0 system error: Broken pipe; errno=3D32<br>
+ &gt; =C2=A0 error writing to stream port<br>
+ &gt; =C2=A0 =C2=A0 system error: Broken pipe; errno=3D32<br>
+ &gt; =C2=A0 error writing to stream port<br>
+ &gt; =C2=A0 =C2=A0 system error: Broken pipe; errno=3D32<br>
+ &gt; =C2=A0 [... until ^C]<br>
+ &gt;<br>
+ &gt; It works as well, though is less illustrative, to pipe racket into &qu=
+ ot;sleep&quot; and<br>
+ &gt; write things to it after the sleep is done:<br>
+ &gt;<br>
+ &gt; =C2=A0 ~ $ (sleep 4; echo 1) | racket | sleep 3<br>
+ &gt; =C2=A0 error writing to stream port<br>
+ &gt; =C2=A0 =C2=A0 system error: Broken pipe; errno=3D32<br>
+ &gt; =C2=A0 error writing to stream port<br>
+ &gt; =C2=A0 [...]<br>
+ &gt;<br>
+ &gt; My problems with rlwrap and a headless looping &quot;racket&quot; obvi=
+ ously stem from<br>
+ &gt; similar problems. =C2=A0(Why is it worse now than with v5.3? =C2=A0Wel=
+ l, it turns out<br>
+ &gt; that, upon receiving SIGHUP, v5.3 prints its &quot;Hangup&quot; error =
+ to stdout, while<br>
+ &gt; the current version prints &quot;hang-up break&quot; to stderr; and it=
+  seems that rlwrap<br>
+ &gt; is less good at closing up stderr on SIGHUP. =C2=A0Closing &quot;rlwra=
+ p racket<br>
+ &gt; 2&gt;/dev/null&quot; doesn&#39;t cause problems. =C2=A0Anyway, I digre=
+ ss.)<br>
+ &gt;<br>
+ &gt; I suspect some people will pipe racket into a process that might be ki=
+ lled, so<br>
+ &gt; the death-spiral-on-write-to-broken-pipe is probably worth fixing (it =
+ seems<br>
+ &gt; clearly wrong behavior to write self-triggered error messages as fast =
+ as<br>
+ &gt; resources allow). =C2=A0So how should it be handled? =C2=A0racket coul=
+ d kill itself, but<br>
+ &gt; that seems bad behavior--it&#39;s possible someone could take control =
+ of it and<br>
+ &gt; even give it a useful (current-output-port). =C2=A0The spiral is cause=
+ d by<br>
+ &gt; repeatedly writing a prompt to stdout, raising an error, and printing =
+ another<br>
+ &gt; prompt (after printing error).<br>
+ &gt;<br>
+ &gt; ... It turns out the REPL is also stupid about what happens after<br>
+ &gt; (close-output-port (current-output-port)), going into a spiral of<br>
+ &gt; &quot;write-string: output port is closed&quot;. =C2=A0I would suggest=
+  teaching the REPL to<br>
+ &gt; not print prompts to a closed output port (perhaps killing itself at t=
+ hat<br>
+ &gt; point, perhaps not), or to an output port leading to a broken pipe. =
+ =C2=A0(I would<br>
+ &gt; also suggest that when an output port is discovered to lead to a broke=
+ n pipe,<br>
+ &gt; it should be immediately closed.)<br>
+ &gt;<br>
+ &gt; Or, as a horrible kludge, you could make the prompt shut up (and perha=
+ ps kill<br>
+ &gt; itself) after raising 100 consecutive errors or something. =C2=A0(This=
+  idea comes<br>
+ &gt; from scsh, which kills itself after 101 EOFs at an error prompt.) =C2=
+ =A0And there<br>
+ &gt; are other solutions of varying degrees of kludginess.<br>
+ &gt;<br>
+ &gt; *** How to repeat:<br>
+ &gt; Run this:<br>
+ &gt;<br>
+ &gt; =C2=A0 ~ $ (sleep 4; echo 1) | racket | sleep 3<br>
+ &gt;<br>
+ &gt; Wait 4 seconds and observe the resulting torrent of &quot;Broken pipe&=
+ quot; error<br>
+ &gt; messages that continue until you personally kill the racket process.<b=
+ r>
+ &gt;<br>
+ &gt; The rule is to have the racket REPL attempt to write to a closed pipe.=
+  =C2=A0See<br>
+ &gt; description for variations and detailed explanation.<br>
+ &gt;<br>
+ &gt; *** Environment:<br>
+ &gt; macosx &quot;Darwin Tau.local 10.8.0 Darwin Kernel Version 10.8.0: Tue=
+  Jun =C2=A07<br>
+ &gt; 16:32:41 PDT 2011; root:xnu-1504.15.3~1/RELEASE_X86_64 x86_64 i386&quo=
+ t;<br>
+ &gt; (i386-macosx/3m) (get-display-depth) =3D 32<br>
+ &gt; Human Language: english<br>
+ &gt; (current-memory-use) 270026316<br>
+ &gt; Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t) =
+ =3D (); (links<br>
+ &gt; #:user? #f #:root? #t) =3D ()<br>
+ &gt;<br>
+ &gt;<br>
+ &gt; Collections:<br>
+ &gt; (&quot;/Users/john/Library/Racket/5.3/collects&quot;<br>
+ &gt; =C2=A0(non-existent-path))<br>
+ &gt; (&quot;/Applications/Racket/collects&quot;<br>
+ &gt; =C2=A0(&quot;2htdp&quot; &quot;algol60&quot; &quot;at-exp&quot; &quot;=
+ browser&quot; &quot;compiler&quot; &quot;config&quot; &quot;data&quot; &quo=
+ t;datalog&quot;<br>
+ &gt; &quot;db&quot; &quot;defaults&quot; &quot;deinprogramm&quot; &quot;drr=
+ acket&quot; &quot;drscheme&quot; &quot;dynext&quot; &quot;embedded-gui&quot=
+ ;<br>
+ &gt; &quot;eopl&quot; &quot;errortrace&quot; &quot;ffi&quot; &quot;file&quo=
+ t; &quot;framework&quot; &quot;frtime&quot; &quot;future-visualizer&quot;<b=
+ r>
+ &gt; &quot;games&quot; &quot;graphics&quot; &quot;gui-debugger&quot; &quot;=
+ help&quot; &quot;hierlist&quot; &quot;htdp&quot; &quot;html&quot; &quot;ico=
+ ns&quot;<br>
+ &gt; &quot;images&quot; &quot;info-domain&quot; &quot;json&quot; &quot;lang=
+ &quot; &quot;launcher&quot; &quot;lazy&quot; &quot;macro-debugger&quot; &qu=
+ ot;make&quot;<br>
+ &gt; &quot;mred&quot; &quot;mrlib&quot; &quot;mysterx&quot; &quot;mzcom&quo=
+ t; &quot;mzlib&quot; &quot;mzscheme&quot; &quot;net&quot; &quot;openssl&quo=
+ t;<br>
+ &gt; &quot;parser-tools&quot; &quot;picturing-programs&quot; &quot;plai&quo=
+ t; &quot;planet&quot; &quot;plot&quot; &quot;preprocessor&quot;<br>
+ &gt; &quot;profile&quot; &quot;r5rs&quot; &quot;r6rs&quot; &quot;racket&quo=
+ t; &quot;racklog&quot; &quot;rackunit&quot; &quot;raco&quot; &quot;reader&q=
+ uot;<br>
+ &gt; &quot;readline&quot; &quot;redex&quot; &quot;rnrs&quot; &quot;s-exp&qu=
+ ot; &quot;scheme&quot; &quot;schemeunit&quot; &quot;scribble&quot;<br>
+ &gt; &quot;scribblings&quot; &quot;scriblib&quot; &quot;setup&quot; &quot;s=
+ gl&quot; &quot;slatex&quot; &quot;slideshow&quot; &quot;srfi&quot; &quot;st=
+ epper&quot;<br>
+ &gt; &quot;string-constants&quot; &quot;swindle&quot; &quot;syntax&quot; &q=
+ uot;syntax-color&quot; &quot;teachpack&quot; &quot;test-engine&quot;<br>
+ &gt; &quot;texpict&quot; &quot;trace&quot; &quot;typed&quot; &quot;typed-ra=
+ cket&quot; &quot;typed-scheme&quot; &quot;unstable&quot; &quot;version&quot=
+ ;<br>
+ &gt; &quot;web-server&quot; &quot;wxme&quot; &quot;xml&quot; &quot;xrepl&qu=
+ ot;))<br>
+ &gt;<br>
+ &gt; Computer Language: ((&quot;Determine language from source&quot;) (#(#t=
+  print<br>
+ &gt; mixed-fraction-e #f #t debug) (default) #() &quot;#lang racket\n&quot;=
+  #t #t ((main)<br>
+ &gt; (test))))<br>
+ </blockquote></div><br>
+ 
+ --0023543333f210db2b04c80ddbab--

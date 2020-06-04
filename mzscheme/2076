@@ -1,0 +1,153 @@
+From nobody@cs.rice.edu  Sun Sep 23 19:39:55 2001
+Return-Path: <nobody@cs.rice.edu>
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (Postfix) with ESMTP id 9F37817C6
+	for <plt-gnats@cs.rice.edu>; Sun, 23 Sep 2001 19:39:52 -0500 (CDT)
+Message-Id: <200109240039.TAA26774@web.cs.rice.edu>
+Date: Sun, 23 Sep 2001 19:39:52 -0500 (CDT)
+From: josiah_barber@hotmail.com
+Reply-To: josiah_barber@hotmail.com
+To: plt-gnats@cs.rice.edu
+Subject: DrScheme: source compiles; resultant binary crashes 
+
+>Number:         2076
+>Category:       mzscheme
+>Synopsis:       DrScheme: source compiles; resultant binary crashes
+>Confidential:   no
+>Severity:       critical
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon Sep 24 00:45:02 GMT 2001
+>Last-Modified:  Fri Oct 12 11:15:15 CDT 2001
+>Originator:     Josiah Barber
+>Organization:
+titan
+>Release:        103
+>Environment:
+Linux
+>Description:
+I'm using SuSE Linux 7.2 (kernel 2.4.4, glibc 2.2.2 [libc6], and gcc 2.95.3).  I follow the instructions in the readme: ./configure, make, make install, ./install.  The binary runs, spews a brief welcome / copyright, and causes a segmentation fault.
+
+I did my best to determine where mzscheme was crashing.
+
+Might this be GNU libc6's siglongjmp behaving contrary to expectations of DrScheme coders?
+
+I would very much like to hear back from you if you have any ideas or need any more information from me.
+
+Script started on Sun Sep 23 18:50:14 2001
+josiah: ~/src/book/plt/src/mzscheme$ ./mzscheme
+Welcome to MzScheme version 103, Copyright (c) 1995-2000 PLT (Matthew Flatt)
+Segmentation fault
+josiah: ~/src/book/plt/src/mzscheme$ gdb mzscheme
+GNU gdb 5.0
+Copyright 2000 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you are
+welcome to change it and/or distribute copies of it under certain conditions.
+Type "show copying" to see the conditions.
+There is absolutely no warranty for GDB.  Type "show warranty" for details.
+This GDB was configured as "i386-suse-linux"...
+(gdb) b scheme_handle_stack_overflow
+Breakpoint 1 at 0x805bfa6: file ./eval.c, line 337.
+(gdb) r
+Starting program: /home/josiah/src/book/plt/src/mzscheme/mzscheme 
+Welcome to MzScheme version 103, Copyright (c) 1995-2000 PLT (Matthew Flatt)
+
+Breakpoint 1, scheme_handle_stack_overflow (k=0x808adb0 <read_k>) at ./eval.c:337
+337     {
+(gdb) n
+338       scheme_overflow_k = k;
+(gdb) 
+339       scheme_init_jmpup_buf(&scheme_overflow_cont);
+(gdb) 
+340       scheme_zero_unneeded_rands(scheme_current_process);
+(gdb) 
+341       if (scheme_setjmpup(&scheme_overflow_cont, scheme_current_process,
+(gdb) 
+349         scheme_longjmp(scheme_current_process->overflow_buf, 1);
+(gdb) 
+warning: Cannot insert breakpoint -12:
+Cannot access memory at address 0x0
+(gdb) backtrace
+#0  0x40080c60 in siglongjmp () from /lib/libc.so.6
+#1  0x808ae34 in read_inner (port=0x8135f00, ht=0xbffff268) at ./read.c:351
+#2  0x808ba80 in scheme_internal_read (port=0x8135f00, crc=1, config=0x812ef18) at ./read.c:779
+#3  0x8056e46 in scheme_eval_compiled_sized_string (str=0x80bb094 "#`\375u\003", len=892, env=0x8131f90) at ./env.c:293
+#4  0x80a0e6d in scheme_add_embedded_builtins (env=0x8131f90) at cmacro.inc:45
+#5  0x805724f in make_init_env () at ./env.c:475
+#6  0x8056db1 in scheme_basic_env () at ./env.c:262
+#7  0x8056411 in run_from_cmd_line (argc=0, argv=0xbffff490, mk_basic_env=0x8056cc0 <scheme_basic_env>, cont_run=0x8056630 <cont_run>)
+    at cmdline.inc:575
+#8  0x805661e in actual_main (argc=1, argv=0xbffff48c) at ./main.c:331
+#9  0x8067b68 in scheme_image_main (argc=1, argv=0xbffff48c) at ./image.c:754
+#10 0x80565e0 in main (argc=1, argv=0xbffff48c) at ./main.c:239
+#11 0x40070c6f in __libc_start_main () from /lib/libc.so.6
+(gdb) c
+Continuing.
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0 in ?? ()
+(gdb) 
+Continuing.
+
+Program terminated with signal SIGSEGV, Segmentation fault.
+The program no longer exists.
+(gdb) q
+josiah: ~/src/book/plt/src/mzscheme$ exit
+
+Script done on Sun Sep 23 18:50:48 2001
+
+>How-To-Repeat:
+
+>Fix:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: josiah_barber@hotmail.com
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2076: DrScheme: source compiles; resultant binary crashes 
+Date: Sun, 23 Sep 2001 20:12:17 -0600 (MDT)
+
+ Looks to me like MzScheme isn't discovering the right stack size or the
+ right stack base. 
+ 
+ In eval.c, there's some code like the following:
+ 
+   getrlimit(RLIMIT_STACK, &rl);
+ 
+   {
+     unsigned long bnd, lim;
+     bnd = (unsigned long)scheme_get_stack_base();
+ 
+     lim = (unsigned long)rl.rlim_cur;
+ 
+     if (scheme_stack_grows_up)
+       bnd += (lim - STACK_SAFETY_MARGIN);
+     else
+       bnd += (STACK_SAFETY_MARGIN - lim);
+ 
+     scheme_stack_boundary = bnd;
+   }
+ 
+ Can you insert printfs to find out the values of `bnd' and `lim'?
+ 
+ Thanks,
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Oct 12 11:14:45 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Oct 12 11:14:48 2001
+State-Changed-Why:
+Problem was that getrlimit reports 4GB-1 as the limit, so
+operations on `long' overflow.
+
+ 
+>Unformatted:

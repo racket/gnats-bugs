@@ -1,0 +1,158 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Sep 20 12:21:48 2012
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q8KGLi6h005802
+	for <bugs@bugs.plt-scheme.org>; Thu, 20 Sep 2012 12:21:45 -0400
+Message-Id: <201209201621.q8KGLenn005787@champlain.ccs.neu.edu>
+Date: Thu, 20 Sep 2012 12:21:40 -0400
+From: tonyg@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: "Expected (foo State), but got (foo Any)" from using match in Typed Racket
+
+>Number:         13127
+>Category:       all
+>Synopsis:       "Expected (foo State), but got (foo Any)" from using match in Typed Racket
+>Class:          sw-bug
+>Responsible:    stamourv
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Sep 20 12:24:01 -0400 2012
+>Closed-Date:    Mon Feb 18 12:14:44 -0500 2013
+>Last-Modified:  Mon Feb 18 12:14:44 -0500 2013
+>Originator:     Tony Garnock-Jones
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.24--2012-09-17(5991540/a)
+>Environment:
+macosx "Darwin skip.local 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 16:33:36 PDT 2011; root:xnu-1504.15.3~1/RELEASE_I386 i386" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 402205488
+Links: (links) = ("racket-matrix"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/tonyg/Library/Racket/5.3.0.24/collects"
+ (non-existent-path))
+("/usr/local/Racket v5.3.0.24/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t test-coverage) (default) #() "#lang racket\n" #f #t ((main) (test))))
+>Description:
+Using match with typed racket, destructuring certain polymorphic typed structures involving multiple layers of polymorphic nesting, match forgets the value of the type variable. See "steps to reproduce" for a short program demonstrating the problem.
+
+Vincent and I looked into the expansion of match yesterday. There's a left-left-lambda in there which could be causing the loss of type information.
+>How-To-Repeat:
+#lang typed/racket/base
+
+(require racket/match)
+
+(struct: (State)
+	 foo ([fn : (State -> State)])) ;; The arrow seems necessary!
+					;; [fn : State] typechecks.
+
+(struct: (State)
+	 wrapper2 ([contents : (foo State)]))
+
+;;---------------------------------------------------------------------------
+
+(: something : (All (State) (wrapper2 State) -> (foo State)))
+
+;; Doesn't work and seems to be to do with match.
+;;
+;; There's a plain lambda in the expansion of match, which Vincent
+;; says will have Any assigned as its argument type. That's the source
+;; of the Any in the mismatch, apparently. Match could expand into a
+;; let, perhaps, or TR could become smarter about left-left-lambda,
+;; perhaps.
+(define (something w)
+  (match w
+    [(wrapper2 contents)
+     contents]))
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: tonyg@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13127: "Expected (foo State), but got (foo Any)"
+ from using match in Typed Racket
+Date: Thu, 20 Sep 2012 12:27:34 -0400
+
+ On Thu, Sep 20, 2012 at 12:24 PM,  <tonyg@ccs.neu.edu> wrote:
+ > Vincent and I looked into the expansion of match yesterday. There's a left-left-lambda in there which could be causing the loss of type information.
+ 
+ I'll look into this, but TR already handles `((lambda (x) ...) e)` specially.
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: tonyg@ccs.neu.edu, nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org
+Cc: 
+Subject: Re: all/13127: "Expected (foo State), but got (foo Any)" from using
+ match in Typed Racket
+Date: Sat, 16 Feb 2013 21:34:29 -0800
+
+ --047d7bd91f1059e2de04d5e4f6dc
+ Content-Type: text/plain; charset=UTF-8
+ 
+ This is working for me at HEAD. I don't believe it had anything to do with
+ match, but instead contavariant structures. That would explain why you
+ needed the function type in the struct.
+ 
+ --047d7bd91f1059e2de04d5e4f6dc
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">This is working for me at HEAD. I don&#39;t believe it had=
+  anything to do with match, but instead contavariant structures. That would=
+  explain why you needed the function type in the struct.=C2=A0</div>
+ 
+ --047d7bd91f1059e2de04d5e4f6dc--
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Tony Garnock-Jones <tonyg@ccs.neu.edu>, nobody <nobody@racket-lang.org>,
+        bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: all/13127: "Expected (foo State), but got (foo Any)" from using
+ match in Typed Racket
+Date: Sun, 17 Feb 2013 08:48:07 -0500
+
+ The problem here was that the type given to the predicate for
+ non-mutable structures assumed that they were covariant, which was not
+ true.  I think you fixed this with
+ https://github.com/plt/racket/pull/143 .
+ 
+ Sam
+ 
+ On Sun, Feb 17, 2013 at 12:34 AM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > This is working for me at HEAD. I don't believe it had anything to do with
+ > match, but instead contavariant structures. That would explain why you
+ > needed the function type in the struct.
+Responsible changed from "nobody" to "stamourv" by stamourv@racket-lang.org at Mon, 18 Feb 2013 12:14:44 -0500
+Reason>>> A commit by stamourv@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7e88895bd0
+State changed from "open" to "closed" by stamourv@racket-lang.org at Mon, 18 Feb 2013 12:14:44 -0500
+Reason>>> A commit by stamourv@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7e88895bd0
+  | Add testcases for many already fixed bugs.
+  | 
+  | Closes PR11901.
+  | Closes PR11972.
+  | Closes PR12022.
+  | Closes PR12224.
+  | Closes PR12506.
+  | Closes PR12533.
+  | Closes PR12596.
+  | Closes PR13198.
+  | Closes PR13418.
+  | 
+  | Already fixed bugs, with existing testcases.
+  | Closes PR12529.
+  | Closes PR12631.
+  | Closes PR13127.
+  | Closes PR13128.
+  | Closes PR12970.
+

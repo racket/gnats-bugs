@@ -1,0 +1,167 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Mar 29 13:56:33 2012
+Received: from mail-vb0-f44.google.com (mail-vb0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q2THuT19006126
+	for <bugs@bugs.plt-scheme.org>; Thu, 29 Mar 2012 13:56:29 -0400
+Message-Id: <201203291756.q2THuPVB006121@champlain.ccs.neu.edu>
+Date: Thu, 29 Mar 2012 13:56:25 -0400
+From: dyoo@hashcollision.org
+To: bugs@racket-lang.org
+Subject: make-pipe-with-specials doesn't work with values with custom-write property
+
+>Number:         12659
+>Category:       all
+>Synopsis:       make-pipe-with-specials doesn't work with values with custom-write property
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Mar 29 14:00:01 -0400 2012
+>Closed-Date:    Thu Mar 29 16:57:44 -0400 2012
+>Last-Modified:  Thu Mar 29 16:57:44 -0400 2012
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.8 (KHTML, like Gecko) Chrome/17.0.932.0 Safari/535.8
+>Description:
+The following produces an error that it shouldn't:
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+#lang racket
+(struct str (v)
+  #:transparent
+    
+  #:property prop:custom-write
+  (lambda (a-str port mode)
+    (let ([recur (case mode
+                   [(#t)
+                    (lambda (p port)
+                      (write p port))]
+                   [(#f)
+                    (lambda (p port)
+                      (display p port))]
+                   [else
+                    (lambda (p port)
+                      (print p port mode))])])
+      (recur (str-v a-str) port))))
+
+(define-values (in out) (make-pipe-with-specials))
+
+(write (str "hello world") out)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+The error that appears is internal: 
+
+    user port write: expected result of type <non-negative exact integer, #f, or evt>; given #t
+
+If the code above makes a regular pipe without specials support, it does the right thing, so the bug seems isolated to the implementation of the specials port.
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@cs.wpi.edu>
+To: dyoo@hashcollision.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12659: make-pipe-with-specials doesn't work with
+ values with custom-write property
+Date: Thu, 29 Mar 2012 14:09:59 -0400
+
+ >
+ > The error that appears is internal:
+ >
+ >    user port write: expected result of type <non-negative exact integer, #f, or evt>; given #t
+ >
+ > If the code above makes a regular pipe without specials support, it does the right thing, so the bug seems isolated to the implementation of the specials port.
+ 
+ 
+ Ok, bug traced.  The bug is in the definition of
+ make-pipe-with-special's write function, which is returning #t rather
+ than 0, right here:
+ 
+ ##########################################################
+ kui ~/local/racket/collects/mzlib $ git diff port.rkt
+ diff --git a/collects/mzlib/port.rkt b/collects/mzlib/port.rkt
+ index 06dbc01..f4f839b 100644
+ --- a/collects/mzlib/port.rkt
+ +++ b/collects/mzlib/port.rkt
+ @@ -710,7 +710,7 @@
+           ;; write
+           (lambda (str start end buffer? w/break?)
+             (if (= start end)
+ -             #t
+ +             0
+               (begin
+                 (resume-mgr)
+                 (call-with-semaphore
+ ##########################################################
+ 
+ 
+ I'll send a patch shortly.
+ 
+From: Danny Yoo <dyoo@cs.wpi.edu>
+To: dyoo@hashcollision.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12659: make-pipe-with-specials doesn't work with
+ values with custom-write property
+Date: Thu, 29 Mar 2012 14:32:57 -0400
+
+ >> If the code above makes a regular pipe without specials support, it does the right thing, so the bug seems isolated to the implementation of the specials port.
+ >
+ > Ok, bug traced.  The bug is in the definition of
+ > make-pipe-with-special's write function, which is returning #t rather
+ > than 0, right here:
+ 
+ [cut]
+ 
+ Ok, patch sent as: https://github.com/dyoo/racket/compare/bug-12659
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Danny Yoo <dyoo@cs.wpi.edu>
+Cc: dyoo@hashcollision.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12659: make-pipe-with-specials doesn't work with
+ values with custom-write property
+Date: Thu, 29 Mar 2012 12:46:52 -0600
+
+ At Thu, 29 Mar 2012 14:32:57 -0400, Danny Yoo wrote:
+ > >> If the code above makes a regular pipe without specials support, it does the 
+ > right thing, so the bug seems isolated to the implementation of the specials 
+ > port.
+ > >
+ > > Ok, bug traced.  The bug is in the definition of
+ > > make-pipe-with-special's write function, which is returning #t rather
+ > > than 0, right here:
+ > 
+ > [cut]
+ > 
+ > Ok, patch sent as: https://github.com/dyoo/racket/compare/bug-12659
+ 
+ Those look great. Do you want me to push them?
+ 
+ 
+From: Danny Yoo <dyoo@cs.wpi.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: dyoo@hashcollision.org, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12659: make-pipe-with-specials doesn't work with
+ values with custom-write property
+Date: Thu, 29 Mar 2012 15:57:32 -0400
+
+ >> Ok, patch sent as: https://github.com/dyoo/racket/compare/bug-12659
+ >
+ > Those look great. Do you want me to push them?
+ 
+ 
+ If you can pull those in, that would be wonderful.  Thanks!
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Thu, 29 Mar 2012 16:57:44 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0cfb3f1d39
+State changed from "open" to "closed" by mflatt@racket-lang.org at Thu, 29 Mar 2012 16:57:44 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/0cfb3f1d39

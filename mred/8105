@@ -1,0 +1,207 @@
+From apache@plt-scheme.org Sun Jun 11 13:34:29 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k5BHYMqt023586
+	for <bugs@plt-scheme.org>; Sun, 11 Jun 2006 13:34:22 -0400
+Message-Id: <200606111734.k5BHYMaT023584@champlain.ccs.neu.edu>
+Date: Sun, 11 Jun 2006 13:34:22 -0400
+From: greg@cs.brown.edu
+To: bugs@plt-scheme.org
+Subject: Exception raised when navigating directory Open File... dialog
+
+>Number:         8105
+>Category:       mred
+>Synopsis:       Exception raised when navigating directory Open File... dialog
+>Class:          sw-bug
+>Responsible:    eli
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jun 11 13:35:00 -0400 2006
+>Last-Modified:  Mon Jun 12 10:22:30 -0400 2006
+>Originator:     Greg Cooper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        349.100-svn8jun2006
+>Environment:
+unix "Linux quickstep 2.6.10cs.a64.1 #1 Fri Mar 4 13:14:07 EST 2005 i686 GNU/Linux" (i386-linux) (get-display-depth) = 24
+Docs Installed:
+(("/ltmp/greg/plt/doc" "help" "release-notes"))
+Collections:
+(("/u/greg/.plt-scheme/349.100/collects" non-existent-path) ("/ltmp/greg/plt/collects" ".svn" "tex2page" "string-constants" "planet" "mzcom" "drscheme" "r6rs" "framework" "srpersist" "sirmail" "slideshow" "syntax-color" "srfi" "algol60" "dynext" "slibinit" "make" "plot" "lang" "web-server" "openssl" "scribble" "frtime" "mred" "guibuilder" "htdp" "setup" "graphics" "profjWizard" "afm" "config" "defaults" "icons" "skipper" "handin-client" "texpict" "profjBoxes" "browser" "teachpack" "parser-tools" "waterworld" "r5rs" "mztake" "games" "honu-module" "eopl" "tests" "html" "swindle" "handin-server" "repos-time-stamp" "mrflow" "compiler" "embedded-gui" "profj" "stepper" "readline" "hierlist" "sgl" "version" "syntax" "preprocessor" "net" "help" "htdch" "xelda" "trace" "slatex" "xml" "launcher" "ffi" "mrlib" "test-suite" "errortrace" "mzscheme" "mysterx" "mzlib" "info-domain"))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Experimental Languages" "FrTime") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+Not exactly sure what I did or how to reproduce, but this
+message started appearing:
+
+set-first-visible-item in list-box%: list has only 16 items, indexed 0 to 15; given out-of-range index: 25
+
+ === context ===
+/ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+/ltmp/greg/plt/collects/mred/private/path-dialog.ss:496:6
+/ltmp/greg/plt/collects/mred/private/path-dialog.ss:419:6
+call-with-break-parameterization
+/ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+/ltmp/greg/plt/collects/mred/private/path-dialog.ss:329:6
+call-with-break-parameterization
+/ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+/ltmp/greg/plt/collects/mred/private/path-dialog.ss:652:6: run method in path-dialog%
+/ltmp/greg/plt/collects/framework/private/handler.ss:382:8: open-file
+handler:open-file
+handler:open-file
+/ltmp/greg/plt/collects/mred/private/mrmenu.ss:185:17: command method in basic-selectable-menu-item%
+call-with-break-parameterization
+/ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: greg@cs.brown.edu, bugs@plt-scheme.org
+Cc: mflatt@cs.utah.edu
+Subject: Re: all/8105: Exception raised when navigating directory Open File... dialog
+Date: Sun, 11 Jun 2006 13:57:03 -0400
+
+ I did something to try to fix it, but not sure.
+ 
+ Matthew -- this exception happened in the following code:
+ 
+       ;; Use the path-list for completion options
+       (define saved-path-list-state #f)
+       (define (save-path-list-state)
+         (unless saved-path-list-state
+           (set! saved-path-list-state
+                 (list (send path-list get-first-visible-item)
+                       (send path-list get-selections)))))
+       (define (restore-path-list-state)
+         (when saved-path-list-state
+           (send path-list set paths)
+           (for-each (lambda (i) (send path-list select i))
+                     (cadr saved-path-list-state))
+           (send path-list set-first-visible-item (car saved-path-list-state))
+           (set! saved-path-list-state #f)))
+ 
+ and this is the only code that touches `saved-path-list-state'.  If it
+ is invoked from the GUI, can it happen that it gets in a race
+ condition?  I thought that GUI messages are handled one by one...
+ 
+ (And the fix that I'm not sure about is to serialize the two functions
+ above using a semaphore.)
+ 
+ On Jun 11, greg@cs.brown.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8105
+ > 
+ > Reported by Greg Cooper for release: 349.100-svn8jun2006
+ > 
+ > *** Description:
+ > Not exactly sure what I did or how to reproduce, but this
+ > message started appearing:
+ > 
+ > set-first-visible-item in list-box%: list has only 16 items, indexed 0 to 15; given out-of-range index: 25
+ > 
+ >  === context ===
+ > /ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+ > /ltmp/greg/plt/collects/mred/private/path-dialog.ss:496:6
+ > /ltmp/greg/plt/collects/mred/private/path-dialog.ss:419:6
+ > call-with-break-parameterization
+ > /ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+ > /ltmp/greg/plt/collects/mred/private/path-dialog.ss:329:6
+ > call-with-break-parameterization
+ > /ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+ > /ltmp/greg/plt/collects/mred/private/path-dialog.ss:652:6: run method in path-dialog%
+ > /ltmp/greg/plt/collects/framework/private/handler.ss:382:8: open-file
+ > handler:open-file
+ > handler:open-file
+ > /ltmp/greg/plt/collects/mred/private/mrmenu.ss:185:17: command method in basic-selectable-menu-item%
+ > call-with-break-parameterization
+ > /ltmp/greg/plt/collects/mred/private/lock.ss:40:2: as-entry
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: greg@cs.brown.edu, bugs@plt-scheme.org
+Subject: Re: all/8105: Exception raised when navigating directory Open File... dialog
+Date: Mon, 12 Jun 2006 06:39:09 -0600
+
+ At Sun, 11 Jun 2006 13:57:03 -0400, Eli Barzilay wrote:
+ > If it
+ > is invoked from the GUI, can it happen that it gets in a race
+ > condition?  I thought that GUI messages are handled one by one...
+ 
+ Right - there's no threading in your dialog code. The semaphore is
+ useless.
+ 
+ I can get this result by 
+ 
+  1. Going to ~/
+ 
+  2. Checking the box to show "." files
+ 
+  3. Selecting the last file in the list
+ 
+  4. Typing "D", which matches only "Desktop".
+ 
+  5. Unchecking the box to show "." files
+ 
+  6. Deleting the "D"
+ 
+ This is the first thing I tried, so my guess is that there are other
+ ways to make the list-of-files state change across the save and restore
+ of the selection.
+ 
+ Matthew
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: greg@cs.brown.edu, bugs@plt-scheme.org
+Subject: Re: all/8105: Exception raised when navigating directory Open File... dialog
+Date: Mon, 12 Jun 2006 10:16:50 -0400
+
+ On Jun 12, Matthew Flatt wrote:
+ > At Sun, 11 Jun 2006 13:57:03 -0400, Eli Barzilay wrote:
+ > > If it
+ > > is invoked from the GUI, can it happen that it gets in a race
+ > > condition?  I thought that GUI messages are handled one by one...
+ > 
+ > Right - there's no threading in your dialog code. The semaphore is
+ > useless.
+ 
+ OK, removed.
+ 
+ 
+ > I can get this result by 
+ > 
+ >  1. Going to ~/
+ >  2. Checking the box to show "." files
+ >  3. Selecting the last file in the list
+ >  4. Typing "D", which matches only "Desktop".
+ >  5. Unchecking the box to show "." files
+ >  6. Deleting the "D"
+ 
+ (Actually, if it matches only "Desktop" then there is no problem,
+ since the path-list is filtered only when there is more than a unique
+ match.)
+ 
+ 
+ > This is the first thing I tried, so my guess is that there are other
+ > ways to make the list-of-files state change across the save and
+ > restore of the selection.
+ 
+ It all goes through a single function so it was easy to fix.  I'll
+ close the PR now.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+Responsible changed from "nobody" to "eli" by eli at Mon, 12 Jun 2006 10:22:30 -0400
+Reason>>> path-dialog
+
+State changed from "open" to "closed" by eli at Mon, 12 Jun 2006 10:22:30 -0400
+Reason>>> fixed in svn
+

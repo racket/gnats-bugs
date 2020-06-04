@@ -1,0 +1,310 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Apr 14 10:17:19 2015
+Received: from mail-ie0-f182.google.com (mail-ie0-f182.google.com [209.85.223.182])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t3EEH67V015047
+	for <bugs@bugs.plt-scheme.org>; Tue, 14 Apr 2015 10:17:06 -0400
+Message-Id: <201504141417.t3EEH2qd015037@winooski.ccs.neu.edu>
+Date: Tue, 14 Apr 2015 10:17:02 -0400
+From: gustavo@oma.org.ar
+To: bugs@racket-lang.org
+Subject: Bad optimization with types in car, cdr, ...
+
+>Number:         15038
+>Category:       mzscheme
+>Synopsis:       Bad optimization with types in car, cdr, ...
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Apr 14 10:20:01 -0400 2015
+>Last-Modified:  Thu Jul 30 15:57:26 -0400 2015
+>Originator:     Gustavo Massaccesi
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1 and HEAD
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 209202932
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog main-distribution)
+ racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog racket-lib)
+ [187 auto-installed packages not shown]
+User-specific for installation "6.1.1":
+ Package        Checksum                                    Source
+ disassemble    cf0ee3a5f8463e0867eba4c964d742a29325a996    (url github://github.com/samth/disassemble/master)
+
+
+
+Collections:
+("C:\\Users\\User\\AppData\\Roaming\\Racket\\6.1.1\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Racket\\collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) (main)) #t))
+>Description:
+The following example is a minimized version of mzlib/kw. After a few ignored functions, the process function create two variables `f-1` and `f-2` that are clearly `#f`, but then the program goes inside a `(when (or f-1 f-2) ...)` and prints the value of `f-1` and `f-2` to show they are `#f`.
+
+I think that the problem is that `(cdr strange)` marks `strange` as a `pair?`, and some incorrect optimization use that to infer that `f-1` or `f-2` is not false.
+
+The example has still a lot of unused and ignored functions. If I remove them, the error disappears. I guess that they are there to provide the correct level of shift to make the problem visible, and they are too long to be removed. If you provide some tips or examples, I can try to minimize this further.
+
+(In mzlib/kw, the original version has a `cadddr` in line 109. This example is a minimized version with that `cadddr` replaced by `cdr` in line 16. The difference is that the optimizer has some type information for the argument of `cdr`, but has no information for the type of the argument of `cadddr`.)
+>How-To-Repeat:
+1) Run the program
+2) Expected result: nothing (the program is equivalent to `(void)`)
+3) Actual result: prints `(yes #f #f)`
+4) If you uncomment the `#;(car ...)` the program generates an error 
+
+#lang racket
+
+(define-syntax (macro ignored-stx)
+  (define (ignored1)
+    (syntax-case 0 ()
+      [(formal ... . rest) #'rest
+       (begin
+         (ormap (lambda (s) (and (keyword? 0) s)) (list 0))
+         #'rest)]
+      [_ 0]))
+  (define (ignored2)
+    (define key 0)
+    (syntax-case 0 () [_ 0]))
+  ;;-------------------------------------------------------
+  (define (process strange)
+    (cdr strange) ; <-- strange is used only here
+    (let ([f-one (not (zero? (random 1)))]
+          [f-two (not (zero? (random 1)))])
+      (let ([unused (ormap (lambda (k) 0) (list 0))])
+        (when (or f-one f-two)
+          (displayln (list 'yes f-one f-two)); ==> '(yes #f #f)
+          #;(car (or f-one f-two)))); ==> error
+        #'(void)))
+
+  (process (list 0)))
+  
+(macro)
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: gustavo@oma.org.ar, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15038: Bad optimization with types in car, cdr, ...
+Date: Tue, 14 Apr 2015 08:31:26 -0600
+
+ I think I may have stumbled across the same bug a couple of days ago.
+ I'm unable to replicate the problem with the current version, although
+ I can confirm it with v6.1.1.
+ 
+ Does the problem still happen for you after commit 16ce8fd90d?
+ 
+ That commit lacks a test case, because I had trouble creating a small
+ example, so it will be great to have this example even if the bug is
+ fixed.
+ 
+ Thanks!
+ 
+ At Tue, 14 Apr 2015 10:20:02 -0400, gustavo@oma.org.ar wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15038
+ > 
+ > Reported by Gustavo Massaccesi for release: 6.1.1 and HEAD
+ > 
+ > *** Description:
+ > The following example is a minimized version of mzlib/kw. After a few ignored 
+ > functions, the process function create two variables `f-1` and `f-2` that are 
+ > clearly `#f`, but then the program goes inside a `(when (or f-1 f-2) ...)` and 
+ > prints the value of `f-1` and `f-2` to show they are `#f`.
+ > 
+ > I think that the problem is that `(cdr strange)` marks `strange` as a `pair?`, 
+ > and some incorrect optimization use that to infer that `f-1` or `f-2` is not 
+ > false.
+ > 
+ > The example has still a lot of unused and ignored functions. If I remove them, 
+ > the error disappears. I guess that they are there to provide the correct level 
+ > of shift to make the problem visible, and they are too long to be removed. If 
+ > you provide some tips or examples, I can try to minimize this further.
+ > 
+ > (In mzlib/kw, the original version has a `cadddr` in line 109. This example is 
+ > a minimized version with that `cadddr` replaced by `cdr` in line 16. The 
+ > difference is that the optimizer has some type information for the argument of 
+ > `cdr`, but has no information for the type of the argument of `cadddr`.)
+ > 
+ > *** How to repeat:
+ > 1) Run the program
+ > 2) Expected result: nothing (the program is equivalent to `(void)`)
+ > 3) Actual result: prints `(yes #f #f)`
+ > 4) If you uncomment the `#;(car ...)` the program generates an error 
+ > 
+ > #lang racket
+ > 
+ > (define-syntax (macro ignored-stx)
+ >   (define (ignored1)
+ >     (syntax-case 0 ()
+ >       [(formal ... . rest) #'rest
+ >        (begin
+ >          (ormap (lambda (s) (and (keyword? 0) s)) (list 0))
+ >          #'rest)]
+ >       [_ 0]))
+ >   (define (ignored2)
+ >     (define key 0)
+ >     (syntax-case 0 () [_ 0]))
+ >   ;;-------------------------------------------------------
+ >   (define (process strange)
+ >     (cdr strange) ; <-- strange is used only here
+ >     (let ([f-one (not (zero? (random 1)))]
+ >           [f-two (not (zero? (random 1)))])
+ >       (let ([unused (ormap (lambda (k) 0) (list 0))])
+ >         (when (or f-one f-two)
+ >           (displayln (list 'yes f-one f-two)); ==> '(yes #f #f)
+ >           #;(car (or f-one f-two)))); ==> error
+ >         #'(void)))
+ > 
+ >   (process (list 0)))
+ >   
+ > (macro)
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) 
+ > (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 209202932
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package              Checksum                                    Source
+ >  main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog 
+ > main-distribution)
+ >  racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog 
+ > racket-lib)
+ >  [187 auto-installed packages not shown]
+ > User-specific for installation "6.1.1":
+ >  Package        Checksum                                    Source
+ >  disassemble    cf0ee3a5f8463e0867eba4c964d742a29325a996    (url 
+ > github://github.com/samth/disassemble/master)
+ > 
+ > 
+ > 
+ > Collections:
+ > ("C:\\Users\\User\\AppData\\Roaming\\Racket\\6.1.1\\collects"
+ >  (non-existent-path))
+ > ("C:\\Program Files\\Racket\\collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" 
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" 
+ > "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) 
+ > (main)) #t))
+From: Gustavo Massaccesi <gustavo@oma.org.ar>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Bugs Racket <bugs@racket-lang.org>, Nobody Racket <nobody@racket-lang.org>,
+        Bug Notification Racket <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15038: Bad optimization with types in car, cdr, ...
+Date: Tue, 14 Apr 2015 14:37:38 -0300
+
+ I couldn't find 16ce8fd90d (!?)
+ 
+ I just pulled the latest commit
+ 7fb5e69bc6dd1f86cbde62f841813b431e290bd9 "fill in missing `setup/xref`
+ documentation" and rebuild.
+ 
+ I still see the error.
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Gustavo Massaccesi <gustavo@oma.org.ar>
+Cc: Bugs Racket <bugs@racket-lang.org>, Nobody Racket <nobody@racket-lang.org>,
+        Bug Notification Racket <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15038: Bad optimization with types in car, cdr, ...
+Date: Tue, 14 Apr 2015 12:45:27 -0600
+
+ Ah, I forgot to push that commit!
+ 
+ It's pushed now. Sorry --- if I had pushed a couple of days ago, that
+ probably would have saved you some time.
+ 
+ At Tue, 14 Apr 2015 14:37:38 -0300, Gustavo Massaccesi wrote:
+ > I couldn't find 16ce8fd90d (!?)
+ > 
+ > I just pulled the latest commit
+ > 7fb5e69bc6dd1f86cbde62f841813b431e290bd9 "fill in missing `setup/xref`
+ > documentation" and rebuild.
+ > 
+ > I still see the error.
+From: Gustavo Massaccesi <gustavo@oma.org.ar>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Bugs Racket <bugs@racket-lang.org>, Nobody Racket <nobody@racket-lang.org>,
+        Bug Notification Racket <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15038: Bad optimization with types in car, cdr, ...
+Date: Tue, 14 Apr 2015 16:25:05 -0300
+
+ Now it's fixed.
+From: Gustavo Massaccesi <gustavo@oma.org.ar>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Bugs Racket <bugs@racket-lang.org>, Nobody Racket <nobody@racket-lang.org>,
+        Bug Notification Racket <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/15038: Bad optimization with types in car, cdr, ...
+Date: Thu, 16 Apr 2015 00:24:57 -0300
+
+ I minimized it:
+ 
+ ;--------
+ #lang racket
+ 
+ (define-syntax (let0-n stx)
+   (syntax-case stx ()
+     [(_ n) (let ([n (syntax-e #'n)])
+              (if (zero? n)
+                #'0
+                #`(let ([f 0])
+                    (let0-n #,(sub1 n)))))]))
+ 
+ (define-syntax-rule (test n)
+   (let ()
+     (define ignored (lambda () (let0-n n)))
+     (let ([f-two (not (zero? (random 1)))]
+           [unused-pair (cons 0 0)])
+       (when (let ([f-one #f])
+               (if f-one f-one f-two))
+         (displayln (list 'yes f-two n))))
+     ))
+ 
+ (define-syntax (test/for stx)
+   (syntax-case stx ()
+     [(_ n) (let ([n (syntax-e #'n)])
+              (if (< n 0)
+                 #'(void)
+                 #`(begin
+                     (test #,n)
+                     (test/for #,(sub1 n)))))]))
+ 
+ (test/for 100)
+ ;--------
+ 
+ Output:
+ (yes #f 84)
+ (yes #f 67)
+ (yes #f 50)
+ (yes #f 33)
+ (yes #f 16)
+ 
+ The program should not print anything.
+ 
+ It's difficult to get the right number of let's to make the error
+ visible, so the program just generate variations of different length.
+ The output means that when n = 16, 33, 50 ... the bad reduction causes
+ an error.
+ 
+ All those numbers are congruent to -1 modulo 17. I really would like
+ to know why 17 is important here.
+ 
+ I've just submitted a PR with a variation of this rewritten as a test,
+ but I'm not sure it's the best idea because it uses for and is still
+ too complicated. https://github.com/plt/racket/pull/918
+ 
+ Gustavo
+

@@ -1,0 +1,237 @@
+From apache@plt-scheme.org Mon Jan 16 16:58:23 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k0GLwKJT008644
+	for <bugs@plt-scheme.org>; Mon, 16 Jan 2006 16:58:20 -0500
+Message-Id: <200601162158.k0GLwKS7008642@champlain.ccs.neu.edu>
+Date: Mon, 16 Jan 2006 16:58:20 -0500
+From: kdeturck@telin.ugent.be
+To: bugs@plt-scheme.org
+Subject: wrong implementation of srfi 26 (cut.ss)
+
+>Number:         7824
+>Category:       misc
+>Synopsis:       wrong implementation of srfi 26 (cut.ss)
+>Class:          change-request
+>Responsible:    eli
+>Notify-List:    jensaxel@soegaard.net
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jan 16 17:00:00 -0500 2006
+>Last-Modified:  Thu Mar 16 01:33:24 -0500 2006
+>Originator:     Koen De Turck
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301
+>Environment:
+linux-other
+>Description:
+srfi-26 explicitly allows the occurence of <> in the first argument.
+indeed, one of the examples is :
+(cut <> a b)   is the same as (lambda (f) (f a b)).
+
+However, plt-301 does not allow this:
+
+> (cut <> 4 5)
+stdin::137: cut: cut expects an expression at the first position, given a slot <> in: (cut <> 4 5)
+
+Note that plt-209 did the right thing.
+
+I checked the source code and the author seems to consider this a feature rather than a bug. If this is so, why ? I find things like
+  (foreach (cut <>) thunks) 
+really handy. 
+
+I would give a patch but I'm not yet very familiar with syntax-case macros.
+
+regards,
+koen
+
+>How-To-Repeat:
+> (require (lib "26.ss" "srfi"))
+> (cut <>)
+stdin::137: cut: cut expects an expression at the first position, given a slot <> in: (cut <> 4 5)
+>Fix:
+>Audit-Trail:
+From: =?ISO-8859-1?Q?Jens_Axel_S=F8gaard?= <jensaxel@soegaard.net>
+To: bugs@plt-scheme.org, kdeturck@telin.ugent.be
+Cc: 
+Subject: Re: all/7824: wrong implementation of srfi 26 (cut.ss)
+Date: Tue, 17 Jan 2006 23:16:25 +0100
+
+ This is a multi-part message in MIME format.
+ --------------010903090308070905050402
+ Content-Type: text/plain; charset=ISO-8859-1; format=flowed
+ Content-Transfer-Encoding: 7bit
+ 
+ Hi Koen,
+ 
+ Thanks for the bug report.
+ 
+  > I checked the source code and the author seems to consider this a
+  > feature rather than a bug. If this is so, why ? I find things like
+  >   (foreach (cut <>) thunks)
+  > really handy.
+ 
+ I missed it - the reference test suite didn't include tests
+ with <> in front, so I overlooked it.
+ 
+ I have attached a fixed version of cut.ss. Replace the one
+ in collects/srfi/26/ .
+ 
+ /Jens Axel
+ 
+ --------------010903090308070905050402
+ Content-Type: text/plain;
+  name="cut.ss"
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline;
+  filename="cut.ss"
+ 
+ ;;; cut.ss  --  Jens Axel Soegaard
+ 
+ ; This file reimplements srfi-26 for PLT.
+ ; The reimplementation provides better error messages.
+ 
+ ; Examples of errors with better error messages:
+ ;   (cut)
+ ;   ((cut cons <> <>) 1 2 3)
+ 
+ (module cut mzscheme
+ 
+     (provide cut cute)
+ 
+       ; generate-names/exprs :
+       ;    Given the arguments for the macro call to cut (or cute) as a syntax-list,
+       ;  call build with four lists:
+       ;    1) a list of names given to each <>-slot
+       ;    2) [cut] a list of the macro arguments, except that all occurences
+       ;       of a <>-slots have been substituted with the chosen name.
+       ;    3) [cute] a list the names given to the exprs and the <>-slots
+       ;    4) [cute] a list of lists of name-expression pairs, i.e. the bindings
+       ;       used to bind the expressions to names, in order to evaluate
+       ;       the expressions at the time of the macro call to cute.
+     (define-for-syntax (generate-names/exprs slot-or-exprs build)
+       (let loop ([slot-or-exprs       (syntax->list slot-or-exprs)]
+                  [slot-names          '()]
+                  [cut-names-or-exprs  '()]
+                  [cute-names          '()]
+                  [bindings            '()])
+         (cond
+          [(null? slot-or-exprs)  (build (reverse slot-names)
+                                         (reverse cut-names-or-exprs)
+                                         (reverse cute-names)
+                                         (reverse bindings))]
+          [else                   (let ((name (car (generate-temporaries #'(x)))))
+                                    (syntax-case (car slot-or-exprs) (<> <...>)
+                                      [<>
+                                       (loop (cdr slot-or-exprs)
+                                             (cons name slot-names)
+                                             (cons name cut-names-or-exprs)
+                                             (cons name cute-names)
+                                             bindings)]
+                                      [_
+                                       (loop (cdr slot-or-exprs)
+                                             slot-names
+                                             (cons (car slot-or-exprs) cut-names-or-exprs)
+                                             (cons name cute-names)
+                                             (cons (list name (car slot-or-exprs))
+                                                   bindings))]))])))
+     
+     (define-syntax (cut stx)
+       (syntax-case stx (<> <...>)
+         [(cut)
+          (raise-syntax-error #f "cut expects 1 or more slots or expressions, given none"  stx)]
+         [(cut <>)
+          #'(lambda (f) (f))]
+         [(cut <...> slot-or-expr ...)
+          (raise-syntax-error #f "cut expects a a slot or an expression at the first position, given <...>" stx)]
+         [(cut proc)
+          #'(lambda () (proc))]
+         [(cut <> slot-or-expr ... <...>)
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names names-or-exprs . ignored)
+                                  #`(lambda (f . xs)
+                                      #,(quasisyntax/loc stx
+                                          (apply f #,@names-or-exprs xs)))))]
+         [(cut <> slot-or-expr ...)
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names names-or-exprs . ignored)
+                                  #`(lambda (f)
+                                      #,(quasisyntax/loc stx
+                                          (f #,@names-or-exprs)))))]
+         [(cut proc slot-or-expr ... <...>)
+          ;;   Applying a wrong number of arguments to the the lamba generated by cut, will provoke an
+          ;; error caused by the application (proc ...). The quasisyntax/loc makes sure DrScheme
+          ;; shows the cut-expression as the source of the error in stead of the showing an error in
+          ;; the code implementing the macro i.e. in this code.
+          ;;   Note: Is it possible to propagate the error to the location of the wrong application
+          ;;         in the user code?
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names names-or-exprs . ignored)
+                                  #`(lambda (#,@slot-names . xs)
+                                      #,(quasisyntax/loc stx
+                                                         (apply proc #,@names-or-exprs xs)))))]
+         [(cut proc slot-or-expr ...)
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names names-or-exprs . ignored)
+                                  #`(lambda #,slot-names
+                                      #,(quasisyntax/loc stx
+                                                         (proc #,@names-or-exprs)))))]))
+     
+           ;  In addition to cut, there is a variant called cute (a mnemonic for
+           ; "cut with evaluated non-slots") which evaluates the non-slot expressions
+           ; at the time the procedure is specialized, not at the time the specialized
+           ; procedure is called. For example,
+           ;     (cute cons (+ a 1) <>) is the same as (let ((a1 (+ a 1))) (lambda (x2) (cons a1 x2)))
+           ; As you see from comparing this example with the first example above, the
+           ; cute-variant will evaluate (+ a 1) once, while the cut-variant will evaluate
+           ; it during every invokation of the resulting procedure.
+ 
+     (define-syntax (cute stx)
+       (syntax-case stx (<> <...>)
+         [(cute)
+          (raise-syntax-error #f "cute expects 1 or more slots or expressions, given none"  stx)]
+         [(cute <>)
+          #'(lambda (f) (f))]
+         [(cute <...> slot-or-expr ...)
+          (raise-syntax-error #f "cute expects an expression at the first position, given <...>" stx)]
+         [(cute proc)
+          #'(lambda () (proc))]
+         [(cute <> slot-or-expr ... <...>)
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names ignored names bindings)
+                                  #`(let #,bindings
+                                      (lambda (f #,@slot-names . xs)
+                                        (apply f #,@names xs)))))]
+         [(cute <> slot-or-expr ...)
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names ignored names bindings)
+                                  #`(let #,bindings
+                                      (lambda (f #,@slot-names)
+                                        (f #,@names)))))]
+         [(cute proc slot-or-expr ... <...>)
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names ignored names bindings)
+                                  #`(let #,bindings
+                                      (lambda (#,@slot-names . xs)
+                                        (apply proc #,@names xs)))))]
+         [(cute proc slot-or-expr ...)
+          (generate-names/exprs #'(slot-or-expr ...)
+                                (lambda (slot-names ignored names bindings)
+                                  #`(let #,bindings
+                                      (lambda #,slot-names
+                                        (proc #,@names)))))]))
+     )
+ --------------010903090308070905050402--
+ 
+ 
+
+Responsible changed from "nobody" to "eli" by eli at Thu, 16 Mar 2006 01:33:24 -0500
+Reason>>> patching
+
+State changed from "open" to "closed" by eli at Thu, 16 Mar 2006 01:33:24 -0500
+Reason>>> Jens -- I checked the patched version in, it would be nice
+if you can have a quick look and confirm that it is ok.
+

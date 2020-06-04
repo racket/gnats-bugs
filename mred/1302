@@ -1,0 +1,144 @@
+From robby@cs.rice.edu  Wed Dec 15 02:22:18 1999
+Received: from localhost (h152.s227.ts32.hinet.net [163.32.227.152])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id CAA20213
+	for <plt-gnats>; Wed, 15 Dec 1999 02:22:10 -0600 (CST)
+Message-Id: <199912150822.CAA20213@cs.rice.edu>
+Date: Wed, 15 Dec 1999 02:22:10 -0600 (CST)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: nested editors very slow
+
+>Number:         1302
+>Category:       mred
+>Synopsis:       nested editors very slow
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Dec 15 03:30:03 -0500 1999
+>Last-Modified:  Sun Mar 28 02:40:58 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        102/3
+>Organization:
+titan
+>Environment:
+unix (i386-linux)
+Tools: ("CVS" "analysis" "debug" "stepper" "syncheck" "unit-bundle" "project-manager")
+Docs Installed:
+("mzc" "icons" "drscheme" "framework" "help" "teachpack" "r5rs" "mzscheme" "mred" "misclib" "tools" "insidemz" "match" "mrspidey")
+Collections:
+(("/home/scheme/plt/collects" ("CVS" "afm" "doc" "browser" "cogen" "compiler" "countdwn" "drjava" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "help" "hierarchy" "hierlist" "htdp" "icons" "launcher" "make" "mred" "mrspidey" "mysterx" "mzlib" "mzscheme" "net" "quasiquote" "readline" "slatex" "slibinit" "srpersist" "stepper" "tests" "texpict" "userspce" "xml" "zodiac")) ("/home/robby/robby/collects" ("CVS" "account" "backgammon" "checkers" "doonesbury" "friendly" "icfp-pc-99" "mahjongg" "paper-utils" "pente" "pop-pop" "sample-solutions" "set-fonts" "solutions" "test-image-map" "xmahjongg")) ("/home/robby/robby/proj/talks" ("CVS" "bundle-proposal" "icfp98" "lc" "lunch1" "unit-patterns" "unit-proposal" "util")) ("/home/robby/robby/proj/papers" ("CVS" "c+u.save" "drafthead.sty" "dr" "dr-column" "geometric-control" "graphical-units" "include" "inputs" "sba-procedures" "senior-thesis" "signature-constraints" "type-safety" "typed-unit-calculus" "unit" "unit-semantics" "dr-journal")) ("/home/robby/mflatt/collects" ("CVS" "sirmail")))
+>Description:
+When editors are deeply nested, creation or insertion of editors 
+becomes very slow.
+>How-To-Repeat:
+(define f (make-object frame% "frame" #f 100 500))
+(define outermost-t (make-object text%))
+(define ec (make-object editor-canvas% f outermost-t))
+(let loop ([n 200]
+	   [t outermost-t])
+  (cond
+   [(zero? n) (void)]
+   [else (let* ([new-t (make-object text%)]
+		[snip (make-object editor-snip% new-t)])
+	   (send t insert "abcdef")
+	   (send t insert #\newline)
+	   (send t insert snip)
+	   (loop (- n 1)
+		 new-t))]))
+(send f show #t)
+
+>Fix:
+>Release-Note:
+
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Thu Dec 16 07:33:37 1999
+Responsible-Changed-Why:
+
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1302: nested editors very slow
+Date: Sat, 1 Jan 2000 08:59:40 -0800
+
+ Quoting robby@cs.rice.edu:
+ > >Synopsis:       nested editors very slow
+ > [...]
+ > When editors are deeply nested, creation or insertion of editors 
+ > becomes very slow.
+ 
+ If you insert into an editor of nesting depth N, the size must be
+ recalculated for all of the containing editors. So inserting is O(N).
+ To build a N-depth nesting is thus O(N^2). Hence slowness.
+ 
+ As it turns out, if you create a the nesting before attaching it to a
+ canvas, the constant on the O(N^2) run-time becomes very small.
+ (Essentially, there's no dc% for measurements, so the editors are
+ forced to skip a lot of work that they'd otherwise like to do.) You can
+ see the difference in the example program by moving the editor-canvas
+ creation to just before showing the frame.
+ 
+ This question crops up about once every two years. I look at the code
+ each time, and always conclude that speeding things up (in the case
+ that a dc% is available) would be prohibitively complex. Changes that
+ appear to be simple (e.g., make `begin-edit-sequence' have the same
+ effect as removing the dc%) turn out not to be so simple after all.
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1302: nested editors very slow
+Date: Sun, 2 Jan 2000 00:15:30 -0800 (PST)
+
+ Quoting Matthew Flatt:
+ > Quoting robby@cs.rice.edu:
+ > > >Synopsis:       nested editors very slow
+ > > [...]
+ > > When editors are deeply nested, creation or insertion of editors 
+ > > becomes very slow.
+ > 
+ > If you insert into an editor of nesting depth N, the size must be
+ > recalculated for all of the containing editors. So inserting is O(N).
+ > To build a N-depth nesting is thus O(N^2). Hence slowness.
+ > 
+ > As it turns out, if you create a the nesting before attaching it to a
+ > canvas, the constant on the O(N^2) run-time becomes very small.
+ 
+ In my experience with the typesetting code (which inserts after
+ creating everything) things are still very slow and take a lot of
+ memory. I plugged one leak in drs so far; perhaps I will find more....
+ 
+ > (Essentially, there's no dc% for measurements, so the editors are
+ > forced to skip a lot of work that they'd otherwise like to do.) You can
+ > see the difference in the example program by moving the editor-canvas
+ > creation to just before showing the frame.
+ > 
+ > This question crops up about once every two years. I look at the code
+ > each time, and always conclude that speeding things up (in the case
+ > that a dc% is available) would be prohibitively complex. Changes that
+ > appear to be simple (e.g., make `begin-edit-sequence' have the same
+ > effect as removing the dc%) turn out not to be so simple after all.
+ 
+ Well, perhaps this will matter more when/if more people use the
+ typesetting stuff.
+ 
+ Thanks,
+ Robby
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Jan 17 19:11:26 2000
+State-Changed-Why:
+Algorithm complexity appears to be unavoidable in practice.
+
+>Unformatted:

@@ -1,0 +1,179 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Oct 23 09:46:31 2006
+Received: from wr-out-0506.google.com (wr-out-0506.google.com [64.233.184.228])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k9NDkSan003586
+	for <bugs@bugs.plt-scheme.org>; Mon, 23 Oct 2006 09:46:28 -0400
+Message-Id: <200610231346.k9NDkQx1003579@champlain.ccs.neu.edu>
+Date: Mon, 23 Oct 2006 09:46:26 -0400
+From: jensaxel@soegaard.net
+To: bugs@plt-scheme.org
+Subject: DrScheme crash caused by make-string or symbol->string
+
+>Number:         8346
+>Category:       mzscheme
+>Synopsis:       DrScheme crash caused by make-string or symbol->string
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Oct 23 09:50:01 -0400 2006
+>Closed-Date:    Mon Jan 17 17:47:49 -0500 2011
+>Last-Modified:  Mon Jan 17 17:47:49 -0500 2011
+>Originator:     Jens Axel Søgaard
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352.6-svn3oct2006
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Programmer\\PLT-FULL-352.6\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced") (* "C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\planet\\300\\352.6\\cache\\neil\\csv.plt\\1\\1\\doc" "C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\planet\\300\\352.6\\cache\\neil\\htmlprag.plt\\1\\3\\doc"))
+Human Language: english
+(current-memory-use) 79556608
+
+Collections:
+(("C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\352.6\\collects" "divascheme" "info-domain") ("C:\\Programmer\\PLT-FULL-352.6\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Pretty Big (includes MrEd and Advanced Student)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+Prompted by a mail Hartrumpf on the Chicken list,
+on a whim I decided to check whether symbol->string
+is O(1) in MzScheme.
+
+The test program below tests this. However for
+the particular n = 10^8 DrScheme crashes.
+
+For say n=10^50 I get a normal error.
+>How-To-Repeat:
+Paste the following in the Definition window and click Run.
+
+(define (test n)
+  (if (= n 0)
+      'done
+      (let ([s (string->symbol (make-string n))])
+        (time (symbol->string n))
+        (test (quotient n 10)))))
+
+(test (expt 10 8))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: jensaxel@soegaard.net, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8346: DrScheme crash caused by make-string or symbol->string
+Date: Thu, 26 Oct 2006 11:24:56 0800
+
+ At Mon, 23 Oct 2006 09:50:01 -0400, jensaxel@soegaard.net wrote:
+ > Prompted by a mail Hartrumpf on the Chicken list,
+ > on a whim I decided to check whether symbol->string
+ > is O(1) in MzScheme.
+ > 
+ > The test program below tests this. However for
+ > the particular n = 10^8 DrScheme crashes.
+ > 
+ > For say n=10^50 I get a normal error.
+ 
+ DrScheme is running out of memory, right? 
+ 
+ You get an out-of-memory error for 10^50 because DrScheme knows it
+ can't allocate that much on a 32-bit machine, and it doesn't even try.
+ 
+ But 10^8 = 100 million characters is plausible; taking into account the
+ UTF-32 encoding used by strings, that's a 400MB string. Maybe that much
+ even works when you run it. (On my 0.5GB PowerBook, it's too painful to
+ try.) If so, MzScheme then tries to turn the string into symbol --
+ which would be only 100MB more, but MzScheme also plans ahead for error
+ messages that contain contain up to three copies of the symbol, which
+ means an extra 300MB in reserve for exceptions. We're up to 800MB.
+ Maybe even that much works, but after partially generating the error,
+ MzScheme needs a new error buffer (since the previously allocated 300MB
+ buffer is in use); my guess is that you actually see a crash when
+ trying to allocate the new 300MB buffer, which would bring total memory
+ use to 1.1GB.
+ 
+ In short, MzScheme can occasionally handle the possibility of running
+ out of memory, but not usually.
+ 
+ The fact that the internal error buffer never shrinks (even if the
+ large symbol is GC'ed) is something to think about more.
+ 
+ Meanwhile, I see that mzscheme3m crashes even with n = 10^7. That was a
+ bug in the GC due to a mishandling of large atomic objects that have a
+ type tag, and it's now fixed in SVN.
+ 
+ Finally: yes, `symbol->string' is O(n).
+ 
+ Thanks,
+ Matthew
+ 
+From: =?UTF-8?B?SmVucyBBeGVsIFPDuGdhYXJk?= <jensaxel@soegaard.net>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8346: DrScheme crash caused by make-string or symbol->string
+Date: Fri, 27 Oct 2006 16:37:22 +0200
+
+ Matthew Flatt skrev:
+ > At Mon, 23 Oct 2006 09:50:01 -0400, jensaxel@soegaard.net wrote:
+ >> Prompted by a mail Hartrumpf on the Chicken list,
+ >> on a whim I decided to check whether symbol->string
+ >> is O(1) in MzScheme.
+ >>
+ >> The test program below tests this. However for
+ >> the particular n = 10^8 DrScheme crashes.
+ >>
+ >> For say n=10^50 I get a normal error.
+ > 
+ > DrScheme is running out of memory, right? 
+ > 
+ > You get an out-of-memory error for 10^50 because DrScheme knows it
+ > can't allocate that much on a 32-bit machine, and it doesn't even try.
+ > 
+ > But 10^8 = 100 million characters is plausible; taking into account the
+ > UTF-32 encoding used by strings, that's a 400MB string. Maybe that much
+ > even works when you run it. (On my 0.5GB PowerBook, it's too painful to
+ > try.) If so, MzScheme then tries to turn the string into symbol --
+ > which would be only 100MB more, but MzScheme also plans ahead for error
+ > messages that contain contain up to three copies of the symbol, which
+ > means an extra 300MB in reserve for exceptions. We're up to 800MB.
+ > Maybe even that much works, but after partially generating the error,
+ > MzScheme needs a new error buffer (since the previously allocated 300MB
+ > buffer is in use); my guess is that you actually see a crash when
+ > trying to allocate the new 300MB buffer, which would bring total memory
+ > use to 1.1GB.
+ 
+ Thanks for the explanation - it makes perfect sense.
+ 
+ > In short, MzScheme can occasionally handle the possibility of running
+ > out of memory, but not usually.
+ 
+ I guess I am just used to MzScheme catching all my errors :-)
+ 
+ > The fact that the internal error buffer never shrinks (even if the
+ > large symbol is GC'ed) is something to think about more.
+ > 
+ > Meanwhile, I see that mzscheme3m crashes even with n = 10^7. That was a
+ > bug in the GC due to a mishandling of large atomic objects that have a
+ > type tag, and it's now fixed in SVN.
+ > 
+ > Finally: yes, `symbol->string' is O(n).
+ 
+ Okay.
+ 
+ /Jens Axel
+ 
+
+Responsible changed from "nobody" to "mflatt" by eli at Tue, 31 Oct 2006 16:40:09 -0500
+Reason>>> Possibly to be closed
+
+
+State changed from "open" to "closed" by eli at Mon, 17 Jan 2011 17:47:49 -0500
+Reason>>> closed as "obsolete" with respect to v5.0.99.6 and later; 
+either the bug
+is long-since fixed, the relevant code doesn't exist 
+anymore, the
+relevant platform hasn't been supported recently, or a new 
+bug report is
+needed if the problem really isn't fixed and someone 
+actually cares
+

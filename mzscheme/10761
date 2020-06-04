@@ -1,0 +1,81 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Feb 14 16:07:04 2010
+Received: from mail-iw0-f203.google.com (mail-iw0-f203.google.com [209.85.223.203])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o1EL72Ua006490
+	for <bugs@bugs.plt-scheme.org>; Sun, 14 Feb 2010 16:07:02 -0500
+Message-Id: <201002142106.o1EL6xYp006478@champlain.ccs.neu.edu>
+Date: Sun, 14 Feb 2010 16:06:59 -0500
+From: jsailor+plt@cs.brown.edu
+To: bugs@plt-scheme.org
+Subject: mzscheme startup fails when cwd is relative
+
+>Number:         10761
+>Category:       mzscheme
+>Synopsis:       mzscheme startup fails when cwd is relative
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Feb 14 16:08:01 -0500 2010
+>Last-Modified:  Fri Sep 03 21:29:34 -0400 2010
+>Originator:     Jon Sailor
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.3
+>Environment:
+linux-ubuntu
+>Description:
+When the current working directory only is a relative path, the mzscheme startup fails. Here's the error:
+
+
+
+---
+
+(0) tyler ~/workdir $ mzscheme -e 1
+path->complete-path: second argument is not a complete path: "workdir/"
+
+ === context ===
+loop
+find-library-collection-paths
+
+lib: standard-module-name-resolver: collection not found: "scheme" in any of: () in: (lib "scheme/init")
+#f::0: compile: bad syntax; literal data is not allowed, because no #%datum syntax transformer is bound in: 1
+(1) tyler ~/workdir $ 
+
+---
+
+
+The call in scheme-land is in 4.2.3/src/mzscheme/src/startup.ss, line 360:
+
+  (path->complete-path v (current-directory))
+
+From there, the call goes down into C, eventually hitting a getcwd() syscall. If getcwd() returns a relative path [1], it appears to propagate up to the return value of (current-directory), and path->complete-path doesn't like that. It's easy to see this from the shell: "readlink /proc/self/cwd" is a convenient way to see what getcwd() would return.
+
+
+The same bug appears to also exist in Debian stable's plt-scheme, 4.0.1.
+
+
+[1] Theoretically, getcwd() is only supposed to return absolute paths, at least according to getcwd(3) on my Linux system. Sometimes it doesn't. I'm not sure I could reproduce a situation where "getcwd" returns a relative path on demand, but I have running shells where it does, so I can do further tests on this if necessary.
+>How-To-Repeat:
+Starting in the shell,
+
+  readlink /proc/self/cwd  # "workdir"
+  mzscheme -e 1  # fails
+  cd .  # shell executes chdir("/home/jon/workdir")
+  readlink /proc/self/cwd  # "/home/jon/workdir"
+  mzscheme -e 1  # works
+
+Or, from C,
+
+  char *env[] = { 0 };
+  char *args[] = { "mzscheme", "-e", "1", 0 };
+  char buf[1024];
+  if (you-want-it-to-work)
+    chdir("/home/jon/workdir");
+  printf("cwd: %s\n", getcwd(buf, 1024));
+  execve("/usr/bin/mzscheme", args, env);
+  
+(My actual test case includes error-checking, etc.)
+>Fix:

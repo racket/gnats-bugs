@@ -1,0 +1,175 @@
+From apache@plt-scheme.org Mon Aug 23 21:05:43 2004
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id i7O15g0u025418
+	for <bugs@plt-scheme.org>; Mon, 23 Aug 2004 21:05:42 -0400
+Message-Id: <200408240105.i7O15gdJ025416@champlain.ccs.neu.edu>
+Date: Mon, 23 Aug 2004 21:05:42 -0400
+From: dherman@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: (module ...) language and dynamic-require
+
+>Number:         7002
+>Category:       mzscheme
+>Synopsis:       (module ...) language and dynamic-require
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Aug 23 21:10:00 -0400 2004
+>Last-Modified:  Wed Sep 08 18:09:54 -0400 2004
+>Originator:     Dave Herman
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        208.1-cvs9aug2004
+>Environment:
+windows-2000
+>Description:
+dynamic-require doesn't work right in the (module ...) language. dynamic-require seems to behave differently depending on whether it's executed before or after the REPL prompt appears.
+
+I.e., if you change the definition of break-drscheme in module m (see steps below) like so:
+
+  (define break-drscheme
+    (dynamic-require "a.scm" 'fact))
+
+the bug doesn't appear.
+
+>How-To-Repeat:
+1. Create two files.
+
+;; First file is "a.scm":
+
+(module a mzscheme
+  (define (fact n)
+    (if (zero? n) 1 (* n (fact (sub1 n)))))
+  (provide fact))
+
+;; Second file is "m.scm":
+
+(module m mzscheme
+  (define (break-drscheme)
+    (dynamic-require "a.scm" 'fact))
+  (provide break-drscheme))
+
+;; --
+
+2. Open m.scm in DrScheme. Change to (module ...) language
+3. Execute
+4. Type (break-drscheme) at repl.
+
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@cs.uchicago.edu>
+To: dherman@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@ccs.neu.edu,
+        sk@cs.brown.edu, mflatt@cs.utah.edu, laminatedwastrel@brinckerhoff.org,
+        gregp@ccs.neu.edu, meunier@ccs.neu.edu, sowens@cs.utah.edu,
+        kathyg@cs.utah.edu, awick@cs.utah.edu, goldberg@cs.utah.edu,
+        dskippy@ccs.neu.edu, jacobm@cs.uchicago.edu
+Subject: Re: all/7002: (module ...) language and dynamic-require
+Date: Mon, 23 Aug 2004 20:17:16 -0500
+
+ Can you explain what goes wrong, please?
+ 
+ Thanks,
+ Robby
+From: "David A. Herman" <dherman@ccs.neu.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org, eli@plt-scheme.org,
+        matthias@ccs.neu.edu, sk@cs.brown.edu, mflatt@cs.utah.edu,
+        laminatedwastrel@brinckerhoff.org, gregp@ccs.neu.edu,
+        meunier@ccs.neu.edu, sowens@cs.utah.edu, kathyg@cs.utah.edu,
+        awick@cs.utah.edu, goldberg@cs.utah.edu, dskippy@ccs.neu.edu,
+        jacobm@cs.uchicago.edu, ryanc@ccs.neu.edu
+Subject: Re: all/7002: (module ...) language and dynamic-require
+Date: Mon, 23 Aug 2004 21:29:05 -0400
+
+ > Can you explain what goes wrong, please?
+ 
+ The following error:
+ 
+      a.scm:3:26: expand: unbound variable in module in: fact
+ 
+ which is incorrect, because fact is bound in a.scm.
+ 
+ Note that the behavior of the program in the (module ...) language 
+ differs from the behavior of the program in the mzscheme language. In a 
+ bad way, that is.
+ 
+ Dave
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: "David A. Herman" <dherman@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org, eli@plt-scheme.org,
+        matthias@ccs.neu.edu, sk@cs.brown.edu, mflatt@cs.utah.edu,
+        laminatedwastrel@brinckerhoff.org, gregp@ccs.neu.edu,
+        meunier@ccs.neu.edu, sowens@cs.utah.edu, kathyg@cs.utah.edu,
+        awick@cs.utah.edu, goldberg@cs.utah.edu, dskippy@ccs.neu.edu,
+        jacobm@cs.uchicago.edu, ryanc@ccs.neu.edu
+Subject: Re: all/7002: (module ...) language and dynamic-require
+Date: Mon, 23 Aug 2004 20:48:26 -0500
+
+ At Mon, 23 Aug 2004 21:29:05 -0400, "David A. Herman" wrote:
+ > > Can you explain what goes wrong, please?
+ > 
+ > The following error:
+ > 
+ >      a.scm:3:26: expand: unbound variable in module in: fact
+ > 
+ > which is incorrect, because fact is bound in a.scm.
+ > 
+ > Note that the behavior of the program in the (module ...) language 
+ > differs from the behavior of the program in the mzscheme language. In a 
+ > bad way, that is.
+ 
+ Thanks. DrScheme inherits this behavior from mzscheme, actually. To see
+ this, make an a.scm as in David's original message and run this in
+ mzscheme:
+ 
+ (module m mzscheme
+   (define (break-drscheme)
+     (dynamic-require "a.scm" 'fact))
+   (provide break-drscheme))
+ 
+ (require m)
+ (current-namespace (module->namespace 'm))
+ (break-drscheme)
+ 
+ I put that code in tmp.ss:
+ 
+   % mzscheme -qr ~/tmp.ss
+   /Users/robby/a.scm:3:26: compile: unbound variable in module in: fact
+ 
+ 
+ This behavior is still in 299.
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: "David A. Herman" <dherman@ccs.neu.edu>, bugs@plt-scheme.org,
+        nobody@plt-scheme.org, eli@plt-scheme.org, matthias@ccs.neu.edu,
+        sk@cs.brown.edu, laminatedwastrel@brinckerhoff.org, gregp@ccs.neu.edu,
+        meunier@ccs.neu.edu, sowens@cs.utah.edu, kathyg@cs.utah.edu,
+        awick@cs.utah.edu, goldberg@cs.utah.edu, dskippy@ccs.neu.edu,
+        jacobm@cs.uchicago.edu, ryanc@ccs.neu.edu
+Subject: Re: all/7002: (module ...) language and dynamic-require
+Date: Mon, 23 Aug 2004 20:53:49 -0700
+
+ At Mon, 23 Aug 2004 20:48:26 -0500, Robby Findler wrote:
+ > Thanks. DrScheme inherits this behavior from mzscheme, actually. 
+ 
+ This will be fixed in 299.15.
+ 
+ Matthew
+ 
+
+Responsible changed from "nobody" to "mflatt" by mflatt at Wed, 08 Sep 2004 18:09:54 -0400
+Reason>>> mz
+
+State changed from "open" to "closed" by mflatt at Wed, 08 Sep 2004 18:09:54 -0400
+Reason>>> Fixed in 299.15.
+
+Matthew
+

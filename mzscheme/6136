@@ -1,0 +1,161 @@
+From robby@cs.rice.edu  Fri Feb 28 12:52:48 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id MAA15104
+	for <bugs>; Fri, 28 Feb 2003 12:52:48 -0500
+Message-Id: <200302281752.MAA15104@champlain.ccs.neu.edu>
+Date: Fri, 28 Feb 2003 12:52:48 -0500
+From: Robert Bruce Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.uchicago.edu
+To: bugs@plt-scheme.org
+Subject: hash-table form for creating hash-tables in the spirit of cons for lists
+
+>Number:         6136
+>Category:       mzscheme
+>Synopsis:       hash-table form for creating hash-tables in the spirit of cons for lists
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          change-request
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Feb 28 12:55:01 EST 2003
+>Closed-Date:    Thu Apr 24 17:19:28 EDT 2003
+>Last-Modified:  Thu Apr 24 17:19:28 EDT 2003
+>Originator:     Robert Bruce Findler
+>Release:        203.4
+>Organization:
+plt
+>Environment:
+macosx "Darwin taitung.cs.uchicago.edu 6.4 Darwin Kernel Version 6.4: Wed Jan 29 18:50:42 PST 2003; root:xnu/xnu-344.26.obj~1/RELEASE_PPC  Power Macintosh powerpc" (ppc-macosx)
+
+Docs installed:
+("advanced" "beginning" "beginning-abbr" "drscheme" "framework" "help" "insidemz" "intermediate" "intermediate-lambda" "misclib" "mred" "mzc" "mzlib" "mzscheme" "r5rs" "t-y-scheme" "tex2page" "tools" "tour")
+
+Collections:
+(("/Users/robby/cvs/exp/plt/collects/mzlib/../../MrEd.app/Contents/MacOS/../../../collects" ("afm" "algol60" "backward" "browser" "browser2" "cogen" "compiler" "countdwn" "CVS" "cvs-time-stamp" "debug" "defaults" "doc" "drjava" "dromedary" "drscheme" "drscheme-jr" "dynext" "eopl" "errortrace" "file-browser" "finish-install" "framework" "games" "graphics" "guibuilder" "guserspce" "gusrspce" "help" "helpdoc" "hierarchy" "hierlist" "htdp" "html" "html-generate" "icfp-robot-gui" "icons" "java" "lang" "launcher" "make" "mrdemo" "mred" "mrflow" "mrlib" "mrspidey" "mysterx" "mzcom" "mzdynext" "mzlib" "mzos" "mzscheme" "net" "newspidey" "ollie-world" "openssl" "parser-tools" "python" "quasiquote" "readline" "reduction-semantics" "release-notes" "robotclient" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "stepper-graphical" "string-constants" "syntax" "system" "test" "test-suite" "tests" "tex2page" "texpict" "typeset" "userspce" "version" "waterworld" "web-server" "xml" "zodiac")))
+
+Human language: english
+Computer language: ("Professional Languages" "module")
+>Description:
+Right now, we only have a very imperative way of creating hash-tables as values (not constants):
+
+  (let ([ht (make-hash-table)])
+    (hash-table-put! ht key value) ...
+   ht)
+
+As an analogue to cons, that would mean writing:
+
+  (let ([c (cons)])
+    (set-car! c hd)
+    (set-cdr! c tl)
+   c)
+
+rather than
+
+  (cons hd tl)
+
+I propose that we add syntaxes like these:
+
+(define-syntax (make-hash-table-syntax stx)
+  (syntax-case stx ()
+    [(name symbs ...)
+     (andmap identifier? (syntax->list (syntax (symbs ...))))
+     (define-syntax (name stx)
+       (syntax-case stx ()
+         [(_ (key val) (... ...))
+          (syntax (let ([ht (make-hash-table symbs ...)])
+                    (hash-table-put! ht key val) (... ...)
+                    ht))]))]))
+
+(make-hash-table-syntax hash-table)
+(make-hash-table-syntax hash-table/equal 'equal)
+(make-hash-table-syntax hash-table/weak 'weak)
+(make-hash-table-syntax hash-table/equal-weak 'equal 'weak)
+
+In addition, we could support hash-table*
+
+(provide/contract hash-table*
+                  (listof (symbols 'weak 'equal))
+                  (listof cons?))
+(define (hash-table* keys assoc)
+  (let ([ht (apply make-hash-table keys)])
+    (for-each (lambda (x) (hash-table-put! ht (car x) (cdr x))))
+    ht))
+
+and get rid of make-hash-table (or push it into an inside module that the world cannot get).
+
+We could then provide something in the etc.ss library like this:
+
+  (define (make-hash-table . keys)
+     (if (memq 'equal keys)
+         (hash-table/equal)
+        (hash-table)))
+
+with cases for weak tables, too for backwards compatibility.
+>How-To-Repeat:
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Philippe Meunier <meunier@ccs.neu.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6136: hash-table form for creating hash-tables in the spirit of cons for lists
+Date: Fri, 28 Feb 2003 16:59:10 -0500
+
+ Robert Bruce Findler wrote:
+ >Right now, we only have a very imperative way of creating hash-tables as values (not constants):
+ >
+ >  (let ([ht (make-hash-table)])
+ >    (hash-table-put! ht key value) ...
+ >   ht)
+ >
+ >As an analogue to cons, that would mean writing:
+ >
+ >  (let ([c (cons)])
+ >    (set-car! c hd)
+ >    (set-cdr! c tl)
+ >   c)
+ >
+ >rather than
+ >
+ >  (cons hd tl)
+ 
+ Note: I actually wrote an "associative sets" library on top of hash
+ tables where you can do things like:
+ 
+ (let ([as (assoc-set-set
+            (assoc-set-set
+             (assoc-set-make)
+             'foo 'bar)
+            'baz 'dontremember)])
+    ...)
+ 
+ Have a look at collects/mrflow/assoc-set-hash.ss if interested.  I
+ also have the same kind of library for plain sets (set-hash.ss).  And
+ each library also has a second implementation done on top of lists,
+ which makes operations on them slower but also makes them
+ deterministic - that has helped me pinpoint weird bugs in the value
+ propagation code of mrflow a couple of times (actually most of the
+ analysis code in mrflow still uses plain mzscheme hash tables, but I'm
+ switching to my own kind of associative sets step by step as I rewrite
+ stuff).
+ 
+ Philippe
+ 
+Responsible-Changed-From-To: steck->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Thu Apr 24 17:19:28 2003
+Responsible-Changed-Why:
+    rbf
+State-Changed-From-To: open->closed
+State-Changed-By: robby
+State-Changed-When: Thu Apr 24 17:19:28 2003
+State-Changed-Why:
+    added to etc.ss (updated docs).
+>Unformatted:
+

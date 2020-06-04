@@ -1,0 +1,275 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Sep 15 15:43:10 2006
+Received: from nf-out-f131.google.com (nf-out-0910.google.com [64.233.182.131])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k8FJh4xt019571
+	for <bugs@bugs.plt-scheme.org>; Fri, 15 Sep 2006 15:43:04 -0400
+Message-Id: <200609151943.k8FJh2E5019565@champlain.ccs.neu.edu>
+Date: Fri, 15 Sep 2006 15:43:02 -0400
+From: sbloch@adelphi.edu
+To: bugs@plt-scheme.org
+Subject: image->color-list mutates its argument!
+
+>Number:         8283
+>Category:       htdp
+>Synopsis:       image->color-list mutates its argument!
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Sep 15 15:45:01 -0400 2006
+>Last-Modified:  Wed Oct 18 21:18:40 -0400 2006
+>Originator:     Stephen Bloch
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Program Files\\PLT\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 78860288
+
+Collections:
+(("C:\\Documents and Settings\\Administrator\\Application Data\\PLT Scheme\\352\\collects" non-existent-path) ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tex2page" "texpict" "trace" "version" "web-server" "xml"))
+Teachpack filenames: (#<path:C:\Program Files\PLT\collects\teachpack\tiles.ss> #<path:C:\Program Files\PLT\collects\teachpack\htdp\image.ss>)
+Computer Language: (("Teaching Languages" "How to Design Programs" "Beginning Student") (#6(#t constructor repeating-decimal #f #t none) #f))
+>Description:
+I got a bug report from somebody complaining about my
+tiles teachpack: (reflect-horiz (circle 10 'solid 'red))
+produces a distorted circle.  I was unable to replicate
+it on a Mac, but on a Windows machine I noticed not only
+this, but that reflect-horiz was apparently mutating its
+argument.  So I looked at the source code for
+reflect-horiz, which starts by calling image->color-list
+on its argument, and THIS function seems to mutate the
+argument.
+>How-To-Repeat:
+(define ball (circle 10 'solid 'red))
+ball
+(image->color-list ball)
+ball
+; the result will be slightly different: jaggier edges,
+; and truncated on bottom and right sides.
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@cs.uchicago.edu>
+To: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8283: image->color-list mutates its argument!
+Date: Fri, 15 Sep 2006 21:34:58 -0500
+
+ At Fri, 15 Sep 2006 15:45:02 -0400, sbloch@adelphi.edu wrote:
+ > *** How to repeat:
+ > (define ball (circle 10 'solid 'red))
+ > ball
+ > (image->color-list ball)
+ > ball
+ > ; the result will be slightly different: jaggier edges,
+ > ; and truncated on bottom and right sides.
+ 
+ I'm not sure how to fix this. If I turn on smoothing when rendering to
+ a bitmap, then this test fails:
+ 
+ (require (lib "image.ss" "htdp"))
+ (define (p00 i) (move-pinhole i (- (pinhole-x i)) (- (pinhole-y i))))
+ 
+       (image-inside? (overlay/xy (p00 (rectangle 16 16 'solid 'red))
+                                  2 5
+                                  (p00 (ellipse 6 6 'outline 'blue)))
+                      (ellipse 6 6 'outline 'blue))
+ 
+ 
+ It seems like the blue background w/smoothing messes up the image
+ search (as probably is to be expected). Also, image-inside? is
+ implemented by turning both images into bitmaps and then searching for
+ one inside the other.
+ 
+ Should it be the case that doing an alpha-sensitive search should work
+ for the above case, somehow? If not, any other ideas?
+ 
+ Thanks,
+ Robby
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8283: image->color-list mutates its argument!
+Date: Wed, 20 Sep 2006 10:48:59 0800
+
+ At Fri, 15 Sep 2006 21:34:58 -0500, Robby Findler wrote:
+ > At Fri, 15 Sep 2006 15:45:02 -0400, sbloch@adelphi.edu wrote:
+ > > *** How to repeat:
+ > > (define ball (circle 10 'solid 'red))
+ > > ball
+ > > (image->color-list ball)
+ > > ball
+ > > ; the result will be slightly different: jaggier edges,
+ > > ; and truncated on bottom and right sides.
+ > 
+ > I'm not sure how to fix this. If I turn on smoothing when rendering to
+ > a bitmap, then this test fails:
+ > 
+ > (require (lib "image.ss" "htdp"))
+ > (define (p00 i) (move-pinhole i (- (pinhole-x i)) (- (pinhole-y i))))
+ > 
+ >       (image-inside? (overlay/xy (p00 (rectangle 16 16 'solid 'red))
+ >                                  2 5
+ >                                  (p00 (ellipse 6 6 'outline 'blue)))
+ >                      (ellipse 6 6 'outline 'blue))
+ > 
+ > 
+ > It seems like the blue background w/smoothing messes up the image
+ > search (as probably is to be expected). Also, image-inside? is
+ > implemented by turning both images into bitmaps and then searching for
+ > one inside the other.
+ > 
+ > Should it be the case that doing an alpha-sensitive search should work
+ > for the above case, somehow?
+ 
+ I would not have expected `image-inside?' to work when the image you're
+ looking for has alphas. I suppose that the search could take the alpha
+ into account, and see if anything matches a combination of the target
+ image's alpha given the right background.
+ 
+ Matthew
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8283: image->color-list mutates its argument!
+Date: Tue, 19 Sep 2006 22:40:40 -0500
+
+ At Wed, 20 Sep 2006 10:48:59 0800, Matthew Flatt wrote:
+ > At Fri, 15 Sep 2006 21:34:58 -0500, Robby Findler wrote:
+ > > At Fri, 15 Sep 2006 15:45:02 -0400, sbloch@adelphi.edu wrote:
+ > > > *** How to repeat:
+ > > > (define ball (circle 10 'solid 'red))
+ > > > ball
+ > > > (image->color-list ball)
+ > > > ball
+ > > > ; the result will be slightly different: jaggier edges,
+ > > > ; and truncated on bottom and right sides.
+ > > 
+ > > I'm not sure how to fix this. If I turn on smoothing when rendering to
+ > > a bitmap, then this test fails:
+ > > 
+ > > (require (lib "image.ss" "htdp"))
+ > > (define (p00 i) (move-pinhole i (- (pinhole-x i)) (- (pinhole-y i))))
+ > > 
+ > >       (image-inside? (overlay/xy (p00 (rectangle 16 16 'solid 'red))
+ > >                                  2 5
+ > >                                  (p00 (ellipse 6 6 'outline 'blue)))
+ > >                      (ellipse 6 6 'outline 'blue))
+ > > 
+ > > 
+ > > It seems like the blue background w/smoothing messes up the image
+ > > search (as probably is to be expected). Also, image-inside? is
+ > > implemented by turning both images into bitmaps and then searching for
+ > > one inside the other.
+ > > 
+ > > Should it be the case that doing an alpha-sensitive search should work
+ > > for the above case, somehow?
+ > 
+ > I would not have expected `image-inside?' to work when the image you're
+ > looking for has alphas. I suppose that the search could take the alpha
+ > into account, and see if anything matches a combination of the target
+ > image's alpha given the right background.
+ 
+ You're thinking of having an extra "background color" argument to
+ find-image?
+ 
+ find-image won't work at all, I think, if we have alphas ...
+ 
+ Robby
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8283: image->color-list mutates its argument!
+Date: Wed, 20 Sep 2006 12:16:15 0800
+
+ At Tue, 19 Sep 2006 22:40:40 -0500, Robby Findler wrote:
+ > > I would not have expected `image-inside?' to work when the image you're
+ > > looking for has alphas. I suppose that the search could take the alpha
+ > > into account, and see if anything matches a combination of the target
+ > > image's alpha given the right background.
+ > 
+ > You're thinking of having an extra "background color" argument to
+ > find-image?
+ 
+ No, I imagine that for each pixel P with alpha a that `find-image' is
+ looking for, it accepts a range of values <r0...r1,g0...g1,b0...b1>.
+ When a is 0, the range will be <0...255,0...255,0...255>. When a is 1,
+ then r0=r1 and g0=g1 and b0=b1.
+ 
+ Matthew
+ 
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8283: image->color-list mutates its argument!
+Date: Tue, 19 Sep 2006 23:23:19 -0500
+
+ At Wed, 20 Sep 2006 12:16:15 0800, Matthew Flatt wrote:
+ > At Tue, 19 Sep 2006 22:40:40 -0500, Robby Findler wrote:
+ > > > I would not have expected `image-inside?' to work when the image you're
+ > > > looking for has alphas. I suppose that the search could take the alpha
+ > > > into account, and see if anything matches a combination of the target
+ > > > image's alpha given the right background.
+ > > 
+ > > You're thinking of having an extra "background color" argument to
+ > > find-image?
+ > 
+ > No, I imagine that for each pixel P with alpha a that `find-image' is
+ > looking for, it accepts a range of values <r0...r1,g0...g1,b0...b1>.
+ > When a is 0, the range will be <0...255,0...255,0...255>. When a is 1,
+ > then r0=r1 and g0=g1 and b0=b1.
+ 
+ Yeah, I think I was thinking something similar. find-image would have
+ to effectively be "there exists an image that might have been overlaid
+ with this image to produce that image" -- that's what you're getting
+ at, right?
+ 
+ Robby
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/8283: image->color-list mutates its argument!
+Date: Wed, 20 Sep 2006 13:25:12 0800
+
+ At Tue, 19 Sep 2006 23:23:19 -0500, Robby Findler wrote:
+ > At Wed, 20 Sep 2006 12:16:15 0800, Matthew Flatt wrote:
+ > > At Tue, 19 Sep 2006 22:40:40 -0500, Robby Findler wrote:
+ > > > > I would not have expected `image-inside?' to work when the image you're
+ > > > > looking for has alphas. I suppose that the search could take the alpha
+ > > > > into account, and see if anything matches a combination of the target
+ > > > > image's alpha given the right background.
+ > > > 
+ > > > You're thinking of having an extra "background color" argument to
+ > > > find-image?
+ > > 
+ > > No, I imagine that for each pixel P with alpha a that `find-image' is
+ > > looking for, it accepts a range of values <r0...r1,g0...g1,b0...b1>.
+ > > When a is 0, the range will be <0...255,0...255,0...255>. When a is 1,
+ > > then r0=r1 and g0=g1 and b0=b1.
+ > 
+ > Yeah, I think I was thinking something similar. find-image would have
+ > to effectively be "there exists an image that might have been overlaid
+ > with this image to produce that image" -- that's what you're getting
+ > at, right?
+ 
+ Yes. (Oops -- I wrote something like that, then edited it away.)
+ 
+ Now that I think about it, the relevant range for component x of a
+ pixel with alpha a is (* x a) to (+ (* x a) (* 255 (- 1 a))), right?
+ 
+ Matthew
+ 
+
+
+Responsible changed from "matthias" to "mflatt" by matthias at Wed, 18 Oct 2006 21:18:40 -0400
+Reason>>> this is somewhere in the bowls of the Windows implementation 
+see dialog between Robby and Matthew 
+

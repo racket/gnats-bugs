@@ -1,0 +1,426 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Feb 15 18:25:24 2007
+Received: from ug-out-1314.google.com (ug-out-1314.google.com [66.249.92.175])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l1FNPNLK023947
+	for <bugs@bugs.plt-scheme.org>; Thu, 15 Feb 2007 18:25:24 -0500
+Message-Id: <200702152325.l1FNPALf023941@champlain.ccs.neu.edu>
+Date: Thu, 15 Feb 2007 18:25:10 -0500
+From: ryanc@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: syntax-local-expand-expression in expression-accepting contexts
+
+>Number:         8529
+>Category:       mzscheme
+>Synopsis:       syntax-local-expand-expression in expression-accepting contexts
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Feb 15 18:30:01 -0500 2007
+>Last-Modified:  Fri May 04 05:41:35 -0400 2007
+>Originator:     Ryan Culpepper
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.8-svn15feb2007
+>Environment:
+macosx "Darwin burundi.local 7.9.0 Darwin Kernel Version 7.9.0: Wed Mar 30 20:11:17 PST 2005; root:xnu/xnu-517.12.7.obj~1/RELEASE_PPC  Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/ryanc/projects/plt-svn/trunk/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 74679560
+
+Collections:
+(("/Users/ryanc/Library/PLT Scheme/369.8/collects" non-existent-path) ("/Users/ryanc/projects/plt-svn/trunk/collects" ".DS_Store" ".svn" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t current-print mixed-fraction-e #f #t debug))
+>Description:
+Returning the opaque value returned by syntax-local-expand-expression fails in some contexts other than 'expression that *should accept* an expression.
+
+It seems to fail in 'top-level, 'module-begin, and internal definition contexts, all of which should accept expression forms. It seems to work in a 'module context, though.
+>How-To-Repeat:
+(define-syntax (m stx)
+  (syntax-case stx ()
+    [(m e)
+     (let-values ([(estx opaque) (syntax-local-expand-expression #'e)])
+       opaque)]))
+
+;; WORKS:
+(values (m (lambda (x) x)))
+
+;; ERROR:
+(m (lambda (x) x))
+
+;; ERROR:
+(let ()
+  (define x 1)
+  (m (lambda (x) x))
+  x)
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: ryanc@ccs.neu.edu, bugs@plt-scheme.org
+Cc: robby@cs.uchicago.edu, matthias@ccs.neu.edu, samth@ccs.neu.edu
+Subject: Re: [plt-bug] all/8529: syntax-local-expand-expression in expression-accepting contexts
+Date: Fri, 16 Feb 2007 09:12:17 +0800
+
+ At Thu, 15 Feb 2007 18:30:01 -0500, ryanc@ccs.neu.edu wrote:
+ > Returning the opaque value returned by syntax-local-expand-expression fails in 
+ > some contexts other than 'expression that *should accept* an expression.
+ > 
+ > It seems to fail in 'top-level, 'module-begin, and internal definition 
+ > contexts, all of which should accept expression forms. It seems to work in a 
+ > 'module context, though.
+ 
+ I'd classify the fact that it works in a 'module context as a bug, and
+ all the others are appropriate restrictions.
+ 
+ In non-expression contexts, it's difficult to be sure that the meaning
+ won't change as the context evolves. Certainly, in a module context,
+ later definitions can change the expansion. In a local-definition
+ context, I suppose the fact that you've arrived at an expression means
+ that no definitions will be added; but it would take a lot of
+ special-case machinery to allow it for built-in internal-definition
+ positions an not contexts like `begin-with-definitions' (which doesn't
+ stop accepting definitions when it hits an expression).
+ 
+ Maybe `syntax-local-expand-expression' should fail when called in an
+ expansion context other than 'expression. Unfortunately, that's not
+ enough to ensure consistency, because a macro could always use
+ `local-expand' with 'expression when the current expansion context is
+ something else.
+ 
+ The way to use `syntax-local-expand-expression' successfully is to make
+ sure the calling macro is only expanded in an expression context,
+ possibly by having its uses always wrapped with `#%expression'. (Using
+ `#%expression' tells module and internal-definition contexts to expand
+ no further until the local context is finalized). But I'm not sure how
+ to enforce this prescription.
+ 
+ Matthew
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: ryanc@ccs.neu.edu, bugs@plt-scheme.org, robby@cs.uchicago.edu,
+        samth@ccs.neu.edu
+Subject: Re: [plt-bug] all/8529: syntax-local-expand-expression in expression-accepting contexts
+Date: Fri, 16 Feb 2007 11:37:29 -0500
+
+ Good explanation.
+ 
+ That's why my "begin" suggestion failed of course. Duh.
+ 
+ -- Matthias
+ 
+ 
+ On Feb 15, 2007, at 8:12 PM, Matthew Flatt wrote:
+ 
+ > At Thu, 15 Feb 2007 18:30:01 -0500, ryanc@ccs.neu.edu wrote:
+ >> Returning the opaque value returned by syntax-local-expand- 
+ >> expression fails in
+ >> some contexts other than 'expression that *should accept* an  
+ >> expression.
+ >>
+ >> It seems to fail in 'top-level, 'module-begin, and internal  
+ >> definition
+ >> contexts, all of which should accept expression forms. It seems to  
+ >> work in a
+ >> 'module context, though.
+ >
+ > I'd classify the fact that it works in a 'module context as a bug, and
+ > all the others are appropriate restrictions.
+ >
+ > In non-expression contexts, it's difficult to be sure that the meaning
+ > won't change as the context evolves. Certainly, in a module context,
+ > later definitions can change the expansion. In a local-definition
+ > context, I suppose the fact that you've arrived at an expression means
+ > that no definitions will be added; but it would take a lot of
+ > special-case machinery to allow it for built-in internal-definition
+ > positions an not contexts like `begin-with-definitions' (which doesn't
+ > stop accepting definitions when it hits an expression).
+ >
+ > Maybe `syntax-local-expand-expression' should fail when called in an
+ > expansion context other than 'expression. Unfortunately, that's not
+ > enough to ensure consistency, because a macro could always use
+ > `local-expand' with 'expression when the current expansion context is
+ > something else.
+ >
+ > The way to use `syntax-local-expand-expression' successfully is to  
+ > make
+ > sure the calling macro is only expanded in an expression context,
+ > possibly by having its uses always wrapped with `#%expression'. (Using
+ > `#%expression' tells module and internal-definition contexts to expand
+ > no further until the local context is finalized). But I'm not sure how
+ > to enforce this prescription.
+ >
+ > Matthew
+ >
+ 
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org, robby@cs.uchicago.edu, matthias@ccs.neu.edu,
+        samth@ccs.neu.edu
+Subject: Re: [plt-bug] all/8529: syntax-local-expand-expression in
+	expression-accepting contexts
+Date: Fri, 16 Feb 2007 12:57:51 -0500
+
+ On Fri, 2007-02-16 at 09:12 +0800, Matthew Flatt wrote:
+ > At Thu, 15 Feb 2007 18:30:01 -0500, ryanc@ccs.neu.edu wrote:
+ > > Returning the opaque value returned by syntax-local-expand-expression fails in 
+ > > some contexts other than 'expression that *should accept* an expression.
+ > > 
+ > > It seems to fail in 'top-level, 'module-begin, and internal definition 
+ > > contexts, all of which should accept expression forms. It seems to work in a 
+ > > 'module context, though.
+ > 
+ > I'd classify the fact that it works in a 'module context as a bug, and
+ > all the others are appropriate restrictions.
+ > 
+ > In non-expression contexts, it's difficult to be sure that the meaning
+ > won't change as the context evolves. Certainly, in a module context,
+ > later definitions can change the expansion. In a local-definition
+ > context, I suppose the fact that you've arrived at an expression means
+ > that no definitions will be added; but it would take a lot of
+ > special-case machinery to allow it for built-in internal-definition
+ > positions an not contexts like `begin-with-definitions' (which doesn't
+ > stop accepting definitions when it hits an expression).
+ 
+ I hadn't thought about that. I agree, it shouldn't work in internal-
+ definition contexts.
+ 
+ > Maybe `syntax-local-expand-expression' should fail when called in an
+ > expansion context other than 'expression. Unfortunately, that's not
+ > enough to ensure consistency, because a macro could always use
+ > `local-expand' with 'expression when the current expansion context is
+ > something else.
+ 
+ Is there a way to consistently forbid 'syntax-local-expand-expression'
+ in internal-definition contexts as well as 'begin-with-definitions'-like
+ contexts? The environment has a special updatable frame at its head in
+ both situation, right?
+ 
+ > The way to use `syntax-local-expand-expression' successfully is to make
+ > sure the calling macro is only expanded in an expression context,
+ > possibly by having its uses always wrapped with `#%expression'. (Using
+ > `#%expression' tells module and internal-definition contexts to expand
+ > no further until the local context is finalized). But I'm not sure how
+ > to enforce this prescription.
+ 
+ It seems that the only way to safely write a macro using 'syntax-local-
+ expand-expression' is to write a wrapper macro that wraps the real macro
+ in a #%expression form. The alternative is to put the burden on the
+ macro's clients, and the description of the kind of context would
+ confuse nearly everyone.
+ 
+ Even your fv-lambda example has this bug. (I'm more inclined to call it
+ a bug than a complex unstated contract on the macro's use.) The
+ following both raise errors:
+   (fv-lambda (x) x)
+   (let ()
+     (define x 1)
+     (fv-lambda (x) y))
+ 
+ Is there any reliable way to detect the conditions that can lead to this
+ error at the time when 'syntax-local-expand-expression' is called and
+ report it then?
+ 
+ Ryan
+ 
+ 
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Ryan Culpepper" <ryanc@ccs.neu.edu>
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        matthias@ccs.neu.edu, samth@ccs.neu.edu
+Subject: Re: [plt-bug] all/8529: syntax-local-expand-expression in expression-accepting contexts
+Date: Fri, 16 Feb 2007 12:02:53 -0600
+
+ Does it make any sense to, when syntax-local-expand-expression's
+ output is put into a macro, to have that act much like #%expression
+ acts, forcing things to be in an expression context? That seems like
+ it would then allow things like:
+ 
+   (let () (define x 1) (fv-lambda (x) y)))
+ 
+ Also, it can't possibly be a complex-unstated-contract on fv-lambda,
+ since the blame would be assigned to fv-lambda! fv-lambda would have
+ to detect and signal the error (or use some as-yet-unwritten macro
+ contract specification language/library to do the checks).
+ 
+ Robby
+ 
+ On 2/16/07, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ > On Fri, 2007-02-16 at 09:12 +0800, Matthew Flatt wrote:
+ > > At Thu, 15 Feb 2007 18:30:01 -0500, ryanc@ccs.neu.edu wrote:
+ > > > Returning the opaque value returned by syntax-local-expand-expression fails in
+ > > > some contexts other than 'expression that *should accept* an expression.
+ > > >
+ > > > It seems to fail in 'top-level, 'module-begin, and internal definition
+ > > > contexts, all of which should accept expression forms. It seems to work in a
+ > > > 'module context, though.
+ > >
+ > > I'd classify the fact that it works in a 'module context as a bug, and
+ > > all the others are appropriate restrictions.
+ > >
+ > > In non-expression contexts, it's difficult to be sure that the meaning
+ > > won't change as the context evolves. Certainly, in a module context,
+ > > later definitions can change the expansion. In a local-definition
+ > > context, I suppose the fact that you've arrived at an expression means
+ > > that no definitions will be added; but it would take a lot of
+ > > special-case machinery to allow it for built-in internal-definition
+ > > positions an not contexts like `begin-with-definitions' (which doesn't
+ > > stop accepting definitions when it hits an expression).
+ >
+ > I hadn't thought about that. I agree, it shouldn't work in internal-
+ > definition contexts.
+ >
+ > > Maybe `syntax-local-expand-expression' should fail when called in an
+ > > expansion context other than 'expression. Unfortunately, that's not
+ > > enough to ensure consistency, because a macro could always use
+ > > `local-expand' with 'expression when the current expansion context is
+ > > something else.
+ >
+ > Is there a way to consistently forbid 'syntax-local-expand-expression'
+ > in internal-definition contexts as well as 'begin-with-definitions'-like
+ > contexts? The environment has a special updatable frame at its head in
+ > both situation, right?
+ >
+ > > The way to use `syntax-local-expand-expression' successfully is to make
+ > > sure the calling macro is only expanded in an expression context,
+ > > possibly by having its uses always wrapped with `#%expression'. (Using
+ > > `#%expression' tells module and internal-definition contexts to expand
+ > > no further until the local context is finalized). But I'm not sure how
+ > > to enforce this prescription.
+ >
+ > It seems that the only way to safely write a macro using 'syntax-local-
+ > expand-expression' is to write a wrapper macro that wraps the real macro
+ > in a #%expression form. The alternative is to put the burden on the
+ > macro's clients, and the description of the kind of context would
+ > confuse nearly everyone.
+ >
+ > Even your fv-lambda example has this bug. (I'm more inclined to call it
+ > a bug than a complex unstated contract on the macro's use.) The
+ > following both raise errors:
+ >   (fv-lambda (x) x)
+ >   (let ()
+ >     (define x 1)
+ >     (fv-lambda (x) y))
+ >
+ > Is there any reliable way to detect the conditions that can lead to this
+ > error at the time when 'syntax-local-expand-expression' is called and
+ > report it then?
+ >
+ > Ryan
+ >
+ >
+ >
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs@plt-scheme.org,
+        matthias@ccs.neu.edu, samth@ccs.neu.edu
+Subject: Re: [plt-bug] all/8529: syntax-local-expand-expression in
+	expression-accepting contexts
+Date: Fri, 16 Feb 2007 13:42:12 -0500
+
+ On Fri, 2007-02-16 at 12:02 -0600, Robby Findler wrote:
+ > Does it make any sense to, when syntax-local-expand-expression's
+ > output is put into a macro, to have that act much like #%expression
+ > acts, forcing things to be in an expression context? That seems like
+ > it would then allow things like:
+ > 
+ >   (let () (define x 1) (fv-lambda (x) y)))
+ 
+ That would be the same as wrapping #%expression around the opaque syntax
+ part, but that doesn't help. The problem is that the call to 'syntax-
+ local-expand-expression' occurs too early, before the environment has
+ been finalized. I don't think there's anything that one can do with the
+ result to correct the problem. It's the expansion of the macro that
+ calls 'syntax-local-expand-expression' that needs to be delayed. (I
+ didn't understand that the first time around, and it took a careful
+ reading of Matthew's response to really understand the problem.)
+ 
+ > Also, it can't possibly be a complex-unstated-contract on fv-lambda,
+ > since the blame would be assigned to fv-lambda! fv-lambda would have
+ > to detect and signal the error (or use some as-yet-unwritten macro
+ > contract specification language/library to do the checks).
+ 
+ When I said contract, I was referring to the second option from the
+ previous paragraph: put the burden on the user to use the macro in the
+ right context. It's true that we don't have facilities for expressing
+ that contract in checked form, but the macro writer could document the
+ contexts where the macro was safe to use. That's what I meant by
+ (unchecked) contract.
+ 
+ Ryan
+ 
+ 
+ > 
+ > Robby
+ > 
+ > On 2/16/07, Ryan Culpepper <ryanc@ccs.neu.edu> wrote:
+ > > On Fri, 2007-02-16 at 09:12 +0800, Matthew Flatt wrote:
+ > > > At Thu, 15 Feb 2007 18:30:01 -0500, ryanc@ccs.neu.edu wrote:
+ > > > > Returning the opaque value returned by syntax-local-expand-expression fails in
+ > > > > some contexts other than 'expression that *should accept* an expression.
+ > > > >
+ > > > > It seems to fail in 'top-level, 'module-begin, and internal definition
+ > > > > contexts, all of which should accept expression forms. It seems to work in a
+ > > > > 'module context, though.
+ > > >
+ > > > I'd classify the fact that it works in a 'module context as a bug, and
+ > > > all the others are appropriate restrictions.
+ > > >
+ > > > In non-expression contexts, it's difficult to be sure that the meaning
+ > > > won't change as the context evolves. Certainly, in a module context,
+ > > > later definitions can change the expansion. In a local-definition
+ > > > context, I suppose the fact that you've arrived at an expression means
+ > > > that no definitions will be added; but it would take a lot of
+ > > > special-case machinery to allow it for built-in internal-definition
+ > > > positions an not contexts like `begin-with-definitions' (which doesn't
+ > > > stop accepting definitions when it hits an expression).
+ > >
+ > > I hadn't thought about that. I agree, it shouldn't work in internal-
+ > > definition contexts.
+ > >
+ > > > Maybe `syntax-local-expand-expression' should fail when called in an
+ > > > expansion context other than 'expression. Unfortunately, that's not
+ > > > enough to ensure consistency, because a macro could always use
+ > > > `local-expand' with 'expression when the current expansion context is
+ > > > something else.
+ > >
+ > > Is there a way to consistently forbid 'syntax-local-expand-expression'
+ > > in internal-definition contexts as well as 'begin-with-definitions'-like
+ > > contexts? The environment has a special updatable frame at its head in
+ > > both situation, right?
+ > >
+ > > > The way to use `syntax-local-expand-expression' successfully is to make
+ > > > sure the calling macro is only expanded in an expression context,
+ > > > possibly by having its uses always wrapped with `#%expression'. (Using
+ > > > `#%expression' tells module and internal-definition contexts to expand
+ > > > no further until the local context is finalized). But I'm not sure how
+ > > > to enforce this prescription.
+ > >
+ > > It seems that the only way to safely write a macro using 'syntax-local-
+ > > expand-expression' is to write a wrapper macro that wraps the real macro
+ > > in a #%expression form. The alternative is to put the burden on the
+ > > macro's clients, and the description of the kind of context would
+ > > confuse nearly everyone.
+ > >
+ > > Even your fv-lambda example has this bug. (I'm more inclined to call it
+ > > a bug than a complex unstated contract on the macro's use.) The
+ > > following both raise errors:
+ > >   (fv-lambda (x) x)
+ > >   (let ()
+ > >     (define x 1)
+ > >     (fv-lambda (x) y))
+ > >
+ > > Is there any reliable way to detect the conditions that can lead to this
+ > > error at the time when 'syntax-local-expand-expression' is called and
+ > > report it then?
+ > >
+ > > Ryan
+ > >
+ > >
+ > >
+ 
+

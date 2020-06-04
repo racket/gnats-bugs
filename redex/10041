@@ -1,0 +1,396 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jan 26 12:17:59 2009
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.225])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n0QHHp6k026052
+	for <bugs@bugs.plt-scheme.org>; Mon, 26 Jan 2009 12:17:51 -0500
+Message-Id: <200901261717.n0QHHknv026046@champlain.ccs.neu.edu>
+Date: Mon, 26 Jan 2009 12:17:46 -0500
+From: sstrickl@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Redex: no term-let clauses in rendered metafunction
+
+>Number:         10041
+>Category:       redex
+>Synopsis:       Redex: no term-let clauses in rendered metafunction
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jan 26 12:20:01 -0500 2009
+>Last-Modified:  Sat Sep 29 10:26:00 -0400 2012
+>Originator:     Stevie Strickland
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.4.2-svn25jan2009
+>Environment:
+macosx "Darwin Bonn.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 149750228
+
+Collections:
+(("/Users/sstrickl/Library/PLT Scheme/4.1.4.2/collects" non-existent-path) ("/Users/sstrickl/plt/collects" ".svn" "2htdp" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "waterworld" !
+ "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+term-let clauses are rendered in reduction-relations, but not in metafunctions (see code below for an example of such a metafunction).
+>How-To-Repeat:
+#lang scheme
+
+(require redex)
+
+(define-language unit-lang
+  (x variable-not-otherwise-mentioned)
+  (u (unit (import x ...)
+           (export x ...)
+           (define x e) ...
+           e))
+  (e number)
+  (p (program u)))
+
+(define-metafunction unit-lang
+ do-nothing : u -> u
+  [(do-nothing (unit (import x_i ...)
+                     (export x_e ...)
+                     (define x_d e_d) ...
+                     e_b))
+   ,(term-let ([(x_new1 ...) (variables-not-in (term u)
+                                               (term (x_i ...)))]
+               [(x_new2 ...) (variables-not-in (term (u x_new1 ...)) 
+                                               (term (x_e ...)))]
+               [(x_new3 ...) (variables-not-in (term (u x_new1 ... x_new2 ...)) 
+                                               (term (x_d ...)))])
+      (term (unit (import x_new1 ...)
+                  (export x_new2 ...)
+                  (define x_new3 e_d) ...
+                  e_b)))])
+
+(render-metafunction do-nothing)
+>Fix:
+The code to do that just wasn't there.
+>Release-Note:
+This was not a contract violation, nor would it have been a type error.
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: sstrickl@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered 
+	metafunction
+Date: Mon, 26 Jan 2009 11:34:48 -0600
+
+ The big ugly space is the same problem as the previous PR. FWIW. I
+ assume you'd want it to look more like this?
+ 
+ (define red
+   (reduction-relation
+    unit-lang
+    (--> (do-nothing (unit (import x_i ...)
+                           (export x_e ...)
+                           (define x_d e_d) ...
+                           e_b))
+         ,(term-let ([(x_new1 ...) (variables-not-in (term u)
+                                                     (term (x_i ...)))]
+                     [(x_new2 ...) (variables-not-in (term (u x_new1 ...))
+                                                     (term (x_e ...)))]
+                     [(x_new3 ...) (variables-not-in (term (u x_new1
+ ... x_new2 ...))
+                                                     (term (x_d ...)))])
+                    (term (unit (import x_new1 ...)
+                                (export x_new2 ...)
+                                (define x_new3 e_d) ...
+                                e_b))))))
+ 
+ (render-reduction-relation red)
+ 
+ ... well, without the big ugly space?
+ 
+ Robby
+ 
+ On Mon, Jan 26, 2009 at 11:20 AM,  <sstrickl@ccs.neu.edu> wrote:
+ > A new problem report is waiting at
+ >  http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10041
+ >
+ > Reported by Stevie Strickland for release: 4.1.4.2-svn25jan2009
+ >
+ > *** Description:
+ > term-let clauses are rendered in reduction-relations, but not in metafunc=
+ tions (see code below for an example of such a metafunction).
+ >
+ > *** How to repeat:
+ > #lang scheme
+ >
+ > (require redex)
+ >
+ > (define-language unit-lang
+ >  (x variable-not-otherwise-mentioned)
+ >  (u (unit (import x ...)
+ >           (export x ...)
+ >           (define x e) ...
+ >           e))
+ >  (e number)
+ >  (p (program u)))
+ >
+ > (define-metafunction unit-lang
+ >  do-nothing : u -> u
+ >  [(do-nothing (unit (import x_i ...)
+ >                     (export x_e ...)
+ >                     (define x_d e_d) ...
+ >                     e_b))
+ >   ,(term-let ([(x_new1 ...) (variables-not-in (term u)
+ >                                               (term (x_i ...)))]
+ >               [(x_new2 ...) (variables-not-in (term (u x_new1 ...))
+ >                                               (term (x_e ...)))]
+ >               [(x_new3 ...) (variables-not-in (term (u x_new1 ... x_new2 =
+ ...))
+ >                                               (term (x_d ...)))])
+ >      (term (unit (import x_new1 ...)
+ >                  (export x_new2 ...)
+ >                  (define x_new3 e_d) ...
+ >                  e_b)))])
+ >
+ > (render-metafunction do-nothing)
+ >
+ > *** Environment:
+ > macosx "Darwin Bonn.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 1=
+ 7:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386" (i386-macosx/3m) =
+ (get-display-depth) =3D 32
+ > Human Language: english
+ > (current-memory-use) 149750228
+ >
+ > Collections:
+ > (("/Users/sstrickl/Library/PLT Scheme/4.1.4.2/collects" non-existent-path=
+ ) ("/Users/sstrickl/plt/collects" ".svn" "2htdp" "afm" "algol60" "browser" =
+ "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "emb=
+ edded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "g=
+ raphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help"=
+  "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "laun=
+ cher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzli=
+ b" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor"=
+  "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" =
+ "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "sirmail" "s=
+ latex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclas=
+ s" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-=
+ engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "versio=
+ n" "waterworld" !
+ >  "web-server" "wxme" "xml"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) =
+ (default) #() "#lang scheme\n" #t))
+ >
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered 
+	metafunction
+Date: Mon, 26 Jan 2009 11:41:00 -0600
+
+ Are you writing a paper using this stuff?
+ 
+ Robby
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered  metafunction
+Date: Mon, 26 Jan 2009 12:39:36 -0500
+
+ On Jan 26, 2009, at 12:34 PM, Robby Findler wrote:
+ > The big ugly space is the same problem as the previous PR. FWIW. I
+ > assume you'd want it to look more like this?
+ >
+ > (define red
+ >  (reduction-relation
+ >   unit-lang
+ >   (--> (do-nothing (unit (import x_i ...)
+ >                          (export x_e ...)
+ >                          (define x_d e_d) ...
+ >                          e_b))
+ >        ,(term-let ([(x_new1 ...) (variables-not-in (term u)
+ >                                                    (term (x_i ...)))]
+ >                    [(x_new2 ...) (variables-not-in (term (u  
+ > x_new1 ...))
+ >                                                    (term (x_e ...)))]
+ >                    [(x_new3 ...) (variables-not-in (term (u x_new1
+ > ... x_new2 ...))
+ >                                                    (term (x_d ...)))])
+ >                   (term (unit (import x_new1 ...)
+ >                               (export x_new2 ...)
+ >                               (define x_new3 e_d) ...
+ >                               e_b))))))
+ >
+ > (render-reduction-relation red)
+ 
+ Exactly.  Without the where clauses, there's no indication where the  
+ x_new# variables are coming from in the metafunction.
+ 
+ > ... well, without the big ugly space?
+ 
+ Okay, yeah, that too if possible :)
+ 
+ Thanks,
+ Stevie
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered 
+	metafunction
+Date: Mon, 26 Jan 2009 11:43:47 -0600
+
+ Unlike the other one, this one looks like there just is missing stuff.
+ When I get some time I'll be able to fix it.
+ 
+ Note that the term-lets won't turn into anything unless they are at
+ the top-level (but I think that doesn't really matter, since they can
+ usually be floated to the top easily enough).
+ 
+ Robby
+ 
+ On Mon, Jan 26, 2009 at 11:39 AM, Stevie Strickland
+ <sstrickl@ccs.neu.edu> wrote:
+ > On Jan 26, 2009, at 12:34 PM, Robby Findler wrote:
+ >>
+ >> The big ugly space is the same problem as the previous PR. FWIW. I
+ >> assume you'd want it to look more like this?
+ >>
+ >> (define red
+ >>  (reduction-relation
+ >>  unit-lang
+ >>  (--> (do-nothing (unit (import x_i ...)
+ >>                         (export x_e ...)
+ >>                         (define x_d e_d) ...
+ >>                         e_b))
+ >>       ,(term-let ([(x_new1 ...) (variables-not-in (term u)
+ >>                                                   (term (x_i ...)))]
+ >>                   [(x_new2 ...) (variables-not-in (term (u x_new1 ...))
+ >>                                                   (term (x_e ...)))]
+ >>                   [(x_new3 ...) (variables-not-in (term (u x_new1
+ >> ... x_new2 ...))
+ >>                                                   (term (x_d ...)))])
+ >>                  (term (unit (import x_new1 ...)
+ >>                              (export x_new2 ...)
+ >>                              (define x_new3 e_d) ...
+ >>                              e_b))))))
+ >>
+ >> (render-reduction-relation red)
+ >
+ > Exactly.  Without the where clauses, there's no indication where the x_new#
+ > variables are coming from in the metafunction.
+ >
+ >> ... well, without the big ugly space?
+ >
+ > Okay, yeah, that too if possible :)
+ >
+ > Thanks,
+ > Stevie
+ >
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered 
+	metafunction
+Date: Mon, 26 Jan 2009 11:46:53 -0600
+
+ On Mon, Jan 26, 2009 at 11:44 AM, Stevie Strickland
+ <sstrickl@ccs.neu.edu> wrote:
+ > On Jan 26, 2009, at 12:41 PM, Robby Findler wrote:
+ >>
+ >> Are you writing a paper using this stuff?
+ >
+ > If possible, yes, though I'll fall back to manual typesetting if that's
+ > problematic.  If I understood correctly, Matthias asked me to try this out
+ > first, and in any case keeping the stuff in the paper as close to the redex
+ > model without having to edit both by hand would be a nice side-effect.
+ 
+ What is your deadline?
+ 
+ Robby
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered  metafunction
+Date: Mon, 26 Jan 2009 12:44:46 -0500
+
+ On Jan 26, 2009, at 12:41 PM, Robby Findler wrote:
+ > Are you writing a paper using this stuff?
+ 
+ If possible, yes, though I'll fall back to manual typesetting if  
+ that's problematic.  If I understood correctly, Matthias asked me to  
+ try this out first, and in any case keeping the stuff in the paper as  
+ close to the redex model without having to edit both by hand would be  
+ a nice side-effect.
+ 
+ Stevie
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Stevie Strickland <sstrickl@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered 
+	metafunction
+Date: Mon, 26 Jan 2009 11:54:06 -0600
+
+ Oh, good. I should be able to at least figure out if the whitespace
+ thing is fixable or not in plenty of time for ICFP.
+ 
+ Robby
+ 
+ On Mon, Jan 26, 2009 at 11:52 AM, Stevie Strickland
+ <sstrickl@ccs.neu.edu> wrote:
+ > On Jan 26, 2009, at 12:46 PM, Robby Findler wrote:
+ >>
+ >> On Mon, Jan 26, 2009 at 11:44 AM, Stevie Strickland
+ >>>
+ >>> If possible, yes, though I'll fall back to manual typesetting if that's
+ >>> problematic.  If I understood correctly, Matthias asked me to try this
+ >>> out
+ >>> first, and in any case keeping the stuff in the paper as close to the
+ >>> redex
+ >>> model without having to edit both by hand would be a nice side-effect.
+ >>
+ >> What is your deadline?
+ >
+ > It's for ICFP '09 (3/2), but Matthias said he'll be on vacation that week,
+ > so I think we're shooting for trying to get this all ready by 2/28.
+ >
+ > Stevie
+ >
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered  metafunction
+Date: Mon, 26 Jan 2009 12:52:35 -0500
+
+ On Jan 26, 2009, at 12:46 PM, Robby Findler wrote:
+ > On Mon, Jan 26, 2009 at 11:44 AM, Stevie Strickland
+ >> If possible, yes, though I'll fall back to manual typesetting if  
+ >> that's
+ >> problematic.  If I understood correctly, Matthias asked me to try  
+ >> this out
+ >> first, and in any case keeping the stuff in the paper as close to  
+ >> the redex
+ >> model without having to edit both by hand would be a nice side- 
+ >> effect.
+ >
+ > What is your deadline?
+ 
+ It's for ICFP '09 (3/2), but Matthias said he'll be on vacation that  
+ week, so I think we're shooting for trying to get this all ready by  
+ 2/28.
+ 
+ Stevie
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10041: Redex: no term-let clauses in rendered  metafunction
+Date: Mon, 26 Jan 2009 13:28:02 -0500
+
+ On Jan 26, 2009, at 12:54 PM, Robby Findler wrote:
+ > Oh, good. I should be able to at least figure out if the whitespace
+ > thing is fixable or not in plenty of time for ICFP.
+ 
+ Great -- thanks!
+ 
+ Stevie
+
+State changed from "open" to "closed" by robby at Wed, 04 Feb 2009 19:23:24 -0500
+Reason>>> fixed and released to SVN
+
+

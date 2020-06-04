@@ -1,0 +1,121 @@
+From nobody@cs.rice.edu  Wed Jul 26 17:59:52 2000
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id RAA01205
+	for <plt-gnats@cs.rice.edu>; Wed, 26 Jul 2000 17:59:52 -0500 (CDT)
+Message-Id: <200007262259.RAA02858@web.cs.rice.edu>
+Date: Wed, 26 Jul 2000 17:59:51 -0500 (CDT)
+From: eli@cs.cornell.edu
+Reply-To: eli@cs.cornell.edu
+To: plt-gnats@cs.rice.edu
+Subject: Problems with send-message-to-window 
+
+>Number:         1587
+>Category:       misc
+>Synopsis:       Problems with send-message-to-window
+>Confidential:   no
+>Severity:       non-critical
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Jul 26 23:00:16 GMT 2000
+>Last-Modified:  Wed Aug  2 18:33:34 CDT 2000
+>Originator:     Eli Barzilay
+>Organization:
+titan
+>Release:        103/1
+>Environment:
+unknown
+>Description:
+send-message-to-window doesn't send events correctly, depending on the
+location of windows on the screen.
+This problem was both on Linux and Windows - and the windows version gave
+different errors sometimes.
+
+>How-To-Repeat:
+Run the small program below and move the window to the top-left corner of
+the screen - watch the messages, then move the window by half of its size
+to the right and down and see that messages are send only on its lower
+right side.
+
+#!/bin/sh
+#|
+exec mred -f "$0" "$@"
+|#
+
+(define (eprintf . args)
+  (apply fprintf (current-error-port) args) (newline (current-error-port)))
+
+(define main-frame
+  (make-object
+   (class frame% ()
+     (override [on-close (lambda () (exit))]
+               [on-message
+                (lambda (m) (eprintf "main-frame-message: ~s" m))])
+     (sequence (super-init "Foo" #f #f #f #f #f '())))))
+
+(make-object (class canvas% ()
+               (override
+                [on-event
+                 (lambda (e)
+                   (send-message-to-window
+                    (inexact->exact (send e get-x))
+                    (inexact->exact (send e get-y))
+                    (list (inexact->exact (send e get-x))
+                          (inexact->exact (send e get-y)))))])
+               (sequence (super-init main-frame)
+                         (send this min-width  200)
+                         (send this min-height 200))))
+
+(send main-frame show #t)
+(yield (make-semaphore))
+
+>Fix:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eli@cs.cornell.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1587: Problems with send-message-to-window 
+Date: Wed, 26 Jul 2000 17:04:59 -0600 (MDT)
+
+ Quoting eli@cs.cornell.edu:
+ > send-message-to-window doesn't send events correctly, depending on the
+ > location of windows on the screen.
+ > This problem was both on Linux and Windows - and the windows version gave
+ > different errors sometimes.
+ 
+ I believe the problem is that `send-message-to-window' wants positions
+ in screen coordinates, not canvas client coodinates:
+ 
+ (make-object (class canvas% ()
+ 	       (inherit client->screen)
+                (override
+                 [on-event
+                  (lambda (e)
+ 		   (let-values ([(x y) (client->screen
+ 					(inexact->exact (send e get-x))
+ 					(inexact->exact (send e get-y)))])
+ 		     (send-message-to-window
+ 		      x y
+ 		      (list (inexact->exact (send e get-x))
+ 			    (inexact->exact (send e get-y))))))])
+                (sequence (super-init main-frame)
+                          (send this min-width  200)
+                          (send this min-height 200))))
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Wed Aug  2 18:33:30 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Aug  2 18:33:32 2000
+State-Changed-Why:
+
+
+ 
+>Unformatted:

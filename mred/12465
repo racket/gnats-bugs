@@ -1,0 +1,162 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Dec 28 13:33:34 2011
+Received: from mail-vw0-f44.google.com (mail-vw0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id pBSIXUUm018920
+	for <bugs@bugs.plt-scheme.org>; Wed, 28 Dec 2011 13:33:30 -0500
+Message-Id: <201112281833.pBSIXQth018914@champlain.ccs.neu.edu>
+Date: Wed, 28 Dec 2011 13:33:26 -0500
+From: bremner@debian.org
+To: bugs@racket-lang.org
+Subject: racket/gui/base uses gtk too eagerly
+
+>Number:         12465
+>Category:       mred
+>Synopsis:       racket/gui/base uses gtk too eagerly
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Dec 28 13:36:01 -0500 2011
+>Last-Modified:  Mon Jan 23 20:00:01 -0500 2012
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Any Unix
+>Description:
+(I'm submitting this as David to get him CCed.)
+
+Put this in a file:
+
+  #!racket
+  (require racket/gui/base)
+
+and run
+
+  DISPLAY= racket that-file.rkt
+
+The result is:
+
+  Gtk initialization failed for display ""
+
+but I think that it should succeed and only fail once gtk actually
+gets used.  This comes from a problem that David Bremner encountered
+when he tried to run the handin server on a headless setup.
+
+The problem starts at the require for `racket/gui/base' which is in
+that file with an explanation: removing that require will fail as long
+as it is required later in "utils.rkt" and "checker.rkt".  So a
+possible solution is that these things can use other libraries to
+deal with `text%'s and `snip%'s -- but doing that will probably run
+into problems if `racket/gui' is required from student submissions
+later.  This is why I think that the way to resolve this would be to
+avoid whatever is making gtk try to use the screen.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: bug-notification@racket-lang.org, Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bremner@debian.org, bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12465: racket/gui/base uses gtk too eagerly
+Date: Mon, 23 Jan 2012 19:26:49 -0500
+
+ More details, if it helps (which I doubt): I've tried to track this to
+ what causes the error, and it's an unsurprising piece of code -- the
+ definition of `x11-display' in "mred/private/wx/gtk/queue.rkt".  I
+ tried to delay it for the single place that uses it
+ (`find-graphical-system-path' in "mred/private/wx/gtk/procs.rkt"), but
+ that didn't work -- starting gracket (or the handin server) produces:
+ 
+   GLib-GObject: gtype.c:2710: You forgot to call g_type_init()
+   GLib: g_once_init_leave: assertion `initialization_value != 0' failed
+   GLib-GObject: g_object_new: assertion `G_TYPE_IS_OBJECT (object_type)' failed
+   GtkAccelGroup->C: expected argument of type <non-null `GtkAccelGroup' pointer>; given #f
+ 
+ 
+ About a month ago, bremner@debian.org wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=12465
+ > 
+ > Reported by Eli Barzilay for release: HEAD
+ > 
+ > *** Description:
+ > (I'm submitting this as David to get him CCed.)
+ > 
+ > Put this in a file:
+ > 
+ >   #!racket
+ >   (require racket/gui/base)
+ > 
+ > and run
+ > 
+ >   DISPLAY= racket that-file.rkt
+ > 
+ > The result is:
+ > 
+ >   Gtk initialization failed for display ""
+ > 
+ > but I think that it should succeed and only fail once gtk actually
+ > gets used.  This comes from a problem that David Bremner encountered
+ > when he tried to run the handin server on a headless setup.
+ > 
+ > The problem starts at the require for `racket/gui/base' which is in
+ > that file with an explanation: removing that require will fail as long
+ > as it is required later in "utils.rkt" and "checker.rkt".  So a
+ > possible solution is that these things can use other libraries to
+ > deal with `text%'s and `snip%'s -- but doing that will probably run
+ > into problems if `racket/gui' is required from student submissions
+ > later.  This is why I think that the way to resolve this would be to
+ > avoid whatever is making gtk try to use the screen.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: David Bremner <bremner@debian.org>
+To: Eli Barzilay <eli@barzilay.org>, bug-notification@racket-lang.org,
+        Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12465: racket/gui/base uses gtk too eagerly
+Date: Mon, 23 Jan 2012 20:45:25 -0400
+
+ On Mon, 23 Jan 2012 19:26:49 -0500, Eli Barzilay <eli@barzilay.org> wrote:
+ > More details, if it helps (which I doubt): I've tried to track this to
+ > what causes the error, and it's an unsurprising piece of code -- the
+ > definition of `x11-display' in "mred/private/wx/gtk/queue.rkt".  I
+ > tried to delay it for the single place that uses it
+ > (`find-graphical-system-path' in "mred/private/wx/gtk/procs.rkt"), but
+ > that didn't work -- starting gracket (or the handin server) produces:
+ > 
+ >   GLib-GObject: gtype.c:2710: You forgot to call g_type_init()
+ >   GLib: g_once_init_leave: assertion `initialization_value != 0' failed
+ >   GLib-GObject: g_object_new: assertion `G_TYPE_IS_OBJECT (object_type)' failed
+ >   GtkAccelGroup->C: expected argument of type <non-null `GtkAccelGroup' pointer>; given #f
+ > 
+ 
+ For what it's worth, my experience using glib for another (C/C++)
+ project is that that warning means exactly what it says; our segfaults
+ went away once we put the call to g_type_init() in.
+ 
+ d
+From: Eli Barzilay <eli@barzilay.org>
+To: David Bremner <bremner@debian.org>
+Cc: bug-notification@racket-lang.org, Matthew Flatt <mflatt@cs.utah.edu>,
+        bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12465: racket/gui/base uses gtk too eagerly
+Date: Mon, 23 Jan 2012 19:57:35 -0500
+
+ 10 minutes ago, David Bremner wrote:
+ > 
+ > For what it's worth, my experience using glib for another (C/C++)
+ > project is that that warning means exactly what it says; our
+ > segfaults went away once we put the call to g_type_init() in.
+ 
+ Well, in this case I think that this is not surprising (for Matthew),
+ since the code that binds `x11-display' also calls `gtk_init_check'
+ which looks like the missing bit.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!

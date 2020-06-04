@@ -1,0 +1,519 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon May 20 16:53:01 2013
+Received: from mail-oa0-f47.google.com (mail-oa0-f47.google.com [209.85.219.47])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r4KKqvKA019308
+	for <bugs@bugs.plt-scheme.org>; Mon, 20 May 2013 16:52:57 -0400
+Message-Id: <201305202052.r4KKqeIU019299@champlain.ccs.neu.edu>
+Date: Mon, 20 May 2013 16:52:40 -0400
+From: asumu@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: Blame message from class/c failure can be confusing
+
+>Number:         13765
+>Category:       all
+>Synopsis:       Blame message from class/c failure can be confusing
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon May 20 16:56:01 -0400 2013
+>Closed-Date:    Mon May 20 23:17:07 -0400 2013
+>Last-Modified:  Mon May 20 23:17:07 -0400 2013
+>Originator:     Asumu Takikawa
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4.10--2013-05-20(29be18bf/d/tr-classes)
+>Environment:
+unix "Linux willamette 3.2.0-2-amd64 #1 SMP Mon May 21 17:45:41 UTC 2012 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 400452048
+Links: (links) = ("tr-both"); (links #:user? #f) = (); (links #:root? #t) = (#<path:/home/asumu/code/contract-repl>); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ Package[*=auto]    Checksum    Source
+ contract-repl      #f          (link /home/asumu/code/contract-repl)
+User-specific, version-specific (5.3.4.10):
+ [none]
+
+
+
+Collections:
+("/home/asumu/plt/racket-dev/add-on/5.3.4.10/collects"
+ (non-existent-path))
+("/home/asumu/plt/racket-dev/collects"
+ ("graphics" "future-visualizer" "frtime" "framework" "make" "sgl" "launcher" "compiler" "mred" "srfi" "setup" "wxme" "honu" "mrlib" "scriblib" "r5rs" "trace" "info-domain" "typed-racket" "racket" "net" "file" "slideshow" "string-constants" "racklog" "openssl" "macro-debugger" "xml" "mysterx" "html" "drscheme" "at-exp" "hierlist" "profile" "icons" "readline" "config" "syntax" "scribble" "texpict" "mzlib" "realm" "math" "typed" "web-server" "plai" "rnrs" "eopl" "drracket" "planet" "syntax-color" "repo-time-stamp" "test-engine" "games" "picturing-programs" "ffi" "xrepl" "images" "errortrace" "json" "data" "unstable" "r6rs" "browser" "2htdp" "parser-tools" "slatex" "scheme" "compatibility" "algol60" "scribblings" "pkg" "stepper" "lazy" "rackunit" "gui-debugger" "plot" "help" "pict" "meta" "redex" "version" "defaults" "s-exp" "tests" "swindle" "mzscheme" "deinprogramm" "raco" "preprocessor" "typed-scheme" "db" "embedded-gui" "lang" "dynext" "reader" ".gitignore" "htdp" "schemeun!
+ it" "teachpack" "mzcom" "datalog"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+Consider the following snippet:
+
+  #lang racket
+  (require racket/draw)
+
+  (define/contract my-bitmap-dc%
+    ;; a reasonable subset of the contract for a bitmap-dc%
+    (class/c (get-bitmap 
+              (-> any/c 
+                  (or/c #f
+                        (object/c
+                         (save-file
+                          (->
+                           any/c
+                           (or/c string? path? output-port?)
+                           (or/c 'jpeg 'png 'xbm 'xpm 'bmp)
+                           natural-number/c
+                           (or/c #t #f))))))))
+    bitmap-dc%)
+
+  (define dc (new my-bitmap-dc% [bitmap (make-bitmap 300 300)]))
+  (send dc get-bitmap)
+
+This results in the following contract error:
+
+get-bitmap: contract violation
+  received 3 arguments
+  expected: 4 non-keyword arguments
+  in: ...
+      a disjunct of
+      the range of
+      the get-bitmap method in
+      (class/c
+       (get-bitmap
+        (->
+         any/c
+         (or/c
+          #f
+          (object/c
+           (save-file
+            (->
+             any/c
+             (or/c string? path? output-port?)
+             (or/c 'jpeg 'png 'xbm 'xpm 'bmp)
+             natural-number/c
+             (or/c #t #f))))))))
+  contract from: (definition my-bitmap-dc%)
+  contract on: my-bitmap-dc%
+  blaming: anonymous-module
+  at: unsaved-editor10119:5.17
+
+The error message suggested to me that I should find some fault in the
+specification that I wrote for the `get-bitmap` method. This is technically
+true, but it's actually misleading. The real culprit is that
+the contract for `save-file` is too restrictive (the last three arguments
+are optional).
+
+What's even more confusing is that the violation stems from the fact that
+DrRacket calls `save-file` at some point on the bitmap (to draw it to the
+interactions area), but this wasn't obvious here. The blame suggests that
+the surface code that I wrote is at fault.
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: "asumu@ccs.neu.edu" <asumu@ccs.neu.edu>,
+        "bugs@racket-lang.org" <bugs@racket-lang.org>
+Cc: "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13765: Blame message from class/c failure can be confusing
+Date: Mon, 20 May 2013 16:41:50 -0500
+
+ --047d7b414d284220dc04dd2d33a1
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Just to confirm: the bad partof the message is the first line and then the
+ ellipsis, right?
+ 
+ Robby
+ 
+ On Monday, May 20, 2013, wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=13765
+ >
+ > Reported by Asumu Takikawa for release:
+ > 5.3.4.10--2013-05-20(29be18bf/d/tr-classes)
+ >
+ > *** Description:
+ > Consider the following snippet:
+ >
+ >   #lang racket
+ >   (require racket/draw)
+ >
+ >   (define/contract my-bitmap-dc%
+ >     ;; a reasonable subset of the contract for a bitmap-dc%
+ >     (class/c (get-bitmap
+ >               (-> any/c
+ >                   (or/c #f
+ >                         (object/c
+ >                          (save-file
+ >                           (->
+ >                            any/c
+ >                            (or/c string? path? output-port?)
+ >                            (or/c 'jpeg 'png 'xbm 'xpm 'bmp)
+ >                            natural-number/c
+ >                            (or/c #t #f))))))))
+ >     bitmap-dc%)
+ >
+ >   (define dc (new my-bitmap-dc% [bitmap (make-bitmap 300 300)]))
+ >   (send dc get-bitmap)
+ >
+ > This results in the following contract error:
+ >
+ > get-bitmap: contract violation
+ >   received 3 arguments
+ >   expected: 4 non-keyword arguments
+ >   in: ...
+ >       a disjunct of
+ >       the range of
+ >       the get-bitmap method in
+ >       (class/c
+ >        (get-bitmap
+ >         (->
+ >          any/c
+ >          (or/c
+ >           #f
+ >           (object/c
+ >            (save-file
+ >             (->
+ >              any/c
+ >              (or/c string? path? output-port?)
+ >              (or/c 'jpeg 'png 'xbm 'xpm 'bmp)
+ >              natural-number/c
+ >              (or/c #t #f))))))))
+ >   contract from: (definition my-bitmap-dc%)
+ >   contract on: my-bitmap-dc%
+ >   blaming: anonymous-module
+ >   at: unsaved-editor10119:5.17
+ >
+ > The error message suggested to me that I should find some fault in the
+ > specification that I wrote for the `get-bitmap` method. This is technically
+ > true, but it's actually misleading. The real culprit is that
+ > the contract for `save-file` is too restrictive (the last three arguments
+ > are optional).
+ >
+ > What's even more confusing is that the violation stems from the fact that
+ > DrRacket calls `save-file` at some point on the bitmap (to draw it to the
+ > interactions area), but this wasn't obvious here. The blame suggests that
+ > the surface code that I wrote is at fault.
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > unix "Linux willamette 3.2.0-2-amd64 #1 SMP Mon May 21 17:45:41 UTC 2012
+ > x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 400452048
+ > Links: (links) = ("tr-both"); (links #:user? #f) = (); (links #:root? #t)
+ > = (#<path:/home/asumu/code/contract-repl>); (links #:user? #f #:root? #t) =
+ > ()
+ > raco pkg (show):
+ > Installation-wide:
+ >  [none]
+ > User-specific, all-version:
+ >  Package[*=auto]    Checksum    Source
+ >  contract-repl      #f          (link /home/asumu/code/contract-repl)
+ > User-specific, version-specific (5.3.4.10):
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/home/asumu/plt/racket-dev/add-on/5.3.4.10/collects"
+ >  (non-existent-path))
+ > ("/home/asumu/plt/racket-dev/collects"
+ >  ("graphics" "future-visualizer" "frtime" "framework" "make" "sgl"
+ > "launcher" "compiler" "mred" "srfi" "setup" "wxme" "honu" "mrlib"
+ > "scriblib" "r5rs" "trace" "info-domain" "typed-racket" "racket" "net"
+ > "file" "slideshow" "string-constants" "racklog" "openssl" "macro-debugger"
+ > "xml" "mysterx" "html" "drscheme" "at-exp" "hierlist" "profile" "icons"
+ > "readline" "config" "syntax" "scribble" "texpict" "mzlib" "realm" "math"
+ > "typed" "web-server" "plai" "rnrs" "eopl" "drracket" "planet"
+ > "syntax-color" "repo-time-stamp" "test-engine" "games" "picturing-programs"
+ > "ffi" "xrepl" "images" "errortrace" "json" "data" "unstable" "r6rs"
+ > "browser" "2htdp" "parser-tools" "slatex" "scheme" "compatibility"
+ > "algol60" "scribblings" "pkg" "stepper" "lazy" "rackunit" "gui-debugger"
+ > "plot" "help" "pict" "meta" "redex" "version" "defaults" "s-exp" "tests"
+ > "swindle" "mzscheme" "deinprogramm" "raco" "preprocessor" "typed-scheme"
+ > "db" "embedded-gui" "lang" "dynext" "reader" ".gitignore" "htdp" "schemeun!
+ >  it" "teachpack" "mzcom" "datalog"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main)
+ > (test))))
+ >
+ >
+ 
+ --047d7b414d284220dc04dd2d33a1
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Just to confirm: the bad partof the message is the first line and then the =
+ ellipsis, right?=C2=A0<div><br></div><div>Robby<span></span><br><br>On Mond=
+ ay, May 20, 2013,   wrote:<br><blockquote class=3D"gmail_quote" style=3D"ma=
+ rgin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D13=
+ 765" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D13765</a><br>
+ <br>
+ Reported by Asumu Takikawa for release: 5.3.4.10--2013-05-20(29be18bf/d/tr-=
+ classes)<br>
+ <br>
+ *** Description:<br>
+ Consider the following snippet:<br>
+ <br>
+ =C2=A0 #lang racket<br>
+ =C2=A0 (require racket/draw)<br>
+ <br>
+ =C2=A0 (define/contract my-bitmap-dc%<br>
+ =C2=A0 =C2=A0 ;; a reasonable subset of the contract for a bitmap-dc%<br>
+ =C2=A0 =C2=A0 (class/c (get-bitmap<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (-&gt; any/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (or/c #f<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 (object/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0(save-file<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 (-&gt;<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0any/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(or/c string? path? output-port?)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(or/c &#39;jpeg &#39;png &#39;xbm &#39;xpm &#39;bmp=
+ )<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0natural-number/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0(or/c #t #f))))))))<br>
+ =C2=A0 =C2=A0 bitmap-dc%)<br>
+ <br>
+ =C2=A0 (define dc (new my-bitmap-dc% [bitmap (make-bitmap 300 300)]))<br>
+ =C2=A0 (send dc get-bitmap)<br>
+ <br>
+ This results in the following contract error:<br>
+ <br>
+ get-bitmap: contract violation<br>
+ =C2=A0 received 3 arguments<br>
+ =C2=A0 expected: 4 non-keyword arguments<br>
+ =C2=A0 in: ...<br>
+ =C2=A0 =C2=A0 =C2=A0 a disjunct of<br>
+ =C2=A0 =C2=A0 =C2=A0 the range of<br>
+ =C2=A0 =C2=A0 =C2=A0 the get-bitmap method in<br>
+ =C2=A0 =C2=A0 =C2=A0 (class/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0(get-bitmap<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 (-&gt;<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0any/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(or/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 #f<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (object/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(save-file<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (-&gt;<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0any/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(or/c string? path? output-=
+ port?)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(or/c &#39;jpeg &#39;png &#=
+ 39;xbm &#39;xpm &#39;bmp)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0natural-number/c<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(or/c #t #f))))))))<br>
+ =C2=A0 contract from: (definition my-bitmap-dc%)<br>
+ =C2=A0 contract on: my-bitmap-dc%<br>
+ =C2=A0 blaming: anonymous-module<br>
+ =C2=A0 at: unsaved-editor10119:5.17<br>
+ <br>
+ The error message suggested to me that I should find some fault in the<br>
+ specification that I wrote for the `get-bitmap` method. This is technically=
+ <br>
+ true, but it&#39;s actually misleading. The real culprit is that<br>
+ the contract for `save-file` is too restrictive (the last three arguments<b=
+ r>
+ are optional).<br>
+ <br>
+ What&#39;s even more confusing is that the violation stems from the fact th=
+ at<br>
+ DrRacket calls `save-file` at some point on the bitmap (to draw it to the<b=
+ r>
+ interactions area), but this wasn&#39;t obvious here. The blame suggests th=
+ at<br>
+ the surface code that I wrote is at fault.<br>
+ <br>
+ *** How to repeat:<br>
+ <br>
+ <br>
+ *** Environment:<br>
+ unix &quot;Linux willamette 3.2.0-2-amd64 #1 SMP Mon May 21 17:45:41 UTC 20=
+ 12 x86_64 GNU/Linux&quot; (x86_64-linux/3m) (get-display-depth) =3D 32<br>
+ Human Language: english<br>
+ (current-memory-use) 400452048<br>
+ Links: (links) =3D (&quot;tr-both&quot;); (links #:user? #f) =3D (); (links=
+  #:root? #t) =3D (#&lt;path:/home/asumu/code/contract-repl&gt;); (links #:u=
+ ser? #f #:root? #t) =3D ()<br>
+ raco pkg (show):<br>
+ Installation-wide:<br>
+ =C2=A0[none]<br>
+ User-specific, all-version:<br>
+ =C2=A0Package[*=3Dauto] =C2=A0 =C2=A0Checksum =C2=A0 =C2=A0Source<br>
+ =C2=A0contract-repl =C2=A0 =C2=A0 =C2=A0#f =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0(link /home/asumu/code/contract-repl)<br>
+ User-specific, version-specific (5.3.4.10):<br>
+ =C2=A0[none]<br>
+ <br>
+ <br>
+ <br>
+ Collections:<br>
+ (&quot;/home/asumu/plt/racket-dev/add-on/<a href=3D"http://5.3.4.10/collect=
+ s" target=3D"_blank">5.3.4.10/collects</a>&quot;<br>
+ =C2=A0(non-existent-path))<br>
+ (&quot;/home/asumu/plt/racket-dev/collects&quot;<br>
+ =C2=A0(&quot;graphics&quot; &quot;future-visualizer&quot; &quot;frtime&quot=
+ ; &quot;framework&quot; &quot;make&quot; &quot;sgl&quot; &quot;launcher&quo=
+ t; &quot;compiler&quot; &quot;mred&quot; &quot;srfi&quot; &quot;setup&quot;=
+  &quot;wxme&quot; &quot;honu&quot; &quot;mrlib&quot; &quot;scriblib&quot; &=
+ quot;r5rs&quot; &quot;trace&quot; &quot;info-domain&quot; &quot;typed-racke=
+ t&quot; &quot;racket&quot; &quot;net&quot; &quot;file&quot; &quot;slideshow=
+ &quot; &quot;string-constants&quot; &quot;racklog&quot; &quot;openssl&quot;=
+  &quot;macro-debugger&quot; &quot;xml&quot; &quot;mysterx&quot; &quot;html&=
+ quot; &quot;drscheme&quot; &quot;at-exp&quot; &quot;hierlist&quot; &quot;pr=
+ ofile&quot; &quot;icons&quot; &quot;readline&quot; &quot;config&quot; &quot=
+ ;syntax&quot; &quot;scribble&quot; &quot;texpict&quot; &quot;mzlib&quot; &q=
+ uot;realm&quot; &quot;math&quot; &quot;typed&quot; &quot;web-server&quot; &=
+ quot;plai&quot; &quot;rnrs&quot; &quot;eopl&quot; &quot;drracket&quot; &quo=
+ t;planet&quot; &quot;syntax-color&quot; &quot;repo-time-stamp&quot; &quot;t=
+ est-engine&quot; &quot;games&quot; &quot;picturing-programs&quot; &quot;ffi=
+ &quot; &quot;xrepl&quot; &quot;images&quot; &quot;errortrace&quot; &quot;js=
+ on&quot; &quot;data&quot; &quot;unstable&quot; &quot;r6rs&quot; &quot;brows=
+ er&quot; &quot;2htdp&quot; &quot;parser-tools&quot; &quot;slatex&quot; &quo=
+ t;scheme&quot; &quot;compatibility&quot; &quot;algol60&quot; &quot;scribbli=
+ ngs&quot; &quot;pkg&quot; &quot;stepper&quot; &quot;lazy&quot; &quot;rackun=
+ it&quot; &quot;gui-debugger&quot; &quot;plot&quot; &quot;help&quot; &quot;p=
+ ict&quot; &quot;meta&quot; &quot;redex&quot; &quot;version&quot; &quot;defa=
+ ults&quot; &quot;s-exp&quot; &quot;tests&quot; &quot;swindle&quot; &quot;mz=
+ scheme&quot; &quot;deinprogramm&quot; &quot;raco&quot; &quot;preprocessor&q=
+ uot; &quot;typed-scheme&quot; &quot;db&quot; &quot;embedded-gui&quot; &quot=
+ ;lang&quot; &quot;dynext&quot; &quot;reader&quot; &quot;.gitignore&quot; &q=
+ uot;htdp&quot; &quot;schemeun!<br>
+ 
+ =C2=A0it&quot; &quot;teachpack&quot; &quot;mzcom&quot; &quot;datalog&quot;)=
+ )<br>
+ <br>
+ Computer Language: ((&quot;Determine language from source&quot;) (#(#t prin=
+ t mixed-fraction-e #f #t debug) (default) #() &quot;#lang racket\n&quot; #t=
+  #t ((main) (test))))<br>
+ <br>
+ </blockquote></div>
+ 
+ --047d7b414d284220dc04dd2d33a1--
+From: "asumu@ccs.neu.edu" <asumu@ccs.neu.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13765: Blame message from class/c failure can
+ be confusing
+Date: Mon, 20 May 2013 17:51:06 -0400
+
+ On 2013-05-20 16:41:50 -0500, Robby Findler wrote:
+ >    Just to confirm: the bad partof the message is the first line and then the
+ >    ellipsis, right? 
+ 
+ Yes. Especially the `get-bitmap:` part.
+ 
+ (I was confused by "blaming: anonymous-module" too, but that's because
+  the printing module-begin inserted some code that broke a contract.
+  I'm not sure much can be done about that)
+ 
+ Cheers,
+ Asumu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: "asumu@ccs.neu.edu" <asumu@ccs.neu.edu>
+Cc: "bugs@racket-lang.org" <bugs@racket-lang.org>,
+        "nobody@racket-lang.org" <nobody@racket-lang.org>,
+        "bug-notification@racket-lang.org" <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13765: Blame message from class/c failure can be confusing
+Date: Mon, 20 May 2013 21:38:56 -0500
+
+ --e89a8ff1cd0ec9f2b804dd315920
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Mon, May 20, 2013 at 4:51 PM, asumu@ccs.neu.edu <asumu@ccs.neu.edu>wrote:
+ 
+ > On 2013-05-20 16:41:50 -0500, Robby Findler wrote:
+ > >    Just to confirm: the bad partof the message is the first line and
+ > then the
+ > >    ellipsis, right?
+ >
+ > Yes. Especially the `get-bitmap:` part.
+ >
+ > (I was confused by "blaming: anonymous-module" too, but that's because
+ >  the printing module-begin inserted some code that broke a contract.
+ >  I'm not sure much can be done about that)
+ >
+ >
+ Oh, I see what you mean in the parenthetical. You probably noticed that
+ running "racket" on a file containing this code doesn't signal an error;
+ here's what the printer is (effectively) doing:
+ 
+ (let ([op (open-output-string)])
+   (send (send dc get-bitmap) save-file op 'png))
+ 
+ (instead of just the get-bitmap method invocation).
+ 
+ Robby
+ 
+ --e89a8ff1cd0ec9f2b804dd315920
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Mon, May 20, 2013 at 4:51 PM, <a href=3D"mailto:asumu@ccs.neu.ed=
+ u">asumu@ccs.neu.edu</a> <span dir=3D"ltr">&lt;<a href=3D"mailto:asumu@ccs.=
+ neu.edu" target=3D"_blank">asumu@ccs.neu.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-=
+ left-width:1px;border-left-color:rgb(204,204,204);border-left-style:solid;p=
+ adding-left:1ex"><div class=3D"im">On 2013-05-20 16:41:50 -0500, Robby Find=
+ ler wrote:<br>
+ 
+ &gt; =C2=A0 =C2=A0Just to confirm: the bad partof the message is the first =
+ line and then the<br>
+ &gt; =C2=A0 =C2=A0ellipsis, right?=C2=A0<br>
+ <br>
+ </div>Yes. Especially the `get-bitmap:` part.<br>
+ <br>
+ (I was confused by &quot;blaming: anonymous-module&quot; too, but that&#39;=
+ s because<br>
+ =C2=A0the printing module-begin inserted some code that broke a contract.<b=
+ r>
+ =C2=A0I&#39;m not sure much can be done about that)<br><br></blockquote><di=
+ v><br></div><div style>Oh, I see what you mean in the parenthetical. You pr=
+ obably noticed that running &quot;racket&quot; on a file containing this co=
+ de doesn&#39;t signal an error; here&#39;s what the printer is (effectively=
+ ) doing:</div>
+ <div style><br></div><div>(let ([op (open-output-string)])</div><div style>=
+ =C2=A0 (send (send dc get-bitmap) save-file op &#39;png))=C2=A0</div><div s=
+ tyle><br></div><div style>(instead of just the get-bitmap method invocation=
+ ).<br>
+ </div><div style><br>Robby</div></div><br></div></div>
+ 
+ --e89a8ff1cd0ec9f2b804dd315920--
+Responsible changed from "nobody" to "robby" by robby@racket-lang.org at Mon, 20 May 2013 23:17:07 -0400
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/d1fb3e2c17
+State changed from "open" to "closed" by robby@racket-lang.org at Mon, 20 May 2013 23:17:07 -0400
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/d1fb3e2c17
+  | fix object/c's blame context manipulations
+  | 
+  | Specifically,
+  | - add field and method contexts, and
+  | - declare methods in object/c contracts to be #:important
+  | 
+  | closes PR 13765
+

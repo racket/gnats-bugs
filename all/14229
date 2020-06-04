@@ -1,0 +1,147 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Dec  7 02:37:14 2013
+Received: from mail-oa0-f47.google.com (mail-oa0-f47.google.com [209.85.219.47])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id rB77bDLc023043
+	for <bugs@bugs.plt-scheme.org>; Sat, 7 Dec 2013 02:37:13 -0500
+Message-Id: <201312070737.rB77bA88023036@winooski.ccs.neu.edu>
+Date: Sat, 7 Dec 2013 02:37:10 -0500
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: segfault at head
+
+>Number:         14229
+>Category:       all
+>Synopsis:       segfault at head
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Dec 07 02:40:01 -0500 2013
+>Closed-Date:    Sat Dec 07 12:21:38 -0500 2013
+>Last-Modified:  Sat Dec 07 12:21:38 -0500 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+>Description:
+The following program segfaults racket for me.
+>How-To-Repeat:
+#lang racket/base
+
+(require racket/place)
+
+(define (holder)
+  (place chan
+    (let loop ([v #f])
+      (define v2 (sync chan))
+      (place-channel-put chan v)
+      (loop v2))))
+
+
+(module+ main
+  (define other (holder))
+  (define exec (make-will-executor))
+  (define exec-thread
+    (thread
+      (lambda ()
+        (let loop ()
+          (will-execute exec)
+          (loop)))))
+  (define in
+    (let-values ([(in out) (place-channel)])
+      (place-channel-put other out)
+      (sync other)
+      (will-register exec out
+        (lambda (v) (printf "~a was deleted~n" v)))
+      in))
+  (collect-garbage)
+  ;; Let will execute
+  (sleep 1)
+  (/ (current-memory-use) 1000000.0)
+  (for ((i 1000000))
+    (place-channel-put in i))
+  ;(/ (current-memory-use) 1000000.0)
+  )
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14229: segfault at head
+Date: Sat, 7 Dec 2013 09:08:04 -0700
+
+ Reliably replicates a places-related GC bug --- thanks!!!
+ 
+ At Sat, 7 Dec 2013 02:40:02 -0500, eric.n.dobson@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14229
+ > 
+ > Reported by Eric Dobson for release: HEAD
+ > 
+ > *** Description:
+ > The following program segfaults racket for me.
+ > 
+ > *** How to repeat:
+ > #lang racket/base
+ > 
+ > (require racket/place)
+ > 
+ > (define (holder)
+ >   (place chan
+ >     (let loop ([v #f])
+ >       (define v2 (sync chan))
+ >       (place-channel-put chan v)
+ >       (loop v2))))
+ > 
+ > 
+ > (module+ main
+ >   (define other (holder))
+ >   (define exec (make-will-executor))
+ >   (define exec-thread
+ >     (thread
+ >       (lambda ()
+ >         (let loop ()
+ >           (will-execute exec)
+ >           (loop)))))
+ >   (define in
+ >     (let-values ([(in out) (place-channel)])
+ >       (place-channel-put other out)
+ >       (sync other)
+ >       (will-register exec out
+ >         (lambda (v) (printf "~a was deleted~n" v)))
+ >       in))
+ >   (collect-garbage)
+ >   ;; Let will execute
+ >   (sleep 1)
+ >   (/ (current-memory-use) 1000000.0)
+ >   (for ((i 1000000))
+ >     (place-channel-put in i))
+ >   ;(/ (current-memory-use) 1000000.0)
+ >   )
+ > 
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.28 
+ > (KHTML, like Gecko) Chrome/26.0.1397.2 Safari/537.28
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sat, 07 Dec 2013 12:21:38 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/280bb31d70
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sat, 07 Dec 2013 12:21:38 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/280bb31d70
+  | fix a synchronization problem in the GC for places
+  | 
+  | When a GC is needed for the shared space, a GC is triggered
+  | in all places, and the places wait until each other place
+  | has completed. However, the places also need to wait until
+  | all other places are ready to *start* a GC; otherwise, a
+  | place may be modifying a shared record while some other place
+  | traverses it for a GC.
+  | 
+  | Closes PR 14229
+  | 
+  | Merge to v6.0
+

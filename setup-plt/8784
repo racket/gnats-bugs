@@ -1,0 +1,114 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Jun 30 20:01:28 2007
+Received: from wx-out-0506.google.com (wx-out-0506.google.com [66.249.82.226])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l6101RKB002504
+	for <bugs@bugs.plt-scheme.org>; Sat, 30 Jun 2007 20:01:28 -0400
+Message-Id: <200707010001.l6101PNA002499@champlain.ccs.neu.edu>
+Date: Sat, 30 Jun 2007 20:01:25 -0400
+From: farr@mit.edu
+To: bugs@plt-scheme.org
+Subject: pre-install from setup-extension.ss in make collection fails to make 3m extension library---patch attached!
+
+>Number:         8784
+>Category:       setup-plt
+>Synopsis:       pre-install from setup-extension.ss in make collection fails to make 3m extension library---patch attached!
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Jun 30 20:05:01 -0400 2007
+>Closed-Date:    Wed Jul 25 14:47:01 -0400 2007
+>Last-Modified:  Wed Jul 25 14:47:01 -0400 2007
+>Originator:     Will M. Farr
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        370.4-svn28jun2007
+>Environment:
+macosx "Darwin sydneypacific-two-seventy-six.mit.edu 8.10.0 Darwin Kernel Version 8.10.0: Wed May 23 16:50:59 PDT 2007; root:xnu-792.21.3~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Applications/PLT Scheme/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "guide" "quick" "reference" "release-notes" "scribble" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced") (* "/Users/farr/Documents/code/nbody/doc" "/Users/farr/Documents/code/nbody/doc"))
+Human Language: english
+(current-memory-use) 186213456
+
+Collections:
+(("/Users/farr/Library/PLT Scheme/370.4/collects" non-existent-path) ("/Applications/PLT Scheme/collects" "afm" "algol60" "big" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "scribblings" "setup" "sgl" "sirmail" "skipper" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+The attached patch to setup-extension.ss in the make collection fixes the following problems:
+
+* When trying to make the 3m variant, the pre-install procedure would fail with an error of 
+
+make: Failed to make /Users/farr/Documents/code/nbody/compiled/native/ppc-macosx/3m/libnbody.c; regexp-match: expects type <string, byte string, or input port> as 2nd argument, given: #<path:/Users/farr/Documents/code/nbody/nbody-c/libnbody.c>; other arguments were: #rx"([.]cc$)|([.]cxx$)"
+
+the problem was that xform-src.c was a path instead of a string when passed to the xform procedure.  In the patch the second argument of xform is (path->string xform-src.c).
+
+* DarwinPorts directories were not searched on Mac OS X (these reside in "/opt/local".
+
+* The (lib "process.ss") library was not used at all in the module, so I removed it.
+
+Patch Follows:
+--------------------------------------------------------------
+
+--- /Applications/PLT Scheme/collects/make/setup-extension.ss~  2007-06-30 11:06:53.000000000 -0400
++++ /Applications/PLT Scheme/collects/make/setup-extension.ss   2007-06-30 13:29:19.000000000 -0400
+@@ -6,8 +6,7 @@
+           (lib "file.ss" "dynext")
+           (lib "file.ss")
+           (lib "list.ss")
+-          (lib "process.ss")
+-          (lib "etc.ss")
++           (lib "etc.ss")
+           (lib "launcher.ss" "launcher")
+           (lib "xform.ss" "compiler")
+           (lib "dirs.ss" "setup"))
+@@ -131,8 +130,10 @@
+               "/usr/local"
+               "/usr/local/gnu"
+               ;; OS X fink location:
+-              "/sw"
+-              ;; Hack for NU PLT's convenience:
++               "/sw"
++               ;; OS X DarwinPorts location:
++               "/opt/local"
++               ;; Hack for NU PLT's convenience:
+               "/arch/gnu/packages/readline-4.2")))
+       
+       (define sys-path
+@@ -256,11 +257,14 @@
+                                            headers
+                                            extra-depends)
+                                    (lambda ()
+-                                     (xform #f xform-src.c file.c (list (let-values ([(base name dir?)
+-                                                                                      (split-path xform-src.c)])
+-                                                                          (if (path? base)
+-                                                                              base
+-                                                                              (current-directory)))
+-                                                                        mz-inc-dir)))))
++                                     (xform #f
++                                            (path->string xform-src.c)
++                                            file.c
++                                            (list (let-values ([(base name dir?)
++                                                                (split-path xform-src.c)])
++                                                    (if (path? base)
++                                                        base
++                                                        (current-directory)))
++                                                  mz-inc-dir)))))
+                        null))
+                   #())))))))))))))
+
+--------------------------------------------------------------
+>How-To-Repeat:
+Try to compile an extension which needs to be xform-ed for 3m or requires a library found in the DarwinPorts /opt/local directories.
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt at Wed, 25 Jul 2007 14:47:01 -0400
+Reason>>> make collection
+
+State changed from "open" to "closed" by mflatt at Wed, 25 Jul 2007 14:47:01 -0400
+Reason>>> Patch applied, finally.
+
+Thanks!
+Matthew
+

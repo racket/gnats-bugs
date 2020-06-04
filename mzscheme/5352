@@ -1,0 +1,269 @@
+From robby@cs.rice.edu  Tue Apr 16 15:00:57 2002
+Received: from localhost (localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id PAA20926
+	for <plt-gnats>; Tue, 16 Apr 2002 15:00:57 -0400
+Message-Id: <200204161900.PAA20926@champlain.ccs.neu.edu>
+Date: Tue, 16 Apr 2002 15:00:57 -0400
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: bugs@plt-scheme.org
+Subject: identifier macros don't work in function position of applications
+
+>Number:         5352
+>Category:       mzscheme
+>Synopsis:       identifier macros don't work in function position of applications
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Apr 16 15:10:00 EDT 2002
+>Closed-Date:    Mon Apr 22 08:57:57 EDT 2002
+>Last-Modified:  Mon Apr 22 08:57:57 EDT 2002
+>Originator:     Robert Bruce Findler
+>Release:        200alpha16
+>Organization:
+titan
+>Environment:
+unix "Darwin seesen.ccs.neu.edu 5.3 Darwin Kernel Version 5.3: Thu Jan 24 22:06:02 PST 2002; root:xnu/xnu-201.19.obj~1/RELEASE_PPC  Power Macintosh powerpc" (ppc-macosx) (get-display-depth) = 24
+Docs Installed:
+("advanced" "beginning" "beginning-abbr" "drscheme" "framework" "help" "icons" "insidemz" "intermediate" "intermediate-lambda" "misclib" "mred" "mzc" "mzlib" "mzscheme" "r5rs" "t-y-scheme" "teachpack" "tex2page" "tools")
+Collections: 
+(("/Users/robby/cvs/exp/plt/collects" ("afm" "algol60" "browser" "compiler" "CVS" "cvs-time-stamp" "defaults" "doc" "drjava" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mrflow" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "parser-tools" "readline" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "string-constants" "syntax" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xml")) ("/Users/robby/unison/collects" ("account" "backgammon" "checkers" "doonesbury" "friendly" "icfp-pc-99" "mac-cd-database" "magic" "mahjongg" "paper-utils" "pente" "pop-pop" "sample-solutions" "set-fonts" "solutions" "test-image-map" "xmahjongg")))
+Human Language: english
+>Description:
+When I try to write an identifier macro, it all works
+great, except if I try to use the identifier macro in
+the function position of an application. In that case,
+the macro system thinks that I'm misusing the macro.
+To reproduce, see below.
+
+I tried to work around this by adding another case to
+the syntax-case:
+
+    [(_ arg ...) (syntax ((lambda (x) x) arg ...))]
+
+but that doesn't seem to help either (neither does the
+variant where I add a #%app to the rhs of the above
+syntax-case line).
+>How-To-Repeat:
+(define-syntax (id x)
+  (syntax-case x ()
+    [_
+     (identifier? (syntax _))
+     (syntax (lambda (x) x))]))
+
+(#%app id 1)
+(let ([id2 id]) (id2 1))
+(id 1)
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5352: identifier macros don't work in function position of applications
+Date: Tue, 16 Apr 2002 13:33:20 -0600 (MDT)
+
+ At Tue, 16 Apr 2002 15:00:57 -0400, Robert Bruce Findler wrote:
+ > When I try to write an identifier macro, it all works
+ > great, except if I try to use the identifier macro in
+ > the function position of an application. In that case,
+ > the macro system thinks that I'm misusing the macro.
+ 
+ You have to have a case in your macro expander to explicitly support
+ application.
+ 
+ This means a bit of duplicated work for some macros, but it's needed
+ for others (e.g., the macro bound to a method name, where identifier
+ "expansion" is needed to report misuses of method names).
+ 
+ > (define-syntax (id x)
+ >   (syntax-case x ()
+ >     [_
+ >      (identifier? (syntax _))
+ >      (syntax (lambda (x) x))]))
+ > 
+ > (#%app id 1)
+ > (let ([id2 id]) (id2 1))
+ > (id 1)
+ 
+ Should be something like
+ 
+   (define-syntax (id x)
+     (syntax-case x (set!)
+       [_
+        (identifier? (syntax _))
+        (syntax (lambda (x) x))]
+       [(set! _ expr)
+         ...]
+       [(_ arg ...)
+        ...])))
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5352: identifier macros don't work in function position of applications
+Date: Tue, 16 Apr 2002 13:34:42 -0600 (MDT)
+
+ Sorry - somehow I overlooked this part until after I sent my first
+ reply:
+ 
+ At Tue, 16 Apr 2002 15:00:57 -0400, Robert Bruce Findler wrote:
+ > I tried to work around this by adding another case to
+ > the syntax-case:
+ > 
+ >     [(_ arg ...) (syntax ((lambda (x) x) arg ...))]
+ > 
+ > but that doesn't seem to help either (neither does the
+ > variant where I add a #%app to the rhs of the above
+ > syntax-case line).
+ 
+ That case should match, but I doubt that it's what you want for an
+ actual macro.
+ 
+ Matthew
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5352: identifier macros don't work in function position of applications
+Date: Tue, 16 Apr 2002 13:36:21 -0600 (MDT)
+
+ One more try at a response, just to be clear:
+ 
+ > (define-syntax (id x)
+     (syntax-case x ()
+       [_
+        (identifier? (syntax _))
+        (syntax (lambda (x) x))]  
+      [(_ arg ...) (syntax ((lambda (x) x) arg ...))]))
+ > id
+ #<procedure:repl-1:5:14>
+ > (id 1) 
+ 1
+ 
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5352: identifier macros don't work in function position of applications
+Date: Tue, 16 Apr 2002 16:58:48 -0400 (EDT)
+
+ At Tue, 16 Apr 2002 13:33:20 -0600 (MDT), Matthew Flatt wrote:
+ > You have to have a case in your macro expander to explicitly support
+ > application.
+ > 
+ > This means a bit of duplicated work for some macros, but it's needed
+ > for others (e.g., the macro bound to a method name, where identifier
+ > "expansion" is needed to report misuses of method names).
+ 
+ We really need some kind of a programmer's guide to macros!
+ 
+ > >   (syntax-case x ()
+ > >     [_
+ > >      (identifier? (syntax _))
+ > >      (syntax (lambda (x) x))]))
+ > > 
+ > > (#%app id 1)
+ > > (let ([id2 id]) (id2 1))
+ > > (id 1)
+ > 
+ > Should be something like
+ > 
+ >   (define-syntax (id x)
+ >     (syntax-case x (set!)
+ >       [_
+ >        (identifier? (syntax _))
+ >        (syntax (lambda (x) x))]
+ >       [(set! _ expr)
+ >         ...]
+ >       [(_ arg ...)
+ >        ...])))
+ 
+ I tried this out:
+ 
+ (define-syntax (id x)
+   (syntax-case x (set!)
+     [(_ arg ...) (syntax ((lambda (x) x) arg ...))]
+     [(set! _ arg) (syntax (display 'ahhhhh!))]
+     [_
+      (identifier? (syntax _))
+      (syntax (lambda (x) x))]))
+  
+ (set! id 1)
+ 
+ and I get this error:
+ 
+ set!: cannot mutate syntax identifier in: id
+ 
+ I don't mind this too much, since my real rhs would just be a different
+ syntax error, but I would like to know if that's a bug or I am missing
+ something again.
+ 
+ Thanks,
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5352: identifier macros don't work in function position of applications
+Date: Tue, 16 Apr 2002 15:40:09 -0600 (MDT)
+
+ At Tue, 16 Apr 2002 16:58:48 -0400 (EDT), Robert Bruce Findler wrote:
+ > I tried this out:
+ > 
+ > (define-syntax (id x)
+ >   (syntax-case x (set!)
+ >     [(_ arg ...) (syntax ((lambda (x) x) arg ...))]
+ >     [(set! _ arg) (syntax (display 'ahhhhh!))]
+ >     [_
+ >      (identifier? (syntax _))
+ >      (syntax (lambda (x) x))]))
+ >  
+ > (set! id 1)
+ > 
+ > and I get this error:
+ > 
+ > set!: cannot mutate syntax identifier in: id
+ 
+ Sorry - you need to wrap the tranformer procedure with
+ `make-set!-tranformer' to be able to match against `set!' patterns.
+ 
+ Also, the pattern order is important, since `(set! id 1)' matches the
+ first pattern above.
+ 
+  (define-syntax id 
+   (make-set!-transformer 
+    (lambda (x)
+      (syntax-case x (set!)
+        [_
+ 	(identifier? (syntax _))
+ 	(syntax (lambda (x) x))]
+        [(set! _ arg) (syntax (display 'ahhhhh!))]
+        [(_ arg ...) (syntax ((lambda (x) x) arg ...))]))))
+ 
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Apr 22 08:57:57 2002
+Responsible-Changed-Why:
+    mz
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Apr 22 08:57:57 2002
+State-Changed-Why:
+    Nothing to do short of a writing a
+    tutorial on mcros.
+>Unformatted:
+

@@ -1,0 +1,129 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Nov 18 21:25:43 2012
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id qAJ2PfIa017476
+	for <bugs@bugs.plt-scheme.org>; Sun, 18 Nov 2012 21:25:41 -0500
+Message-Id: <201211190225.qAJ2PbxE017470@champlain.ccs.neu.edu>
+Date: Sun, 18 Nov 2012 21:25:37 -0500
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: TR generates the wrong contract for `flomap-transform'
+
+>Number:         13274
+>Category:       all
+>Synopsis:       TR generates the wrong contract for `flomap-transform'
+>Class:          sw-bug
+>Responsible:    stamourv
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Nov 18 21:28:01 -0500 2012
+>Closed-Date:    Mon Nov 19 17:52:20 -0500 2012
+>Last-Modified:  Mon Nov 19 17:52:20 -0500 2012
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.1.7--2012-11-17(68af2478/d)
+>Environment:
+unix "Linux schroder 2.6.38-15-generic #66-Ubuntu SMP Tue Aug 14 17:24:44 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 412663792
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/neil/.racket/5.3.1.7/collects"
+ (non-existent-path))
+("/home/neil/plt/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "planet2" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "lang" "ra!
+ co" "gui-debugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+In general, TR generates contracts for any number of optional arguments up to the maximum for functions that accept only certain exact numbers of optional arguments. For example, `flomap-transform' accepts either 2 arguments or 6, but the contract generated for it is for a function that accepts 2 *through* 6 (i.e. 2, 3, 4, 5 or 6 arguments).
+
+This is caused by the new conversion of monotone `case->' types to `->*' contracts implemented at the hackathon. It just needs to be disabled for these kinds of function types.
+>How-To-Repeat:
+Run this:
+
+#lang racket
+
+(require images/flomap
+         slideshow/pict)
+
+(define fm (pict->bitmap (circle 50)))
+(flomap-transform fm (flomap-rotate-transform (* 1/4 pi)))
+
+
+Get this error:
+
+plt/collects/racket/contract/private/blame.rkt:89:0: flomap-transform157: broke its contract
+ promised a procedure that accepts 2 mandatory arguments and up to 4 optional arguments without any keywords
+ produced: #<procedure:flomap-transform>
+ in: (->*
+       (flomap?
+        (-> Integer Integer flomap-2d-mapping?))
+       (Integer Integer Integer Integer)
+       flomap?)
+ contract from: 
+      <collects>/images/private/flomap-transform.rkt
+ blaming: 
+      <collects>/images/private/flomap-transform.rkt
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13274: TR generates the wrong contract for `flomap-transform'
+Date: Sun, 18 Nov 2012 19:46:44 -0700
+
+ On 11/18/2012 07:28 PM, neil.toronto@gmail.com wrote:
+ > #lang racket
+ >
+ > (require images/flomap
+ >           slideshow/pict)
+ >
+ > (define fm (pict->bitmap (circle 50)))
+ > (flomap-transform fm (flomap-rotate-transform (* 1/4 pi)))
+ 
+ A more self-contained example, which demonstrates a related error:
+ 
+ #lang racket
+ 
+ (module defs typed/racket
+    (provide foo bar)
+ 
+    (: foo (case-> (Integer -> Integer)
+                   (Integer Integer Integer -> Integer)))
+    (define (foo x [y 0] [z 0])
+      (+ x y z))
+ 
+    (: bar (case-> (Integer -> Integer)
+                   (Integer Integer Integer -> Integer)))
+    (define bar
+      (case-lambda
+        [(x)  x]
+        [(x y z)  (+ x y z)]))
+    )
+ 
+ (require 'defs)
+ 
+ ;; This should fail with a contract error, but doesn't:
+ (foo 1 2)
+ ;; This should work, but fails with a contract error:
+ (bar 1)
+ 
+ 
+ In both cases, the behavior is wrong because a `->*' contract can't 
+ correctly enforce the type.
+ 
+ Neil ⊥
+ 
+ 
+Responsible changed from "nobody" to "stamourv" by stamourv@racket-lang.org at Mon, 19 Nov 2012 17:52:20 -0500
+Reason>>> A commit by stamourv@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/6a7b971cd6
+State changed from "open" to "closed" by stamourv@racket-lang.org at Mon, 19 Nov 2012 17:52:20 -0500
+Reason>>> A commit by stamourv@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/6a7b971cd6

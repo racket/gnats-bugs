@@ -1,0 +1,1109 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Jul 14 23:31:04 2012
+Received: from mail-vc0-f172.google.com (mail-vc0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q6F3Ux9i013590
+	for <bugs@bugs.plt-scheme.org>; Sat, 14 Jul 2012 23:30:59 -0400
+Message-Id: <201207150330.q6F3Uvve013585@champlain.ccs.neu.edu>
+Date: Sat, 14 Jul 2012 23:30:57 -0400
+From: zeppieri@gmail.com
+To: bugs@racket-lang.org
+Subject: Apparent memory corruption, maybe in I/O
+
+>Number:         12910
+>Category:       all
+>Synopsis:       Apparent memory corruption, maybe in I/O
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Jul 14 23:32:01 -0400 2012
+>Closed-Date:    Sun Jul 15 12:39:46 -0400 2012
+>Last-Modified:  Sun Jul 15 13:20:01 -0400 2012
+>Originator:     Jon Zeppieri
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.1
+>Environment:
+macosx "Darwin Jon-Zeppieris-MacBook-Pro.local 10.8.0 Darwin Kernel Version 10.8.0: Tue Jun  7 16:33:36 PDT 2011; root:xnu-1504.15.3~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 187671120
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/jaz/Library/Racket/5.2.1/collects"
+ (non-existent-path))
+("/Applications/Racket v5.2.1/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+I'm playing around with Will Clinger's benchmarks for the case expression, http://www.ccs.neu.edu/home/will/Research/SW2006/.
+
+While trying to run the benchmark in the file "parsing.sch" (after putting it in a racket module, replacing single-arm ifs with whens, and adding the run-benchmark function from "run-benchmark.chez"), I get the error:
+
+char-whitespace?: contract violation
+  expected: char?
+  given: ""
+
+This occurs in the scanner0 function, when it calls char-whitespace? on the result of scanchar. scanchar should not be able to return a string, so this was very puzzling. When I put the following code at the start of scanchar:
+
+(when (not (char? nextCharacter)) (set! nextCharacter #\space))
+
+Then I get the following error in the consumechar function:
+
+string-set!: expects type <mutable string> as 1st argument, given: #<bad-value>; other arguments were: 0 #\space
+
+That #<bad-value> is what makes me think that memory is getting corrupted somehow. The code doesn't do any FFI work or use unsafe ops.
+
+Unfortunately, this isn't a small bit of code, and I didn't write it, either.
+>How-To-Repeat:
+I'll paste in the modified "parsing.sch" file. You'll also need the file "nboyer.sch" from the same URL [http://www.ccs.neu.edu/home/will/Research/SW2006/]. Put it in the same directory as "parsing.sch." Then try calling the parsing-benchmark function from "parsing.sch."
+
+========
+
+#lang racket
+
+; Copyright 2006 William D Clinger.
+;
+; Permission to copy this software, in whole or in part, to use this
+; software for any lawful purpose, and to redistribute this software
+; is granted subject to the restriction that all copies made of this
+; software must include this copyright notice in full.
+;
+; I also request that you send me a copy of any improvements that you
+; make to this software so that they may be incorporated within it to
+; the benefit of the Scheme community.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; Parsing benchmark.
+;
+; Reads nboyer.sch into a string before timing begins.
+;
+; The timed portion of the benchmark parses the string
+; representation of nboyer.sch 1000 times.
+;
+; The output of that parse is checked by comparing it
+; the the value returned by the read procedure.
+;
+; Usage:
+;     (parsing-benchmark n input)
+;
+; n defaults to 1000, and input defaults to "nboyer.sch".
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Gambit-style run-benchmark.
+;;;
+;;; Invoke this procedure to run a benchmark.
+;;; The first argument is a string identifying the benchmark.
+;;; The second argument is the number of times to run the benchmark.
+;;; The third argument is a thunk that runs the benchmark.
+;;; The fourth argument is a unary predicate that warns if the result
+;;; returned by the benchmark is incorrect.
+;;;
+;;; Example:
+;;; (run-benchmark "make-vector"
+;;;                1
+;;;                (lambda () (make-vector 1000000))
+;;;                (lambda (v) (and (vector? v) (= (vector-length v) #e1e6))))
+
+;;; For backward compatibility, this procedure also works with the
+;;; arguments that we once used to run benchmarks in Larceny.
+ 
+(define (run-benchmark name arg2 . rest)
+  (let* ((old-style (procedure? arg2))
+         (thunk (if old-style arg2 (car rest)))
+         (n (if old-style
+                (if (null? rest) 1 (car rest))
+                arg2))
+         (ok? (if (or old-style (null? (cdr rest)))
+                  (lambda (result) #t)
+                  (cadr rest)))
+         (result '*))
+    (define (loop n)
+      (cond ((zero? n) #t)
+            ((= n 1)
+             (set! result (thunk)))
+            (else
+             (thunk)
+             (loop (- n 1)))))
+    (when old-style
+        (begin (newline)
+               (display "Warning: Using old-style run-benchmark")
+               (newline)))
+    (newline)
+    (display "--------------------------------------------------------")
+    (newline)
+    (display name)
+    (newline)
+    ; time is a macro supplied by Chez Scheme
+    (time (loop n))
+    (when (not (ok? result))
+        (begin (display "Error: Benchmark program returned wrong result: ")
+               (write result)
+               (newline)))))
+
+(define (parsing-benchmark . rest)
+  (let* ((n (if (null? rest) 1000 (car rest)))
+         (input (if (or (null? rest) (null? (cdr rest)))
+                    "nboyer.sch"
+                    (cadr rest)))
+         (input-string (read-file-as-string input))
+         (answer (call-with-input-file
+                  input
+                  (lambda (in)
+                    (do ((x (read in) (read in))
+                         (answer '() x))
+                        ((eof-object? x)
+                         answer)))))
+         (benchmark-name
+          (string-append "parsing:" input ":" (number->string n))))
+    (run-benchmark benchmark-name
+                   n
+                   (lambda () (parse-string input-string))
+                   (lambda (x) (equal? x answer)))))
+
+(define (read-from-string-port-benchmark . rest)
+  (let* ((n (if (null? rest) 1000 (car rest)))
+         (input (if (or (null? rest) (null? (cdr rest)))
+                    "nboyer.sch"
+                    (cadr rest)))
+         (input-string (read-file-as-string input))
+         (answer (call-with-input-file
+                  input
+                  (lambda (in)
+                    (do ((x (read in) (read in))
+                         (answer '() x))
+                        ((eof-object? x)
+                         answer)))))
+         (benchmark-name
+          (string-append "reading:" input ":" (number->string n))))
+    (run-benchmark benchmark-name
+                   n
+                   (lambda ()
+                     (let ((in (open-input-string input-string)))
+                       (do ((x (read in) (read in))
+                            (y #f x))
+                           ((eof-object? x) y))))
+                   (lambda (x) (equal? x answer)))))
+
+(define (read-file-as-string name)
+  (call-with-input-file
+   name
+   (lambda (in)
+     (do ((x (read-char in) (read-char in))
+          (chars '() (cons x chars)))
+         ((eof-object? x)
+          (list->string (reverse chars)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; The parser used for benchmarking.
+;
+; Given a string containing Scheme code, parses the entire
+; string and returns the last <datum> read from the string.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (parse-string input-string)
+
+  ; Constants and local variables.
+
+  (let* (; Constants.
+
+         ; Any character that doesn't appear within nboyer.sch
+         ; (or the input file, if different) can be used to
+         ; represent end-of-file.
+
+         (eof #\~)
+
+         ; length of longest token allowed
+         ; (this allows static allocation in C)
+
+         (max_token_size 1024)
+
+         ; Encodings of error messages.
+
+         (errLongToken 1)                 ; extremely long token
+         (errincompletetoken 2)      ; any lexical error, really
+         (errLexGenBug 3)                         ; can't happen
+
+         ; State for one-token buffering in lexical analyzer.
+
+         (kindOfNextToken 'z1)      ; valid iff nextTokenIsReady
+         (nextTokenIsReady #f)
+
+         (tokenValue "")  ; string associated with current token
+
+         (totalErrors 0)                         ; errors so far
+         (lineNumber 1)       ; rudimentary source code location
+         (lineNumberOfLastError 0)                       ; ditto
+
+         ; A string buffer for the characters of the current token.
+
+         (string_accumulator (make-string max_token_size))
+
+         ; Number of characters in string_accumulator.
+
+         (string_accumulator_length 0)
+
+         ; A single character of buffering.
+         ; nextCharacter is valid iff nextCharacterIsReady
+
+         (nextCharacter #\space)
+         (nextCharacterIsReady #f)
+
+         ; Index of next character to be read from input-string.
+
+         (input-index 0)
+
+         (input-length (string-length input-string))
+        )
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; LexGen generated the code for the state machine.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+    (define (scanner0)
+      (let loop ((c (scanchar)))
+        (when (char-whitespace? c)
+            (begin
+              (consumechar)
+              (set! string_accumulator_length 0)
+              (loop (scanchar)))))
+      (let ((c (scanchar)))
+        (if (char=? c eof) (accept 'eof) (state0 c))))
+  
+    (define (state0 c)
+      (case c
+        ((#\`) (consumechar) (accept 'backquote))
+        ((#\') (consumechar) (accept 'quote))
+        ((#\)) (consumechar) (accept 'rparen))
+        ((#\() (consumechar) (accept 'lparen))
+        ((#\;) (consumechar) (state29 (scanchar)))
+        ((#\+ #\-) (consumechar) (state28 (scanchar)))
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state27 (scanchar)))
+        ((#\.) (consumechar) (state16 (scanchar)))
+        ((#\a
+          #\b
+          #\c
+          #\d
+          #\e
+          #\f
+          #\g
+          #\h
+          #\i
+          #\j
+          #\k
+          #\l
+          #\m
+          #\n
+          #\o
+          #\p
+          #\q
+          #\r
+          #\s
+          #\t
+          #\u
+          #\v
+          #\w
+          #\x
+          #\y
+          #\z
+          #\A
+          #\B
+          #\C
+          #\D
+          #\E
+          #\F
+          #\G
+          #\H
+          #\I
+          #\J
+          #\K
+          #\L
+          #\M
+          #\N
+          #\O
+          #\P
+          #\Q
+          #\R
+          #\S
+          #\T
+          #\U
+          #\V
+          #\W
+          #\X
+          #\Y
+          #\Z
+          #\!
+          #\$
+          #\%
+          #\&
+          #\*
+          #\/
+          #\:
+          #\<
+          #\=
+          #\>
+          #\?
+          #\^
+          #\_
+          #\~)
+         (consumechar)
+         (state14 (scanchar)))
+        ((#\#) (consumechar) (state13 (scanchar)))
+        ((#\") (consumechar) (state2 (scanchar)))
+        ((#\,) (consumechar) (state1 (scanchar)))
+        (else
+         (if (char-whitespace? c)
+             (begin (consumechar) (state30 (scanchar)))
+             (scannererror errincompletetoken)))))
+    (define (state1 c)
+      (case c
+        ((#\@) (consumechar) (accept 'splicing))
+        (else (accept 'comma))))
+    (define (state2 c)
+      (case c
+        ((#\") (consumechar) (accept 'string))
+        (else
+         (if (isnotdoublequote? c)
+             (begin (consumechar) (state2 (scanchar)))
+             (scannererror errincompletetoken)))))
+    (define (state3 c)
+      (case c
+        ((#\n) (consumechar) (state8 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state4 c)
+      (case c
+        ((#\i) (consumechar) (state3 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state5 c)
+      (case c
+        ((#\l) (consumechar) (state4 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state6 c)
+      (case c
+        ((#\w) (consumechar) (state5 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state7 c)
+      (case c
+        ((#\e) (consumechar) (state6 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state8 c)
+      (case c
+        ((#\e) (consumechar) (accept 'character))
+        (else (scannererror errincompletetoken))))
+    (define (state9 c)
+      (case c
+        ((#\c) (consumechar) (state8 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state10 c)
+      (case c
+        ((#\a) (consumechar) (state9 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state11 c)
+      (case c
+        ((#\p) (consumechar) (state10 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state12 c)
+      (case c
+        ((#\s) (consumechar) (state11 (scanchar)))
+        ((#\n) (consumechar) (state7 (scanchar)))
+        (else
+         (if (char? c)
+             (begin (consumechar) (accept 'character))
+             (scannererror errincompletetoken)))))
+    (define (state13 c)
+      (case c
+        ((#\() (consumechar) (accept 'vecstart))
+        ((#\t #\f) (consumechar) (accept 'boolean))
+        ((#\\) (consumechar) (state12 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state14 c)
+      (case c
+        ((#\a
+          #\b
+          #\c
+          #\d
+          #\e
+          #\f
+          #\g
+          #\h
+          #\i
+          #\j
+          #\k
+          #\l
+          #\m
+          #\n
+          #\o
+          #\p
+          #\q
+          #\r
+          #\s
+          #\t
+          #\u
+          #\v
+          #\w
+          #\x
+          #\y
+          #\z
+          #\A
+          #\B
+          #\C
+          #\D
+          #\E
+          #\F
+          #\G
+          #\H
+          #\I
+          #\J
+          #\K
+          #\L
+          #\M
+          #\N
+          #\O
+          #\P
+          #\Q
+          #\R
+          #\S
+          #\T
+          #\U
+          #\V
+          #\W
+          #\X
+          #\Y
+          #\Z
+          #\!
+          #\$
+          #\%
+          #\&
+          #\*
+          #\/
+          #\:
+          #\<
+          #\=
+          #\>
+          #\?
+          #\^
+          #\_
+          #\~
+          #\0
+          #\1
+          #\2
+          #\3
+          #\4
+          #\5
+          #\6
+          #\7
+          #\8
+          #\9
+          #\+
+          #\-
+          #\.
+          #\@)
+         (consumechar)
+         (state14 (scanchar)))
+        (else (accept 'id))))
+    (define (state15 c)
+      (case c
+        ((#\.) (consumechar) (accept 'id))
+        (else (scannererror errincompletetoken))))
+    (define (state16 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state18 (scanchar)))
+        ((#\.) (consumechar) (state15 (scanchar)))
+        (else (accept 'period))))
+    (define (state17 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state18 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state18 c)
+      (case c
+        ((#\e #\s #\f #\d #\l)
+         (consumechar)
+         (state22 (scanchar)))
+        ((#\#) (consumechar) (state19 (scanchar)))
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state18 (scanchar)))
+        (else (accept 'number))))
+    (define (state19 c)
+      (case c
+        ((#\e #\s #\f #\d #\l)
+         (consumechar)
+         (state22 (scanchar)))
+        ((#\#) (consumechar) (state19 (scanchar)))
+        (else (accept 'number))))
+    (define (state20 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state20 (scanchar)))
+        (else (accept 'number))))
+    (define (state21 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state20 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state22 c)
+      (case c
+        ((#\+ #\-) (consumechar) (state21 (scanchar)))
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state20 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state23 c)
+      (case c
+        ((#\#) (consumechar) (state23 (scanchar)))
+        (else (accept 'number))))
+    (define (state24 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state24 (scanchar)))
+        ((#\#) (consumechar) (state23 (scanchar)))
+        (else (accept 'number))))
+    (define (state25 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state24 (scanchar)))
+        (else (scannererror errincompletetoken))))
+    (define (state26 c)
+      (case c
+        ((#\#) (consumechar) (state26 (scanchar)))
+        ((#\/) (consumechar) (state25 (scanchar)))
+        ((#\e #\s #\f #\d #\l)
+         (consumechar)
+         (state22 (scanchar)))
+        ((#\.) (consumechar) (state19 (scanchar)))
+        (else (accept 'number))))
+    (define (state27 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state27 (scanchar)))
+        ((#\#) (consumechar) (state26 (scanchar)))
+        ((#\/) (consumechar) (state25 (scanchar)))
+        ((#\e #\s #\f #\d #\l)
+         (consumechar)
+         (state22 (scanchar)))
+        ((#\.) (consumechar) (state18 (scanchar)))
+        (else (accept 'number))))
+    (define (state28 c)
+      (case c
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9)
+         (consumechar)
+         (state27 (scanchar)))
+        ((#\.) (consumechar) (state17 (scanchar)))
+        (else (accept 'id))))
+    (define (state29 c)
+      (case c
+        ((#\newline)
+         (consumechar)
+         (begin
+           (set! string_accumulator_length 0)
+           (state0 (scanchar))))
+        (else
+         (if (isnotnewline? c)
+             (begin (consumechar) (state29 (scanchar)))
+             (scannererror errincompletetoken)))))
+    (define (state30 c)
+      (case c
+        (else
+         (if (char-whitespace? c)
+             (begin (consumechar) (state30 (scanchar)))
+             (begin
+               (set! string_accumulator_length 0)
+               (state0 (scanchar)))))))
+    (define (state31 c)
+      (case c
+        (else
+         (begin
+           (set! string_accumulator_length 0)
+           (state0 (scanchar))))))
+    (define (state32 c) (case c (else (accept 'id))))
+    (define (state33 c)
+      (case c (else (accept 'boolean))))
+    (define (state34 c)
+      (case c (else (accept 'character))))
+    (define (state35 c)
+      (case c (else (accept 'vecstart))))
+    (define (state36 c)
+      (case c (else (accept 'string))))
+    (define (state37 c)
+      (case c (else (accept 'lparen))))
+    (define (state38 c)
+      (case c (else (accept 'rparen))))
+    (define (state39 c)
+      (case c (else (accept 'quote))))
+    (define (state40 c)
+      (case c (else (accept 'backquote))))
+    (define (state41 c)
+      (case c (else (accept 'splicing))))
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; End of state machine generated by LexGen.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; ParseGen generated the code for the strong LL(1) parser.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+    (define (parse-datum)
+      (case (next-token)
+        ((splicing comma backquote quote lparen vecstart)
+         (let ((ast1 (parse-compound-datum)))
+           (identity ast1)))
+        ((boolean number character string id)
+         (let ((ast1 (parse-simple-datum)))
+           (identity ast1)))
+        (else
+         (parse-error
+           '<datum>
+           '(backquote
+              boolean
+              character
+              comma
+              id
+              lparen
+              number
+              quote
+              splicing
+              string
+              vecstart)))))
+    
+    (define (parse-simple-datum)
+      (case (next-token)
+        ((id)
+         (let ((ast1 (parse-symbol))) (identity ast1)))
+        ((string) (begin (consume-token!) (makeString)))
+        ((character) (begin (consume-token!) (makeChar)))
+        ((number) (begin (consume-token!) (makeNum)))
+        ((boolean) (begin (consume-token!) (makeBool)))
+        (else
+         (parse-error
+           '<simple-datum>
+           '(boolean character id number string)))))
+    
+    (define (parse-symbol)
+      (case (next-token)
+        ((id) (begin (consume-token!) (makeSym)))
+        (else (parse-error '<symbol> '(id)))))
+    
+    (define (parse-compound-datum)
+      (case (next-token)
+        ((vecstart)
+         (let ((ast1 (parse-vector))) (identity ast1)))
+        ((lparen quote backquote comma splicing)
+         (let ((ast1 (parse-list))) (identity ast1)))
+        (else
+         (parse-error
+           '<compound-datum>
+           '(backquote comma lparen quote splicing vecstart)))))
+    
+    (define (parse-list)
+      (case (next-token)
+        ((splicing comma backquote quote)
+         (let ((ast1 (parse-abbreviation)))
+           (identity ast1)))
+        ((lparen)
+         (begin
+           (consume-token!)
+           (let ((ast1 (parse-list2))) (identity ast1))))
+        (else
+         (parse-error
+           '<list>
+           '(backquote comma lparen quote splicing)))))
+    
+    (define (parse-list2)
+      (case (next-token)
+        ((id string
+             character
+             number
+             boolean
+             vecstart
+             lparen
+             quote
+             backquote
+             comma
+             splicing)
+         (let ((ast1 (parse-datum)))
+           (let ((ast2 (parse-list3))) (cons ast1 ast2))))
+        ((rparen) (begin (consume-token!) (emptyList)))
+        (else
+         (parse-error
+           '<list2>
+           '(backquote
+              boolean
+              character
+              comma
+              id
+              lparen
+              number
+              quote
+              rparen
+              splicing
+              string
+              vecstart)))))
+    
+    (define (parse-list3)
+      (case (next-token)
+        ((rparen
+           period
+           splicing
+           comma
+           backquote
+           quote
+           lparen
+           vecstart
+           boolean
+           number
+           character
+           string
+           id)
+         (let ((ast1 (parse-data)))
+           (let ((ast2 (parse-list4)))
+             (pseudoAppend ast1 ast2))))
+        (else
+         (parse-error
+           '<list3>
+           '(backquote
+              boolean
+              character
+              comma
+              id
+              lparen
+              number
+              period
+              quote
+              rparen
+              splicing
+              string
+              vecstart)))))
+    
+    (define (parse-list4)
+      (case (next-token)
+        ((period)
+         (begin
+           (consume-token!)
+           (let ((ast1 (parse-datum)))
+             (if (eq? (next-token) 'rparen)
+                 (begin (consume-token!) (identity ast1))
+                 (parse-error '<list4> '(rparen))))))
+        ((rparen) (begin (consume-token!) (emptyList)))
+        (else (parse-error '<list4> '(period rparen)))))
+    
+    (define (parse-abbreviation)
+      (case (next-token)
+        ((quote backquote comma splicing)
+         (let ((ast1 (parse-abbrev-prefix)))
+           (let ((ast2 (parse-datum))) (list ast1 ast2))))
+        (else
+         (parse-error
+           '<abbreviation>
+           '(backquote comma quote splicing)))))
+    
+    (define (parse-abbrev-prefix)
+      (case (next-token)
+        ((splicing)
+         (begin (consume-token!) (symSplicing)))
+        ((comma) (begin (consume-token!) (symUnquote)))
+        ((backquote)
+         (begin (consume-token!) (symBackquote)))
+        ((quote) (begin (consume-token!) (symQuote)))
+        (else
+         (parse-error
+           '<abbrev-prefix>
+           '(backquote comma quote splicing)))))
+    
+    (define (parse-vector)
+      (case (next-token)
+        ((vecstart)
+         (begin
+           (consume-token!)
+           (let ((ast1 (parse-data)))
+             (if (eq? (next-token) 'rparen)
+                 (begin (consume-token!) (list2vector ast1))
+                 (parse-error '<vector> '(rparen))))))
+        (else (parse-error '<vector> '(vecstart)))))
+    
+    (define (parse-data)
+      (case (next-token)
+        ((id string
+             character
+             number
+             boolean
+             vecstart
+             lparen
+             quote
+             backquote
+             comma
+             splicing)
+         (let ((ast1 (parse-datum)))
+           (let ((ast2 (parse-data))) (cons ast1 ast2))))
+        ((rparen period) (emptyList))
+        (else
+         (parse-error
+           '<data>
+           '(backquote
+              boolean
+              character
+              comma
+              id
+              lparen
+              number
+              period
+              quote
+              rparen
+              splicing
+              string
+              vecstart)))))
+  
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; End of LL(1) parser generated by ParseGen.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; Help predicates used by the lexical analyzer's state machine.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    (define (isnotdoublequote? c) (not (char=? c #\")))
+    (define (isnotnewline? c) (not (char=? c #\newline)))
+  
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; Lexical analyzer.
+    ;
+    ; This code is adapted from the quirk23 lexical analyzer written
+    ; by Will Clinger for a compiler course.
+    ;
+    ; The scanner and parser were generated automatically and then
+    ; printed using an R5RS Scheme pretty-printer, so they do not
+    ; preserve case.  In preparation for the case-sensitivity of
+    ; R6RS Scheme, several identifiers and constants have been
+    ; lower-cased in the hand-written code to match the generated
+    ; code.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+    ; next-token and consume-token! are called by the parser.
+  
+    ; Returns the current token.
+  
+    (define (next-token)
+      (if nextTokenIsReady
+          kindOfNextToken
+          (begin (set! string_accumulator_length 0)
+                 (scanner0))))
+  
+    ; Consumes the current token.
+  
+    (define (consume-token!)
+      (set! nextTokenIsReady #f))
+  
+    ; Called by the lexical analyzer's state machine,
+    ; hence the unfortunate lower case.
+  
+    (define (scannererror msg)
+      (define msgtxt
+        (cond ((= msg errLongToken)
+               "Amazingly long token")
+              ((= msg errincompletetoken)
+               "in line ")
+              ((= msg errLexGenBug)
+               "Bug in lexical analyzer (generated)")
+              (else "Bug in lexical analyzer")))
+      (error (string-append "Lexical Error: " msgtxt) lineNumber)
+      (set! nextTokenIsReady #f)
+      (set! nextCharacterIsReady #f)
+      (next-token))
+  
+    ; Accepts a token of the given kind, returning that kind.
+    ;
+    ; For some kinds of tokens, a value for the token must also be
+    ; recorded in tokenValue.
+  
+    (define (accept t)
+      (when (memq t '(boolean character id number string))
+          (set! tokenValue
+                (substring string_accumulator 0 string_accumulator_length)))
+      (set! kindOfNextToken t)
+      (set! nextTokenIsReady #t)
+      t)
+  
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; Character i/o, so to speak.
+    ; Uses the input-string as input.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+    ; Returns the current character from the input.
+  
+    (define (scanchar)
+      (when (not (char? nextCharacter)) (set! nextCharacter #\space))
+      (if nextCharacterIsReady
+          nextCharacter
+          (begin (if (< input-index input-length)
+                     (begin (set! nextCharacter
+                                  (string-ref input-string input-index))
+                            (set! input-index (+ input-index 1)))
+                     (set! nextCharacter eof))
+                 (set! nextCharacterIsReady #t)
+                 ; For debugging, change #f to #t below.
+                 (when #f
+                     (write-char nextCharacter))
+                 (scanchar))))
+  
+    ; Consumes the current character, and returns the next.
+  
+    (define (consumechar)
+      (when (not nextCharacterIsReady)
+          (scanchar))
+      (if (< string_accumulator_length max_token_size)
+          (begin (set! nextCharacterIsReady #f)
+                 (when (char=? nextCharacter #\newline)
+                     (set! lineNumber (+ lineNumber 1)))
+                 (string-set! string_accumulator
+                              string_accumulator_length
+                              nextCharacter)
+                 (set! string_accumulator_length
+                       (+ string_accumulator_length 1)))
+          (scannererror errLongToken)))
+  
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; Action procedures called by the parser.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+    (define (emptyList) '())
+  
+    (define (identity x) x)
+  
+    (define (list2vector vals) (list->vector vals))
+  
+    (define (makeBool)
+      (string=? tokenValue "#t"))
+  
+    (define (makeChar)
+      (string-ref tokenValue 0))
+  
+    (define (makeNum)
+      (string->number tokenValue))
+  
+    (define (makeString)
+      ; Must strip off outer double quotes.
+      ; Ought to process escape characters also, but we won't.
+      (substring tokenValue 1 (- (string-length tokenValue) 1)))
+  
+    (define (makeSym)
+      (string->symbol tokenValue))
+  
+    ; Like append, but allows the last argument to be a non-list.
+  
+    (define (pseudoAppend vals terminus)
+      (if (null? vals)
+          terminus
+          (cons (car vals)
+                (pseudoAppend (cdr vals) terminus))))
+  
+    (define (symBackquote) 'quasiquote)
+    (define (symQuote) 'quote)
+    (define (symSplicing) 'unquote-splicing)
+    (define (symUnquote) 'unquote)
+  
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; Error procedure called by the parser.
+    ; As a hack, this error procedure recovers from end-of-file.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+    (define (parse-error nonterminal expected-terminals)
+      (if (eq? 'eof (next-token))
+          'eof
+          (begin
+           (display "Syntax error in line ")
+           (display lineNumber)
+           (display " while parsing a ")
+           (write nonterminal)
+           (newline)
+           (display "  Encountered a ")
+           (display (next-token))
+           (display " while expecting something in")
+           (newline)
+           (display "  ")
+           (write expected-terminals)
+           (newline)
+           (error "Syntax error"))))
+  
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;
+    ; Parses repeatedly, returning the last <datum> parsed.
+    ;
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  
+    (do ((x (parse-datum) (parse-datum))
+         (y 'eof x))
+        ((eq? x 'eof)
+         y))))
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Sun, 15 Jul 2012 12:39:46 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/73e901a262
+State changed from "open" to "closed" by mflatt@racket-lang.org at Sun, 15 Jul 2012 12:39:46 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/73e901a262
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: zeppieri@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12910: Apparent memory corruption, maybe in I/O
+Date: Sun, 15 Jul 2012 10:39:04 -0600
+
+ Just to make sure, you're running in DrRacket with debugging enabled, right?
+ 
+ I was able to see the crash only that way or using `errortrace',
+ although the bug was in the bytecode compiler (and I'll push a repair
+ soon).
+ 
+From: Jon Zeppieri <zeppieri@gmail.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12910: Apparent memory corruption, maybe in I/O
+Date: Sun, 15 Jul 2012 13:19:28 -0400
+
+ On Sun, Jul 15, 2012 at 12:39 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > Just to make sure, you're running in DrRacket with debugging enabled, right?
+ 
+ Yes.
+ 
+ >
+ > I was able to see the crash only that way or using `errortrace',
+ > although the bug was in the bytecode compiler (and I'll push a repair
+ > soon).
+ >

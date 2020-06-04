@@ -1,0 +1,220 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Feb 15 14:45:54 2015
+Received: from mail-ob0-f175.google.com (mail-ob0-f175.google.com [209.85.214.175])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t1FJjm9w029031
+	for <bugs@bugs.plt-scheme.org>; Sun, 15 Feb 2015 14:45:48 -0500
+Message-Id: <201502151945.t1FJjjhh029024@winooski.ccs.neu.edu>
+Date: Sun, 15 Feb 2015 14:45:45 -0500
+From: gustavo@oma.org.ar
+To: bugs@racket-lang.org
+Subject: Some functions are not inlined in same module
+
+>Number:         14978
+>Category:       all
+>Synopsis:       Some functions are not inlined in same module
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Feb 15 14:48:01 -0500 2015
+>Closed-Date:    Mon Feb 16 14:22:41 -0500 2015
+>Last-Modified:  Mon Feb 16 14:22:41 -0500 2015
+>Originator:     Gustavo Massaccesi
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 295320180
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog main-distribution)
+ racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog racket-lib)
+ [187 auto-installed packages not shown]
+User-specific for installation "6.1.1":
+ Package        Checksum                                    Source
+ disassemble    cf0ee3a5f8463e0867eba4c964d742a29325a996    (url github://github.com/samth/disassemble/master)
+
+
+
+Collections:
+("C:\\Users\\Nadie\\AppData\\Roaming\\Racket\\6.1.1\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Racket\\collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) (main)) #t))
+>Description:
+(This is a feature request for the Racket optimizer. It's easier to explain with an example. See below.)
+
+Some functions are not inlined in the same module, when the original definition is not an obvious function. It's a problem with the constant propagation in optimize_module inside simultaneous groups. Any expression with a side effect breaks the simultaneous group and enables the constant propagation.
+
+Nevertheless, they have an #%inline-variant, so they can be inlined in other modules.
+
+For example:
+;---
+#lang racket/base
+(define true #t)
+(define no (if true (lambda (x) (cons x 'no)) display))
+(newline) ; <--- just to break the simultaneous group
+(define yes (if true (lambda (x) (cons x 'yes)) display))
+
+(no 5)
+(yes 5)
+;---
+
+It's optimized to something equivalent to:
+;---
+#lang racket/base
+(define true '#t)
+(define no (lambda (x) (cons x 'no)))
+(print-values (newline))
+(define yes (lambda (x) (cons x 'yes)))
+
+(print-values (no '5))  ; <--- 'no' is not inlined :(
+(print-values (cons '5 'yes))
+;--- 
+
+But a better optimized version would be:
+;---
+#lang racket/base
+(define true '#t)
+(define no (lambda (x) (cons x 'no)))
+(print-values (newline))
+(define yes (lambda (x) (cons x 'yes)))
+
+(print-values (cons '5 'no))  ; <--- 'no' is inlined :)
+(print-values (cons '5 'yes))
+;---
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: gustavo@oma.org.ar, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14978: Some functions are not inlined in same module
+Date: Mon, 16 Feb 2015 10:00:43 -0700
+
+ I think it's unnecessary to delay information in `consts` to a
+ re-optimization group before adding it to `info->top_level_consts`.
+ 
+ Installing information directly to `info->top_level_consts` produces
+ the desired result for your example, as well as when `true` is replaced
+ by `(true)`, and the total size of ".zo" files in an installation
+ doesn't go up significantly.
+ 
+ At Sun, 15 Feb 2015 14:48:01 -0500, gustavo@oma.org.ar wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14978
+ > 
+ > Reported by Gustavo Massaccesi for release: 6.1.1
+ > 
+ > *** Description:
+ > (This is a feature request for the Racket optimizer. It's easier to explain 
+ > with an example. See below.)
+ > 
+ > Some functions are not inlined in the same module, when the original 
+ > definition is not an obvious function. It's a problem with the constant 
+ > propagation in optimize_module inside simultaneous groups. Any expression with 
+ > a side effect breaks the simultaneous group and enables the constant 
+ > propagation.
+ > 
+ > Nevertheless, they have an #%inline-variant, so they can be inlined in other 
+ > modules.
+ > 
+ > For example:
+ > ;---
+ > #lang racket/base
+ > (define true #t)
+ > (define no (if true (lambda (x) (cons x 'no)) display))
+ > (newline) ; <--- just to break the simultaneous group
+ > (define yes (if true (lambda (x) (cons x 'yes)) display))
+ > 
+ > (no 5)
+ > (yes 5)
+ > ;---
+ > 
+ > It's optimized to something equivalent to:
+ > ;---
+ > #lang racket/base
+ > (define true '#t)
+ > (define no (lambda (x) (cons x 'no)))
+ > (print-values (newline))
+ > (define yes (lambda (x) (cons x 'yes)))
+ > 
+ > (print-values (no '5))  ; <--- 'no' is not inlined :(
+ > (print-values (cons '5 'yes))
+ > ;--- 
+ > 
+ > But a better optimized version would be:
+ > ;---
+ > #lang racket/base
+ > (define true '#t)
+ > (define no (lambda (x) (cons x 'no)))
+ > (print-values (newline))
+ > (define yes (lambda (x) (cons x 'yes)))
+ > 
+ > (print-values (cons '5 'no))  ; <--- 'no' is inlined :)
+ > (print-values (cons '5 'yes))
+ > ;---
+ > 
+ > *** How to repeat:
+ > 
+ > 
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) 
+ > (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 295320180
+ > raco pkg (show):
+ > Installation-wide:
+ >  Package              Checksum                                    Source
+ >  main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog 
+ > main-distribution)
+ >  racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog 
+ > racket-lib)
+ >  [187 auto-installed packages not shown]
+ > User-specific for installation "6.1.1":
+ >  Package        Checksum                                    Source
+ >  disassemble    cf0ee3a5f8463e0867eba4c964d742a29325a996    (url 
+ > github://github.com/samth/disassemble/master)
+ > 
+ > 
+ > 
+ > Collections:
+ > ("C:\\Users\\Nadie\\AppData\\Roaming\\Racket\\6.1.1\\collects"
+ >  (non-existent-path))
+ > ("C:\\Program Files\\Racket\\collects"
+ >  (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" 
+ > "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" 
+ > "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #f #f ((test) 
+ > (main)) #t))
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Mon, 16 Feb 2015 14:22:41 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/a8026824dd
+State changed from "open" to "closed" by mflatt@racket-lang.org at Mon, 16 Feb 2015 14:22:41 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/a8026824dd
+  | adjust optimizer to improve intra-module inlining
+  | 
+  | Instead of delaying the registration of some constants until a
+  | group of expressions is re-optimized, add constant information as
+  | it is discovered, which can expose some additional optimizations.
+  | 
+  | The old grouping was probably aimed at avoiding excessive code growth,
+  | but I think that other and better controls are now in place. The
+  | overall size of ".zo" files in an installation did not grow
+  | significantly with this change.
+  | 
+  | Closes PR 14978
+

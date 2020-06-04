@@ -1,0 +1,133 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Sep 30 19:13:00 2009
+Received: from mail-gx0-f215.google.com (mail-gx0-f215.google.com [209.85.217.215])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n8UNCuTA025893
+	for <bugs@bugs.plt-scheme.org>; Wed, 30 Sep 2009 19:12:56 -0400
+Message-Id: <200909302312.n8UNCqVm025886@champlain.ccs.neu.edu>
+Date: Wed, 30 Sep 2009 19:12:52 -0400
+From: plt@synx.us.to
+To: bugs@plt-scheme.org
+Subject: net URL encoding problems
+
+>Number:         10497
+>Category:       mzscheme
+>Synopsis:       net URL encoding problems
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Sep 30 19:16:01 -0400 2009
+>Closed-Date:    Wed Nov 23 12:36:28 -0500 2011
+>Last-Modified:  Wed Nov 23 12:36:28 -0500 2011
+>Originator:     net URL encoding problems
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.1
+>Environment:
+unix "Linux synx 2.6.30-1-amd64 #1 SMP Sat Aug 15 18:09:19 UTC 2009 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 195885216
+
+Collections:
+(("/home/synx/.plt-scheme/4.2.1/collects" non-existent-path) ("/var/opt/plt/lib/plt/collects" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml" "info-domain" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme/base\n" #t))
+>Description:
+the url->string routine I think has some subtle encoding errors. Some characters it does not escape properly, and it's impossible to produce certain important valuable URLs like "?" for instance. It escapes and unescapes space/%20 and percent/%25 just fine, but colon/%3A is messed up. Additionally, I cannot construct the valid URL "?" which means the same spot but with no query arguments, as opposed to "" which means the same spot with the same query arguments.
+>How-To-Repeat:
+(url->string (string->url "?"))
+=> ""
+
+(url->string
+  (string->url
+    "not%3Aa%3Aschema/but%20a%20relative/url"))
+=> "not:a:schema/but%20a%20relative/url"
+
+(url->string
+  (string->url
+    "http://some.server.com/an%3Aabsolute%3Apath/with%20colons%20in/%3Athe%3Apath/file.jpg"))
+=> "http://some.server.com/an:absolute:path/with%20colons%20in/:the:path/file.jpg"
+
+(url->string
+  (string->url
+    (string-join (map uri-encode '("not:a:schema" "but a relative" "url")) "/")))
+
+=> "not:a:schema/but%20a%20relative/url"
+
+(url->string
+  (string->url
+    (string-join (map (compose uri-encode uri-encode) '("not:a:schema" "but a relative" "url")) "/")))
+=> "not%253Aa%253Aschema/but%2520a%2520relative/url"
+>Fix:
+>Audit-Trail:
+From: synx <plt@synx.us.to>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/10497: net URL encoding problems
+Date: Wed, 30 Sep 2009 16:45:55 -0700
+
+ I found a one line fix for most of this. : is considered a "safe"
+ character for paths, which is incorrect. Assuming : is safe makes the
+ difference between a relative path of "schema:here" indistinguishable
+ from an absolute URI whose schema is "schema" and ...host is "here".
+ 
+ At least in Firefox, if I say <a href="schema:here"> it won't assume
+ that's a relative path. Seems a reasonable assumption.
+ 
+ So to fix, in collects/net/uri-codec-unit.ss around line 300 or so
+ uri-path-segment-mapping needs to be changed by removing the : from the
+ list of characters in its definition. That fixed the problem for me.
+ 
+ The problem of a zero sized query URI "?" versus a URI without a query
+ "" still remains.
+
+Responsible changed from "nobody" to "jay" by samth at Sun, 20 Nov 2011 17:48:45 -0500
+Reason>>> url
+
+
+State changed from "open" to "closed" by jay at Wed, 23 Nov 2011 12:36:28 -0500
+Reason>>> I disagree with your interpretation of the RFC. In particular, notice this paragraph 
+from 4.2.
+
+"A path segment that contains a colon character (e.g., "this:that")
+   cannot be used as the first segment of a relative-path reference, as
+   it would be mistaken for a scheme name.  Such a segment must be
+   preceded by a dot-segment (e.g., "./this:that") to make a relative-
+   path reference."
+
+In all your examples, the colon appears in the first path segment. I think it would 
+be best if the string->url routine would error or something, but we don't do that 
+for lots of illegal URLs, so it's a more general issue of validation.
+
+If you disagree, can you cite another implementation (such as part of Apache) that 
+does what you suggest Racket should do?
+
+Regarding ?, I think it is a bit unclear. For example, 6.2.3 has
+
+"For example, the URI "http://example.com/?" cannot be assumed to be equivalent 
+to any of the examples above."
+
+where the other examples are 
+
+http://example.com
+      http://example.com/
+      http://example.com:/
+      http://example.com:80/
+
+However, 5.3 has a path-reconstruction algorithm that states:
+
+"if defined(query) then
+         append "?" to result;
+         append query to result;
+      endif;"
+
+implying that if there is no query in your parsed components, then you should not 
+put in the ?
+
+I've made the representation of URLs a bit more general to allow the query 
+component to be #f, to mean that there is none, and empty, to mean that there is 
+a query, but it is empty, whereas before these two situations were conflated.
+
+This potentially breaks a lot of programs, so we may need to revert it.
+

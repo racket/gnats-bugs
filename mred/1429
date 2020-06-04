@@ -1,0 +1,294 @@
+From robby@cs.rice.edu  Fri Apr 21 15:48:01 2000
+Received: from localhost (swb3a-176-153.rice.edu [128.42.176.153])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id PAA16034
+	for <plt-gnats>; Fri, 21 Apr 2000 15:47:52 -0500 (CDT)
+Message-Id: <200004212047.PAA16034@cs.rice.edu>
+Date: Fri, 21 Apr 2000 15:47:52 -0500 (CDT)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: panels stretched sizes funny
+
+>Number:         1429
+>Category:       mred
+>Synopsis:       panels stretched sizes funny
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Apr 21 17:00:16 -0400 2000
+>Last-Modified:  Sun Mar 28 02:43:38 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        102/10d8
+>Organization:
+titan
+>Environment:
+windows (win32\i386)
+Tools: ("CVS" "analysis" "debug" "syncheck" "unit-bundle" "project-manager" "typeset")
+Docs Installed:
+("mzscheme" "teach" "r5rs" "mred" "misclib" "help" "drscheme" "framework" "mzc" "icons" "tools" "match")
+Collections:
+(("d:\\robby\\collects" ("CVS" "account" "backgammon" "checkers" "doonesbury" "friendly" "mahjongg" "paper-utils" "pente" "pop-pop" "set-fonts" "test-image-map" "xmahjongg" "icfp-pc-99" "solutions" "magic")) ("d:\\robby\\proj\\papers" ("CVS" "c+u.save" "drafthead.sty" "dr" "dr-column" "geometric-control" "graphical-units" "senior-thesis" "signature-constraints" "type-safety" "typed-unit-calculus" "unit" "unit-semantics" ".log" "dr-journal" "sba-procedures" "java-blame")) ("d:\\robby\\proj\\talks" ("CVS" "icfp98" "lc" "lunch1" "unit-patterns" "unit-proposal" "util" "Jcontracts.ppt")) ("d:\\mflatt\\collects" ("CVS" "sirmail")) ("d:\\rel\\plt\\collects" ("CVS" "afm" "browser" "cogen" "compiler" "countdwn" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "help" "hierarchy" "hierlist" "icons" "launcher" "make" "xml" "mred" "mrspidey" "mysterx" "mzlib" "mzscheme" "net" "quasiquote" "readline" "slatex" "slibinit" "tests" "texpict" "userspce" "zodiac" "doc" "drjava" "stepper" "typeset" "htdp" "setup" "mrdemo" "srpersist")))
+>Description:
+I think that these sizes are more out of wack than they
+should be. The panel on the bottom should not be so small
+compared to the ones above it. The one on the bottom comes
+out at about 10 pixels while the ones above it are around
+400. But, they are all stretchable and the min sizes aren't
+that big (as far as I can guess -- both graphical-min-size
+min-size return 0...). Note that under macos earlier today
+the sizes were much better (I could at least read
+a few lines of the bottom text instead of none of the
+lines).
+
+Let me take this space to re-iterate my explanation of why
+the current container scheme is broken. Imagine this setup:
+two stretchable children in a container that 100 pixels
+to allocate between them. One has a min-width of 50 and
+the other has a min-width of 0. MrEd will currently
+allocate 75 pixels to the one with a minimum width
+and 25 to the one without. It should split the difference
+50:50.
+
+I claim that there is no
+correlation between the minimum size of a container and
+it "innate right" to get more pixels. In fact, I believe
+the contrary: mred should strive to make sibling areas
+in a single container have equal size (of course, they
+cannot always have equal size, due to the min sizes -- 
+in the example above if there were only 60 pixels, I
+think that 50 should go the one with a minsize and 10
+to the one without (rather than 55:5 as the current
+implementation does)).
+>How-To-Repeat:
+(define project-frame (make-object frame% "frame" #f 400 450))
+
+(define top-panel (make-object vertical-panel% project-frame))
+(define rep-outer-panel (make-object vertical-panel% top-panel))
+(define rep-panel (make-object vertical-panel% rep-outer-panel))
+
+(define rep (make-object text%))
+(define rep-canvas (make-object editor-canvas% rep-panel rep))
+
+(define execute-button (make-object button% "Execute" top-panel (lambda x (void))))
+
+(define top-horizontal-panel (make-object horizontal-panel% top-panel))
+
+(define to-load-files-outer-panel (make-object vertical-panel% top-horizontal-panel))
+(define to-load-files-panel (make-object horizontal-panel% to-load-files-outer-panel '(border)))
+(define files-list-box (make-object list-box% #f null to-load-files-panel
+                         (lambda (lb evt)
+                           (files-list-box-callback
+                            (send evt get-event-type)))
+                         '(single)))
+(define to-load-button-panel (make-object vertical-panel% to-load-files-panel))
+(define up-button (make-object button% "Up" to-load-button-panel (lambda x (void))))
+(define open-button (make-object button% "Open" to-load-button-panel (lambda x (void))))
+(define remove-button (make-object button% "Remove" to-load-button-panel (lambda x (remove-file))))
+(define down-button (make-object button% "Down" to-load-button-panel (lambda x (move-file-down))))
+(send to-load-button-panel stretchable-width #f)
+(send to-load-button-panel set-alignment 'center 'center)
+
+(define loaded-files-outer-panel (make-object vertical-panel% top-horizontal-panel))
+(define loaded-files-panel (make-object horizontal-panel% loaded-files-outer-panel '(border)))
+(define loaded-files-hierarchical-list (make-object editor-canvas% loaded-files-panel))
+(define loaded-files-button-panel (make-object vertical-panel% loaded-files-panel))
+(define open-loaded-file-button (make-object button% "Open" loaded-files-button-panel void))
+(send loaded-files-button-panel set-alignment 'center 'center)
+(send loaded-files-button-panel stretchable-width #f)
+
+(send loaded-files-button-panel min-height (send to-load-button-panel get-height))
+
+(send loaded-files-outer-panel stretchable-height #f)
+
+(let* ([buttons (list up-button open-button down-button remove-button open-loaded-file-button)]
+       [max-width (apply max (map (lambda (x) (send x get-width)) buttons))])
+  (for-each (lambda (button) (send button min-width max-width))
+            buttons))
+
+(send loaded-files-outer-panel stretchable-height #t)
+(send loaded-files-outer-panel stretchable-width #t)
+(send top-horizontal-panel stretchable-width #t)
+(send top-horizontal-panel stretchable-height #t)
+
+(send to-load-files-outer-panel stretchable-height #t)
+(send to-load-files-outer-panel stretchable-width #t)
+(send top-horizontal-panel stretchable-width #t)
+(send top-horizontal-panel stretchable-height #t)
+
+(send rep-outer-panel stretchable-height #t)
+(send rep-outer-panel stretchable-width #t)
+
+(send top-panel change-children (lambda (l) (list execute-button top-horizontal-panel rep-outer-panel)))
+(send project-frame show #t)
+>Fix:
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1429: panels stretched sizes funny
+Date: Fri, 21 Apr 2000 15:55:47 -0600 (MDT)
+
+ Quoting robby@cs.rice.edu:
+ > I think that these sizes are more out of wack than they
+ > should be. 
+ 
+ We agree that the implmentation is doing what it's defined to do,
+ right?
+ 
+ > Let me take this space to re-iterate my explanation of why
+ > the current container scheme is broken. Imagine this setup:
+ > two stretchable children in a container that 100 pixels
+ > to allocate between them. One has a min-width of 50 and
+ > the other has a min-width of 0. MrEd will currently
+ > allocate 75 pixels to the one with a minimum width
+ > and 25 to the one without. It should split the difference
+ > 50:50.
+ 
+ The example remains uncompelling to me because there's an easy fix; set
+ the minimum size of the lower panel based on the minimum size of the
+ upper panel.
+ 
+ I claim that the current algorithm is far easier to reason about than
+ the one you've sketched (particularly when the number of containees is
+ more than 2). I also claim that many existing programs rely on the
+ current algorithm. For those reasons, I'm unwilling to change it in
+ MrEd.
+ 
+ > I claim that there is no
+ > correlation between the minimum size of a container and
+ > it "innate right" to get more pixels. 
+ 
+ Agreed - that's why extra pixels are distributed evenly. :)
+ 
+ > In fact, I believe the contrary: mred should strive to make sibling
+ > areas in a single container have equal size Matthew
+ 
+ I don't see any reason for this to be true. When the user resizes a
+ window, MrEd has no idea which of the resizable subwindows the user
+ really wants to make bigger; the right guess for an unknown environment
+ is the most conservative one: expand them all equally.
+ 
+ For cases where the programmer wants a different behavior, there's
+ always the option of implementing a new container class.
+ 
+ Matthew
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: <plt-gnats@cs.rice.edu>
+Subject: Re: all/1429: panels stretched sizes funny
+Date: Fri, 21 Apr 2000 17:28:33 -0500
+
+ ----- Original Message -----
+ From: Matthew Flatt <mflatt@cs.utah.edu>
+ To: <robby@cs.rice.edu>
+ Cc: <plt-gnats@cs.rice.edu>
+ Sent: Friday, April 21, 2000 4:55 PM
+ Subject: Re: all/1429: panels stretched sizes funny
+ 
+ 
+ > Quoting robby@cs.rice.edu:
+ > > I think that these sizes are more out of wack than they
+ > > should be.
+ >
+ > We agree that the implmentation is doing what it's defined to do,
+ > right?
+ 
+ Absolutely not. I would not have filed a PR if I didn't think that there was
+ an actual bug, of course.
+ 
+ The program seems like far too little space and the spacing is different on
+ the mac and windows. As I wrote in the pr, I tried to get the actual minimum
+ size values (to understand what was going on), but couldn't find the right
+ method. Everything I tried returned zero.
+ 
+ 
+ > > Let me take this space to re-iterate my explanation of why
+ > > the current container scheme is broken. Imagine this setup:
+ > > two stretchable children in a container that 100 pixels
+ > > to allocate between them. One has a min-width of 50 and
+ > > the other has a min-width of 0. MrEd will currently
+ > > allocate 75 pixels to the one with a minimum width
+ > > and 25 to the one without. It should split the difference
+ > > 50:50.
+ >
+ > The example remains uncompelling to me because there's an easy fix; set
+ > the minimum size of the lower panel based on the minimum size of the
+ > upper panel.
+ 
+ That doesn't work when the size of the window is (in this example) less than
+ 100. In general you don't want to force a window to be that big.
+ 
+ As far as "relying on the current behavior goes", the first time in any
+ program I wrote that this has come up is basically the one example above (in
+ the project manager). No where else do I have stretchable siblings that have
+ different minimum sizes In fact, no where else are there stretchable
+ siblings with non-zero min sizes.
+ 
+ Can you demonstrate a program that you wrote (or somewhere in drs that I
+ just missed?) that relies on this behavior? If not, how does your argument
+ still hold up?
+ 
+ As far as the "implement another container class" goes, I am tempted to do
+ just that and stop using the built in ones because the project window is so
+ annoying to use with the current container classes.
+ 
+ Robby
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1429: panels stretched sizes funny
+Date: Fri, 21 Apr 2000 16:42:53 -0700
+
+ Quoting robby@cs.rice.edu:
+ > (send loaded-files-button-panel min-height (send to-load-button-panel
+    get-height))
+ 
+ Under Windows, the panel happens to have been stretched before the
+ frame is shown. Not so on other platforms. That explains the difference.
+ 
+ (In genernal, `get-height' isn't defined until the top-level window is
+ shown or reflowed.)
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: <plt-gnats@cs.rice.edu>
+Subject: Re: all/1429: panels stretched sizes funny
+Date: Fri, 21 Apr 2000 22:44:01 -0500
+
+ Matthew wrote:
+ > (In genernal, `get-height' isn't defined until the top-level window is
+ > shown or reflowed.)
+ 
+ Ah. Thanks for spotting this.
+ 
+ Is it possible to return #f or raise an exception in this case? Of course, I
+ only suggest this behavior as a way to make mred behave the same on all
+ platforms. To me, this is just the kind of thing that mred should get right.
+ 
+ Robby
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Tue Apr 25 16:52:41 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Wed Apr 26 07:42:02 2000
+State-Changed-Why:
+PR 1288 covers the change request.
+
+ 
+>Unformatted:

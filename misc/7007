@@ -1,0 +1,151 @@
+From dherman@ccs.neu.edu Wed Sep  1 02:13:57 2004
+Received: from localhost (h00062562abb5.ne.client2.attbi.com [66.30.106.123])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id i816Du0u009879
+	for <bugs>; Wed, 1 Sep 2004 02:13:57 -0400
+Message-Id: <200409010613.i816Du0u009879@champlain.ccs.neu.edu>
+Date: Wed, 1 Sep 2004 02:13:57 -0400
+From: Dave Herman <dherman@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Subject: quasisyntax inside texpict code
+
+>Number:         7007
+>Category:       misc
+>Synopsis:       quasisyntax inside texpict code
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Sep 01 02:15:00 -0400 2004
+>Closed-Date:    Wed Nov 29 07:57:56 -0500 2006
+>Last-Modified:  Wed Nov 29 07:57:56 -0500 2006
+>Originator:     Dave Herman
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        208.1-cvs9aug2004
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 1" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+("C:\\Program Files\\plt\\collects\\doc\\web-server" "C:\\Program Files\\plt\\collects\\doc\\tour" "C:\\Program Files\\plt\\collects\\doc\\tools" "C:\\Program Files\\plt\\collects\\doc\\tex2page" "C:\\Program Files\\plt\\collects\\doc\\teachpack" "C:\\Program Files\\plt\\collects\\doc\\t-y-scheme" "C:\\Program Files\\plt\\collects\\doc\\srfi" "C:\\Program Files\\plt\\collects\\doc\\r5rs" "C:\\Program Files\\plt\\collects\\doc\\profj-intermediate" "C:\\Program Files\\plt\\collects\\doc\\profj-beginner" "C:\\Program Files\\plt\\collects\\doc\\profj-advanced" "C:\\Program Files\\plt\\collects\\doc\\plot" "C:\\Program Files\\plt\\collects\\doc\\mzscheme" "C:\\Program Files\\plt\\collects\\doc\\mzlib" "C:\\Program Files\\plt\\collects\\doc\\mzc" "C:\\Program Files\\plt\\collects\\doc\\mred" "C:\\Program Files\\plt\\collects\\doc\\misclib" "C:\\Program Files\\plt\\collects\\doc\\intermediate-lambda" "C:\\Program Files\\plt\\collects\\doc\\intermediate" "C:\\Program Files\\plt\\collects\\doc\\insidemz" "C:\\Program Files\\plt\\collects\\doc\\help" "C:\\Program Files\\plt\\collects\\doc\\framework" "C:\\Program Files\\plt\\collects\\doc\\drscheme" "C:\\Program Files\\plt\\collects\\doc\\beginning-abbr" "C:\\Program Files\\plt\\collects\\doc\\beginning" "C:\\Program Files\\plt\\collects\\doc\\advanced")
+Collections: 
+(("C:\\Documents and Settings\\dherman\\Application Data\\PLT Scheme\\208.1\\collects" ("mztake" "ssax" "sxml" "web-site")) ("C:\\Program Files\\plt\\collects" ("afm" "algol60" "browser" "compiler" "cvs-time-stamp" "defaults" "doc" "dromedary" "drscheme" "dynext" "eopl" "errortrace" "finish-install" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "htdch" "htdp" "html" "icons" "lang" "launcher" "make" "mrdemo" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "readline" "reduction-semantics" "setup" "sgl" "sirmail" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "syntax" "syntax-color" "test-suite" "tests" "tex2page" "texpict" "tll" "trace" "typeset" "version" "waterworld" "web-server" "xelda" "xml")) ("C:\\Documents and Settings\\dherman\\My Documents\\Projects\\collects" ("datatype")))
+ 
+Human Language: english
+ 
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#f write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+The (code ...) form in the slideshow language has
+trouble dealing with quasisyntax. It doesn't seem
+to interpret unsyntax correctly. I think this is
+a problem with texpict, not slideshow.
+
+The example program causes the following error:
+
+expand: unbound variable in module in: s
+
+>How-To-Repeat:
+(module bug (lib "run.ss" "slideshow")
+  (require (lib "code.ss" "slideshow"))
+
+  (slide
+   (code
+    (define-syntax print-string-length
+      (syntax-case stx ()
+        [(_ s-exp)
+         (string? (syntax-object->datum #'s-exp))
+         (let ([s (syntax-object->datum #'s-exp)])
+           #`(display #,(string-length s)))]))))
+
+  )
+>Fix:
+>Audit-Trail:
+From: Dave Herman <dherman@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7007: quasisyntax inside texpict code
+Date: Wed, 01 Sep 2004 02:32:35 -0400
+
+ Update: I think I've found something close to the cause of the bug: it 
+ appears the use of unsyntax is interfering with the (code ...) macro 
+ definition. By introducing a new form to CODE called code:unsyntax, I 
+ can fake what I need:
+ 
+ ;; --
+        (define-computed quasisyntax-p (colorize (tt "#`") 
+ (current-keyword-color)))
+        (define-computed unsyntax-p (colorize (tt "#,") 
+ (current-keyword-color)))
+        (define-computed unsyntax-splicing-p (colorize (tt "#,@") 
+ (current-keyword-color)))
+ 
+ ...
+ 
+ 	  (syntax-case* stx (quote syntax-unquote syntax
+                                     ;; NEW
+                                     quasisyntax code:unsyntax 
+ code:unsyntax-splicing
+ 				   code:contract code:comment code:line
+ 				   code:template code:blank $)
+ 			(lambda (a b) (eq? (syntax-e a) (syntax-e b)))
+ ...
+              [(quasisyntax x)
+               (htl-append quasisyntax-p (loop #'x closes mode))]
+              [(code:unsyntax x)
+               (htl-append unsyntax-p (loop #'x closes mode))]
+              [(code:unsyntax-splicing x)
+               (htl-append unsyntax-splicing-p (loop #'x closes mode))]
+ ...
+ ;; --
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Dave Herman <dherman@ccs.neu.edu>, bugs@plt-scheme.org
+Cc: robby@cs.uchicago.edu
+Subject: Re: all/7007: quasisyntax inside texpict code
+Date: Wed, 1 Sep 2004 06:34:16 -0700
+
+ At Wed, 1 Sep 2004 02:15:01 -0400, Dave Herman wrote:
+ > The (code ...) form in the slideshow language has
+ > trouble dealing with quasisyntax. It doesn't seem
+ > to interpret unsyntax correctly. I think this is
+ > a problem with texpict, not slideshow.
+ > 
+ > The example program causes the following error:
+ > 
+ > expand: unbound variable in module in: s
+ 
+ The problem is that unsyntax is used as an escape for `code' --- a hack
+ that I never got around to thinking about more.
+ 
+ One workaround is to defeat the identifier comparison in `code':
+ 
+ (module bug (lib "run.ss" "slideshow")
+   (require (lib "code.ss" "slideshow"))
+ 
+   (slide
+    (let ([unsyntax 10]) ; <--------------------
+      (code
+       (define-syntax print-string-length
+ 	(syntax-case stx ()
+ 	  [(_ s-exp)
+ 	   (string? (syntax-object->datum #'s-exp))
+ 	   (let ([s (syntax-object->datum #'s-exp)])
+ 	     #`(display #,(string-length s)))])))))
+ 
+   )
+ 
+ The result doesn't use "#`" and "#'", though.
+ 
+ Matthew
+ 
+
+Responsible changed from "nobody" to "mflatt" by eli at Wed, 01 Sep 2004 09:53:58 -0400
+Reason>>> slideshow/texpict
+
+
+State changed from "open" to "closed" by mflatt at Wed, 29 Nov 2006 07:57:56 -0500
+Reason>>> The `define-code' macro now lets you pick an escape form,
+and quasisyntax ... typeset with #, ...
+

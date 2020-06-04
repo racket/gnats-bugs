@@ -1,0 +1,187 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon May 12 17:59:12 2014
+Received: from mail-ob0-f176.google.com (mail-ob0-f176.google.com [209.85.214.176])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s4CLx7nw031871
+	for <bugs@bugs.plt-scheme.org>; Mon, 12 May 2014 17:59:08 -0400
+Message-Id: <201405122159.s4CLx4CD031864@winooski.ccs.neu.edu>
+Date: Mon, 12 May 2014 17:59:04 -0400
+From: alexander@knauth.org
+To: bugs@racket-lang.org
+Subject: define-type doesn't allow #:omit-define-syntaxes for the (name v ...) form
+
+>Number:         14505
+>Category:       typed-scheme
+>Synopsis:       define-type doesn't allow #:omit-define-syntaxes for the (name v ...) form
+>Class:          sw-bug
+>Responsible:    endobson
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon May 12 18:00:01 -0400 2014
+>Closed-Date:    Sun Jul 06 21:55:16 -0400 2014
+>Last-Modified:  Sun Jul 06 21:55:16 -0400 2014
+>Originator:     Alex Knauth
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.0.1.8--2014-05-10(722c4fd/a)
+>Environment:
+macosx "Darwin Alexander-D-Knauths-Computer-2.local 13.1.0 Darwin Kernel Version 13.1.0: Thu Jan 16 19:40:37 PST 2014; root:xnu-2422.90.20~2/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 506663812
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    820e85aeae454e9aaa7090e53100c639fc7aac6f    (catalog main-distribution)
+ racket-lib           a5ad75266826476cc1034e69afe7ca6740b572d7    (catalog racket-lib)
+ [177 auto-installed packages not shown]
+User-specific for installation "snapshot":
+ Package                Checksum                                    Source
+ contract-repl          9e96a1ee4f819abab253a1276aaacd8bc21e29b7    (catalog contract-repl)
+ drracket-solarized     3c7ac56e3bde4f52653c08ad1058188f9bc10184    (catalog drracket-solarized)
+ experimental-lang      #f                                          (link ../../../../Documents/DrRacket/stuff/experimental-lang pkg/experimental-lang)
+ first-class-methods    #f                                          (link ../../../../Documents/DrRacket/stuff/first-class-methods pkg/first-class-methods)
+ raw-string             c922d2ea88ab98b9bffd5d2c74f48c64cbd75577    (catalog raw-string)
+
+
+
+Collections:
+("/Users/Alex/Library/Racket/snapshot/collects"
+ (non-existent-path))
+("/Applications/Racket v6.0.1.8/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "rackunit" "raco" "reader" "realm" "s-exp" "scheme" "setup" "srfi" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang at-exp racket\n" #f #t ((main) (test)) #t))
+>Description:
+This works:
+(define-type Type (All (t) t) #:omit-define-syntaxes)
+(ann 5 (Type 5))
+But this doesn't:
+(define-type (Type t) t #:omit-define-syntaxes)
+(ann 5 (Type 5))
+Because it gives this error:
+. define-type: unexpected term in: #:omit-define-syntaxes
+>How-To-Repeat:
+#lang typed/racket
+(define-type (Type t) t #:omit-define-syntaxes)
+>Fix:
+>Audit-Trail:
+From: "Alexander D. Knauth" <alexander@knauth.org>
+To: bugs@racket-lang.org, "Alexander D. Knauth" <alexander@knauth.org>
+Cc: 
+Subject: Re: typed-scheme/14505: define-type doesn't allow #:omit-define-syntaxes for the (name v ...) form
+Date: Sun, 18 May 2014 07:53:45 -0400
+
+ --Apple-Mail=_3883CFE9-B73F-4F91-8F4E-D74168996F28
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=us-ascii
+ 
+ I think this could be fixed by adding these 2 lines to the definition of =
+ define-type-alias at lines 529-552 of =
+ share/pkgs/typed-racket-lib/typed-racket/base-env/prims.rkt:
+     [(_ (tname:id args:id ...) rest #:omit-define-syntaxes)
+      (syntax/loc stx (define-type-alias tname (All (args ...) rest) =
+ #:omit-define-syntaxes))]
+ So then it would be:
+ (define-syntax (define-type-alias stx)
+   (syntax-parse stx
+     [(_ tname:id rest:type-alias-rest
+         (~optional (~and omit #:omit-define-syntaxes)
+                    #:defaults
+                    ([omit #f])))
+      (define/with-syntax stx-err-fun
+        #'(lambda (stx)
+            (raise-syntax-error
+             'type-check
+             "type name used out of context"
+             stx
+             (and (stx-pair? stx) (stx-car stx)))))
+      #`(begin
+          #,(if (not (attribute omit))
+                (ignore #'(define-syntax tname stx-err-fun))
+                #'(begin))
+          #,(internal (syntax/loc stx
+                        (define-type-alias-internal tname rest
+                          rest.args))))]
+     [(_ (tname:id args:id ...) rest)
+      (syntax/loc stx (define-type-alias tname (All (args ...) rest)))]
+     [(_ (tname:id args:id ...) rest #:omit-define-syntaxes)
+      (syntax/loc stx (define-type-alias tname (All (args ...) rest) =
+ #:omit-define-syntaxes))]
+     ))
+ 
+ 
+ --Apple-Mail=_3883CFE9-B73F-4F91-8F4E-D74168996F28
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=us-ascii
+ 
+ <html><head><meta http-equiv=3D"Content-Type" content=3D"text/html =
+ charset=3Dus-ascii"></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">I =
+ think this could be fixed by adding these 2 lines to the definition of =
+ define-type-alias at lines 529-552 of =
+ share/pkgs/typed-racket-lib/typed-racket/base-env/prims.rkt:<div><div><fon=
+ t face=3D"Courier New">&nbsp; &nbsp; [(_ (tname:id args:id ...) rest =
+ #:omit-define-syntaxes)</font></div><div><font face=3D"Courier =
+ New">&nbsp; &nbsp; &nbsp;(syntax/loc stx (define-type-alias tname (All =
+ (args ...) rest) #:omit-define-syntaxes))]</font></div></div><div>So =
+ then it would be:</div><div><div><font face=3D"Courier =
+ New">(define-syntax (define-type-alias stx)</font></div><div><font =
+ face=3D"Courier New">&nbsp; (syntax-parse stx</font></div><div><font =
+ face=3D"Courier New">&nbsp; &nbsp; [(_ tname:id =
+ rest:type-alias-rest</font></div><div><font face=3D"Courier New">&nbsp; =
+ &nbsp; &nbsp; &nbsp; (~optional (~and omit =
+ #:omit-define-syntaxes)</font></div><div><font face=3D"Courier =
+ New">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =
+ &nbsp;#:defaults</font></div><div><font face=3D"Courier New">&nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;([omit =
+ #f])))</font></div><div><font face=3D"Courier New">&nbsp; &nbsp; =
+ &nbsp;(define/with-syntax stx-err-fun</font></div><div><font =
+ face=3D"Courier New">&nbsp; &nbsp; &nbsp; &nbsp;#'(lambda =
+ (stx)</font></div><div><font face=3D"Courier New">&nbsp; &nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp;(raise-syntax-error</font></div><div><font =
+ face=3D"Courier New">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =
+ 'type-check</font></div><div><font face=3D"Courier New">&nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp; "type name used out of =
+ context"</font></div><div><font face=3D"Courier New">&nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp; stx</font></div><div><font face=3D"Courier =
+ New">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; (and (stx-pair? stx) =
+ (stx-car stx)))))</font></div><div><font face=3D"Courier New">&nbsp; =
+ &nbsp; &nbsp;#`(begin</font></div><div><font face=3D"Courier New">&nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp;#,(if (not (attribute =
+ omit))</font></div><div><font face=3D"Courier New">&nbsp; &nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;(ignore #'(define-syntax tname =
+ stx-err-fun))</font></div><div><font face=3D"Courier New">&nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =
+ &nbsp;#'(begin))</font></div><div><font face=3D"Courier New">&nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp;#,(internal (syntax/loc =
+ stx</font></div><div><font face=3D"Courier New">&nbsp; &nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =
+ &nbsp;(define-type-alias-internal tname rest</font></div><div><font =
+ face=3D"Courier New">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =
+ &nbsp;rest.args))))]</font></div><div><font face=3D"Courier New">&nbsp; =
+ &nbsp; [(_ (tname:id args:id ...) rest)</font></div><div><font =
+ face=3D"Courier New">&nbsp; &nbsp; &nbsp;(syntax/loc stx =
+ (define-type-alias tname (All (args ...) rest)))]</font></div><div><font =
+ face=3D"Courier New">&nbsp; &nbsp; [(_ (tname:id args:id ...) rest =
+ #:omit-define-syntaxes)</font></div><div><font face=3D"Courier =
+ New">&nbsp; &nbsp; &nbsp;(syntax/loc stx (define-type-alias tname (All =
+ (args ...) rest) #:omit-define-syntaxes))]</font></div><div><font =
+ face=3D"Courier New">&nbsp; &nbsp; =
+ ))</font></div></div><div><br></div></body></html>=
+ 
+ --Apple-Mail=_3883CFE9-B73F-4F91-8F4E-D74168996F28--
+Responsible changed from "samth" to "endobson" by endobson@racket-lang.org at Sun, 06 Jul 2014 21:55:16 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/64a653696c
+State changed from "open" to "closed" by endobson@racket-lang.org at Sun, 06 Jul 2014 21:55:16 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/64a653696c
+  | Add omit-define-syntaxes to secondary form of define-type-alias.
+  | 
+  | Closes PR 14505.
+

@@ -1,0 +1,61 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Sep 13 01:05:14 2010
+Received: from mail-gx0-f172.google.com (mail-gx0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o8D55BXS011598
+	for <bugs@bugs.plt-scheme.org>; Mon, 13 Sep 2010 01:05:11 -0400
+Message-Id: <201009130505.o8D559lH011589@champlain.ccs.neu.edu>
+Date: Mon, 13 Sep 2010 01:05:09 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: `subprocess' leaves zombies
+
+>Number:         11200
+>Category:       mzscheme
+>Synopsis:       `subprocess' leaves zombies
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Sep 13 01:08:01 -0400 2010
+>Closed-Date:    Sat Jan 08 12:48:42 -0500 2011
+>Last-Modified:  Sat Jan 08 12:48:42 -0500 2011
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        master
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US) AppleWebKit/533.4 (KHTML, like Gecko) Chrome/5.0.375.55 Safari/533.4
+>Description:
+Running a subprocess can leave a zombie.  I've seen this happen only with an Emacs subprocess, as done below.  In that code, the
+`subprocess-wait' is blocking forever, and when this happens, `ps'
+shows the emacs process as defunct.
+
+It's a new problem, so I've bisected it, and got to an unsurprising
+commit that broke it: 04fa6c6a, with a commit log specifying three
+things that all look suspicious.
+>How-To-Repeat:
+#lang mzscheme
+(define-values [subp out in err]
+  (subprocess (current-output-port)
+              (current-input-port)
+              (current-error-port)
+              "/usr/bin/emacs"
+              "-q"))
+(subprocess-wait subp)
+>Fix:
+>Audit-Trail:
+State changed from "open" to "analyzed" by mflatt at Sat, 08 Jan 2011 10:50:56 -0500
+Reason>>> The problem seems to be the Racket strategy for dealing
+with process groups, which involves calling waitpid()
+with 0 to check for processes not created with their
+own group. Emacs, however, moves itself into a new group,
+so when Racket looks for completed children in its own
+group, it finds none.
+
+I don't know the solution, yet.
+
+State changed from "analyzed" to "closed" by mflatt@racket-lang.org at Sat, 08 Jan 2011 12:48:42 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/ea51d32e9d

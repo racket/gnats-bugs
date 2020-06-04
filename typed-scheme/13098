@@ -1,0 +1,106 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Sep  6 13:02:59 2012
+Received: from mail-ie0-f172.google.com (mail-ie0-f172.google.com [209.85.223.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q86H2usf016354
+	for <bugs@bugs.plt-scheme.org>; Thu, 6 Sep 2012 13:02:56 -0400
+Message-Id: <201209061702.q86H2rWt016342@champlain.ccs.neu.edu>
+Date: Thu, 6 Sep 2012 13:02:53 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: Precise arithmetic types make type checking slow
+
+>Number:         13098
+>Category:       typed-scheme
+>Synopsis:       Precise arithmetic types make type checking slow
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Sep 06 13:04:01 -0400 2012
+>Last-Modified:  Tue Mar 26 01:01:37 -0400 2013
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.0.20--2012-08-29(bc59e0c5/d)
+>Environment:
+unix "Linux schroder 2.6.38-15-generic #65-Ubuntu SMP Thu Jul 26 20:13:19 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 546787096
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/home/neil/.racket/5.3.0.20/collects"
+ (non-existent-path))
+("/home/neil/plt-math/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "lang" "raco" "gui-d!
+ ebugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+The reproduction steps program takes about 17.1 seconds to compile on my computer. Changing `+' to `fl+' and `*' to `fl*' drops compilation time to 2.7 seconds.
+
+This isn't an unusual program. Until I found the workaround, the Gamma function implementation, using the same polynomial evaluation macro, used to take 30 seconds to compile.
+
+Actual timings:
+
+neil@schroder:~/Desktop/junk$ time ~/plt-math/bin/racket ./slow-arithmetic-types.rkt 
+real	0m17.160s
+user	0m16.990s
+sys	0m0.160s
+
+neil@schroder:~/Desktop/junk$ time ~/plt-math/bin/racket ./slow-arithmetic-types.rkt 
+real	0m2.783s
+user	0m2.700s
+sys	0m0.080s
+>How-To-Repeat:
+#lang typed/racket #:no-optimize
+
+;; A macro that creates polynomial functions using Horner's method
+
+;; Chosen as an example because it's where I discovered the problem,
+;; and because it generates a lot of arithmetic ops
+
+(require racket/flonum
+         (for-syntax syntax/parse))
+
+(define-syntax (horner-iter stx)
+  (syntax-case stx ()
+    [(_ y z ())  (syntax/loc stx y)]
+    [(_ y z (c0 c ...))
+     (syntax/loc stx
+       (horner-iter (+ (* y z) c0) z (c ...)))]))
+
+(define-syntax (make-flpolyfun stx)
+  (syntax-parse stx
+    [(_ (c0:expr c:expr ...))
+     (with-syntax ([(c0 c ...)  (reverse (syntax->list #'(c0 c ...)))])
+       (syntax/loc stx
+         (λ: ([z : Float])
+           (horner-iter c0 z (c ...)))))]))
+
+;; Returns a function that approximates `flexp' near 0
+(define-syntax-rule (make-exp-series)
+  (make-flpolyfun
+   (#i1 #i1 #i1/2 #i1/6 #i1/24 #i1/120 #i1/720 #i1/5040 #i40320
+        #i1/362880
+        #i1/3628800
+        #i1/39916800
+        #i1/479001600
+        #i1/6227020800
+        #i1/87178291200
+        #i1/1307674368000
+        #i1/20922789888000)))
+
+(make-exp-series)
+(make-exp-series)
+(make-exp-series)
+(make-exp-series)
+(make-exp-series)
+(make-exp-series)
+(make-exp-series)
+(make-exp-series)
+(make-exp-series)
+>Fix:

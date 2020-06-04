@@ -1,0 +1,184 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Dec  7 16:39:58 2010
+Received: from mail-fx0-f49.google.com (mail-fx0-f49.google.com [209.85.161.49])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id oB7LdtAm004015
+	for <bugs@bugs.plt-scheme.org>; Tue, 7 Dec 2010 16:39:56 -0500
+Message-Id: <201012072139.oB7LdrYi004006@champlain.ccs.neu.edu>
+Date: Tue, 7 Dec 2010 16:39:53 -0500
+From: rafkind@cs.utah.edu
+To: bugs@racket-lang.org
+Subject: raco setup -l -D
+
+>Number:         11510
+>Category:       all
+>Synopsis:       raco setup -l -D
+>Class:          sw-bug
+>Responsible:    rafkind
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Dec 07 16:40:01 -0500 2010
+>Closed-Date:    Tue Dec 07 17:39:45 -0500 2010
+>Last-Modified:  Mon Feb 18 23:57:05 -0500 2013
+>Originator:     Jon Rafkind
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.2.1
+>Environment:
+Linux i686 / Mozilla/5.0 (X11; U; Linux i686; en-US) AppleWebKit/534.7 (KHTML, like Gecko) Chrome/7.0.517.8 Safari/534.7
+>Description:
+Its not clear why passing -D after -l doesn't work in raco setup.
+
+OK:
+$ raco setup -D -l foo
+
+Bad 1:
+$ raco setup -l foo -D
+collection -D not found
+
+Bad 2:
+$ raco setup -l -D foo
+collection -D not found
+
+The grammar for raco setup says
+  raco setup [ <option> ... ] [<collection>] ...
+
+And for the -l switch
+  -l [<collection>] ... : Setup specific <collection>s only
+
+So is the option `-l collection ...' or does -l have some effect on the collections given after the options? It seems like both considering that -D cannot follow -l.
+
+I would prefer if I could write
+
+$ raco setup -l foo -D
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: rafkind@cs.utah.edu, bugs@racket-lang.org
+Cc: bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11510: raco setup -l -D
+Date: Tue, 7 Dec 2010 17:13:29 -0500
+
+ 20 minutes ago, rafkind@cs.utah.edu wrote:
+ > I would prefer if I could write
+ > 
+ > $ raco setup -l foo -D
+ 
+ It's a limitation of `racket/cmdline' -- it can't deal with an
+ arbitrary number of arguments to a flag, only at the end for the
+ line.
+ 
+ One possible way around this is to allow an argument to be any number
+ of inputs, as long as these arguments don't start with a "-" or a "+".
+ But I didn't see any command-line interface that had a good way to do
+ this...  One option is to treat *anything* that starts with these
+ characters as a value, and relying on some other notation to to quote
+ arguments when needed, for example "rm ./-foo".  (This is different
+ than the better convention of using "--" which racket uses too.)
+ 
+ But even if you do that, you'd run into more confusion -- for example,
+ the cmdline interface allows you to use either of:
+ 
+   foo -x foo -y bar
+   foo -xy foo bar
+ 
+ in the same way, and that becomes ambiguous if you allow -x or -y to
+ take a variable number of inputs.  If you allow both to take a
+ variable number of arguments, then you also need a way to specify
+ which goes where.
+ 
+ So going this way (making these variable-arity flags) possible
+ requires:
+ 
+ * Finding some quotation scheme for values that begin with "-"s and
+   "+"s (or just forbidding them)
+ 
+ * Defining some rules to disambiguate cases like the above, or
+   forbidding such flag combinations when you deal with n-ary flags.
+ 
+ * Deciding on some way to deal with combined flags where both are
+   n-ary, or forbidding such combinations when n-ary flags are
+   involved.
+ 
+ ... and at this point, IMO, keeping things as they are now seems
+ overall better.
+ 
+ (There's also the option of making setup see if some collection name
+ is not found and begins with a "-", and provide a better error
+ message, but that's just one place.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Jon Rafkind <rafkind@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11510: raco setup -l -D
+Date: Tue, 07 Dec 2010 15:31:16 -0700
+
+ On 12/07/2010 03:13 PM, Eli Barzilay wrote:
+ > 20 minutes ago, rafkind@cs.utah.edu wrote:
+ >> I would prefer if I could write
+ >>
+ >> $ raco setup -l foo -D
+ > It's a limitation of `racket/cmdline' -- it can't deal with an
+ > arbitrary number of arguments to a flag, only at the end for the
+ > line.
+ >
+ > One possible way around this is to allow an argument to be any number
+ > of inputs, as long as these arguments don't start with a "-" or a "+".
+ > But I didn't see any command-line interface that had a good way to do
+ > this...  One option is to treat *anything* that starts with these
+ > characters as a value, and relying on some other notation to to quote
+ > arguments when needed, for example "rm ./-foo".  (This is different
+ > than the better convention of using "--" which racket uses too.)
+ >
+ > But even if you do that, you'd run into more confusion -- for example,
+ > the cmdline interface allows you to use either of:
+ >
+ >   foo -x foo -y bar
+ >   foo -xy foo bar
+ >
+ > in the same way, and that becomes ambiguous if you allow -x or -y to
+ > take a variable number of inputs.  If you allow both to take a
+ > variable number of arguments, then you also need a way to specify
+ > which goes where.
+ >
+ > So going this way (making these variable-arity flags) possible
+ > requires:
+ >
+ > * Finding some quotation scheme for values that begin with "-"s and
+ >   "+"s (or just forbidding them)
+ >
+ > * Defining some rules to disambiguate cases like the above, or
+ >   forbidding such flag combinations when you deal with n-ary flags.
+ >
+ > * Deciding on some way to deal with combined flags where both are
+ >   n-ary, or forbidding such combinations when n-ary flags are
+ >   involved.
+ >
+ > ... and at this point, IMO, keeping things as they are now seems
+ > overall better.
+ >
+ > (There's also the option of making setup see if some collection name
+ > is not found and begins with a "-", and provide a better error
+ > message, but that's just one place.)
+ >
+ 
+ Matthew just pointed out to me that -l is redundant with given
+ collection names on the command line
+ $ raco setup -l foo bar
+ is the same as
+ $ raco setup foo bar
+ 
+ So I'm happy with the current grammar then (because I won't use -l anymore).
+
+State changed from "open" to "closed" by rafkind at Tue, 07 Dec 2010 17:39:45 -0500
+Reason>>> non-issue
+
+
+Responsible changed from "nobody" to "rafkind" by eli at Mon, 18 Feb 2013 23:57:05 -0500
+Reason>>> rafkind closed
+

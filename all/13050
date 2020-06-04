@@ -1,0 +1,213 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Aug 22 00:31:26 2012
+Received: from mail-iy0-f172.google.com (mail-iy0-f172.google.com [209.85.210.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q7M4VMra026995
+	for <bugs@bugs.plt-scheme.org>; Wed, 22 Aug 2012 00:31:22 -0400
+Message-Id: <201208220431.q7M4VIjl026984@champlain.ccs.neu.edu>
+Date: Wed, 22 Aug 2012 00:31:18 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Certain forms assume that structs have field names matching the standard pattern
+
+>Number:         13050
+>Category:       all
+>Synopsis:       Certain forms assume that structs have field names matching the standard pattern
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Aug 22 00:32:01 -0400 2012
+>Last-Modified:  Sat Feb 16 18:27:41 -0500 2013
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_0) AppleWebKit/537.2 (KHTML, like Gecko) Chrome/22.0.1215.0 Safari/537.2
+>Description:
+Some forms in the libraries assume that structs have names associated with the fields. They then merge the names of the fields with the struct name to arrive at getters. This has the issue of requiring all struct getters to correspond to the default naming scheme. This could be avoided by just asking for the getters in the first place.
+
+If that would be to textually burdensome for the libraries, then there needs to be a mapping of field names to getters as part of the struct-info. Not some adhoc, mostly followed naming idiom.
+
+The forms that abuse this are struct/dc, struct-copy, struct/ctc, and require/typed.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13050: Certain forms assume that structs have
+ field names matching the standard pattern
+Date: Wed, 22 Aug 2012 07:31:54 -0400
+
+ On Wed, Aug 22, 2012 at 12:32 AM,  <eric.n.dobson@gmail.com> wrote:
+ >
+ > If that would be to textually burdensome for the libraries, then there needs to be a mapping of field names to getters as part of the struct-info. Not some adhoc, mostly followed naming idiom.
+ >
+ > The forms that abuse this are struct/dc, struct-copy, struct/ctc, and require/typed.
+ 
+ While I agree that adding runtime reflection support for getting the
+ getters would be nice, there are a couple other possible solutions
+ (some of which are more appropriate to some of these forms than
+ others).
+ 
+ 1. Use the identifiers for accessors that come from the static
+ structure info.  I think this would work for `require/typed` and for
+ `struct/copy`, both of which expect the struct name to be bound to
+ that static info.
+ 2. Use the runtime reflection facilities, and then generate the
+ accessors using the struct accessor procedure.
+ 
+ Note that one reason that things may be done the way they currently
+ are for some of these forms is that it makes this work:
+ 
+   (struct x (y))
+   (parameterize ([current-inspector (make-inspector)])
+     (struct/dc x ([y integer?])))
+ 
+ even though the `struct/dc` form doesn't have access to the runtime
+ reflection info.
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13050: Certain forms assume that structs have
+ field names matching the standard pattern
+Date: Wed, 22 Aug 2012 09:32:51 -0700
+
+ With regards to point 1, that is what I originally meant. The
+ identifiers used as the field names should free-identifier=? to the
+ getters that are part of the struct info. I don't think there should
+ be a need for the runtime accessors to be generated, all the necessary
+ information should be in the the static struct-info. If not, then
+ these forms should throw an error.
+ 
+ The issue is that some of these are actually broken currently for
+ structs with parent structs. They assume that all of the 'field names'
+ have the struct name as a prefix which is not true when parent structs
+ enter the picture. It is not even true that there are unique 'field
+ names' for each field.
+ 
+ (struct parent (v))
+ (struct child parent v)
+ 
+ 
+ On Wed, Aug 22, 2012 at 4:31 AM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ > On Wed, Aug 22, 2012 at 12:32 AM,  <eric.n.dobson@gmail.com> wrote:
+ >>
+ >> If that would be to textually burdensome for the libraries, then there needs to be a mapping of field names to getters as part of the struct-info. Not some adhoc, mostly followed naming idiom.
+ >>
+ >> The forms that abuse this are struct/dc, struct-copy, struct/ctc, and require/typed.
+ >
+ > While I agree that adding runtime reflection support for getting the
+ > getters would be nice, there are a couple other possible solutions
+ > (some of which are more appropriate to some of these forms than
+ > others).
+ >
+ > 1. Use the identifiers for accessors that come from the static
+ > structure info.  I think this would work for `require/typed` and for
+ > `struct/copy`, both of which expect the struct name to be bound to
+ > that static info.
+ > 2. Use the runtime reflection facilities, and then generate the
+ > accessors using the struct accessor procedure.
+ >
+ > Note that one reason that things may be done the way they currently
+ > are for some of these forms is that it makes this work:
+ >
+ >   (struct x (y))
+ >   (parameterize ([current-inspector (make-inspector)])
+ >     (struct/dc x ([y integer?])))
+ >
+ > even though the `struct/dc` form doesn't have access to the runtime
+ > reflection info.
+ >
+ > --
+ > sam th
+ > samth@ccs.neu.edu
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: Sam Tobin-Hochstadt <samth@ccs.neu.edu>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13050: Certain forms assume that structs have
+ field names matching the standard pattern
+Date: Wed, 22 Aug 2012 11:48:43 -0500
+
+ I don't mean to speak to the larger design issue about what names
+ should be used (selectors vs fields), but the way this is supposed to
+ work is to do something like that struct-copy does (use a #:parent
+ annotation).
+ 
+ I'll fix struct/dc and struct/c.
+ 
+ Robby
+ 
+ On Wed, Aug 22, 2012 at 11:32 AM, Eric Dobson <eric.n.dobson@gmail.com> wrote:
+ > With regards to point 1, that is what I originally meant. The
+ > identifiers used as the field names should free-identifier=? to the
+ > getters that are part of the struct info. I don't think there should
+ > be a need for the runtime accessors to be generated, all the necessary
+ > information should be in the the static struct-info. If not, then
+ > these forms should throw an error.
+ >
+ > The issue is that some of these are actually broken currently for
+ > structs with parent structs. They assume that all of the 'field names'
+ > have the struct name as a prefix which is not true when parent structs
+ > enter the picture. It is not even true that there are unique 'field
+ > names' for each field.
+ >
+ > (struct parent (v))
+ > (struct child parent v)
+ >
+ >
+ > On Wed, Aug 22, 2012 at 4:31 AM, Sam Tobin-Hochstadt <samth@ccs.neu.edu> wrote:
+ >> On Wed, Aug 22, 2012 at 12:32 AM,  <eric.n.dobson@gmail.com> wrote:
+ >>>
+ >>> If that would be to textually burdensome for the libraries, then there needs to be a mapping of field names to getters as part of the struct-info. Not some adhoc, mostly followed naming idiom.
+ >>>
+ >>> The forms that abuse this are struct/dc, struct-copy, struct/ctc, and require/typed.
+ >>
+ >> While I agree that adding runtime reflection support for getting the
+ >> getters would be nice, there are a couple other possible solutions
+ >> (some of which are more appropriate to some of these forms than
+ >> others).
+ >>
+ >> 1. Use the identifiers for accessors that come from the static
+ >> structure info.  I think this would work for `require/typed` and for
+ >> `struct/copy`, both of which expect the struct name to be bound to
+ >> that static info.
+ >> 2. Use the runtime reflection facilities, and then generate the
+ >> accessors using the struct accessor procedure.
+ >>
+ >> Note that one reason that things may be done the way they currently
+ >> are for some of these forms is that it makes this work:
+ >>
+ >>   (struct x (y))
+ >>   (parameterize ([current-inspector (make-inspector)])
+ >>     (struct/dc x ([y integer?])))
+ >>
+ >> even though the `struct/dc` form doesn't have access to the runtime
+ >> reflection info.
+ >>
+ >> --
+ >> sam th
+ >> samth@ccs.neu.edu
+Responsible changed from "nobody" to "robby" by robby@racket-lang.org at Sat, 16 Feb 2013 18:24:29 -0500
+Reason>>> A commit by robby@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/5c109946c2
+  | add support to struct/dc to name the selector directly
+  | and use that in struct/c
+  | 
+  | closes PR 13054
+  | closes PR 13461
+  | related to PR 13050
+
+
+Responsible changed from "robby" to "nobody" by robby at Sat, 16 Feb 2013 18:27:41 -0500
+Reason>>> I am not responsible for this PR.
+

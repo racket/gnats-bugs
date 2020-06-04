@@ -1,0 +1,279 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jun 21 03:31:51 2015
+Received: from mail-ig0-f172.google.com (mail-ig0-f172.google.com [209.85.213.172])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t5L7Vnus010489
+	for <bugs@bugs.plt-scheme.org>; Sun, 21 Jun 2015 03:31:49 -0400
+Message-Id: <201506210731.t5L7Vk29010479@winooski.ccs.neu.edu>
+Date: Sun, 21 Jun 2015 03:31:46 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Async-channels leak memory
+
+>Number:         15099
+>Category:       all
+>Synopsis:       Async-channels leak memory
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jun 21 03:32:01 -0400 2015
+>Closed-Date:    Mon Jun 22 06:11:20 -0400 2015
+>Last-Modified:  Mon Jun 22 06:11:20 -0400 2015
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2414.0 Safari/537.36
+>Description:
+The following program leaks memory and becomes slower as it runs. I expect it to leak and take the same amount of time.
+
+Early output:
+11682640
+cpu time: 11 real time: 11 gc time: 0
+11731088
+cpu time: 9 real time: 9 gc time: 0
+11751816
+cpu time: 10 real time: 11 gc time: 0
+11789232
+cpu time: 10 real time: 9 gc time: 0
+11810832
+cpu time: 10 real time: 10 gc time: 0
+11865264
+cpu time: 13 real time: 13 gc time: 0
+11886864
+cpu time: 14 real time: 14 gc time: 0
+
+
+Later output:
+cpu time: 24 real time: 25 gc time: 0
+14026688
+cpu time: 27 real time: 28 gc time: 0
+14032248
+cpu time: 36 real time: 37 gc time: 0
+14597760
+cpu time: 39 real time: 40 gc time: 0
+14601120
+cpu time: 33 real time: 33 gc time: 0
+14641048
+cpu time: 32 real time: 32 gc time: 0
+>How-To-Repeat:
+#lang racket/base
+
+(require racket/async-channel)
+
+(for ([j (in-range 300)])
+  (collect-garbage)
+  (collect-garbage)
+  (collect-garbage)
+  (displayln (current-memory-use))
+  (time
+    (for ([i (in-range 300)])
+      (define recv-channel (make-async-channel))
+      (async-channel-put recv-channel #t))))
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Eric Dobson <eric.n.dobson@gmail.com>, bugs <bugs@racket-lang.org>
+Cc: 
+Subject: Re: [racket-bug] all/15099: Async-channels leak memory
+Date: Sun, 21 Jun 2015 01:09:17 -0700
+
+ --089e0122e7647ad54f051902aca8
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I have a reduced test case:
+ 
+ #lang racket/base
+ 
+ 
+ (for ([j (in-range 300)])
+   (collect-garbage)
+   (collect-garbage)
+   (collect-garbage)
+   (displayln (current-memory-use))
+   (time
+     (for ([i (in-range 300)])
+       (define t
+         (thread
+           (lambda ()
+             (sync))))
+       (thread-resume t (current-thread)))))
+ 
+ 
+ I think the issue is that thread-resume is adding a strong reference from
+ the current-thread to t. It should be a slightly weaker reference that
+ would allow t to be garbage collected in the case where it is blocked on
+ events which will never become ready, but not in the case where it is
+ suspended.
+ 
+ On Sun, Jun 21, 2015 at 12:32 AM, <eric.n.dobson@gmail.com> wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=15099
+ >
+ > Reported by Eric Dobson for release: HEAD
+ >
+ > *** Description:
+ > The following program leaks memory and becomes slower as it runs. I expect
+ > it to leak and take the same amount of time.
+ >
+ > Early output:
+ > 11682640
+ > cpu time: 11 real time: 11 gc time: 0
+ > 11731088
+ > cpu time: 9 real time: 9 gc time: 0
+ > 11751816
+ > cpu time: 10 real time: 11 gc time: 0
+ > 11789232
+ > cpu time: 10 real time: 9 gc time: 0
+ > 11810832
+ > cpu time: 10 real time: 10 gc time: 0
+ > 11865264
+ > cpu time: 13 real time: 13 gc time: 0
+ > 11886864
+ > cpu time: 14 real time: 14 gc time: 0
+ >
+ >
+ > Later output:
+ > cpu time: 24 real time: 25 gc time: 0
+ > 14026688
+ > cpu time: 27 real time: 28 gc time: 0
+ > 14032248
+ > cpu time: 36 real time: 37 gc time: 0
+ > 14597760
+ > cpu time: 39 real time: 40 gc time: 0
+ > 14601120
+ > cpu time: 33 real time: 33 gc time: 0
+ > 14641048
+ > cpu time: 32 real time: 32 gc time: 0
+ >
+ > *** How to repeat:
+ > #lang racket/base
+ >
+ > (require racket/async-channel)
+ >
+ > (for ([j (in-range 300)])
+ >   (collect-garbage)
+ >   (collect-garbage)
+ >   (collect-garbage)
+ >   (displayln (current-memory-use))
+ >   (time
+ >     (for ([i (in-range 300)])
+ >       (define recv-channel (make-async-channel))
+ >       (async-channel-put recv-channel #t))))
+ >
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2)
+ > AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2414.0 Safari/537.36
+ >
+ >
+ 
+ --089e0122e7647ad54f051902aca8
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I have a reduced test case:<div><br></div><div><div>#lang =
+ racket/base</div><div><br></div><div><br></div><div>(for ([j (in-range 300)=
+ ])</div><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (collect-garbage)</d=
+ iv><div>=C2=A0 (collect-garbage)</div><div>=C2=A0 (displayln (current-memor=
+ y-use))</div><div>=C2=A0 (time</div><div>=C2=A0 =C2=A0 (for ([i (in-range 3=
+ 00)])</div><div>=C2=A0 =C2=A0 =C2=A0 (define t</div><div>=C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 (thread</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (lambda ()<=
+ /div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (sync))))</div><div>=C2=
+ =A0 =C2=A0 =C2=A0 (thread-resume t (current-thread)))))</div><div><br></div=
+ ></div><div><br></div><div>I think the issue is that thread-resume is addin=
+ g a strong reference from the current-thread to t. It should be a slightly =
+ weaker reference that would allow t to be garbage collected in the case whe=
+ re it is blocked on events which will never become ready, but not in the ca=
+ se where it is suspended.</div></div><div class=3D"gmail_extra"><br><div cl=
+ ass=3D"gmail_quote">On Sun, Jun 21, 2015 at 12:32 AM,  <span dir=3D"ltr">&l=
+ t;<a href=3D"mailto:eric.n.dobson@gmail.com" target=3D"_blank">eric.n.dobso=
+ n@gmail.com</a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" styl=
+ e=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">A new p=
+ roblem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D15=
+ 099" rel=3D"noreferrer" target=3D"_blank">http://bugs.racket-lang.org/query=
+ /?cmd=3Dview&amp;pr=3D15099</a><br>
+ <br>
+ Reported by Eric Dobson for release: HEAD<br>
+ <br>
+ *** Description:<br>
+ The following program leaks memory and becomes slower as it runs. I expect =
+ it to leak and take the same amount of time.<br>
+ <br>
+ Early output:<br>
+ 11682640<br>
+ cpu time: 11 real time: 11 gc time: 0<br>
+ 11731088<br>
+ cpu time: 9 real time: 9 gc time: 0<br>
+ 11751816<br>
+ cpu time: 10 real time: 11 gc time: 0<br>
+ 11789232<br>
+ cpu time: 10 real time: 9 gc time: 0<br>
+ 11810832<br>
+ cpu time: 10 real time: 10 gc time: 0<br>
+ 11865264<br>
+ cpu time: 13 real time: 13 gc time: 0<br>
+ 11886864<br>
+ cpu time: 14 real time: 14 gc time: 0<br>
+ <br>
+ <br>
+ Later output:<br>
+ cpu time: 24 real time: 25 gc time: 0<br>
+ 14026688<br>
+ cpu time: 27 real time: 28 gc time: 0<br>
+ 14032248<br>
+ cpu time: 36 real time: 37 gc time: 0<br>
+ 14597760<br>
+ cpu time: 39 real time: 40 gc time: 0<br>
+ 14601120<br>
+ cpu time: 33 real time: 33 gc time: 0<br>
+ 14641048<br>
+ cpu time: 32 real time: 32 gc time: 0<br>
+ <br>
+ *** How to repeat:<br>
+ #lang racket/base<br>
+ <br>
+ (require racket/async-channel)<br>
+ <br>
+ (for ([j (in-range 300)])<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (collect-garbage)<br>
+ =C2=A0 (displayln (current-memory-use))<br>
+ =C2=A0 (time<br>
+ =C2=A0 =C2=A0 (for ([i (in-range 300)])<br>
+ =C2=A0 =C2=A0 =C2=A0 (define recv-channel (make-async-channel))<br>
+ =C2=A0 =C2=A0 =C2=A0 (async-channel-put recv-channel #t))))<br>
+ <br>
+ *** Environment:<br>
+ MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2) AppleWebKit/537.=
+ 36 (KHTML, like Gecko) Chrome/45.0.2414.0 Safari/537.36<br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --089e0122e7647ad54f051902aca8--
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Mon, 22 Jun 2015 06:11:20 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/ca57adcf2d
+State changed from "open" to "closed" by mflatt@racket-lang.org at Mon, 22 Jun 2015 06:11:20 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/ca57adcf2d
+  | fix slow leak in link-establishing `thread-resume`
+  | 
+  | Using `(thread-resume t1 t2)` would not prevent a GC of t1, but it
+  | would create an intermediate record to make the link from t1 to t2,
+  | and that intermediate record would leak due to a missing level of
+  | indirection in a table-cleanup traveral. The leak not only accumulated
+  | memory, it also caused ever slower traversals of the table in an
+  | attempt to clean up.
+  | 
+  | (Since the leak is small and the leaking object is not directly
+  | accessible, I don't have a good idea on how to test this repair
+  | automatically, but see the program in the PR.)
+  | 
+  | Closes PR 15099.
+

@@ -1,0 +1,118 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jun 29 20:35:14 2014
+Received: from mail-oa0-f42.google.com (mail-oa0-f42.google.com [209.85.219.42])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s5U0ZCJV015503
+	for <bugs@bugs.plt-scheme.org>; Sun, 29 Jun 2014 20:35:13 -0400
+Message-Id: <201406300035.s5U0ZAf6015496@winooski.ccs.neu.edu>
+Date: Sun, 29 Jun 2014 20:35:10 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: define-predicate is slower than make-predicate because of procedure-rename
+
+>Number:         14612
+>Category:       all
+>Synopsis:       define-predicate is slower than make-predicate because of procedure-rename
+>Class:          sw-bug
+>Responsible:    endobson
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jun 29 20:36:01 -0400 2014
+>Closed-Date:    Mon Jun 30 02:31:50 -0400 2014
+>Last-Modified:  Mon Jun 30 02:31:50 -0400 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+>Description:
+Renamed procedures are much slower than normal procedures. define-predicats claims to be equivalent to (define name (make-predicate x)), but it is 5x slower.
+>How-To-Repeat:
+#lang racket/load
+
+(module tr typed/racket
+  (provide foo? foo?*)
+  (define-predicate foo? Zero)
+  (define foo?* (make-predicate Zero))
+  )
+
+(module r racket
+  (provide
+    (contract-out
+      [f1 ((any/c) . ->* . any)]
+      [f2 ((any/c) . ->* . any)]
+      [f3 ((any/c) . ->* . any)]
+      [f4 ((any/c) . ->* . any)]
+      [f5 ((any/c) . ->* . any)]
+      [f6 ((any/c) . ->* . any)]
+      [f7 ((any/c) . ->* . any)]
+      [f8 ((any/c) . ->* . any)]))
+  (define (f1 x) (zero? x))
+  (define (f2 x) (equal? 0 x))
+  (define f3 (flat-named-contract '0 (λ (x) (equal? 0 x))))
+  (define f4 (flat-contract-predicate (flat-named-contract '0 (λ (x) (equal? 0 x)))))
+  (define f5 (procedure-rename
+               (flat-contract-predicate (flat-named-contract '0 (λ (x) (equal? 0 x))))
+               'foo))
+  (define f6 (recursive-contract (flat-contract (λ (x) (equal? 0 x))) #:flat))
+  (define f7 (flat-contract-predicate
+                   (recursive-contract (flat-contract (λ (x) (equal? 0 x))) #:flat)))
+  (define f8 (procedure-rename
+               (flat-contract-predicate
+                   (recursive-contract (flat-named-contract '0 (λ (x) (equal? 0 x))) #:flat))
+               'foo)))
+
+(require 'r)
+(require 'tr)
+
+(define N 5000000)
+(define x 0)
+
+(for ([j 5])
+  (collect-garbage)
+  (displayln '------------)
+  (time
+    (for ((i (in-range N)))
+      (f1 x)))
+  (time
+    (for ((i (in-range N)))
+      (f2 x)))
+  (time
+    (for ((i (in-range N)))
+      (f3 x)))
+  (time
+    (for ((i (in-range N)))
+      (f4 x)))
+  (time
+    (for ((i (in-range N)))
+      (f5 x)))
+  (time
+    (for ((i (in-range N)))
+      (f6 x)))
+  (time
+    (for ((i (in-range N)))
+      (f7 x)))
+  (time
+    (for ((i (in-range N)))
+      (f8 x)))
+  (time
+    (for ((i (in-range N)))
+      (foo? x)))
+  (time
+    (for ((i (in-range N)))
+      (foo?* x)))
+  )
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "endobson" by endobson@racket-lang.org at Mon, 30 Jun 2014 02:31:50 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/393d7d49fc
+State changed from "open" to "closed" by endobson@racket-lang.org at Mon, 30 Jun 2014 02:31:50 -0400
+Reason>>> A commit by endobson@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/393d7d49fc
+  | Replace procedure-rename with eta-expansion.
+  | 
+  | Closes PR 14612.
+

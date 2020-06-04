@@ -1,0 +1,110 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Nov 16 21:17:06 2007
+Received: from nf-out-0910.google.com (nf-out-0910.google.com [64.233.182.185])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id lAH2H6Vu014338
+	for <bugs@bugs.plt-scheme.org>; Fri, 16 Nov 2007 21:17:06 -0500
+Message-Id: <200711170217.lAH2H1SA014332@champlain.ccs.neu.edu>
+Date: Fri, 16 Nov 2007 21:17:01 -0500
+From: dsilva@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: toplevel definitions conflict with syntax-case literals
+
+>Number:         9069
+>Category:       mzscheme
+>Synopsis:       toplevel definitions conflict with syntax-case literals
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Nov 16 21:20:01 -0500 2007
+>Last-Modified:  Tue Jun 03 13:16:46 -0400 2008
+>Originator:     Daniel Silva
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        370
+>Environment:
+unix "Linux ds 2.6.22-3-686 #1 SMP Mon Oct 22 22:11:56 UTC 2007 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(("/home/dsilva/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 105313196
+
+Collections:
+(("/home/dsilva/.plt-scheme/370/collects" non-existent-path) ("/home/dsilva/plt/collects" "icons" "syntax-color" "trace" "tex2page" "slideshow" "texpict" "syntax" "eopl" "launcher" "teachpack" "plot" "algol60" "web-server" "graphics" "wxme" "compiler" "planet" "profjWizard" "lazy" "openssl" "games" "swindle" "mrlib" "info-domain" "framework" "lang" "help" "hierlist" "readline" "config" "errortrace" "drscheme" "parser-tools" "mztake" "profj" "htdp" "string-constants" "dynext" "browser" "mred" "mzlib" "frtime" "embedded-gui" "slatex" "htdch" "srfi" "stepper" "defaults" "macro-debugger" "mzscheme" "preprocessor" "ffi" "version" "html" "sgl" "net" "make" "xml" "afm" "setup" "r5rs"))
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+The included program, when run in the Textual language, results in a "bad" rather than "ok" result.
+
+The problem seems to be with the execute-fold definition in the origami module conflicting with the execute-fold syntax-case literal in the parse-s function.
+
+The problem goes away when the parse-prog test call is inside of the module.  It also goes away when the execute-fold procedure is commented out.
+>How-To-Repeat:
+(module origami mzscheme
+  (require (lib "match.ss")
+           (lib "list.ss"))
+  (provide parse-prog)
+  
+  (define-struct prog (defs stmt))
+  
+  (define (parse-prog stx)
+    (syntax-case stx (begin)
+      [(begin clauses ...)
+       (let loop ([clauses (syntax->list #'(clauses ...))]
+                  [defs '()])
+         (let ([def (with-handlers ([exn:fail:syntax? (lambda _ #f)])
+                      (parse-def (car clauses)))])
+           (if def
+               (loop (cdr clauses) (cons def defs))
+               (make-prog (reverse defs) (map parse-s clauses)))))]))
+  
+  (define (parse-def stx)
+    (syntax-case stx (define defun)
+      [(define name e)
+       0]))
+  
+  (define (parse-s stx)
+    (syntax-case stx (execute-fold apical basal)
+      [(execute-fold line apical landmark)
+       (raise "ok")]
+      [e (begin
+           (printf "stx: ~a~n" stx)
+           (raise "bad"))]))
+  
+  (define (execute-fold l1 type landmark)
+    0)
+  )
+
+(require origami)
+(parse-prog #'(begin
+                (execute-fold d1 apical landmark=c3)))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: dsilva@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9069: toplevel definitions conflict with syntax-case literals
+Date: Fri, 16 Nov 2007 19:24:29 -0700
+
+ At Fri, 16 Nov 2007 21:20:01 -0500, dsilva@ccs.neu.edu wrote:
+ > The problem seems to be with the execute-fold definition in the origami module 
+ > conflicting with the execute-fold syntax-case literal in the parse-s function.
+ 
+ If I understand, then I wouldn't characterize it as "interference". In
+ a `syntax-case' (or `syntax-rules') pattern, "literal" means "having
+ the same binding".
+ 
+ If you want "literal" to mean "same symbol", then use
+ 
+   (syntax-case* stx (...) (lambda (a b)
+                             (eq? (syntax-e a) (syntax-e b)))
+      ....)
+ 
+ But that's almost always a bad idea. Exporting a binding for
+ `execute-fold' --- possibly different than your internal `execute-fold'
+ --- is usually better in the long run.
+ 
+ Matthew
+ 
+

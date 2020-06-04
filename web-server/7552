@@ -1,0 +1,351 @@
+From apache@plt-scheme.org Fri Aug 26 04:03:26 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j7Q83GZS019267
+	for <bugs@plt-scheme.org>; Fri, 26 Aug 2005 04:03:16 -0400
+Message-Id: <200508260803.j7Q83FG5019265@champlain.ccs.neu.edu>
+Date: Fri, 26 Aug 2005 04:03:15 -0400
+From: dyoo@hkn.eecs.berkeley.edu
+To: bugs@plt-scheme.org
+Subject: "reducing the timeout is ineffective" bug in web-server/timer.ss: proposed fix
+
+>Number:         7552
+>Category:       web-server
+>Synopsis:       "reducing the timeout is ineffective" bug in web-server/timer.ss: proposed fix
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 26 04:05:00 -0400 2005
+>Last-Modified:  Fri Aug 26 10:56:57 -0400 2005
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299
+>Environment:
+unknown-platform
+>Description:
+Here's a proposed patch for the timeout bug mentioned at the beginning of timer.ss.  It involves attaching a semaphore to each timer, and to allow reset-timer and increment-timer to wake the timer up.
+
+However, perhaps this might not be the right approach; even this might be too many threads and might hurt performance.  And another comment in the code mentions the planned use of call-in-nested-thread.  But perhaps this can act as a kludge until the real solution is arrived at.  *grin*
+
+
+Index: timer-structs.ss
+===================================================================
+--- timer-structs.ss	(revision 680)
++++ timer-structs.ss	(working copy)
+@@ -1,6 +1,7 @@
+ (module timer-structs mzscheme
+   (require (lib "contract.ss"))
+   
+-  (define-struct timer (expire-seconds))
++  (define-struct timer (expire-seconds sema))
+   (provide/contract
+-   [struct timer ([expire-seconds number?])]))
+\ No newline at end of file
++   [struct timer ([expire-seconds number?]
++                  [sema semaphore?])]))
+
+Index: timer.ss
+===================================================================
+--- timer.ss	(revision 680)
++++ timer.ss	(working copy)
+@@ -8,7 +8,8 @@
+   ; start-timer : num (-> void) -> timer
+   ; to make a timer that calls to-do after msec from make-timer's application
+   (define (start-timer sec to-do)
+-    (let ([timer (make-timer (+ (current-seconds) sec))])
++    (let ([timer (make-timer (+ (current-seconds) sec)
++                             (make-semaphore 0))])
+       (letrec ([snooze
+                 (lambda ()
+                   (let ([remaining (- (timer-expire-seconds timer) (current-seconds))])
+@@ -16,20 +17,29 @@
+                       [(<= remaining 0)
+                        ; use call-in-nested-thread or something when a single thread is used for all timeouts
+                        (to-do)]
+-                      [else (sleep remaining)
+-                            (snooze)])))])
++                      [else
++                       (let ((waiting-thread
++                              (thread (lambda ()
++                                        (sleep remaining)
++                                        (semaphore-post (timer-sema timer))))))
++                         (semaphore-wait (timer-sema timer))
++                         (kill-thread waiting-thread)
++                         (snooze))])))])
+         (thread snooze))
+       timer))
+ 
+   ; reset-timer : timer num -> void
+   ; to cause timer to expire after sec from the adjust-msec-to-live's application
+   (define (reset-timer timer sec)
+-    (set-timer-expire-seconds! timer (+ sec (current-seconds))))
++    (set-timer-expire-seconds! timer (+ sec (current-seconds)))
++    (semaphore-post (timer-sema timer)))
+   
++  
+   ; increment-timer : timer num -> void
+   ; add secs to the timer, rather than replace
+   (define (increment-timer timer sec)
+-    (set-timer-expire-seconds! timer (+ sec (timer-expire-seconds timer)))))
++    (set-timer-expire-seconds! timer (+ sec (timer-expire-seconds timer)))
++    (semaphore-post (timer-sema timer))))
+ 
+ 
+
+There is a possible problem in web-server-unit.ss: when a web-continuation is resumed in invoke-servlet-continuation, the timer is incremented instead of reset.  (And the time is set to the default one given in configuration-table, overriding the one defined by the servlet).
+
+At the very least, I think this should call reset-timer just to prevent the possible case of someone just reloading a web-continuation url over and over to keep the instance alive forever.
+
+Index: web-server-unit.ss
+===================================================================
+--- web-server-unit.ss	(revision 680)
++++ web-server-unit.ss	(working copy)
+@@ -494,7 +494,7 @@
+                inst
+                (make-execution-context
+                 conn req (lambda () (suspend #t))))
+-              (increment-timer (servlet-instance-timer inst)
++              (reset-timer (servlet-instance-timer inst)
+                                (timeouts-default-servlet
+                                 (host-timeouts host-info)))
+               (let ([k*salt
+
+
+
+Hope this helps!
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: dyoo@hkn.eecs.berkeley.edu, bugs@plt-scheme.org
+Cc: jay@kenyamountain.com
+Subject: Re: all/7552: "reducing the timeout is ineffective" bug in web-server/timer.ss: proposed fix
+Date: Fri, 26 Aug 2005 06:12:25 -0600
+
+ At Fri, 26 Aug 2005 04:05:03 -0400, dyoo@hkn.eecs.berkeley.edu wrote:
+ > +                      [else
+ > +                       (let ((waiting-thread
+ > +                              (thread (lambda ()
+ > +                                        (sleep remaining)
+ > +                                        (semaphore-post (timer-sema 
+ > timer))))))
+ > +                         (semaphore-wait (timer-sema timer))
+ > +                         (kill-thread waiting-thread)
+ > +                         (snooze))])))])
+ 
+ Simpler:
+ 
+  [else
+   (sync/timeout remaining (timer-sema timer))
+   (snooze)]))])
+ 
+ 
+ To generalize to having a single timer thread for multiple timers, use
+ `sync' on alarm events plus a channel to receive timeout requests,
+ something like this:
+ 
+ 
+ (require (lib "list.ss"))
+ 
+ (define-struct timer (evt start-time action))
+ 
+ (define timer-ch (make-channel))
+ 
+ (thread
+  (lambda ()
+    (let loop ([timers null])
+      ;; Wait for either...
+      (apply
+       sync
+       ;; ... a timer-request message ...
+       (handle-evt
+        timer-ch
+        (lambda (req)
+ 	 ;; represent a req as a (timer-list -> timer-list) function:
+ 	 ;; add/remove/change timer evet:
+ 	 (loop (req timers))))
+       ;; ... or a timer
+       (map (lambda (timer)
+ 	     (handle-evt
+ 	      (timer-evt timer)
+ 	      (lambda (_)
+ 		;; execute timer
+ 		((timer-action timer))
+ 		(loop (remq timer timers)))))
+ 	   timers)))))
+ 
+ ;; Limitation on this add-timer: thunk cannot make timer
+ ;;  requests directly, because it's executed directly by
+ ;;  the timer-manager thread
+ 
+ (define (add-timer msecs thunk)
+   (let* ([now (current-inexact-milliseconds)]
+ 	 [timer
+ 	  (make-timer (alarm-evt (+ now msecs))
+ 		      now
+ 		      thunk)])
+     (channel-put timer-ch (lambda (timers)
+ 			    (cons timer timers)))
+     timer))
+ 
+ (define (revise-timer! timer msecs thunk)
+   (channel-put 
+    timer-ch 
+    (lambda (timers)
+      (set-timer-evt! timer (alarm-evt 
+ 			    (+ (timer-start-time timer) msecs)))
+      (set-timer-action! timer thunk)
+      timers)))
+ 
+ (define (cancel-timer! timer)
+   (revise-timer! timer 0 void))
+ ;; or
+ (define (cancel-timer! timer)
+   (channel-put timer-ch 
+ 	       (lambda (timers)
+ 		 (remq timer timers))))
+ 
+ ;; Example:
+ 
+ (add-timer 500 (lambda () (printf "500\n")))
+ (define t (add-timer 700 (lambda () (printf "700\n"))))
+ (add-timer 200 (lambda () 
+ 		 (printf "200\n")
+ 		 (thread 
+ 		  (lambda ()
+ 		    (revise-timer! t 300 
+ 				   (lambda () 
+ 				     (printf "300 (was 700)\n")))))))
+ 
+ (sleep 1) ; prints 200, 300 (was 700), 500
+ 
+ 
+From: Jay McCarthy <jay@kenyamountain.com>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: dyoo@hkn.eecs.berkeley.edu, bugs@plt-scheme.org
+Subject: Re: all/7552: "reducing the timeout is ineffective" bug in web-server/timer.ss: proposed fix
+Date: Fri, 26 Aug 2005 10:05:58 -0400
+
+ Thanks Matthew, I am testing this method.
+ 
+ ----
+ Jay McCarthy <jay@kenyamountain.com>
+ http://jay.makeoutcity.com
+ 
+ On Aug 26, 2005, at 8:12 AM, Matthew Flatt wrote:
+ 
+ > At Fri, 26 Aug 2005 04:05:03 -0400, dyoo@hkn.eecs.berkeley.edu wrote:
+ >
+ >> +                      [else
+ >> +                       (let ((waiting-thread
+ >> +                              (thread (lambda ()
+ >> +                                        (sleep remaining)
+ >> +                                        (semaphore-post (timer-sema
+ >> timer))))))
+ >> +                         (semaphore-wait (timer-sema timer))
+ >> +                         (kill-thread waiting-thread)
+ >> +                         (snooze))])))])
+ >>
+ >
+ > Simpler:
+ >
+ >  [else
+ >   (sync/timeout remaining (timer-sema timer))
+ >   (snooze)]))])
+ >
+ >
+ > To generalize to having a single timer thread for multiple timers, use
+ > `sync' on alarm events plus a channel to receive timeout requests,
+ > something like this:
+ >
+ >
+ > (require (lib "list.ss"))
+ >
+ > (define-struct timer (evt start-time action))
+ >
+ > (define timer-ch (make-channel))
+ >
+ > (thread
+ >  (lambda ()
+ >    (let loop ([timers null])
+ >      ;; Wait for either...
+ >      (apply
+ >       sync
+ >       ;; ... a timer-request message ...
+ >       (handle-evt
+ >        timer-ch
+ >        (lambda (req)
+ >      ;; represent a req as a (timer-list -> timer-list) function:
+ >      ;; add/remove/change timer evet:
+ >      (loop (req timers))))
+ >       ;; ... or a timer
+ >       (map (lambda (timer)
+ >          (handle-evt
+ >           (timer-evt timer)
+ >           (lambda (_)
+ >         ;; execute timer
+ >         ((timer-action timer))
+ >         (loop (remq timer timers)))))
+ >        timers)))))
+ >
+ > ;; Limitation on this add-timer: thunk cannot make timer
+ > ;;  requests directly, because it's executed directly by
+ > ;;  the timer-manager thread
+ >
+ > (define (add-timer msecs thunk)
+ >   (let* ([now (current-inexact-milliseconds)]
+ >      [timer
+ >       (make-timer (alarm-evt (+ now msecs))
+ >               now
+ >               thunk)])
+ >     (channel-put timer-ch (lambda (timers)
+ >                 (cons timer timers)))
+ >     timer))
+ >
+ > (define (revise-timer! timer msecs thunk)
+ >   (channel-put
+ >    timer-ch
+ >    (lambda (timers)
+ >      (set-timer-evt! timer (alarm-evt
+ >                 (+ (timer-start-time timer) msecs)))
+ >      (set-timer-action! timer thunk)
+ >      timers)))
+ >
+ > (define (cancel-timer! timer)
+ >   (revise-timer! timer 0 void))
+ > ;; or
+ > (define (cancel-timer! timer)
+ >   (channel-put timer-ch
+ >            (lambda (timers)
+ >          (remq timer timers))))
+ >
+ > ;; Example:
+ >
+ > (add-timer 500 (lambda () (printf "500\n")))
+ > (define t (add-timer 700 (lambda () (printf "700\n"))))
+ > (add-timer 200 (lambda ()
+ >          (printf "200\n")
+ >          (thread
+ >           (lambda ()
+ >             (revise-timer! t 300
+ >                    (lambda ()
+ >                      (printf "300 (was 700)\n")))))))
+ >
+ > (sleep 1) ; prints 200, 300 (was 700), 500
+ >
+ >
+ >
+ 
+
+State changed from "open" to "closed" by jay at Fri, 26 Aug 2005 10:56:57 -0400
+Reason>>> Something based on Matthew's version has been committed. WRT the second 
+comment, I think the current behaviour is correct. The 'timeout' variable of a 
+module servlet is the initial timeout, not the default timeout for that servlet. I 
+think this is confusing and the documentation will change. (And probably a 
+default timeout per servlet will be supported.) BTW, the purpose IS to keep a 
+instance alive, see Jacob's bug 7533.
+

@@ -1,0 +1,131 @@
+From nobody@cs.rice.edu  Wed Mar 24 16:22:41 1999
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id QAA12905
+	for <plt-gnats@cs.rice.edu>; Wed, 24 Mar 1999 16:22:41 -0600 (CST)
+Message-Id: <199903242222.QAA10732@web.cs.rice.edu>
+Date: Wed, 24 Mar 1999 16:22:40 -0600 (CST)
+From: eli@cs.cornell.edu
+Reply-To: eli@cs.cornell.edu
+To: plt-gnats@cs.rice.edu
+Subject: Strange things with weak hash table & closures 
+
+>Number:         934
+>Category:       mzscheme
+>Synopsis:       Strange things with weak hash table & closures
+>Confidential:   no
+>Severity:       serious
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Wed Mar 24 22:30:02 GMT 1999
+>Last-Modified:  Mon Sep 11 14:40:22 CDT 2000
+>Originator:     Eli Barzilay
+>Organization:
+titan
+>Release:        53
+>Environment:
+Linux
+>Description:
+Our object system (based on tiny-clos) started to behave strangely, it
+would fail at some time, and after a *LOT* of headaches I saw that the
+program _structure_ makes different behavour - if a definition would be
+changed, it would run differently - even for changes in functions that
+are never called!
+
+I've been through a very long and very painful process of minimizing
+things to get something clear and got something that might be useful to
+locate the problem, but I can't point to it without going to the C level.
+
+The following code crashes after around 2000 iterations, where it is
+clear that it shouldn't.
+
+BTW, sometimes (i.e, when the surrounding code is different) it won't
+get an error but won't stop getting moe & more memory.
+
+I really hope that there is some way to solve this with some Scheme hack
+or we will have problems posting our next problem set (the reason that I
+marked this as "high" priority).
+
+>How-To-Repeat:
+(define table (make-hash-table-weak))
+
+(define (make n)
+  (let ((thunk (lambda () n)))
+    (hash-table-put! table thunk 0)
+    thunk))
+
+(define (a n)
+  (when (zero? n) (display ".") (flush-output))
+  (hash-table-get table (make 0))
+  (a (modulo (add1 n) 100)))
+
+(a 0)
+
+>Fix:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: eli@cs.cornell.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/934: Strange things with weak hash table & closures 
+Date: Wed, 24 Mar 1999 14:58:53 -0800 (PST)
+
+ I vaguely remember fixing a problem in weak hash tables between
+ versions 53 and 100alpha1. Unfortunately, I didn't put a note in the
+ HISTORY log.
+ 
+ When I run your code in 53 on my Linux box, it crashes right away
+ (after 10 dots or so) with
+ 
+   hash-table-get: no value found for key: #<procedure:thunk>
+ 
+ In my current development version (marginally different from
+ 100alpha1), it runs indefinitely.
+ 
+ And it grows indefinitely - but that's a different class of bug. I
+ changed the code to print a dot every 1000 interations instead of every
+ 100, and I inserted (collect-garbage). With the (collect-garbage)
+ expression, MzScheme doesn't grow.
+ 
+ The reason for the growth is an interaction between weakly-held values
+ and the strategy for GC-frequency. Weakly held values have to stay
+ around for one extra collection. That tends to push up the allocation
+ ceiling before a garbage collection, resulting in positive feedback:
+ allocating more weakly-held values per GC cycle tends to make GC less
+ frequent and thus permits allocating more weakly-held values per GC
+ cycle. Inserting an explicit `(collect-garbage)' escapes he feedback
+ loop.
+ 
+ I'll fix MzScheme when most allocation is for weakly-held values
+ (probably by forcing a GC after a certain number of weak
+ registrations). But I expect your main concern is that weak hash tables
+ are broken in 53. 
+ 
+ If you can switch to MzScheme 100alpha1, do so. If you must use 53
+ (because students are using DrScheme), and you have the luxury of
+ compiling your own binaries, I can try to extract a 53 patch from our
+ CVS archives. But if neither of those options are available, I don't
+ think there's a Scheme-based workaround. What happens if you just use
+ plain hash tables - will you run out of memory in practice?
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Mar 28 08:02:31 1999
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: mflatt
+State-Changed-When: Sun Mar 28 08:02:33 1999
+State-Changed-Why:
+
+State-Changed-From-To: analyzed-closed
+State-Changed-By: mflatt
+State-Changed-When: Mon Sep 11 14:40:19 2000
+State-Changed-Why:
+Fixed in 103.1
+
+ 
+>Unformatted:

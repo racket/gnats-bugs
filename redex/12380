@@ -1,0 +1,328 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Nov 17 16:56:22 2011
+Received: from mail-gx0-f172.google.com (mail-gx0-f172.google.com [209.85.161.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id pAHLuIMW004779
+	for <bugs@bugs.plt-scheme.org>; Thu, 17 Nov 2011 16:56:18 -0500
+Message-Id: <201111172156.pAHLuEbJ004754@champlain.ccs.neu.edu>
+Date: Thu, 17 Nov 2011 16:56:14 -0500
+From: dvanhorn@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: Redex: algorthmics of judgments prohibitively bad
+
+>Number:         12380
+>Category:       redex
+>Synopsis:       Redex: algorthmics of judgments prohibitively bad
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Nov 17 17:00:01 -0500 2011
+>Closed-Date:    Sun Nov 20 23:51:47 -0500 2011
+>Last-Modified:  Sat Sep 29 10:27:07 -0400 2012
+>Originator:     David Van Horn
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2.0.1--2011-11-07(7d607fd/a)
+>Environment:
+macosx "Darwin doom.local 11.1.0 Darwin Kernel Version 11.1.0: Tue Jul 26 16:07:11 PDT 2011; root:xnu-1699.22.81~1/RELEASE_X86_64 x86_64 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 422649508
+Links: (links) = ("var"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("/Users/dvanhorn/Library/Racket/5.2.0.1/collects"
+ ("installed-teachpacks"))
+("/Applications/Racket v5.2.0.1/collects"
+ ("2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #t))
+>Description:
+The runtime of judgment-holds is so bad that it should be considered broken.
+Here is the example subtype relation from the docs, formulated as a
+judgment-form rather than a relation and some very small examples
+that exhibit the bad run times.
+
+Note that (nest 5) is not that big a term.
+
+When formulated as a relation, these examples are instantaneous. 
+>How-To-Repeat:
+#lang racket
+(require redex/reduction-semantics)
+
+(define-language types
+  ((τ σ) int
+         num
+         (τ → τ)))
+
+(define-judgment-form types 
+  #:mode (subtype I I)
+  [(subtype int num)]
+  [(subtype (τ_1 → τ_2) (σ_1  → σ_2))   
+   (subtype τ_2 σ_2)
+   (subtype σ_1 τ_1)]
+  [(subtype τ τ)])
+
+(define (nest n)
+  (cond [(zero? n) 'num]
+        [else
+         `(,(nest (sub1 n)) → ,(nest (sub1 n)))]))
+
+(time (judgment-holds (subtype ,(nest 3) ,(nest 3))))
+(time (judgment-holds (subtype ,(nest 4) ,(nest 4))))
+(time (judgment-holds (subtype ,(nest 5) ,(nest 5))))
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: dvanhorn@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12380: Redex: algorthmics of judgments
+ prohibitively bad
+Date: Thu, 17 Nov 2011 20:44:29 -0600
+
+ There's probably something else wrong, but one thing I've noticed so
+ far is that pattern compilation is happening during the call to
+ judgment-holds. Specifically, with the diff below, then the example in
+ the PR prints "compiling" a lot.
+ 
+ Robby
+ 
+ diff --git a/collects/redex/private/reduction-semantics.rkt
+ b/collects/redex/private/reduction-seman
+ index 3bc6ec9..3cf94f6 100644
+ --- a/collects/redex/private/reduction-semantics.rkt
+ +++ b/collects/redex/private/reduction-semantics.rkt
+ @@ -1874,7 +1874,7 @@
+                         'flatten #`(list (term (#,@output-pats)))
+ input-names input-names/ellipses))
+           (with-syntax ([(names ...) input-names]
+                         [(names/ellipses ...) input-names/ellipses])
+ -           #`(let ([compiled-lhs (compile-pattern #,lang `#,lhs #t)]
+ +           #`(let ([compiled-lhs (begin (printf "compiling ~s\n"
+ `#,lhs) (compile-pattern #,lang `#
+                     [compiled-input-ctcs #,(contracts-compilation
+ input-contracts)]
+                     [compiled-output-ctcs #,(contracts-compilation
+ output-contracts)])
+                 (λ (input)
+ 
+Responsible changed from "nobody" to "robby" by robby@racket-lang.org at Thu, 17 Nov 2011 21:55:28 -0500
+Reason>>> A commit by robby@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/b93486ed69
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: dvanhorn@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12380: Redex: algorthmics of judgments
+ prohibitively bad
+Date: Thu, 17 Nov 2011 20:55:41 -0600
+
+ Okay, I've fixed the below part.
+ 
+ Robby
+ 
+ On Thu, Nov 17, 2011 at 8:44 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > There's probably something else wrong, but one thing I've noticed so
+ > far is that pattern compilation is happening during the call to
+ > judgment-holds. Specifically, with the diff below, then the example in
+ > the PR prints "compiling" a lot.
+ >
+ > Robby
+ >
+ > diff --git a/collects/redex/private/reduction-semantics.rkt
+ > b/collects/redex/private/reduction-seman
+ > index 3bc6ec9..3cf94f6 100644
+ > --- a/collects/redex/private/reduction-semantics.rkt
+ > +++ b/collects/redex/private/reduction-semantics.rkt
+ > @@ -1874,7 +1874,7 @@
+ >                        'flatten #`(list (term (#,@output-pats)))
+ > input-names input-names/ellipses))
+ >          (with-syntax ([(names ...) input-names]
+ >                        [(names/ellipses ...) input-names/ellipses])
+ > -           #`(let ([compiled-lhs (compile-pattern #,lang `#,lhs #t)]
+ > +           #`(let ([compiled-lhs (begin (printf "compiling ~s\n"
+ > `#,lhs) (compile-pattern #,lang `#
+ >                    [compiled-input-ctcs #,(contracts-compilation
+ > input-contracts)]
+ >                    [compiled-output-ctcs #,(contracts-compilation
+ > output-contracts)])
+ >                (λ (input)
+ >
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: dvanhorn@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12380: Redex: algorthmics of judgments
+ prohibitively bad
+Date: Thu, 17 Nov 2011 21:01:19 -0600
+
+ On Thu, Nov 17, 2011 at 4:00 PM,  <dvanhorn@ccs.neu.edu> wrote:
+ > (define-judgment-form types
+ >  #:mode (subtype I I)
+ >  [(subtype int num)]
+ >  [(subtype (τ_1 → τ_2) (σ_1  → σ_2))
+ >   (subtype τ_2 σ_2)
+ >   (subtype σ_1 τ_1)]
+ >  [(subtype τ τ)])
+ 
+ The problem here is that define-judgment form is essentially doing a
+ search to find all possibly derivations, instead of just confirming
+ that one exists. And, there are exponentially many derivations of the
+ example here, since you can use either rule 2 or 3 at each step (and
+ if you use rule 2 there are two sub derivation families to try).
+ 
+ You can see this yourself; if you comment out the last alternative,
+ you'll find them completing just as quickly as define-relation.
+ 
+ > When formulated as a relation, these examples are instantaneous.
+ 
+ Relations have a built in memoization that avoids this problem.
+ Without it, I believe you'd see the same behavior.
+ 
+ I don't see any problems with doing something similar for
+ define-judgment form but I'll wait for a while to see if Casey points
+ out why this would be problematic.
+ 
+ Robby
+ 
+State changed from "open" to "closed" by robby@racket-lang.org at Sun, 20 Nov 2011 23:51:47 -0500
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/e788c6f49e
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: dvanhorn@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12380: Redex: algorthmics of judgments
+ prohibitively bad
+Date: Sun, 20 Nov 2011 22:53:10 -0600
+
+ Turns out that it wasn't the apparent exponential (not the one that I
+ thought it was when I wrote the below). It had to do with creating a
+ list of intermediate results (of, in this case, lots and lots of empty
+ lists) instead of storing them in a hash.
+ 
+ Robby
+ 
+ On Thu, Nov 17, 2011 at 9:01 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Thu, Nov 17, 2011 at 4:00 PM,  <dvanhorn@ccs.neu.edu> wrote:
+ >> (define-judgment-form types
+ >>  #:mode (subtype I I)
+ >>  [(subtype int num)]
+ >>  [(subtype (τ_1 → τ_2) (σ_1  → σ_2))
+ >>   (subtype τ_2 σ_2)
+ >>   (subtype σ_1 τ_1)]
+ >>  [(subtype τ τ)])
+ >
+ > The problem here is that define-judgment form is essentially doing a
+ > search to find all possibly derivations, instead of just confirming
+ > that one exists. And, there are exponentially many derivations of the
+ > example here, since you can use either rule 2 or 3 at each step (and
+ > if you use rule 2 there are two sub derivation families to try).
+ >
+ > You can see this yourself; if you comment out the last alternative,
+ > you'll find them completing just as quickly as define-relation.
+ >
+ >> When formulated as a relation, these examples are instantaneous.
+ >
+ > Relations have a built in memoization that avoids this problem.
+ > Without it, I believe you'd see the same behavior.
+ >
+ > I don't see any problems with doing something similar for
+ > define-judgment form but I'll wait for a while to see if Casey points
+ > out why this would be problematic.
+ >
+ > Robby
+ >
+ 
+From: Casey Klein <caseylklein@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: dvanhorn@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12380: Redex: algorthmics of judgments
+ prohibitively bad
+Date: Sat, 26 Nov 2011 15:48:15 -0800
+
+ On Thu, Nov 17, 2011 at 7:01 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > On Thu, Nov 17, 2011 at 4:00 PM,  <dvanhorn@ccs.neu.edu> wrote:
+ >> (define-judgment-form types
+ >>  #:mode (subtype I I)
+ >>  [(subtype int num)]
+ >>  [(subtype (τ_1 → τ_2) (σ_1  → σ_2))
+ >>   (subtype τ_2 σ_2)
+ >>   (subtype σ_1 τ_1)]
+ >>  [(subtype τ τ)])
+ >
+ > The problem here is that define-judgment form is essentially doing a
+ > search to find all possibly derivations, instead of just confirming
+ > that one exists. And, there are exponentially many derivations of the
+ > example here, since you can use either rule 2 or 3 at each step (and
+ > if you use rule 2 there are two sub derivation families to try).
+ >
+ > You can see this yourself; if you comment out the last alternative,
+ > you'll find them completing just as quickly as define-relation.
+ >
+ >> When formulated as a relation, these examples are instantaneous.
+ >
+ > Relations have a built in memoization that avoids this problem.
+ > Without it, I believe you'd see the same behavior.
+ >
+ > I don't see any problems with doing something similar for
+ > define-judgment form but I'll wait for a while to see if Casey points
+ > out why this would be problematic.
+ >
+ 
+ Memoizing judgment forms should be safe. I just never got around to
+ implementing it.
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Casey Klein <caseylklein@gmail.com>
+Cc: dvanhorn@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12380: Redex: algorthmics of judgments
+ prohibitively bad
+Date: Sat, 26 Nov 2011 18:08:52 -0600
+
+ Well, I tried it when I fixed this bug and it was easy to do, but
+ since it wasn't necessary for this bugfix I didn't do it.
+ 
+ Robby
+ 
+ On Sat, Nov 26, 2011 at 5:48 PM, Casey Klein <caseylklein@gmail.com> wrote:
+ > On Thu, Nov 17, 2011 at 7:01 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> On Thu, Nov 17, 2011 at 4:00 PM,  <dvanhorn@ccs.neu.edu> wrote:
+ >>> (define-judgment-form types
+ >>>  #:mode (subtype I I)
+ >>>  [(subtype int num)]
+ >>>  [(subtype (τ_1 → τ_2) (σ_1  → σ_2))
+ >>>   (subtype τ_2 σ_2)
+ >>>   (subtype σ_1 τ_1)]
+ >>>  [(subtype τ τ)])
+ >>
+ >> The problem here is that define-judgment form is essentially doing a
+ >> search to find all possibly derivations, instead of just confirming
+ >> that one exists. And, there are exponentially many derivations of the
+ >> example here, since you can use either rule 2 or 3 at each step (and
+ >> if you use rule 2 there are two sub derivation families to try).
+ >>
+ >> You can see this yourself; if you comment out the last alternative,
+ >> you'll find them completing just as quickly as define-relation.
+ >>
+ >>> When formulated as a relation, these examples are instantaneous.
+ >>
+ >> Relations have a built in memoization that avoids this problem.
+ >> Without it, I believe you'd see the same behavior.
+ >>
+ >> I don't see any problems with doing something similar for
+ >> define-judgment form but I'll wait for a while to see if Casey points
+ >> out why this would be problematic.
+ >>
+ >
+ > Memoizing judgment forms should be safe. I just never got around to
+ > implementing it.
+ >
+ 
+

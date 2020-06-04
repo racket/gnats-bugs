@@ -1,0 +1,435 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jul 19 18:06:58 2015
+Received: from mail-ie0-f181.google.com (mail-ie0-f181.google.com [209.85.223.181])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t6JM6okV003645
+	for <bugs@bugs.plt-scheme.org>; Sun, 19 Jul 2015 18:06:50 -0400
+Message-Id: <201507192206.t6JM6lQg003636@winooski.ccs.neu.edu>
+Date: Sun, 19 Jul 2015 18:06:47 -0400
+From: zeina@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: stepping won't work on this expression
+
+>Number:         15117
+>Category:       stepper
+>Synopsis:       stepping won't work on this expression
+>Class:          sw-bug
+>Responsible:    clements
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Jul 19 18:08:01 -0400 2015
+>Last-Modified:  Wed Jul 22 20:04:02 -0400 2015
+>Originator:     zeina
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.1.1
+>Environment:
+macosx "Darwin Zeinas-MacBook-Pro.local 14.3.0 Darwin Kernel Version 14.3.0: Mon Mar 23 11:59:05 PDT 2015; root:xnu-2782.20.48~5/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 445948420
+raco pkg (show):
+Installation-wide:
+ Package              Checksum                                    Source
+ main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog main-distribution)
+ racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog racket-lib)
+ [184 auto-installed packages not shown]
+User-specific for installation "6.1.1":
+ [none]
+
+
+
+Collections:
+("/Users/Migeedz/Library/Racket/6.1.1/collects"
+ (non-existent-path))
+("/Applications/Racket v6.1.1/collects"
+ (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+
+Recent Internal Errors: 
+Computer Language: (("Teaching Languages" "How to Design Programs" "Intermediate Student") (#(#t constructor repeating-decimal #f #t none) #f ()))
+>Description:
+The substitution step suggests that this program works: 
+
+(define-struct my-struct (x y z))
+
+(define (f s)
+  (local ((define-struct my-struct (x y z)))
+    (my-struct-x s)))
+
+(f (make-my-struct 1 2 3))
+
+Running it signals an error. 
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: zeina@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15117: stepping won't work on this expression
+Date: Sun, 19 Jul 2015 21:40:17 -0400
+
+ John, this is an actual stepper problem, currently visible in ISL: 
+ 
+ (define (f x)
+   (local ((define (g y)
+             y))
+     (x 1)))
+ 
+ (define (g y)
+   42)
+ 
+ (f g)
+ 
+ The correct result is 42. When you step, you get 
+ 
+ --> 
+ (local ((define (g y) y)) (g 1))    ;; THIS IS CLEARLY WRONG 
+ -->  
+ (define (g_0 y) y) ;; WOW, HOW DID THIS WORK?
+ (g 1)
+ --> 
+ 42
+ 
+ ;; --- 
+ 
+ If we were to run this in Redex, we'd see an alpha renaming _before_ step 1 
+ so that the intermediate state would look like this: 
+ 
+ (local ((define (g_0 y) y))) (g 1))
+ 
+ and voila, it would all make sense. 
+ 
+ ;; --- 
+ 
+ Once local define-struct works with the stepper, it will work like the above. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ On Jul 19, 2015, at 6:08 PM, zeina@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.racket-lang.org/query/?cmd=view&pr=15117
+ > 
+ > Reported by zeina for release: 6.1.1
+ > 
+ > *** Description:
+ > The substitution step suggests that this program works: 
+ > 
+ > (define-struct my-struct (x y z))
+ > 
+ > (define (f s)
+ >  (local ((define-struct my-struct (x y z)))
+ >    (my-struct-x s)))
+ > 
+ > (f (make-my-struct 1 2 3))
+ > 
+ > Running it signals an error. 
+ > 
+ > *** How to repeat:
+ > 
+ > 
+ > *** Environment:
+ > macosx "Darwin Zeinas-MacBook-Pro.local 14.3.0 Darwin Kernel Version 14.3.0: Mon Mar 23 11:59:05 PDT 2015; root:xnu-2782.20.48~5/RELEASE_X86_64 x86_64" (x86_64-macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 445948420
+ > raco pkg (show):
+ > Installation-wide:
+ > Package              Checksum                                    Source
+ > main-distribution    84a366a8c2b2908babe6c2811b0ada036bb159df    (catalog main-distribution)
+ > racket-lib           436f0928598fc1a8abf27422e8e6588bef45f652    (catalog racket-lib)
+ > [184 auto-installed packages not shown]
+ > User-specific for installation "6.1.1":
+ > [none]
+ > 
+ > 
+ > 
+ > Collections:
+ > ("/Users/Migeedz/Library/Racket/6.1.1/collects"
+ > (non-existent-path))
+ > ("/Applications/Racket v6.1.1/collects"
+ > (".gitignore" "acks" "compiler" "data" "db" "dynext" "ffi" "file" "info" "info-domain" "json" "launcher" "net" "openssl" "pkg" "planet" "racket" "raco" "reader" "realm" "s-exp" "setup" "syntax" "unstable" "version" "xml"))
+ > 
+ > Recent Internal Errors: 
+ > Computer Language: (("Teaching Languages" "How to Design Programs" "Intermediate Student") (#(#t constructor repeating-decimal #f #t none) #f ()))
+ > 
+ 
+ 
+
+Responsible changed from "nobody" to "clements" by clements at Wed, 22 Jul 2015 17:50:27 -0400
+Reason>>> stepper bug
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: "John Clements" <clements@brinckerhoff.org>
+Cc: zeina@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15117: stepping won't work on this expression
+Date: Wed, 22 Jul 2015 17:50:17 -0400
+
+ On Jul 22, 2015, at 5:48 PM, "John Clements" <clements@brinckerhoff.org> wrote:
+ 
+ > 
+ >> On Jul 19, 2015, at 9:40 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >> 
+ >> 
+ >> John, this is an actual stepper problem, currently visible in ISL: 
+ > 
+ > The stepper is broken for local define-structs. I�ve known this for � well, years, and there�s an existing failing test case that illustrates this � but I haven�t fixed it yet. I should fix it now.
+ 
+ 
+ I knew it was broken for local define-struct. 
+ 
+ What I hadn't realized is that it was broken for local function definitions, too, which is why I concocted the second example. 
+ 
+ 
+From: "John Clements" <clements@brinckerhoff.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: zeina@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15117: stepping won't work on this
+ expression
+Date: Wed, 22 Jul 2015 17:48:02 -0400
+
+ 
+ > On Jul 19, 2015, at 9:40 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ > 
+ > 
+ > John, this is an actual stepper problem, currently visible in ISL: 
+ 
+ The stepper is broken for local define-structs. I’ve known this for … well, years, and there’s an existing failing test case that illustrates this … but I haven’t fixed it yet. I should fix it now.
+ 
+ John
+ 
+ 
+ 
+ 
+From: "John Clements" <clements@brinckerhoff.org>
+To: Matthias Felleisen <matthias@ccs.neu.edu>
+Cc: zeina@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15117: stepping won't work on this
+ expression
+Date: Wed, 22 Jul 2015 18:00:24 -0400
+
+ 
+ > On Jul 22, 2015, at 5:50 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ > 
+ > 
+ > On Jul 22, 2015, at 5:48 PM, "John Clements" <clements@brinckerhoff.org> wrote:
+ > 
+ >> 
+ >>> On Jul 19, 2015, at 9:40 PM, Matthias Felleisen <matthias@ccs.neu.edu> wrote:
+ >>> 
+ >>> 
+ >>> John, this is an actual stepper problem, currently visible in ISL: 
+ >> 
+ >> The stepper is broken for local define-structs. I’ve known this for … well, years, and there’s an existing failing test case that illustrates this … but I haven’t fixed it yet. I should fix it now.
+ > 
+ > 
+ > I knew it was broken for local define-struct. 
+ > 
+ > What I hadn't realized is that it was broken for local function definitions, too, which is why I concocted the second example. 
+ > 
+ 
+ Ouch! That’s terrible! Really appalling! It seems like random testing might well have caught this. 
+ 
+ The “natural” solution that occurs to me is to rename every top-level function as it appears, for every single user program that contains a top-level function. That is, this is the solution that seems to fit with the stepper’s existing philosophy.  However, it would be very “public static void main” to have to explain this to every user of the stepper. An intermediate solution would be to rename only functions that are used in a higher-order way. It would look a bit magical to the user that the stepper “peeks forward” in case of functions that are passed as arguments or bound to new names, but it’s probably the simplest solution.
+ 
+ How does that sound to you?
+ 
+ (BTW, I’ll be in Cape Cod until Saturday or Sunday. I expect to work mornings starting next Tuesday.)
+ 
+ John
+ 
+ 
+ 
+ 
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: "John Clements" <clements@brinckerhoff.org>
+Cc: zeina@ccs.neu.edu, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/15117: stepping won't work on this expression
+Date: Wed, 22 Jul 2015 20:01:22 -0400
+
+ --Apple-Mail=_B538D195-1036-42A4-9EA9-7141B6A795DF
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=windows-1252
+ 
+ 
+ On Jul 22, 2015, at 6:00 PM, John Clements wrote:
+ 
+ >=20
+ >> On Jul 22, 2015, at 5:50 PM, Matthias Felleisen =
+ <matthias@ccs.neu.edu> wrote:
+ >>=20
+ >>=20
+ >> On Jul 22, 2015, at 5:48 PM, "John Clements" =
+ <clements@brinckerhoff.org> wrote:
+ >>=20
+ >>>=20
+ >>>> On Jul 19, 2015, at 9:40 PM, Matthias Felleisen =
+ <matthias@ccs.neu.edu> wrote:
+ >>>>=20
+ >>>>=20
+ >>>> John, this is an actual stepper problem, currently visible in ISL:=20=
+ 
+ >>>=20
+ >>> The stepper is broken for local define-structs. I=92ve known this =
+ for =85 well, years, and there=92s an existing failing test case that =
+ illustrates this =85 but I haven=92t fixed it yet. I should fix it now.
+ >>=20
+ >>=20
+ >> I knew it was broken for local define-struct.=20
+ >>=20
+ >> What I hadn't realized is that it was broken for local function =
+ definitions, too, which is why I concocted the second example.=20
+ >>=20
+ >=20
+ > Ouch! That=92s terrible! Really appalling! It seems like random =
+ testing might well have caught this.=20
+ >=20
+ > The =93natural=94 solution that occurs to me is to rename every =
+ top-level function as it appears, for every single user program that =
+ contains a top-level function. That is, this is the solution that seems =
+ to fit with the stepper=92s existing philosophy.  However, it would be =
+ very =93public static void main=94 to have to explain this to every user =
+ of the stepper. An intermediate solution would be to rename only =
+ functions that are used in a higher-order way. It would look a bit =
+ magical to the user that the stepper =93peeks forward=94 in case of =
+ functions that are passed as arguments or bound to new names, but it=92s =
+ probably the simplest solution.
+ >=20
+ > How does that sound to you?
+ 
+ 
+ I'd much rather implement a solution that renders local expressions by =
+ always renaming them consistently -- even w/o lifting.=20
+ 
+ Here is a working example:=20
+ 
+ (define (f n)
+   (if (=3D n 0)
+       1
+       (+ 1
+          (local ((define (g x) x))
+            (g (f (- n 1)))))))
+ 
+ (f 1)
+ 
+ When you step thru this, the stepper renames g to g_0 at stage 4 (out of =
+ 11).  That is, it acts on local expressions just when they show up in an =
+ evaluation context. Regardless it makes up a name for a function =
+ definition that hasn't been called and may never be called.=20
+ 
+ QUESTION: Can you rename to g to g_0 when (f 1) is discharged? That is, =
+ every time you simulate a beta step for (f a b c)  can you rename local =
+ function definitions inside of f's definition?=20
+ 
+ That is the solution that is consistent with the semantic model of *SL =
+ (including set!).=20
+ 
+ -- Matthias
+ 
+ 
+ 
+ 
+ 
+ 
+ > (BTW, I=92ll be in Cape Cod until Saturday or Sunday. I expect to work =
+ mornings starting next Tuesday.)
+ 
+ (Hah, you're down the street! I could come over and we could =
+ pair-program .. never mind I am going to SD and then Utah :-)=20=
+ 
+ --Apple-Mail=_B538D195-1036-42A4-9EA9-7141B6A795DF
+ Content-Disposition: attachment;
+ 	filename=smime.p7s
+ Content-Type: application/pkcs7-signature;
+ 	name=smime.p7s
+ Content-Transfer-Encoding: base64
+ 
+ MIAGCSqGSIb3DQEHAqCAMIACAQExCzAJBgUrDgMCGgUAMIAGCSqGSIb3DQEHAQAAoIINTTCCBkIw
+ ggUqoAMCAQICEDirAC//rpa3Vv85Wvtd5xswDQYJKoZIhvcNAQEFBQAwgcoxCzAJBgNVBAYTAlVT
+ MRcwFQYDVQQKEw5WZXJpU2lnbiwgSW5jLjEfMB0GA1UECxMWVmVyaVNpZ24gVHJ1c3QgTmV0d29y
+ azE6MDgGA1UECxMxKGMpIDE5OTkgVmVyaVNpZ24sIEluYy4gLSBGb3IgYXV0aG9yaXplZCB1c2Ug
+ b25seTFFMEMGA1UEAxM8VmVyaVNpZ24gQ2xhc3MgMSBQdWJsaWMgUHJpbWFyeSBDZXJ0aWZpY2F0
+ aW9uIEF1dGhvcml0eSAtIEczMB4XDTExMDkwMTAwMDAwMFoXDTIxMDgzMTIzNTk1OVowgaYxCzAJ
+ BgNVBAYTAlVTMR0wGwYDVQQKExRTeW1hbnRlYyBDb3Jwb3JhdGlvbjEfMB0GA1UECxMWU3ltYW50
+ ZWMgVHJ1c3QgTmV0d29yazEeMBwGA1UECxMVUGVyc29uYSBOb3QgVmFsaWRhdGVkMTcwNQYDVQQD
+ Ey5TeW1hbnRlYyBDbGFzcyAxIEluZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAtIEc0MIIBIjANBgkq
+ hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxuwn/R1j9DsdisHTHMjIgoa2uEqGkqqBXHLKMA0vnkEi
+ VzAhJZCao/SsKsaIF4ZhchN2LuwDyyebjyCAN+DkitpVplAP/LlcI2mJQqG6H6/vDvmkyQrx+Dey
+ xtmSSq5937hEH5u6P4wG/tgjT0hRI2pghKjuJy9g35byGiqMPI8AzE/L+iCOvDX24fCatgXz/B0/
+ xhR7DtryBeTTgwKmxWlwtKnkVunbHVz0pjbia7UeKi3cvrvuOgSwMAitX2hsxr0GloiE5+apZC28
+ ODC7iCbDZ2ZmtLR3+cChxw5y72bi5bnK4POFdzWY3tQcsP5mceI4y258T0BV65fZqBge7QIDAQAB
+ o4ICRDCCAkAwOAYIKwYBBQUHAQEELDAqMCgGCCsGAQUFBzABhhxodHRwOi8vcGtpLW9jc3AudmVy
+ aXNpZ24uY29tMBIGA1UdEwEB/wQIMAYBAf8CAQAwbAYDVR0gBGUwYzBhBgtghkgBhvhFAQcXATBS
+ MCYGCCsGAQUFBwIBFhpodHRwOi8vd3d3LnN5bWF1dGguY29tL2NwczAoBggrBgEFBQcCAjAcGhpo
+ dHRwOi8vd3d3LnN5bWF1dGguY29tL3JwYTA0BgNVHR8ELTArMCmgJ6AlhiNodHRwOi8vY3JsLnZl
+ cmlzaWduLmNvbS9wY2ExLWczLmNybDAOBgNVHQ8BAf8EBAMCAQYwKQYDVR0RBCIwIKQeMBwxGjAY
+ BgNVBAMTEVZlcmlTaWduTVBLSS0yLTk3MB0GA1UdDgQWBBSt+cOTci21uShh5KTXYNXECl4aATCB
+ 8QYDVR0jBIHpMIHmoYHQpIHNMIHKMQswCQYDVQQGEwJVUzEXMBUGA1UEChMOVmVyaVNpZ24sIElu
+ Yy4xHzAdBgNVBAsTFlZlcmlTaWduIFRydXN0IE5ldHdvcmsxOjA4BgNVBAsTMShjKSAxOTk5IFZl
+ cmlTaWduLCBJbmMuIC0gRm9yIGF1dGhvcml6ZWQgdXNlIG9ubHkxRTBDBgNVBAMTPFZlcmlTaWdu
+ IENsYXNzIDEgUHVibGljIFByaW1hcnkgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkgLSBHM4IRAItb
+ dVaEVIULAM+vOEjOsaQwDQYJKoZIhvcNAQEFBQADggEBANaPwdqbiPKzbE0fWC+6AVFddMFG6MO4
+ e5/WQPHv/zK6iWvADjRDn6SZ5qTwXUgzYoWFYf4jiCKMYJsrnGVJlMSiOCRIpVylUEto6WIip5Po
+ mSJuPVu7EEIOH0x1RzRWCY/4vYw881y70pZwVHBiTe/REL6dSCxe7IZrB4LwPeElJygs4BZ2HrP9
+ 5WKW0oo9Xyuu+1zCE7dlY8s0dkOf1oeZq26tlcEAP0Yngf813iMOQ9wUXzL5yinvwlIw9ZnduYH4
+ OiUgjYJo8rkhhXRmBOGGORYy8i3WKqjJ3tkAAk/jGCDFpYFWtpXe04Kt+HslvmR8LqC6cCz4+XXi
+ dE0HbYQwggcDMIIF66ADAgECAhB3OX+GQHPYQEPwRaX3BR/qMA0GCSqGSIb3DQEBBQUAMIGmMQsw
+ CQYDVQQGEwJVUzEdMBsGA1UEChMUU3ltYW50ZWMgQ29ycG9yYXRpb24xHzAdBgNVBAsTFlN5bWFu
+ dGVjIFRydXN0IE5ldHdvcmsxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UE
+ AxMuU3ltYW50ZWMgQ2xhc3MgMSBJbmRpdmlkdWFsIFN1YnNjcmliZXIgQ0EgLSBHNDAeFw0xNDEw
+ MTUwMDAwMDBaFw0xNTEwMTYyMzU5NTlaMIHGMS4wLAYDVQQDDCVQZXJzb25hIE5vdCBWYWxpZGF0
+ ZWQgLSAxNDEzMzk1NTI2Nzg4MSMwIQYJKoZIhvcNAQkBFhRtYXR0aGlhc0BjY3MubmV1LmVkdTEP
+ MA0GA1UECwwGUy9NSU1FMR4wHAYDVQQLDBVQZXJzb25hIE5vdCBWYWxpZGF0ZWQxHzAdBgNVBAsM
+ FlN5bWFudGVjIFRydXN0IE5ldHdvcmsxHTAbBgNVBAoMFFN5bWFudGVjIENvcnBvcmF0aW9uMIIB
+ IjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3AujaV79ib5DXnQKtZOl5ymK3csdzGwNH5ov
+ JO8985UmBCndqUsDRzjN61hEsLu0EJD/Lxs3dzHSvDRfxhPCIV6owGN9VNMlNhm7qjW94ScX/KR0
+ /dqWLtrNi6yO3hifKxmo34n1wXizEqwiqdCuy1wQGZo29mEARjJ8/R2H22SCF/fc91mySXP4fXCX
+ ZEQR8rVHPFRSnHU+1vYd++Yjx/FOf2b8AYGISw7sDJhxlHmAtd9qKm4ocihufWJ3oKS2rqFI6V6Q
+ HWzApB38i4P11k4JypEsYapM2P6IKBMFy+p5h8TN/nLDIWQo2/yhsRoMVxyb308J3KI7FZlxs/m4
+ 7QIDAQABo4IDCTCCAwUwDAYDVR0TAQH/BAIwADAOBgNVHQ8BAf8EBAMCBaAwIAYDVR0lAQH/BBYw
+ FAYIKwYBBQUHAwQGCCsGAQUFBwMCMB0GA1UdDgQWBBS08yuc2TrBPXUS2SOxn9RpNQpN0TAfBgNV
+ HREEGDAWgRRtYXR0aGlhc0BjY3MubmV1LmVkdTAfBgNVHSMEGDAWgBSt+cOTci21uShh5KTXYNXE
+ Cl4aATCCASsGCCsGAQUFBwEBBIIBHTCCARkwggEVBggrBgEFBQcwAoaCAQdsZGFwOi8vZGlyZWN0
+ b3J5LnZlcmlzaWduLmNvbS9DTiUyMCUzRCUyMFN5bWFudGVjJTIwQ2xhc3MlMjAxJTIwSW5kaXZp
+ ZHVhbCUyMFN1YnNjcmliZXIlMjBDQSUyMC0lMjBHNCUyQyUyME9VJTIwJTNEJTIwUGVyc29uYSUy
+ ME5vdCUyMFZhbGlkYXRlZCUyQyUyME9VJTIwJTNEJTIwU3ltYW50ZWMlMjBUcnVzdCUyME5ldHdv
+ cmslMkMlMjBPJTIwJTNEJTIwU3ltYW50ZWMlMjBDb3Jwb3JhdGlvbiUyQyUyMEMlMjAlM0QlMjBV
+ Uz9jQUNlcnRpZmljYXRlO2JpbmFyeTBdBgNVHR8EVjBUMFKgUKBOhkxodHRwOi8vcGtpLWNybC5z
+ eW1hdXRoLmNvbS9jYV81NjFjMTAzNjkwYzk3YTY5MjQ3YTBlZjA3MWFjODFhZi9MYXRlc3RDUkwu
+ Y3JsMGwGA1UdIARlMGMwYQYLYIZIAYb4RQEHFwEwUjAmBggrBgEFBQcCARYaaHR0cDovL3d3dy5z
+ eW1hdXRoLmNvbS9jcHMwKAYIKwYBBQUHAgIwHBoaaHR0cDovL3d3dy5zeW1hdXRoLmNvbS9ycGEw
+ KwYKYIZIAYb4RQEQAwQdMBsGEmCGSAGG+EUBEAECAgQBhsfObxYFMTA5MjIwOQYKYIZIAYb4RQEQ
+ BQQrMCkCAQAWJGFIUjBjSE02THk5d2Eya3RjbUV1YzNsdFlYVjBhQzVqYjIwPTANBgkqhkiG9w0B
+ AQUFAAOCAQEAfwrXjXoAnkjPq+wsf72w+l9f+tfJCoLSo89IfpisKrRKYggUhIFacZUqDnL0chdD
+ z49otYk7fNYVdBnQaq2fHx8FMokfn8YhR20fKQua9R9GuC0sVnKAP82V9pWQAYUF6EOAZs+2zbAo
+ 1LoR27SKTUxKs3CWjIRyvDAK9tH2Zso1AG/XpqrvaeeBAJFlJJS2JlwzilXGMdiGLNZ929j4wlRA
+ Wz/hTQRslV645857PjnzM1q+qtMZzLhmUOoiHUeXft/plXLB6F89xmABI9ykbudX3rVec8WsnAnA
+ WhSqudVRgjWtum2AZ6IcobHx1EGBVWVc6Wlv6VTSlWyoK6ntHzGCA+QwggPgAgEBMIG7MIGmMQsw
+ CQYDVQQGEwJVUzEdMBsGA1UEChMUU3ltYW50ZWMgQ29ycG9yYXRpb24xHzAdBgNVBAsTFlN5bWFu
+ dGVjIFRydXN0IE5ldHdvcmsxHjAcBgNVBAsTFVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UE
+ AxMuU3ltYW50ZWMgQ2xhc3MgMSBJbmRpdmlkdWFsIFN1YnNjcmliZXIgQ0EgLSBHNAIQdzl/hkBz
+ 2EBD8EWl9wUf6jAJBgUrDgMCGgUAoIIB/TAYBgkqhkiG9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqG
+ SIb3DQEJBTEPFw0xNTA3MjMwMDAxMjJaMCMGCSqGSIb3DQEJBDEWBBRm/hVmAH13/+18YVIDDWa7
+ 6nXcSDCBzAYJKwYBBAGCNxAEMYG+MIG7MIGmMQswCQYDVQQGEwJVUzEdMBsGA1UEChMUU3ltYW50
+ ZWMgQ29ycG9yYXRpb24xHzAdBgNVBAsTFlN5bWFudGVjIFRydXN0IE5ldHdvcmsxHjAcBgNVBAsT
+ FVBlcnNvbmEgTm90IFZhbGlkYXRlZDE3MDUGA1UEAxMuU3ltYW50ZWMgQ2xhc3MgMSBJbmRpdmlk
+ dWFsIFN1YnNjcmliZXIgQ0EgLSBHNAIQdzl/hkBz2EBD8EWl9wUf6jCBzgYLKoZIhvcNAQkQAgsx
+ gb6ggbswgaYxCzAJBgNVBAYTAlVTMR0wGwYDVQQKExRTeW1hbnRlYyBDb3Jwb3JhdGlvbjEfMB0G
+ A1UECxMWU3ltYW50ZWMgVHJ1c3QgTmV0d29yazEeMBwGA1UECxMVUGVyc29uYSBOb3QgVmFsaWRh
+ dGVkMTcwNQYDVQQDEy5TeW1hbnRlYyBDbGFzcyAxIEluZGl2aWR1YWwgU3Vic2NyaWJlciBDQSAt
+ IEc0AhB3OX+GQHPYQEPwRaX3BR/qMA0GCSqGSIb3DQEBAQUABIIBAE8rtvrGNu4t7JQcXx0mNZiK
+ gJnk/hMx9NoQw3T9FqnWSLjffv+FVqjWD5WFQXchf676hSLd2M5pkcvMHFBCksTBbOBKxbZtzCSu
+ omOa57qicyFBia8tlpPS/kpzrjdFc+lfrYDfpSwXr13+BAqJBOrKkCnc3m4VjdkgIAobIgLqDIPY
+ xs0s93ZeOT0KLJDr65acl6YUQ+6P8+77tE0BlQgko0p8AhlKgsScXT9KRMoozqc05JzOMHOM7UkB
+ eTkV6Ctg85ocWo31pb6Jvrbd0KOhT0jNBWyFrvAQsv+qDG7+xWoHGtAzzTdfmT9mTukGN5j4DDoz
+ 47uo/kL7n8jspsEAAAAAAAA=
+ 
+ --Apple-Mail=_B538D195-1036-42A4-9EA9-7141B6A795DF--

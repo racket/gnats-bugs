@@ -1,0 +1,153 @@
+From jacobm@alumni.rice.edu  Thu Oct  4 11:17:23 2001
+Return-Path: <jacobm@alumni.rice.edu>
+Received: from localhost (unknown [155.99.212.124])
+	by cs.rice.edu (Postfix) with ESMTP id 83DDA17A8
+	for <plt-gnats>; Thu,  4 Oct 2001 11:17:22 -0500 (CDT)
+Message-Id: <20011004161722.83DDA17A8@cs.rice.edu>
+Date: Thu,  4 Oct 2001 11:17:22 -0500 (CDT)
+From: jacobm@alumni.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: problem with module-writing modules
+
+>Number:         2094
+>Category:       mzscheme
+>Synopsis:       problem with module-writing modules
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Oct  4 16:30:01 GMT 2001
+>Last-Modified:  Fri Oct 12 11:11:13 CDT 2001
+>Originator:     Jacob Matthews
+>Organization:
+titan
+>Release:        199.23d3
+>Environment:
+unix "SunOS asia.cs.rice.edu 5.6 Generic_105181-16 sun4m sparc SUNW,SPARCstation-10" (sparc-solaris) (get-display-depth) = 8
+Tools: "collection-path: collection \"drscheme\" does not have sub-collection: \"tools\" in: \"/home/jacobm/plt-neu/plt/collects/drscheme\""
+Docs Installed:
+("help" "teachpack" "icons" "r5rs" "mzscheme" "mred" "drscheme" "misclib" "framework" "tools" "mzc" "insidemz" "mzlib")
+Collections: 
+(("/home/jacobm/plt-neu/plt/collects" ("CVS" "doc" "server" "browser" "compiler" "debug" "defaults" "drjava" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "readline" "setup" "slatex" "srpersist" "stepper" "string-constants" "syntax" "tests" "texpict" "userspce" "xml")))
+Human Language: English
+>Description:
+When a function in a module produces a module syntax object that 
+contains references to identifiers from the function's original
+module, expansion of that syntax object produces the following 
+error:
+
+require: broken compiled code (lookup_binding, phase 0):
+cannot find module <name of function's module> in:
+<name of identifier>
+
+I don't know whether that's what's supposed to happen or not, but 
+I could find nothing that elucidated it in the Help Desk and my
+limited understanding of modules would lead me to believe that it
+ought to be allowed.
+>How-To-Repeat:
+At the REPL:
+
+(module m mzscheme
+  
+  (provide transform)
+  
+  (define (transform syn)
+    (syntax-case syn (module #%plain-module-begin provide)
+      [(module name lang
+         (#%plain-module-begin
+          stmt ...))
+       (with-syntax
+           ([(new-stmt ...) (process (syntax-e (syntax (stmt ...))))])
+         (syntax
+          (module name lang
+            (#%plain-module-begin
+             new-stmt ...))))]))
+  
+  
+  
+  ; process : listof syntax -> listof syntax
+  (define (process slist)
+    (cond
+      [(null? slist) null]
+      [else
+       (cons (process-one (car slist)) (process (cdr slist)))]))
+  
+  (define (process-one exp)
+    (syntax-case exp (define-values)
+      [(define-values (id ...) expr)
+       (syntax (define-values (id ...) (myfun expr)))]
+      [_ exp]))
+    
+  (define (myfun x) x))
+
+(require m)
+
+(expand 
+   (transform 
+    (expand 
+     (syntax 
+      (module q mzscheme 
+        (define a 1))))))
+>Fix:
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: jacobm@alumni.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/2094: problem with module-writing modules
+Date: Thu, 4 Oct 2001 13:51:14 -0600 (MDT)
+
+ Quoting jacobm@alumni.rice.edu:
+ > When a function in a module produces a module syntax object that 
+ > contains references to identifiers from the function's original
+ > module, expansion of that syntax object produces the following 
+ > error:
+ > 
+ > require: broken compiled code (lookup_binding, phase 0):
+ > cannot find module <name of function's module> in:
+ > <name of identifier>
+ > 
+ > I don't know whether that's what's supposed to happen or not, but 
+ > I could find nothing that elucidated it in the Help Desk and my
+ > limited understanding of modules would lead me to believe that it
+ > ought to be allowed.
+ 
+ The error occurs because there's no import for the generated module
+ that leads to `m', so no instance of `m'' exists in the generated
+ module's compile time.
+ 
+ I think it really should be an error (though the message needs to be
+ cleaned up).
+ 
+ Depending on what you're trying to do, a "3-D" macro might be
+ appropriate in this case. The macro would embed the `myfun' procedure
+ directly in the output (as opposed to an identifier that is supposed to
+ access the procedure):
+ 
+   (define (process-one exp)
+     (syntax-case exp (define-values)
+       [(define-values (id ...) expr)
+        (with-syntax ([myfun myfun])
+ 	 (syntax (define-values (id ...) (myfun expr))))]
+       [_ exp]))
+ 
+ That's how errortrace works, for example.
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Oct 12 11:11:04 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Oct 12 11:11:06 2001
+State-Changed-Why:
+Fixed in 199.24 or 199.25 (forgot which)
+
+ 
+>Unformatted:

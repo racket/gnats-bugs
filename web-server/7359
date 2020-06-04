@@ -1,0 +1,76 @@
+From apache@plt-scheme.org Tue May  3 08:28:24 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j43CSLQ0029317
+	for <bugs@plt-scheme.org>; Tue, 3 May 2005 08:28:21 -0400
+Message-Id: <200505031228.j43CSLsd029315@champlain.ccs.neu.edu>
+Date: Tue, 3 May 2005 08:28:21 -0400
+From: mflatt@cs.utah.edu
+To: bugs@plt-scheme.org
+Subject: servlet (module-based) namespace problem
+
+>Number:         7359
+>Category:       web-server
+>Synopsis:       servlet (module-based) namespace problem
+>Class:          sw-bug
+>Responsible:    jay
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue May 03 08:30:00 -0400 2005
+>Last-Modified:  Wed Aug 24 14:03:08 -0400 2005
+>Originator:     Matthew Flatt
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.104
+>Environment:
+unix "Linux localhost.localdomain 2.4.20-18.9 #1 Thu May 29 07:08:16 EDT 2003 i686 i686 i386 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Docs Installed:
+(#<path:/home/mflatt/proj/plt/collects/doc/foreign> #<path:/home/mflatt/proj/plt/collects/doc/tex2page> #<path:/home/mflatt/proj/plt/collects/doc/t-y-scheme> #<path:/home/mflatt/proj/plt/collects/doc/web-server> #<path:/home/mflatt/proj/plt/collects/doc/plot> #<path:/home/mflatt/proj/plt/collects/doc/swindle> #<path:/home/mflatt/proj/plt/collects/doc/insidemz> #<path:/home/mflatt/proj/plt/collects/doc/tools> #<path:/home/mflatt/proj/plt/collects/doc/mzc> #<path:/home/mflatt/proj/plt/collects/doc/framework> #<path:/home/mflatt/proj/plt/collects/doc/misclib> #<path:/home/mflatt/proj/plt/collects/doc/mzlib> #<path:/home/mflatt/proj/plt/collects/doc/srfi> #<path:/home/mflatt/proj/plt/collects/doc/drscheme> #<path:/home/mflatt/proj/plt/collects/doc/tour> #<path:/home/mflatt/proj/plt/collects/doc/profj-advanced> #<path:/home/mflatt/proj/plt/collects/doc/profj-intermediate> #<path:/home/mflatt/proj/plt/collects/doc/profj-beginner> #<path:/home/mflatt/proj/plt/collects/doc/teachpack> #<path:/home/mflatt/proj/plt/collects/doc/advanced> #<path:/home/mflatt/proj/plt/collects/doc/intermediate-lambda> #<path:/home/mflatt/proj/plt/collects/doc/intermediate> #<path:/home/mflatt/proj/plt/collects/doc/beginning-abbr> #<path:/home/mflatt/proj/plt/collects/doc/beginning> #<path:/home/mflatt/proj/plt/collects/doc/mred> #<path:/home/mflatt/proj/plt/collects/doc/mzscheme> #<path:/home/mflatt/proj/plt/collects/doc/r5rs> #<path:/home/mflatt/proj/plt/collects/doc/help>)
+Collections:
+((#<path:/home/mflatt/lib/mzscheme> "non-existent path") (#<path:/home/mflatt/.plt-scheme/299.104/collects> "non-existent path") (#<path:/home/mflatt/proj/plt/collects> (#<path:CVS> #<path:afm> #<path:algol60> #<path:doc> #<path:browser> #<path:srfi> #<path:profj> #<path:compiler> #<path:memtrace> #<path:cvs-time-stamp> #<path:sgl> #<path:defaults> #<path:guibuilder> #<path:dromedary> #<path:drscheme> #<path:syntax-color> #<path:dynext> #<path:eopl> #<path:errortrace> #<path:slideshow> #<path:finish-install> #<path:framework> #<path:games> #<path:graphics> #<path:skipper> #<path:handin-server> #<path:plot> #<path:help> #<path:handin-client> #<path:r> #<path:hierlist> #<path:htdp> #<path:html> #<path:embedded-gui> #<path:planet> #<path:icons> #<path:lang> #<path:launcher> #<path:solutions> #<path:make> #<path:mrdemo> #<path:mred> #<path:mrflow> #<path:mrlib> #<path:ffi> #<path:mysterx> #<path:mzcom> #<path:trace> #<path:mzlib> #<path:mzscheme> #<path:net> #<path:preprocessor> #<path:swindle> #<path:openssl> #<path:parser-tools> #<path:honu-module> #<path:readline> #<path:reduction-semantics> #<path:info-domain> #<path:setup> #<path:sirmail> #<path:slatex> #<path:slibinit> #<path:srpersist> #<path:stepper> #<path:string-constants> #<path:syntax> #<path:test-suite> #<path:tests> #<path:tex2page> #<path:texpict> #<path:typeset> #<path:version> #<path:waterworld> #<path:web-server> #<path:xml>)) (#<path:~mflatt/proj/collects> "non-existent path"))
+Human Language: english
+>Description:
+See "stesp to reproduce", reported by Alexander Friedman
+on plt-scheme.
+
+The problem is that the web server creates a new namespace to load
+each module-based servlet, but it doesn't make that namespace the
+current one whenever it runs the servlet. The `dynamic-require'
+inside `deserialize' therefore accesses the wrong instance of the
+servlet module.
+>How-To-Repeat:
+(module bad-servlet mzscheme
+  (require
+   (lib "serialize.ss")
+   (lib "servlet.ss" "web-server"))
+
+  (provide interface-version timeout start)
+
+  (define interface-version 'v1)
+  (define timeout +inf.0)
+
+  (define-serializable-struct foo ())
+  (define (start req)
+    (deserialize (serialize (make-foo)))))
+
+(require bad-servlet)
+
+(start '()) -> #<struct:foo>
+
+BUT, if this servlet is run from the web server:
+
+deserialize-info-maker: expects args of type
+<struct:deserialize-info>; given instance of a different
+<struct:deserialize-info>
+>Fix:
+>Audit-Trail:
+State changed from "open" to "analyzed" by jay at Fri, 20 May 2005 15:56:44 -0400
+Reason>>> The provided example works in exp, but not in the release. Not completely sure 
+why, however.
+
+
+State changed from "analyzed" to "closed" by jay at Wed, 24 Aug 2005 14:03:08 -0400
+Reason>>> Now the servlets are loaded and call in the same (new) namespace.
+

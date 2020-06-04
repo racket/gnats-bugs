@@ -1,0 +1,392 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Dec  3 06:36:22 2011
+Received: from mail-pz0-f44.google.com (mail-pz0-f44.google.com [209.85.210.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id pB3BaJV3004037
+	for <bugs@bugs.plt-scheme.org>; Sat, 3 Dec 2011 06:36:19 -0500
+Message-Id: <201112031136.pB3BaDYs004024@champlain.ccs.neu.edu>
+Date: Sat, 3 Dec 2011 06:36:13 -0500
+From: sina@khakbaz.com
+To: bugs@racket-lang.org
+Subject: db/mysql-connect only connects to MySQL DB as root
+
+>Number:         12415
+>Category:       misc
+>Synopsis:       db/mysql-connect only connects to MySQL DB as root
+>Class:          sw-bug
+>Responsible:    ryanc
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Dec 03 06:40:01 -0500 2011
+>Closed-Date:    Mon Jan 02 02:03:47 -0500 2012
+>Last-Modified:  Mon Jan 02 02:03:47 -0500 2012
+>Originator:     Sina
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2
+>Environment:
+mac-i386-osx
+>Description:
+Attempts to connect to a MySQL server fail unless the specified user is the DBA or root. That is, a user that has the necessary privileges to connect and alter a given schema doesn't seem to be allowed to connect to that scheme via Racket's db/mysql-connect.
+
+$ mysqld --version
+mysqld  Ver 5.5.17 for osx10.6 on i386 (MySQL Community Server (GPL))
+
+$ mysql --version
+mysql  Ver 14.14 Distrib 5.5.17, for osx10.6 (i386) using readline 5.1
+
+$ racket --version
+Welcome to Racket v5.2.
+
+>How-To-Repeat:
+$ mysql -u root -p
+Enter password: ****
+
+mysql> create user foo identified by 'foo';
+mysql> create database foo character set utf8;
+mysql> grant all privileges on foo.* to 'foo'@'localhost';
+mysql> exit
+
+$ mysql -u foo -p
+Enter password: foo
+mysql> use foo;
+mysql> create table bar ( id INT, name VARCHAR(35) );
+Query OK, 0 rows affected (0.01 sec)
+
+#lang racket
+
+(require db)
+
+(define
+  connection
+  (mysql-connect
+   #:database "foo"
+   #:password "foo"
+   #:user "foo"))
+
+> /Applications/Racket v5.2/collects/db/private/mysql/connection.rkt:97:20: parse-packet: internal error: communication problem (expected authentication ok packet)
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "ryanc" by samth at Sat, 03 Dec 2011 10:44:51 -0500
+Reason>>> db
+
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: sina@khakbaz.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org
+Subject: Re: [racket-bug] all/12415: db/mysql-connect only connects to MySQL
+ DB as root
+Date: Mon, 05 Dec 2011 09:02:08 -0700
+
+ I haven't been able to reproduce the bug on an Ubuntu 11.10 box with 
+ MySQL 5.5.18. There are some more specific notes below.
+ 
+ On 12/03/2011 04:40 AM, sina@khakbaz.com wrote:
+ >
+ >[...]
+ >
+ > *** How to repeat:
+ > $ mysql -u root -p
+ > Enter password: ****
+ >
+ > mysql>  create user foo identified by 'foo';
+ > mysql>  create database foo character set utf8;
+ > mysql>  grant all privileges on foo.* to 'foo'@'localhost';
+ > mysql>  exit
+ 
+ This sequence of statements leaves me unable to log in as 'foo'. I need 
+ to either change the first statement to
+ 
+    create user 'foo'@'localhost' identified by 'foo';
+ 
+ or execute a subsequent
+ 
+    set password for 'foo'@'localhost' = PASSWORD('foo');
+ 
+ Do the commands actually work as written for you, starting from a state 
+ where no 'foo' user exists? (I used "drop user foo; drop user 
+ 'foo'@'localhost';".)
+ 
+ > $ mysql -u foo -p
+ > Enter password: foo
+ 
+ (Fails unless a password is set for 'foo'@'localhost' specifically, as 
+ described above.)
+ 
+ > mysql>  use foo;
+ > mysql>  create table bar ( id INT, name VARCHAR(35) );
+ > Query OK, 0 rows affected (0.01 sec)
+ >
+ > #lang racket
+ >
+ > (require db)
+ >
+ > (define
+ >    connection
+ >    (mysql-connect
+ >     #:database "foo"
+ >     #:password "foo"
+ >     #:user "foo"))
+ >
+ > /Applications/Racket
+ > v5.2/collects/db/private/mysql/connection.rkt:97:20: parse-packet:
+ > internal error: communication problem (expected authentication ok
+ > packet)
+ 
+ If I don't make the change above, I don't get the internal communication 
+ error, I get the expected "Access denied..." error.
+ 
+ If I do make the change, then mysql-connect succeeds without an error.
+ 
+ Are there any differences in your server configuration that you can 
+ think of that might be relevant?
+ 
+ Ryan
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: sina@khakbaz.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org
+Subject: Re: [racket-bug] all/12415: db/mysql-connect only connects to MySQL
+ DB as root
+Date: Thu, 08 Dec 2011 15:42:00 -0700
+
+ My best guess at this point is that it has something to do with 
+ authentication plugins, but I don't see why that would be happening.
+ 
+ I've added some better debugging support to the db library; can you get 
+ the latest nightly build (http://pre.racket-lang.org) and try the following:
+ 
+ (require db/base
+           db/private/mysql/main)
+ 
+ (mysql-connect #:debug? #t
+                 <your connection parameters...>)
+ 
+ It should display the contents of the packets going to and from the 
+ server. Can you send me the debugging output for the connection attempt 
+ that fails?
+ 
+ Thanks,
+ Ryan
+ 
+ 
+ 
+ On 12/03/2011 04:40 AM, sina@khakbaz.com wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12415
+ >
+ > Reported by Sina for release: 5.2
+ >
+ > *** Description:
+ > Attempts to connect to a MySQL server fail unless the specified user
+ > is the DBA or root. That is, a user that has the necessary privileges
+ > to connect and alter a given schema doesn't seem to be allowed to
+ > connect to that scheme via Racket's db/mysql-connect.
+ >
+ > $ mysqld --version
+ > mysqld  Ver 5.5.17 for osx10.6 on i386 (MySQL Community Server (GPL))
+ >
+ > $ mysql --version
+ > mysql  Ver 14.14 Distrib 5.5.17, for osx10.6 (i386) using readline 5.1
+ >
+ > $ racket --version
+ > Welcome to Racket v5.2.
+ >
+ >
+ > *** How to repeat:
+ > $ mysql -u root -p
+ > Enter password: ****
+ >
+ > mysql>  create user foo identified by 'foo';
+ > mysql>  create database foo character set utf8;
+ > mysql>  grant all privileges on foo.* to 'foo'@'localhost';
+ > mysql>  exit
+ >
+ > $ mysql -u foo -p
+ > Enter password: foo
+ > mysql>  use foo;
+ > mysql>  create table bar ( id INT, name VARCHAR(35) );
+ > Query OK, 0 rows affected (0.01 sec)
+ >
+ > #lang racket
+ >
+ > (require db)
+ >
+ > (define
+ >    connection
+ >    (mysql-connect
+ >     #:database "foo"
+ >     #:password "foo"
+ >     #:user "foo"))
+ >
+ >> /Applications/Racket
+ >> v5.2/collects/db/private/mysql/connection.rkt:97:20: parse-packet:
+ >> internal error: communication problem (expected authentication ok
+ >> packet)
+From: Sina Khakbaz Heshmati <sina@khakbaz.com>
+To: Ryan Culpepper <ryan@cs.utah.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org
+Subject: Re: [racket-bug] all/12415: db/mysql-connect only connects to MySQL DB as root
+Date: Sun, 11 Dec 2011 18:34:19 +0100
+
+ --Apple-Mail=_10442553-5145-4C61-9B26-F5A7080964B7
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=iso-8859-1
+ 
+ Thank you very much Ryan for your help.
+ 
+ On 08 Dec 2011, at 23:42, Ryan Culpepper wrote:
+ 
+ > My best guess at this point is that it has something to do with =
+ authentication plugins, but I don't see why that would be happening.
+ >=20
+ > I've added some better debugging support to the db library; can you =
+ get the latest nightly build (http://pre.racket-lang.org) and try the =
+ following:
+ >=20
+ > (require db/base
+ >        db/private/mysql/main)
+ >=20
+ > (mysql-connect #:debug? #t
+ >              <your connection parameters...>)
+ >=20
+ > It should display the contents of the packets going to and from the =
+ server. Can you send me the debugging output for the connection attempt =
+ that fails?
+ 
+  << #(struct:handshake-packet 10 "5.5.19" 33 #"{|ym8n@5'b97F=3D;Qg3e$" =
+ (long-password found-rows long-flag connect-with-db no-schema compress =
+ odbc local-files ignore-space protocol-41 interactive ignore-sigpipe =
+ transactions protocol-41-OLD secure-connection multi-statements =
+ multi-results ps-multi-statements plugin-auth) unknown 2 =
+ "mysql_native_password")
+ >> #(struct:client-authentication-packet (interactive long-password =
+ long-flag connect-with-db protocol-41 transactions secure-connection) =
+ 16777216 utf8-general-ci "mc" =
+ #"\37\365\363E|Cv\203\337\327:\223\252\301\275h\301N\242\345" "mc")
+  << #(struct:unknown-packet "(expected authentication ok packet)" =
+ #"\376")
+  ** Disconnecting
+  ** Disconnecting
+ . . mysql-connect: internal error: communication problem (expected =
+ authentication ok packet)
+ 
+ With debug mode enabled, the above message is returned by Racket after =
+ attempting to connect to the database using the following expression:
+ 
+ (define
+  connection
+  (mysql-connect
+   #:debug? #t
+   #:database "mc"
+   #:user "mc"
+   #:password "mc"))
+ 
+ Thank you again, Ryan.
+ 
+ Kind regards,
+ SinDoc
+ 
+ 
+ --Apple-Mail=_10442553-5145-4C61-9B26-F5A7080964B7
+ Content-Transfer-Encoding: 7bit
+ Content-Disposition: inline;
+ 	filename=signature.asc
+ Content-Type: application/pgp-signature;
+ 	name=signature.asc
+ Content-Description: Message signed with OpenPGP using GPGMail
+ 
+ -----BEGIN PGP SIGNATURE-----
+ 
+ iQIcBAEBAgAGBQJO5OmbAAoJEDgNMmttYA7tKVMQAIdQXz/NE1Rqw4vOQmsGow7r
+ uPN4uDlU30zUlDErv3NoqZ3oWzaNngUB9BA2N+1DFrzsIPw31RkvrJV/Ea+Psupt
+ se/XX1EN1Zd9CGCwHtm26OWYSREy7SN8kAKYcetCYJZ3PQrCieu35PirAgjv2xpc
+ 1s+T8Q58g8S17///7/fVzQ1u4s48zwlyv/AjEvwkC+LFyOeGhzKvEFHXi0xcaRza
+ 1GEyaSLMn6PzMBr9hQpq7vDNyS2nDdFOkVD6CVsbd7CRjYyfelIL3fmwzsyrw5A/
+ um9L8gvc6Gmrn2TcjfrX/oWWJ1F6RyEZKsCjim+QE0GiNMqn8V338+9VZ8M6Yg1/
+ y/PRNaKU4u+PMhmziOK4c7V71vmLL4ZLOaItIGJRyobrNyjoRGa04FNsYOW8IRJp
+ 7Gipug7nH0N/OywpMpfXLio5Z2NTAquAIXV71XDPyGXhIJH9azaJ9JJFXFsRnlHp
+ wIJhNGnSzHEraHt3V4aSXlWspXyzdtb0tQ2x5Sx6gUG4QrzKO8VB/YaqEN1e+cvh
+ wzDmkJT8y5Y0Ra+KzR6EvFeh+ggh6IKgtVUrUzoJJO/QCi1LSQAyjzQXQhNGIuUL
+ RG1pRir/5giRTmyEL/wZpubU6luUa9n3eXYkNqrHOlx1y6z/ANyHEb7O9jgn1cOv
+ Oa3dORngtI8I8OajFEFd
+ =Oxqx
+ -----END PGP SIGNATURE-----
+ 
+ --Apple-Mail=_10442553-5145-4C61-9B26-F5A7080964B7--
+
+----------
+A commit by ryanc@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/fd74709e1c
+From: Ryan Culpepper <ryan@cs.utah.edu>
+To: Sina Khakbaz Heshmati <sina@khakbaz.com>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org
+Subject: Re: [racket-bug] all/12415: db/mysql-connect only connects to MySQL
+ DB as root
+Date: Wed, 14 Dec 2011 12:38:17 -0700
+
+ I believe I've fixed the problem now; can you try the latest nightly 
+ build at http://pre.racket-lang.org/ and see if you're able to connect? 
+ Let me know if there are still problems.
+ 
+ The problem I found and fixed affected any user with an old-style 
+ password (eg "SET PASSWORD FOR user = OLD_PASSWORD(passwd)"). I think 
+ there's also a global option to use old-style passwords by default; 
+ perhaps that flag is set by default on some systems. Thanks for your 
+ help tracking down the bug!
+ 
+ Ryan
+ 
+ 
+ On 12/11/2011 10:34 AM, Sina Khakbaz Heshmati wrote:
+ > Thank you very much Ryan for your help.
+ >
+ > On 08 Dec 2011, at 23:42, Ryan Culpepper wrote:
+ >
+ >> My best guess at this point is that it has something to do with
+ >> authentication plugins, but I don't see why that would be
+ >> happening.
+ >>
+ >> I've added some better debugging support to the db library; can you
+ >> get the latest nightly build (http://pre.racket-lang.org) and try
+ >> the following:
+ >>
+ >> (require db/base
+ >>         db/private/mysql/main)
+ >>
+ >> (mysql-connect #:debug? #t
+ >>               <your connection parameters...>)
+ >>
+ >> It should display the contents of the packets going to and from the
+ >> server. Can you send me the debugging output for the connection
+ >> attempt that fails?
+ >
+ >   <<  #(struct:handshake-packet 10 "5.5.19" 33 #"{|ym8n@5'b97F=;Qg3e$" (long-password found-rows long-flag connect-with-db no-schema compress odbc local-files ignore-space protocol-41 interactive ignore-sigpipe transactions protocol-41-OLD secure-connection multi-statements multi-results ps-multi-statements plugin-auth) unknown 2 "mysql_native_password")
+ >>> #(struct:client-authentication-packet (interactive long-password long-flag connect-with-db protocol-41 transactions secure-connection) 16777216 utf8-general-ci "mc" #"\37\365\363E|Cv\203\337\327:\223\252\301\275h\301N\242\345" "mc")
+ >   <<  #(struct:unknown-packet "(expected authentication ok packet)" #"\376")
+ >   ** Disconnecting
+ >   ** Disconnecting
+ > . . mysql-connect: internal error: communication problem (expected authentication ok packet)
+ >
+ > With debug mode enabled, the above message is returned by Racket
+ > after attempting to connect to the database using the following
+ > expression:
+ >
+ > (define
+ >   connection
+ >   (mysql-connect
+ >    #:debug? #t
+ >    #:database "mc"
+ >    #:user "mc"
+ >    #:password "mc"))
+ >
+ > Thank you again, Ryan.
+ >
+ > Kind regards,
+ > SinDoc
+ >
+ 
+
+State changed from "open" to "closed" by ryanc at Mon, 02 Jan 2012 02:03:47 -0500
+Reason>>> fixed
+

@@ -1,0 +1,192 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Oct 20 14:38:54 2010
+Received: from mail-gy0-f172.google.com (mail-gy0-f172.google.com [209.85.160.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o9KIcoR9006470
+	for <bugs@bugs.plt-scheme.org>; Wed, 20 Oct 2010 14:38:50 -0400
+Message-Id: <201010201838.o9KIclPt006458@champlain.ccs.neu.edu>
+Date: Wed, 20 Oct 2010 14:38:47 -0400
+From: matthias@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: redex-check generates NT names as variable names, which in turn generates misleading error messages
+
+>Number:         11338
+>Category:       redex
+>Synopsis:       redex-check generates NT names as variable names, which in turn generates misleading error messages
+>Class:          sw-bug
+>Responsible:    clklein
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed Oct 20 14:40:02 -0400 2010
+>Last-Modified:  Wed Oct 20 17:57:49 -0400 2010
+>Originator:     matthias
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.1.8--2010-10-13(49060ff/g)
+>Environment:
+macosx "Darwin antarctica.ccs.neu.edu 10.4.1 Darwin Kernel Version 10.4.1: Wed May 12 21:36:54 PDT 2010; root:xnu-1504.7.50~2/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 249705164
+
+Collections:
+(("/Users/matthias/0Unison/collects/" ".DS_Store" "compiled" "date" "finance" "info-domain" "info.ss" "pdf.ss~" "session" "short" "testing" "tll-collects" "utils" "web") ("/Users/matthias/Library/Racket/5.0.1.8/collects" non-existent-path) ("/Users/matthias/plt/collects" ".gitignore" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mz" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raclog" "raco" "racunit" "reader" "readline" "redex" "repo-time-stamp" "repos-time-stamp" "rnrs" "s-e!
+ xp" "schelog" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "tool" "trace" "typed" "typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced Student") (#(#t constructor repeating-decimal #t #t none) #f ()))
+>Description:
+subject says it all
+>How-To-Repeat:
+Example: The program below generated a term with C as a free
+variable. My 'close' function uses 'let' to initialize all free
+vars to 0. Then it sends the terms on to eval-racket and eval-iswim. 
+
+At some point it generated the term (^ C 0), meaning the following 
+counterexample was sent to eval-iswim: 
+
+  (define ce (term ((lambda (x) ((lambda (C) (^ C y)) 0)) 0)))
+
+Due to a **second** bug in the language specification, the error 
+message looked like this: 
+
+ ce is not an e 
+
+or 
+
+ ce is not in my domain (after a partial fix of the bug) 
+
+In either case, the appearance of a C in the middle of the term
+sent me into the direction of "of course a context C isn't a part 
+of the e grammar" and I looked in the wrong place for the error. 
+
+I think we should avoid generating NTs as variable names. 
+
+
+
+
+#lang racket
+
+(require redex rackunit "4provided.rkt")
+
+(define-extended-language ISWIM Lambda0
+  (e .... 
+     b
+     (o1 e)
+     (o2 e e)
+     (if0 e e e)) ;; macro 
+  (b integer)
+  (o1 sub1 add1 iszero)
+  (o2 + - * ^)
+  (o o1 o2)
+  ;; --- evaluation ---
+  (v b (lambda (x) e))
+  (C hole
+     (o1 C)
+     (o2 e ... C e ...)
+     (lambda (x) C)
+     (C e)
+     (e C)))
+;; this problem covers chapter I.4 -- NOT STANDARD REDUCTION
+
+(define ->beta_v
+  (reduction-relation
+   ISWIM
+   ;; R      REDEX         CONTRACTUM (meta)  NAME 
+   (==> ((lambda (x) e) v) (subst-n (x v) e) beta-v)
+   (==> (o2 b ...)         (delta (o2 b ...)) delta-o2)
+   (==> (o1 b)             (delta (o1 b)) delta-o1)
+   with  ;; GENERALIZE
+   [(--> (in-hole C e_redex) (in-hole C e_contractum))
+    (==> e_redex e_contractum)]))
+
+;; transform the given primitive application into a value
+(define-metafunction ISWIM
+  delta : (o b ...) -> v ;; this contract is checked in REDEX
+  [(delta (add1 b)) ,(+ (term b) 1)]
+  [(delta (sub1 b)) ,(- (term b) 1)]
+  [(delta (iszero 0)) (lambda (x) (lambda (y) x))]
+  [(delta (iszero b)) (lambda (x) (lambda (y) y))
+                      (side-condition 
+                       (not (and (integer? (term b)) (= (term b) 0))))]
+  [(delta (+ b_1 b_2)) ,(+ (term b_1) (term b_2))]
+  [(delta (- b_1 b_2)) ,(- (term b_1) (term b_2))]
+  [(delta (* b_1 b_2)) ,(* (term b_1) (term b_2))]
+  [(delta (^ b_1 b_2)) ,(expt (term b_1) (term b_2))])
+
+;; macro-exapnd all (if0 e e e) expressions 
+;; ASSUME: all inputs are created with (term ...)
+(define-metafunction ISWIM
+  if0 : e e e -> e
+  [(if0 e_tst e_thn e_els) 
+   {(({iszero e_tst} (lambda (x) e_thn)) (lambda (x) e_els)) 0}
+   (where x ,(variable-not-in (term (e_thn e_els)) 'dummy))])
+
+;; ISWIM/e -> Any
+(define (eval-racket e)
+  (printf "evaling in racket ~s\n" e)
+  (parameterize ([current-namespace (make-base-empty-namespace)])
+    (namespace-require 'racket)
+    (define r (with-handlers ([values (lambda (e) 'STUCK)])
+                (eval e (current-namespace))))
+    (if (procedure? r)
+        'function 
+        r)))
+
+;; ISWIM/e -> Any
+(define (eval-iswim e)
+  (printf "evaling in iswim ~s\n" e)
+  (define r
+    (first (apply-reduction-relation* ->beta_v e)))
+  (cond
+    [(and (pair? r) (eq? (first r) 'lambda)) 'function]
+    [(pair? r) 'STUCK]
+    [else r]))
+
+
+;; ISWIM/e -> [Listof Symbol]
+(define (free e)
+  ;; determine the free variables of an ISWIM term 
+  (define-metafunction ISWIM
+    free : e -> (x ...)
+    [(free x)                  (x)]
+    [(free (lambda (x) e))     (- (free e) (x))]
+    [(free (e_1 e_2))          (∪ (free e_1) (free e_2))]
+    [(free b)                  ()]
+    [(free (o1 e))             (free e)]
+    [(free (o2 e_1 e_2))       (∪ (free e_1) (free e_2))]
+    [(free (if0 e_tst e_1 e_2)) (∪ (free e_tst) (free e_1) (free e_2))])
+  
+  (define-metafunction ISWIM
+    ∪ : (x ...) ... -> (x ...)
+    [(∪ (x_1 ...) (x_2 ...) (x_3 ...) ...)
+     (∪ (x_1 ... x_2 ...) (x_3 ...) ...)]
+    [(∪ (x_1 ...))
+     (x_1 ...)]
+    [(∪) ()])
+  
+  (define-metafunction ISWIM
+    - : (x ...) (x ...) -> (x ...)
+    [(- (x ...) ()) (x ...)]
+    [(- (x_1 ... x_2 x_3 ...) (x_2 x_4 ...))
+     (- (x_1 ... x_3 ...) (x_2 x_4 ...))
+     (side-condition (not (memq (term x_2) (term (x_3 ...)))))]
+    [(- (x_1 ...) (x_2 x_3 ...))
+     (- (x_1 ...) (x_3 ...))])
+  ;; --- IN --- 
+  (term (free ,e)))
+
+;; ISWIM/e -> ISWIM/e 
+;; close the term via ((lambda (x) ...) 0) for all x in FV(e)
+(define (close f)
+  (define e (first f))
+  (define fvs (free e))
+  (printf "closing over ~s in ~s\n" fvs e)
+  (let L ([e e][fvs fvs])
+    (if (empty? fvs)
+        (begin
+          (printf "sending ~s\n" e)
+          (list e))
+        (L (term ((lambda (,(first fvs)) ,e) 0)) (rest fvs)))))
+
+(redex-check ISWIM (e) (equal? (eval-racket (term e)) (eval-iswim (term e)))
+             #:prepare close)
+>Fix:

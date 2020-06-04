@@ -1,0 +1,94 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Mar 28 15:39:19 2008
+Received: from wa-out-1112.google.com (wa-out-1112.google.com [209.85.146.178])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id m2SJdIOx030401
+	for <bugs@bugs.plt-scheme.org>; Fri, 28 Mar 2008 15:39:19 -0400
+Message-Id: <200803281939.m2SJd63N030397@champlain.ccs.neu.edu>
+Date: Fri, 28 Mar 2008 15:39:06 -0400
+From: newton@mit.edu
+To: bugs@plt-scheme.org
+Subject: Incorrect behavior of compiled <
+
+>Number:         9273
+>Category:       mzscheme
+>Synopsis:       Incorrect behavior of compiled <
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Mar 28 15:40:01 -0400 2008
+>Closed-Date:    Thu Apr 03 07:16:22 -0400 2008
+>Last-Modified:  Thu Apr 03 07:16:22 -0400 2008
+>Originator:     Ryan Newton
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        372
+>Environment:
+linux-ubuntu
+>Description:
+Apparently, in version 372, (< 1 1073741824) is sometimes false.
+
+I tripped across this because of my "fixnum?" procedure, which was there for compatibility with Chez Scheme.
+
+Testing on my available systems, it seems to only crop up on Ubuntu:
+
+351 macos ppc: works
+372 macos: works
+360 ubuntu: works
+372 ubuntu: broken from mzscheme, works when running from Drscheme.
+
+>How-To-Repeat:
+Put the following code in a file called "bug.ss" and run with mzscheme -T bug.ss
+
+(module bug mzscheme
+  (provide (all-defined))
+  (define fixnum?
+    (let ((x (expt 2 30)))
+      (lambda (n) 
+        (printf "PLT fixnum: ~s -> ~s ~s ~s ~s\n" n (integer? n) (< n x) `(< ,n ,x) (eval `(< ,n ,x)))
+        (and (integer? n) (< n x)))))
+  (printf "\nresult: ~s\n" (fixnum? 1)))
+
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: newton@mit.edu, bugs@plt-scheme.org, Matthew Flatt <mflatt@cs.utah.edu>
+Cc: 
+Subject: Re: [plt-bug] all/9273: Incorrect behavior of compiled <
+Date: Fri, 28 Mar 2008 16:03:57 -0400
+
+ On Mar 28, newton@mit.edu wrote:
+ > Testing on my available systems, it seems to only crop up on Ubuntu:
+ > 
+ > 351 macos ppc: works
+ > 372 macos: works
+ > 360 ubuntu: works
+ > 372 ubuntu: broken from mzscheme, works when running from Drscheme.
+ 
+ Is your ubuntu machine a 64 bit architecture?  I can reproduce the
+ problem on my machine (64bit, Fedora) with this smaller code:
+ 
+   (module bug mzscheme
+     (provide (all-defined))
+     (define fixnum? (let ((foo 'bar)) (lambda (n) (< n 1073741824))))
+     (printf "result: ~s\n" (fixnum? 1)))
+ 
+ The `let' is needed -- removing it produces a correct result.  The
+ problem is in 3.99 too -- even worse (which is probably due to the
+ different semantics of the initial namespace):
+ 
+   (define fixnum? (let () (lambda (n) (< n 1073741824))))
+   (fixnum? 1)
+ 
+ (My guess is that this is a bug in either the optimizer or in the
+ jit.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+State changed from "open" to "closed" by mflatt at Thu, 03 Apr 2008 07:16:22 -0400
+Reason>>> 64-bit-specific JIT bug now fixed in SVN.
+

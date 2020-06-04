@@ -1,0 +1,268 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Apr 13 19:16:14 2011
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p3DNGBg6010911
+	for <bugs@bugs.plt-scheme.org>; Wed, 13 Apr 2011 19:16:11 -0400
+Message-Id: <201104132316.p3DNG3G6010905@champlain.ccs.neu.edu>
+Date: Wed, 13 Apr 2011 19:16:03 -0400
+From: cce@ccs.neu.edu
+To: bugs@racket-lang.org
+Subject: module exports mask rename transformers
+
+>Number:         11851
+>Category:       all
+>Synopsis:       module exports mask rename transformers
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Apr 13 19:20:01 -0400 2011
+>Closed-Date:    Thu Apr 14 12:55:06 -0400 2011
+>Last-Modified:  Thu Apr 14 12:55:06 -0400 2011
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.1.0.6--2011-04-12(9c0732e/g)
+>Environment:
+macosx "Darwin Gotham.ccs.neu.edu 10.6.0 Darwin Kernel Version 10.6.0: Wed Nov 10 18:13:17 PST 2010; root:xnu-1504.9.26~3/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 159541416
+
+Collections:
+("/Users/cce/git/dracula/add-on/5.1.0.6/collects"
+ (non-existent-path))
+("/Users/cce/git/dracula/collects"
+ (".gitignore" "2htdp" "acl2" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "dracula" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "!
+ typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+The documentation for syntax-local-value/immediate states that it produces a rename transformer when given an identifier that is bound to one.
+
+If I inspect a name with syntax-local-value/immediate within the same module that defines it, this works fine.
+
+If I inspect the same name with syntax-local-value/immediate after requiring it in another module, it skips the rename transformer and jumps straight to the final value, just like syntax-local-value (without the /immediate).
+
+The program below displays bindings using syntax-local-value/immediate, reporting each renaming along the way with "->", syntax bindings with "=", and non-syntax bindings with ": value" or ": unbound".
+
+The exporter module produces the following output:
+
+a : value
+b -> a : value
+c = 3
+d -> c = 3
+e -> z : unbound
+f : unbound
+
+The exporter module produces slightly different output for b and d:
+
+a : value
+b : value
+c = 3
+d = 3
+e -> z : unbound
+f : unbound
+>How-To-Repeat:
+#lang racket/load
+
+(module show racket/base
+  (provide show)
+  (require
+    (for-syntax
+      racket/base
+      syntax/parse))
+  (define-syntax show
+    (syntax-parser
+      [(_ name:id)
+       (let/ec quit
+         (let loop ([x #'name])
+           (define-values [value next]
+             (syntax-local-value/immediate x
+               (lambda ()
+                 (eprintf "~a : ~a\n" (syntax-e x)
+                   (if (identifier-binding x) "value" "unbound"))
+                 (quit))))
+           (unless next
+             (eprintf "~a = ~v\n" (syntax-e x) value)
+             (quit))
+           (eprintf "~a -> " (syntax-e x))
+           (loop next)))
+       (if (eq? (syntax-local-context) 'expression)
+         #'(void)
+         #'(begin))])))
+
+(module exporter racket/base
+  (provide (all-defined-out))
+  (require 'show (for-syntax racket/base))
+  (define a 1)
+  (define-syntax b
+    (make-rename-transformer #'a))
+  (define-syntax c 3)
+  (define-syntax d
+    (make-rename-transformer #'c))
+  (define-syntax e
+    (make-rename-transformer #'z))
+  (show a)
+  (show b)
+  (show c)
+  (show d)
+  (show e)
+  (show f))
+
+(module importer racket/base
+  (require 'show 'exporter)
+  (show a)
+  (show b)
+  (show c)
+  (show d)
+  (show e)
+  (show f))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: cce@ccs.neu.edu, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11851: module exports mask rename transformers
+Date: Wed, 13 Apr 2011 18:37:33 -0600
+
+ See the docs for `provide':
+ 
+  If id has a transformer binding to a rename transformer, then the
+  exported binding is the target identifier of the rename transformer,
+  instead of id, unless the target identifier has a true value for the
+  'not-free-identifier=? syntax property.
+ 
+ I'll work on improving cross-referencing this information in the docs.
+ 
+ At Wed, 13 Apr 2011 19:20:01 -0400, cce@ccs.neu.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=11851
+ > 
+ > Reported by Carl Eastlund for release: 5.1.0.6--2011-04-12(9c0732e/g)
+ > 
+ > *** Description:
+ > The documentation for syntax-local-value/immediate states that it produces a 
+ > rename transformer when given an identifier that is bound to one.
+ > 
+ > If I inspect a name with syntax-local-value/immediate within the same module 
+ > that defines it, this works fine.
+ > 
+ > If I inspect the same name with syntax-local-value/immediate after requiring it 
+ > in another module, it skips the rename transformer and jumps straight to the 
+ > final value, just like syntax-local-value (without the /immediate).
+ > 
+ > The program below displays bindings using syntax-local-value/immediate, 
+ > reporting each renaming along the way with "->", syntax bindings with "=", and 
+ > non-syntax bindings with ": value" or ": unbound".
+ > 
+ > The exporter module produces the following output:
+ > 
+ > a : value
+ > b -> a : value
+ > c = 3
+ > d -> c = 3
+ > e -> z : unbound
+ > f : unbound
+ > 
+ > The exporter module produces slightly different output for b and d:
+ > 
+ > a : value
+ > b : value
+ > c = 3
+ > d = 3
+ > e -> z : unbound
+ > f : unbound
+ > 
+ > *** How to repeat:
+ > #lang racket/load
+ > 
+ > (module show racket/base
+ >   (provide show)
+ >   (require
+ >     (for-syntax
+ >       racket/base
+ >       syntax/parse))
+ >   (define-syntax show
+ >     (syntax-parser
+ >       [(_ name:id)
+ >        (let/ec quit
+ >          (let loop ([x #'name])
+ >            (define-values [value next]
+ >              (syntax-local-value/immediate x
+ >                (lambda ()
+ >                  (eprintf "~a : ~a\n" (syntax-e x)
+ >                    (if (identifier-binding x) "value" "unbound"))
+ >                  (quit))))
+ >            (unless next
+ >              (eprintf "~a = ~v\n" (syntax-e x) value)
+ >              (quit))
+ >            (eprintf "~a -> " (syntax-e x))
+ >            (loop next)))
+ >        (if (eq? (syntax-local-context) 'expression)
+ >          #'(void)
+ >          #'(begin))])))
+ > 
+ > (module exporter racket/base
+ >   (provide (all-defined-out))
+ >   (require 'show (for-syntax racket/base))
+ >   (define a 1)
+ >   (define-syntax b
+ >     (make-rename-transformer #'a))
+ >   (define-syntax c 3)
+ >   (define-syntax d
+ >     (make-rename-transformer #'c))
+ >   (define-syntax e
+ >     (make-rename-transformer #'z))
+ >   (show a)
+ >   (show b)
+ >   (show c)
+ >   (show d)
+ >   (show e)
+ >   (show f))
+ > 
+ > (module importer racket/base
+ >   (require 'show 'exporter)
+ >   (show a)
+ >   (show b)
+ >   (show c)
+ >   (show d)
+ >   (show e)
+ >   (show f))
+ > 
+ > *** Environment:
+ > macosx "Darwin Gotham.ccs.neu.edu 10.6.0 Darwin Kernel Version 10.6.0: Wed Nov 
+ > 10 18:13:17 PST 2010; root:xnu-1504.9.26~3/RELEASE_I386 i386" (i386-macosx/3m) 
+ > (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 159541416
+ > 
+ > Collections:
+ > ("/Users/cce/git/dracula/add-on/5.1.0.6/collects"
+ >  (non-existent-path))
+ > ("/Users/cce/git/dracula/collects"
+ >  (".gitignore" "2htdp" "acl2" "algol60" "at-exp" "browser" "combinator-parser" 
+ > "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "dracula" 
+ > "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" 
+ > "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" 
+ > "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" 
+ > "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" 
+ > "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" 
+ > "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" 
+ > "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" 
+ > "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" 
+ > "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" 
+ > "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" 
+ > "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" 
+ > "!
+ >  typed-scheme" "unstable" "version" "waterworld" "web-server" "wxme" "xml"))
+ > 
+ > Computer Language: (("Determine language from source") (#(#t print 
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Thu, 14 Apr 2011 12:55:06 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/aed25d9097
+State changed from "open" to "closed" by mflatt@racket-lang.org at Thu, 14 Apr 2011 12:55:06 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/aed25d9097

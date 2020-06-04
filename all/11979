@@ -1,0 +1,118 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jun 14 10:21:04 2011
+Received: from mail-vw0-f44.google.com (mail-vw0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p5EEL1O4032760
+	for <bugs@bugs.plt-scheme.org>; Tue, 14 Jun 2011 10:21:01 -0400
+Message-Id: <201106141420.p5EEKuin032755@champlain.ccs.neu.edu>
+Date: Tue, 14 Jun 2011 10:20:56 -0400
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Core optimizer error, probably in loop unrolling and/or `begin0'
+
+>Number:         11979
+>Category:       all
+>Synopsis:       Core optimizer error, probably in loop unrolling and/or `begin0'
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jun 14 10:24:01 -0400 2011
+>Closed-Date:    Thu Jun 16 20:35:40 -0400 2011
+>Last-Modified:  Thu Jun 16 20:35:40 -0400 2011
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.1.1.5--2011-06-11(939f0b1/a)
+>Environment:
+unix "Linux winooski.ccs.neu.edu 2.6.35.11-83.fc14.x86_64 #1 SMP Mon Feb 7 07:06:44 UTC 2011 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 288746640
+
+Collections:
+("/home/eli/.racket/5.1.1.5/collects"
+ (non-existent-path))
+("/home/scheme/plt/collects"
+ ("syntax" "planet" "errortrace" "xml" "scribblings" "file" "htdp" "s-exp" "schemeunit" "handin-server" "eopl" "slatex" "syntax-color" "hierlist" "deinprogramm" "tests" "make" "gui-debugger" "guibuilder" "picturing-programs" "unstable" "sirmail" "waterworld" "slideshow" "info-domain" "openssl" "honu" "version" "parser-tools" "combinator-parser" "r6rs" "defaults" "rnrs" "scriblib" "dynext" "r5rs" "rackunit" "string-constants" "lazy" "launcher" "readline" "mysterx" "mrlib" "browser" "mzcom" "lang" "embedded-gui" "framework" "at-exp" "graphics" "test-box-recovery" "mred" "datalog" "games" "compiler" "profile" "web-server" "icons" "frtime" "handin-client" "teachpack" "raco" "wxme" "typed-scheme" "trace" "texpict" "ffi" "algol60" "racket" "meta" "setup" "scribble" "plot" "drracket" "drscheme" "typed" "scheme" "racklog" "data" "html" "tex2page" "stepper" "srfi" "mzscheme" "macro-debugger" "net" "srpersist" "test-engine" "repo-time-stamp" "config" "sgl" "mzlib" "help" "swindle" "pl!
+ ai" "reader" "redex" "2htdp" "preprocessor"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t test-coverage) (default) #() "#lang racket\n" #f #t))
+>Description:
+I ran into an error due to multiple values in a single-value context.  In an attempt to
+find where it happens, I used `begin0', and to my surprise it made the problem go away.
+After some more playing I got the below three versions that show the problem: the first
+fails as expected; the second is exactly the same except for the `begin0' but it works
+even though the two values are sent as a `loop' argument; finally the third is even more
+obviously broken, since its result is always (values x) so it shouldn't be able to return
+any different number of values.
+
+(And this is probably high on my weird bug report list, since if this was the intended
+behavior, then I could just use a `begin0'...)
+>How-To-Repeat:
+#lang racket/base
+
+(define (twice x) (values x x))
+
+(define (pipeline1 f . rfuns)
+  (let loop ([x 1] [rfuns rfuns])
+    (if (null? rfuns)
+      x
+      (loop ((car rfuns) 1)
+            (cdr rfuns)))))
+
+(define (pipeline2 . rfuns)
+  (let loop ([x 1] [rfuns rfuns])
+    (if (null? rfuns)
+      x
+      (loop (begin0 ((car rfuns) 1) 123)
+            (cdr rfuns)))))
+
+(define (pipeline3 . rfuns)
+  (let loop ([x 1] [rfuns rfuns])
+    (if (null? rfuns)
+      (values x)
+      (loop (begin0 ((car rfuns) 1) 123)
+            (cdr rfuns)))))
+
+(define (try f)
+  (printf "~a:\n" (object-name f))
+  (call-with-values
+      (lambda () (with-handlers ([void values]) (f add1 twice)))
+      (lambda xs (printf "  ~s\n" xs))))
+
+(for-each try (list pipeline1 pipeline2 pipeline2))
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11979: Core optimizer error, probably in loop unrolling and/or `begin0'
+Date: Tue, 14 Jun 2011 10:28:05 -0400
+
+ Two minutes ago, eli@barzilay.org wrote:
+ > #lang racket/base
+ > [...]
+ > (for-each try (list pipeline1 pipeline2 pipeline2))
+                                           ^^^^^^^^^
+ This should have been `pipeline3', of course.  BTW, here's an even
+ nicer version that doesn't throw an error:
+ 
+   (define (pipeline4 . rfuns)
+     (let loop ([x 1] [rfuns rfuns])
+       (if (null? rfuns)
+         (values x)
+         (loop (car (list (begin0 ((car rfuns) 1) 123)))
+               (cdr rfuns)))))
+ 
+ (in a way that obviously makes me happy...)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Thu, 16 Jun 2011 20:35:40 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/523cec90c6
+State changed from "open" to "closed" by mflatt@racket-lang.org at Thu, 16 Jun 2011 20:35:40 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/523cec90c6

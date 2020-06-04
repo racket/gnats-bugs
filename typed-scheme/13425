@@ -1,0 +1,160 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jan  9 15:12:34 2013
+Received: from mail-oa0-f52.google.com (mail-oa0-f52.google.com [209.85.219.52])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r09KCV2V008600
+	for <bugs@bugs.plt-scheme.org>; Wed, 9 Jan 2013 15:12:31 -0500
+Message-Id: <201301092012.r09KCSwv008594@champlain.ccs.neu.edu>
+Date: Wed, 9 Jan 2013 15:12:28 -0500
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: Occurrence typing fails with intervening tests
+
+>Number:         13425
+>Category:       typed-scheme
+>Synopsis:       Occurrence typing fails with intervening tests
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jan 09 15:16:01 -0500 2013
+>Closed-Date:    Sat Jul 20 21:37:15 -0400 2013
+>Last-Modified:  Sat Jul 20 21:37:15 -0400 2013
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2.1--2013-01-09(441ad6ef/d)
+>Environment:
+unix "Linux schroder 2.6.38-15-generic #66-Ubuntu SMP Tue Aug 14 17:24:44 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 566399344
+Links: (links) = ("bayes" "tr-pfds"); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+Planet2 (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific:
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/5.3.2.1/collects"
+ ("info-domain"))
+("/home/neil/plt/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "planet2" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "realm" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "l!
+ ang" "raco" "gui-debugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((main) (test))))
+>Description:
+All the expressions marked ";; Type error", when used, give this weird error message:
+
+Type Checker: Expected (HashTable Integer interval), but got (HashTable Integer interval) in: (hash-set h r C)
+>How-To-Repeat:
+#lang typed/racket
+
+(struct: Empty-Set ())
+(struct: interval ())
+(define-type Rect (U interval Empty-Set))
+
+(define: x : Any #f)
+
+(: rect-hash-set
+   ((HashTable Integer interval) Integer Rect ->
+                                 (HashTable Integer interval)))
+(define (rect-hash-set h r c)
+  #;; Typechecks
+  (if (interval? c)
+      (hash-set h r c)
+      (error 'bad))
+  #;; Type error
+  (if (interval? c)
+      (if #t (hash-set h r c) (void))
+      (error 'bad))
+  #;; Type error
+  (if (interval? c)
+      (if #f (void) (hash-set h r c))
+      (error 'bad))
+  ;; Type error
+  (if (interval? c)
+      (if (number? x) (hash-set h r c) (error 'bad))
+      (error 'bad)))
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13425: Occurrence typing fails with intervening
+ tests
+Date: Fri, 11 Jan 2013 00:08:51 -0500
+
+ On 2013-01-09 15:16:02 -0500, neil.toronto@gmail.com wrote:
+ > *** Description:
+ > All the expressions marked ";; Type error", when used, give this weird error message:
+ > 
+ > Type Checker: Expected (HashTable Integer interval), but got (HashTable Integer interval) in: (hash-set h r C)
+ 
+ I don't have a fix yet, but I did figure out why this happens. If you
+ had an immutable type constructor like (Listof interval), this would
+ work fine.
+ 
+ The issue is that the resolution of the Name type `interval` to a Struct
+ type happens during the subtype checking. For a type like (Listof
+ interval), the `interval` Name is resolved because subtyping recurs into
+ the argument type.
+ 
+ However, mutable types are invariant and their arguments can fail to
+ resolve correctly during subtyping. You get the same error with (Boxof
+ interval).
+ 
+ Will see about a fix.
+ 
+ Cheers,
+ Asumu
+
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13425: Occurrence typing fails with intervening
+ tests
+Date: Fri, 5 Jul 2013 18:21:22 -0400
+
+ On 2013-01-09 15:16:02 -0500, neil.toronto@gmail.com wrote:
+ > *** Description:
+ > All the expressions marked ";; Type error", when used, give this weird error message:
+ >
+ > Type Checker: Expected (HashTable Integer interval), but got (HashTable Integer interval) in: (hash-set h r C)
+ 
+ All of these cases appear to type-check now on git HEAD. Can you try a
+ newer build and see if it works for you?
+ 
+ Cheers,
+ Asumu
+From: Neil Toronto <neil.toronto@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13425: Occurrence typing fails with intervening
+ tests
+Date: Thu, 18 Jul 2013 11:00:52 -0600
+
+ On 07/05/2013 04:21 PM, Asumu Takikawa wrote:
+ > On 2013-01-09 15:16:02 -0500, neil.toronto@gmail.com wrote:
+ >> *** Description:
+ >> All the expressions marked ";; Type error", when used, give this weird error message:
+ >>
+ >> Type Checker: Expected (HashTable Integer interval), but got (HashTable Integer interval) in: (hash-set h r C)
+ >
+ > All of these cases appear to type-check now on git HEAD. Can you try a
+ > newer build and see if it works for you?
+ 
+ No type errors now. Cool.
+ 
+ Neil ⊥
+ 
+
+State changed from "open" to "closed" by asumu at Sat, 20 Jul 2013 21:37:15 -0400
+Reason>>> Already fixed in HEAD
+

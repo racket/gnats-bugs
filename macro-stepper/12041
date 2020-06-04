@@ -1,0 +1,456 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jul 13 17:07:33 2011
+Received: from mail-vx0-f172.google.com (mail-vx0-f172.google.com [209.85.220.172])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p6DL7TaO016086
+	for <bugs@bugs.plt-scheme.org>; Wed, 13 Jul 2011 17:07:29 -0400
+Message-Id: <201107132107.p6DL7PjZ016081@champlain.ccs.neu.edu>
+Date: Wed, 13 Jul 2011 17:07:25 -0400
+From: bas@idsia.ch
+To: bugs@racket-lang.org
+Subject: expand/step-text may undefine things
+
+>Number:         12041
+>Category:       macro-stepper
+>Synopsis:       expand/step-text may undefine things
+>Class:          sw-bug
+>Responsible:    ryanc
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jul 13 17:08:01 -0400 2011
+>Closed-Date:    Tue Sep 27 23:31:44 -0400 2011
+>Last-Modified:  Tue Sep 27 23:31:44 -0400 2011
+>Originator:     Bas
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.2
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 186336156
+
+Collections:
+(("C:\\Users\\Bas\\AppData\\Roaming\\Racket\\5.0.2\\collects" non-existent-path) ("C:\\Program Files (x86)\\Racket\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "ve!
+ rsion" "web-server" "wxme" "xml"))
+Computer Language: (("Legacy Languages" "Pretty Big") #(#f trad-write mixed-fraction-e #f #t debug #f))
+>Description:
+expand/step-text may have the side-effect of undefining previously defined things; see reproduction steps. I can't imagine this effect being intended.
+>How-To-Repeat:
+> (require macro-debugger/stepper-text)
+> (define a 42)
+> a
+42
+> (expand/step-text #'(define a 42))
+Macro transformation
+(define a 42)
+  ==>
+(define:1 a 42)
+
+Macro transformation
+(define:1 a 42)
+  ==>
+(define-values:2 (a) 42)
+
+Tag datum
+(define-values:2 (a) 42)
+  ==>
+(define-values:2 (a) (#%datum . 42))
+
+Macro transformation
+(define-values:2 (a) (#%datum . 42))
+  ==>
+(define-values:2 (a) (quote 42))
+
+> a
+#<undefined>   ; WOOPS! a is gone
+>Fix:
+>Audit-Trail:
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: bas@idsia.ch, bugs@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/12041: expand/step-text may undefine things
+Date: Wed, 13 Jul 2011 17:37:58 -0600
+
+ Actually, it it is intended, because it's necessary to support expanding 
+ things like the following:
+ 
+ (begin (define-syntax m ....)
+         (m ....))
+ 
+ or, more often, things that expand into something like that as an 
+ intermediate step. It's necessary to execute the definition of the 'm' 
+ macro so that the second form can be expanded. Since regular definitions 
+ can also affect macro expansion, their compile time parts must be 
+ executed too.
+ 
+ See also the syntax/toplevel module. Basically, expand/step-text uses 
+ expand-top-level-with-compile-time-evals instead of plain old expand.
+ 
+ Ryan
+ 
+ 
+ On 07/13/2011 03:08 PM, bas@idsia.ch wrote:
+ > A new problem report is waiting at
+ >    http://bugs.racket-lang.org/query/?cmd=view&pr=12041
+ >
+ > Reported by Bas for release: 5.0.2
+ >
+ > *** Description:
+ > expand/step-text may have the side-effect of undefining previously defined things; see reproduction steps. I can't imagine this effect being intended.
+ >
+ > *** How to repeat:
+ >> (require macro-debugger/stepper-text)
+ >> (define a 42)
+ >> a
+ > 42
+ >> (expand/step-text #'(define a 42))
+ > Macro transformation
+ > (define a 42)
+ >    ==>
+ > (define:1 a 42)
+ >
+ > Macro transformation
+ > (define:1 a 42)
+ >    ==>
+ > (define-values:2 (a) 42)
+ >
+ > Tag datum
+ > (define-values:2 (a) 42)
+ >    ==>
+ > (define-values:2 (a) (#%datum . 42))
+ >
+ > Macro transformation
+ > (define-values:2 (a) (#%datum . 42))
+ >    ==>
+ > (define-values:2 (a) (quote 42))
+ >
+ >> a
+ > #<undefined>    ; WOOPS! a is gone
+ >
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 186336156
+ >
+ > Collections:
+ > (("C:\\Users\\Bas\\AppData\\Roaming\\Racket\\5.0.2\\collects" non-existent-path) ("C:\\Program Files (x86)\\Racket\\collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "v
+ e!
+ >   rsion" "web-server" "wxme" "xml"))
+ > Computer Language: (("Legacy Languages" "Pretty Big") #(#f trad-write mixed-fraction-e #f #t debug #f))
+ >
+ 
+From: Bas Steunebrink <bas@idsia.ch>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12041: expand/step-text may undefine things
+Date: Thu, 14 Jul 2011 14:22:21 +0200
+
+ Dear Ryan,
+ 
+ I see; thanks for your explanation. Still, this means that making use of 
+ expand/step-text is quite impractical because one has to be very sure 
+ that the data being expanded does not contain any variables names that 
+ are also used by the running code itself, because functions bound to 
+ those names might become undefined.
+ 
+ For a workaround, could you identify the 'dangerous' forms? Is it only 
+ top-level define and define-syntax forms that can cause interference 
+ when expanding them with expand/step-text?  (If yes, this would mean 
+ that I could stay safe by rewriting them first to letrec and 
+ letrec-syntax before passing to expand/step-text.)
+ 
+ On a side note, do you know if there is any convenient way of catching 
+ the last step of an expansion as a datum? That is, I'd like to get the 
+ right-hand side of the very last step that expand/step-text prints, but 
+ as a datum and without printing all intermediate steps. (As a workaround 
+ I just catch the textual output and parse the last result, but this is 
+ extremely slow; it can take minutes even for small expressions.)
+ 
+ Kind regards,
+ Bas
+ 
+ 
+ 
+ On 7/14/11 1:37 AM, Ryan Culpepper wrote:
+ > Actually, it it is intended, because it's necessary to support 
+ > expanding things like the following:
+ >
+ > (begin (define-syntax m ....)
+ >        (m ....))
+ >
+ > or, more often, things that expand into something like that as an 
+ > intermediate step. It's necessary to execute the definition of the 'm' 
+ > macro so that the second form can be expanded. Since regular 
+ > definitions can also affect macro expansion, their compile time parts 
+ > must be executed too.
+ >
+ > See also the syntax/toplevel module. Basically, expand/step-text uses 
+ > expand-top-level-with-compile-time-evals instead of plain old expand.
+ >
+ > Ryan
+ >
+ >
+ > On 07/13/2011 03:08 PM, bas@idsia.ch wrote:
+ >> A new problem report is waiting at
+ >>    http://bugs.racket-lang.org/query/?cmd=view&pr=12041
+ >>
+ >> Reported by Bas for release: 5.0.2
+ >>
+ >> *** Description:
+ >> expand/step-text may have the side-effect of undefining previously 
+ >> defined things; see reproduction steps. I can't imagine this effect 
+ >> being intended.
+ >>
+ >> *** How to repeat:
+ >>> (require macro-debugger/stepper-text)
+ >>> (define a 42)
+ >>> a
+ >> 42
+ >>> (expand/step-text #'(define a 42))
+ >> Macro transformation
+ >> (define a 42)
+ >>    ==>
+ >> (define:1 a 42)
+ >>
+ >> Macro transformation
+ >> (define:1 a 42)
+ >>    ==>
+ >> (define-values:2 (a) 42)
+ >>
+ >> Tag datum
+ >> (define-values:2 (a) 42)
+ >>    ==>
+ >> (define-values:2 (a) (#%datum . 42))
+ >>
+ >> Macro transformation
+ >> (define-values:2 (a) (#%datum . 42))
+ >>    ==>
+ >> (define-values:2 (a) (quote 42))
+ >>
+ >>> a
+ >> #<undefined>    ; WOOPS! a is gone
+ >>
+ >> *** Environment:
+ >> windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\i386\3m) 
+ >> (get-display-depth) = 32
+ >> Human Language: english
+ >> (current-memory-use) 186336156
+ >>
+ >> Collections:
+ >> (("C:\\Users\\Bas\\AppData\\Roaming\\Racket\\5.0.2\\collects" 
+ >> non-existent-path) ("C:\\Program Files (x86)\\Racket\\collects" 
+ >> "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" 
+ >> "compiler" "config" "data" "datalog" "defaults" "deinprogramm" 
+ >> "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" 
+ >> "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" 
+ >> "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" 
+ >> "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" 
+ >> "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "plai" 
+ >> "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" 
+ >> "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" 
+ >> "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" 
+ >> "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" 
+ >> "string-constants" "swindle" "syntax" "syntax-color" "teachpack" 
+ >> "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" 
+ >> "typed" "typed-scheme" "unstable" "v
+ > e!
+ >>   rsion" "web-server" "wxme" "xml"))
+ >> Computer Language: (("Legacy Languages" "Pretty Big") #(#f trad-write 
+ >> mixed-fraction-e #f #t debug #f))
+ >>
+ >
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Bas Steunebrink <bas@idsia.ch>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12041: expand/step-text may undefine things
+Date: Thu, 14 Jul 2011 08:20:09 -0600
+
+ On 07/14/2011 06:22 AM, Bas Steunebrink wrote:
+ > Dear Ryan,
+ >
+ > I see; thanks for your explanation. Still, this means that making use of
+ > expand/step-text is quite impractical because one has to be very sure
+ > that the data being expanded does not contain any variables names that
+ > are also used by the running code itself, because functions bound to
+ > those names might become undefined.
+ 
+ Typically, the "running code" should be entirely in modules, and module 
+ members are usually protected against redefinition. And 
+ expand/step-text, like expand and eval, operates on the current 
+ top-level namespace. So one thing you can do to avoid interference is 
+ create a fresh namespace, require (or attach, if necessary) any relevant 
+ modules, do the expansion in the new namespace, and discard it when 
+ you've inspected the expansion.
+ 
+ > For a workaround, could you identify the 'dangerous' forms? Is it only
+ > top-level define and define-syntax forms that can cause interference
+ > when expanding them with expand/step-text? (If yes, this would mean that
+ > I could stay safe by rewriting them first to letrec and letrec-syntax
+ > before passing to expand/step-text.)
+ 
+ Off the top of my head: define-values, define-syntaxes, 
+ define-values-for-syntax, module, #%require, and anything that expands 
+ into those.
+ 
+ > On a side note, do you know if there is any convenient way of catching
+ > the last step of an expansion as a datum? That is, I'd like to get the
+ > right-hand side of the very last step that expand/step-text prints, but
+ > as a datum and without printing all intermediate steps. (As a workaround
+ > I just catch the textual output and parse the last result, but this is
+ > extremely slow; it can take minutes even for small expressions.)
+ 
+ The expand function takes an S-expression or syntax object and returns a 
+ fully expanded syntax object. The 
+ expand-top-level-with-compile-time-evals function from syntax/toplevel 
+ does about the same thing, but executes definitions, requires, etc as 
+ explained earlier. And if you want to mimic the macro stepper's 
+ expansion with macro hiding, look at expand-only, expand/hide, etc.
+ 
+ If by 'datum' you mean S-expression, as opposed to syntax object, you 
+ can call syntax->datum on the result, but be aware that there is no 
+ function from syntax objects to S-expressions that always preserves 
+ meaning. For example:
+ 
+ (module A racket
+    (define (f x) ....)
+    (define-syntax-rule (m e) (f e))
+    (provide m))
+ (require 'A)
+ 
+ In this context, (m 5) expands to a syntax object whose corresponding 
+ S-expressions is (#%app f '5), but since f isn't exported by module A, 
+ that S-expression doesn't faithfully represent the same term the syntax 
+ object does. If you try to eval it, you'll get an undefined identifier 
+ error. There's no S-expression notation for "the unexported f binding of 
+ module A". Furthermore, consider another f from another module:
+ 
+ (module B racket
+    (define (f x) ....)
+    (define-syntax-rules (m2 e) (f e))
+    (provide m2))
+ (require 'B)
+ 
+ The expansion of (m (m2 5)) looks like (#%app f (#%app f '5)), but the 
+ S-expression version can't carry the information that the two 'f's are 
+ different.
+ 
+ Ryan
+From: Bas Steunebrink <bas@idsia.ch>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/12041: expand/step-text may undefine things
+Date: Thu, 14 Jul 2011 18:26:38 +0200
+
+ Dear Ryan,
+ 
+ >> I see; thanks for your explanation. Still, this means that making use of
+ >> expand/step-text is quite impractical because one has to be very sure
+ >> that the data being expanded does not contain any variables names that
+ >> are also used by the running code itself, because functions bound to
+ >> those names might become undefined.
+ >
+ > Typically, the "running code" should be entirely in modules, and 
+ > module members are usually protected against redefinition. And 
+ > expand/step-text, like expand and eval, operates on the current 
+ > top-level namespace. So one thing you can do to avoid interference is 
+ > create a fresh namespace, require (or attach, if necessary) any 
+ > relevant modules, do the expansion in the new namespace, and discard 
+ > it when you've inspected the expansion.
+ OK, point taken; I should organize my code better... ;-)
+ 
+ >> For a workaround, could you identify the 'dangerous' forms? Is it only
+ >> top-level define and define-syntax forms that can cause interference
+ >> when expanding them with expand/step-text? (If yes, this would mean that
+ >> I could stay safe by rewriting them first to letrec and letrec-syntax
+ >> before passing to expand/step-text.)
+ >
+ > Off the top of my head: define-values, define-syntaxes, 
+ > define-values-for-syntax, module, #%require, and anything that expands 
+ > into those.
+ Alright, I think I will be able to circumvent those. :-)
+ 
+ >> On a side note, do you know if there is any convenient way of catching
+ >> the last step of an expansion as a datum? That is, I'd like to get the
+ >> right-hand side of the very last step that expand/step-text prints, but
+ >> as a datum and without printing all intermediate steps. (As a workaround
+ >> I just catch the textual output and parse the last result, but this is
+ >> extremely slow; it can take minutes even for small expressions.)
+ >
+ > The expand function takes an S-expression or syntax object and returns 
+ > a fully expanded syntax object. The 
+ > expand-top-level-with-compile-time-evals function from syntax/toplevel 
+ > does about the same thing, but executes definitions, requires, etc as 
+ > explained earlier. And if you want to mimic the macro stepper's 
+ > expansion with macro hiding, look at expand-only, expand/hide, etc.
+ >
+ > If by 'datum' you mean S-expression, as opposed to syntax object, you 
+ > can call syntax->datum on the result, but be aware that there is no 
+ > function from syntax objects to S-expressions that always preserves 
+ > meaning. For example:
+ >
+ > (module A racket
+ >   (define (f x) ....)
+ >   (define-syntax-rule (m e) (f e))
+ >   (provide m))
+ > (require 'A)
+ >
+ > In this context, (m 5) expands to a syntax object whose corresponding 
+ > S-expressions is (#%app f '5), but since f isn't exported by module A, 
+ > that S-expression doesn't faithfully represent the same term the 
+ > syntax object does. If you try to eval it, you'll get an undefined 
+ > identifier error. There's no S-expression notation for "the unexported 
+ > f binding of module A". Furthermore, consider another f from another 
+ > module:
+ >
+ > (module B racket
+ >   (define (f x) ....)
+ >   (define-syntax-rules (m2 e) (f e))
+ >   (provide m2))
+ > (require 'B)
+ >
+ > The expansion of (m (m2 5)) looks like (#%app f (#%app f '5)), but the 
+ > S-expression version can't carry the information that the two 'f's are 
+ > different.
+ I understand. But let me explain why I still prefer expand/step-text. 
+ Consider this example:
+ 
+  > (syntax->datum
+      (expand/hide
+        #'(let-syntax ((m (syntax-rules ()
+                            ((_ x)
+                             (lambda (x) (lambda (y) x))))))
+            (m y))
+        '()))
+ (let-values () (let-values () (lambda (y) (lambda (y) y))))
+ 
+ Now the fact that y should refer to the outermost lambda is lost. I 
+ guess that's what you meant when you said syntax->datum does not 
+ preserve meaning (or at least an instance of such a case). In contrast:
+ 
+  > (expand/step-text
+      #'(let-syntax ((m (syntax-rules ()
+                          ((_ x)
+                           (lambda (x) (lambda (y) x))))))
+          (m y)))
+ ....
+    ==>
+ (let-values () (let-values () (lambda:20 (y) (lambda:22 (y:18) y))))
+ 
+ Here the innermost y has been renamed to y:18, which prevents the clash 
+ above. (Many keywords like the lambdas are also renamed (why?) but it's 
+ simple enough to rename them back again.) The only downside is that a 
+ lot of time appears to be wasted. So if I need an S-expression with all 
+ macros expanded but without variable name clashes, is there any better 
+ function to call? I mean, if expand/step-text can print my desired 
+ S-expression, it seems reasonable there must also be a way to obtain it 
+ directly (although I fear there may not be a public function for that).
+ 
+ Thanks for your kind help,
+ Bas
+ 
+
+
+State changed from "open" to "closed" by ryanc at Tue, 27 Sep 2011 23:31:44 -0400
+Reason>>> resolved
+

@@ -1,0 +1,411 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sat Sep  6 22:49:18 2008
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.225])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m872nGM5023121
+	for <bugs@bugs.plt-scheme.org>; Sat, 6 Sep 2008 22:49:16 -0400
+Message-Id: <200809070249.m872nDnq023115@champlain.ccs.neu.edu>
+Date: Sat, 6 Sep 2008 22:49:13 -0400
+From: Wittenstein@adelphi.edu
+To: bugs@plt-scheme.org
+Subject: Jagged edges for pictures
+
+>Number:         9732
+>Category:       htdp
+>Synopsis:       Jagged edges for pictures
+>Class:          not-a-bug
+>Responsible:    robby
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sat Sep 06 22:52:01 -0400 2008
+>Closed-Date:    Sat Feb 06 08:29:41 -0500 2010
+>Last-Modified:  Sat Feb 06 08:29:41 -0500 2010
+>Originator:     Adam Wittenstein
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        370
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386\3m) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Program Files\\PLT\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 64590316
+
+Collections:
+(("C:\\Documents and Settings\\Me.ADAM\\Application Data\\PLT Scheme\\370\\collects" "installed-teachpacks") ("C:\\Program Files\\PLT\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "readline" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "tex2page" "texpict" "trace" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Beginning Student") (#6(#t constructor repeating-decimal #f #t none) #f ()))
+>Description:
+A function, perhaps "image->color-list", that converts an image to a list of rgb   
+color values,  seems to have some nasty   
+side effects on Windows machines, like leaving jagged edges on shapes (ellipses and circles) and   
+chopping off the rightmost or  bottommost pixel of an image, usually after they have been modified by putting one beside another or cropping using the 371-tiles.ss teachpack. 
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: "Robby Findler" <robby@plt-scheme.org>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Matthias Felleisen" <matthias@ccs.neu.edu>
+Cc: "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/9732: Jagged edges for pictures
+Date: Sun, 7 Sep 2008 08:42:00 -0500
+
+ On Sat, Sep 6, 2008 at 9:52 PM,  <Wittenstein@adelphi.edu> wrote:
+ > *** Description:
+ > A function, perhaps "image->color-list", that converts an image to a list of rgb
+ > color values,  seems to have some nasty
+ > side effects on Windows machines, like leaving jagged edges on shapes (ellipses and circles) and
+ > chopping off the rightmost or  bottommost pixel of an image, usually after they have been modified by putting one beside another or cropping using the 371-tiles.ss teachpack.
+ 
+ I had to go remind myself what is going on here -- what I found is
+ that, with the current image library implementation, when I make the
+ obvious fix to this, I find that image-inside fails and I think I
+ understand why.
+ 
+ To recap: the image library keeps both the drawing procedures and a
+ bitmap internally as the state of the image. The bitmap is the "true"
+ state and the drawing procedures approximate it. The bitmap is
+ computed lazily. One place where the bitmap is forced is
+ image->color-list. Another place is the image-inside functions.
+ image-inside? is implemented by turning the images into bitmaps and
+ then searching inside them.
+ 
+ When smoothing is preserved in the bitmap computation, then this fails:
+ 
+       (image-inside? (overlay/xy (p00 (rectangle 16 16 'solid 'red))
+                                  2 5
+                                  (p00 (ellipse 6 6 'outline 'blue)))
+                      (ellipse 6 6 'outline 'blue))
+ 
+ (where p00 moves the pinhole to (0,0)). Why? Well, because overlaying
+ the smooth circle on the rectangle results in some pixels that are
+ somewhere between red and blue (as you'd expect and as looks good when
+ you use smoothing). BUT, in the circle by itself, those combined
+ pixels are a combination or blue and white, not blue and red, and
+ hence don't match, causing the image-inside? function to fail.
+ 
+ I see a few options:
+ 
+   a) come up with a new implementation of image-inside (the obvious
+ thing: draw the second image on top of the first at every position and
+ see if there is a position where the image doesn't change -- that
+ doesn't work, because drawing is not idempotent; specifically, those
+ pixels on the edge of the circle will get slightly closer to the
+ circle's original color, each time the circle is drawn).
+ 
+   b) get rid of image-inside? -- this may lead to other complaints,
+ since the naive way to implement image-inside (via image->color-list)
+ will not work and this may confuse some people (same issues as above).
+ 
+   c) status quo and just explain to the people that complain what is going on.
+ 
+ Any other options? I don't like "c" much. I think I prefer b.
+ 
+ But a, if possible, seems the best. Maybe there is some computation
+ involving the alphas that says "if it was possible to have *some*
+ background such that overlaying the circle on it would produce the
+ given image, they we're set". I have no idea if this is feasible or if
+ it would produce sensible results.
+ 
+ Robby
+From: "Robby Findler" <robby@plt-scheme.org>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>,
+        "Matthias Felleisen" <matthias@ccs.neu.edu>
+Cc: "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/9732: Jagged edges for pictures
+Date: Sun, 14 Sep 2008 07:30:38 -0500
+
+ No opinions?
+ 
+ So I'm going to get rid of the image-inside? function? No complaints?
+ 
+ Robby
+ 
+ On Sun, Sep 7, 2008 at 8:42 AM, Robby Findler <robby@plt-scheme.org> wrote:
+ > On Sat, Sep 6, 2008 at 9:52 PM,  <Wittenstein@adelphi.edu> wrote:
+ >> *** Description:
+ >> A function, perhaps "image->color-list", that converts an image to a list of rgb
+ >> color values,  seems to have some nasty
+ >> side effects on Windows machines, like leaving jagged edges on shapes (ellipses and circles) and
+ >> chopping off the rightmost or  bottommost pixel of an image, usually after they have been modified by putting one beside another or cropping using the 371-tiles.ss teachpack.
+ >
+ > I had to go remind myself what is going on here -- what I found is
+ > that, with the current image library implementation, when I make the
+ > obvious fix to this, I find that image-inside fails and I think I
+ > understand why.
+ >
+ > To recap: the image library keeps both the drawing procedures and a
+ > bitmap internally as the state of the image. The bitmap is the "true"
+ > state and the drawing procedures approximate it. The bitmap is
+ > computed lazily. One place where the bitmap is forced is
+ > image->color-list. Another place is the image-inside functions.
+ > image-inside? is implemented by turning the images into bitmaps and
+ > then searching inside them.
+ >
+ > When smoothing is preserved in the bitmap computation, then this fails:
+ >
+ >      (image-inside? (overlay/xy (p00 (rectangle 16 16 'solid 'red))
+ >                                 2 5
+ >                                 (p00 (ellipse 6 6 'outline 'blue)))
+ >                     (ellipse 6 6 'outline 'blue))
+ >
+ > (where p00 moves the pinhole to (0,0)). Why? Well, because overlaying
+ > the smooth circle on the rectangle results in some pixels that are
+ > somewhere between red and blue (as you'd expect and as looks good when
+ > you use smoothing). BUT, in the circle by itself, those combined
+ > pixels are a combination or blue and white, not blue and red, and
+ > hence don't match, causing the image-inside? function to fail.
+ >
+ > I see a few options:
+ >
+ >  a) come up with a new implementation of image-inside (the obvious
+ > thing: draw the second image on top of the first at every position and
+ > see if there is a position where the image doesn't change -- that
+ > doesn't work, because drawing is not idempotent; specifically, those
+ > pixels on the edge of the circle will get slightly closer to the
+ > circle's original color, each time the circle is drawn).
+ >
+ >  b) get rid of image-inside? -- this may lead to other complaints,
+ > since the naive way to implement image-inside (via image->color-list)
+ > will not work and this may confuse some people (same issues as above).
+ >
+ >  c) status quo and just explain to the people that complain what is going on.
+ >
+ > Any other options? I don't like "c" much. I think I prefer b.
+ >
+ > But a, if possible, seems the best. Maybe there is some computation
+ > involving the alphas that says "if it was possible to have *some*
+ > background such that overlaying the circle on it would produce the
+ > given image, they we're set". I have no idea if this is feasible or if
+ > it would produce sensible results.
+ >
+ > Robby
+ >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Robby Findler" <robby@plt-scheme.org>
+Cc: "Matthias Felleisen" <matthias@ccs.neu.edu>,
+        "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/9732: Jagged edges for pictures
+Date: Sun, 14 Sep 2008 06:51:31 -0600
+
+ The status quo (with improved explanation) sounds betters than removing
+ `image-inside?'.
+ 
+ At Sun, 14 Sep 2008 07:30:38 -0500, "Robby Findler" wrote:
+ > No opinions?
+ > 
+ > So I'm going to get rid of the image-inside? function? No complaints?
+ > 
+ > Robby
+ > 
+ > On Sun, Sep 7, 2008 at 8:42 AM, Robby Findler <robby@plt-scheme.org> wrote:
+ > > On Sat, Sep 6, 2008 at 9:52 PM,  <Wittenstein@adelphi.edu> wrote:
+ > >> *** Description:
+ > >> A function, perhaps "image->color-list", that converts an image to a list 
+ > of rgb
+ > >> color values,  seems to have some nasty
+ > >> side effects on Windows machines, like leaving jagged edges on shapes 
+ > (ellipses and circles) and
+ > >> chopping off the rightmost or  bottommost pixel of an image, usually after 
+ > they have been modified by putting one beside another or cropping using the 
+ > 371-tiles.ss teachpack.
+ > >
+ > > I had to go remind myself what is going on here -- what I found is
+ > > that, with the current image library implementation, when I make the
+ > > obvious fix to this, I find that image-inside fails and I think I
+ > > understand why.
+ > >
+ > > To recap: the image library keeps both the drawing procedures and a
+ > > bitmap internally as the state of the image. The bitmap is the "true"
+ > > state and the drawing procedures approximate it. The bitmap is
+ > > computed lazily. One place where the bitmap is forced is
+ > > image->color-list. Another place is the image-inside functions.
+ > > image-inside? is implemented by turning the images into bitmaps and
+ > > then searching inside them.
+ > >
+ > > When smoothing is preserved in the bitmap computation, then this fails:
+ > >
+ > >      (image-inside? (overlay/xy (p00 (rectangle 16 16 'solid 'red))
+ > >                                 2 5
+ > >                                 (p00 (ellipse 6 6 'outline 'blue)))
+ > >                     (ellipse 6 6 'outline 'blue))
+ > >
+ > > (where p00 moves the pinhole to (0,0)). Why? Well, because overlaying
+ > > the smooth circle on the rectangle results in some pixels that are
+ > > somewhere between red and blue (as you'd expect and as looks good when
+ > > you use smoothing). BUT, in the circle by itself, those combined
+ > > pixels are a combination or blue and white, not blue and red, and
+ > > hence don't match, causing the image-inside? function to fail.
+ > >
+ > > I see a few options:
+ > >
+ > >  a) come up with a new implementation of image-inside (the obvious
+ > > thing: draw the second image on top of the first at every position and
+ > > see if there is a position where the image doesn't change -- that
+ > > doesn't work, because drawing is not idempotent; specifically, those
+ > > pixels on the edge of the circle will get slightly closer to the
+ > > circle's original color, each time the circle is drawn).
+ > >
+ > >  b) get rid of image-inside? -- this may lead to other complaints,
+ > > since the naive way to implement image-inside (via image->color-list)
+ > > will not work and this may confuse some people (same issues as above).
+ > >
+ > >  c) status quo and just explain to the people that complain what is going on.
+ > >
+ > > Any other options? I don't like "c" much. I think I prefer b.
+ > >
+ > > But a, if possible, seems the best. Maybe there is some computation
+ > > involving the alphas that says "if it was possible to have *some*
+ > > background such that overlaying the circle on it would produce the
+ > > given image, they we're set". I have no idea if this is feasible or if
+ > > it would produce sensible results.
+ > >
+ > > Robby
+ > >
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: "Robby Findler" <robby@plt-scheme.org>,
+        "bugs@plt-scheme.org" <bugs@plt-scheme.org>
+Subject: Re: [plt-bug] all/9732: Jagged edges for pictures
+Date: Sun, 14 Sep 2008 16:07:44 -0400
+
+ Carl and I ran into this issue last week. He had hoped that he
+ could figure out some axiomatic way to reason about reasonable
+ approximations of shapes in ACL2 so that we could say things
+ about the model in addition to the rendered images of interactive
+ dialogs. Well, he realized quickly that smoothing (and he says
+ antialiasing but my graphics knowledge is too weak to appreciate)
+ interfere with basic things so much that there is little hope.
+ 
+ I had hoped that we could keep around the algebraic construction
+ of the image and use it for some reasoning.
+ 
+ This certainly doesn't work for image-inside? because you may
+ wish to grab some pixels and then wonder which place they came
+ from.
+ 
+ ;; ---
+ 
+ I am with Matthew on the issue. Leave the implementation alone
+ and explain the issue with image-inside. Option b is no better
+ than option c -- because I have come up with the assignment of
+ looking for pixels inside of pixels and others will too. So it
+ is better to confront the issue head-on.
+ 
+ After my discussion with Carl, I have strong doubts that option
+ a is an option and that we should sink time into it.
+ 
+ -- Matthias
+ 
+ 
+ 
+ 
+ 
+ On Sep 14, 2008, at 8:51 AM, Matthew Flatt wrote:
+ 
+ > The status quo (with improved explanation) sounds betters than  
+ > removing
+ > `image-inside?'.
+ >
+ > At Sun, 14 Sep 2008 07:30:38 -0500, "Robby Findler" wrote:
+ >> No opinions?
+ >>
+ >> So I'm going to get rid of the image-inside? function? No complaints?
+ >>
+ >> Robby
+ >>
+ >> On Sun, Sep 7, 2008 at 8:42 AM, Robby Findler <robby@plt- 
+ >> scheme.org> wrote:
+ >>> On Sat, Sep 6, 2008 at 9:52 PM,  <Wittenstein@adelphi.edu> wrote:
+ >>>> *** Description:
+ >>>> A function, perhaps "image->color-list", that converts an image  
+ >>>> to a list
+ >> of rgb
+ >>>> color values,  seems to have some nasty
+ >>>> side effects on Windows machines, like leaving jagged edges on  
+ >>>> shapes
+ >> (ellipses and circles) and
+ >>>> chopping off the rightmost or  bottommost pixel of an image,  
+ >>>> usually after
+ >> they have been modified by putting one beside another or cropping  
+ >> using the
+ >> 371-tiles.ss teachpack.
+ >>>
+ >>> I had to go remind myself what is going on here -- what I found is
+ >>> that, with the current image library implementation, when I make the
+ >>> obvious fix to this, I find that image-inside fails and I think I
+ >>> understand why.
+ >>>
+ >>> To recap: the image library keeps both the drawing procedures and a
+ >>> bitmap internally as the state of the image. The bitmap is the  
+ >>> "true"
+ >>> state and the drawing procedures approximate it. The bitmap is
+ >>> computed lazily. One place where the bitmap is forced is
+ >>> image->color-list. Another place is the image-inside functions.
+ >>> image-inside? is implemented by turning the images into bitmaps and
+ >>> then searching inside them.
+ >>>
+ >>> When smoothing is preserved in the bitmap computation, then this  
+ >>> fails:
+ >>>
+ >>>      (image-inside? (overlay/xy (p00 (rectangle 16 16 'solid 'red))
+ >>>                                 2 5
+ >>>                                 (p00 (ellipse 6 6 'outline 'blue)))
+ >>>                     (ellipse 6 6 'outline 'blue))
+ >>>
+ >>> (where p00 moves the pinhole to (0,0)). Why? Well, because  
+ >>> overlaying
+ >>> the smooth circle on the rectangle results in some pixels that are
+ >>> somewhere between red and blue (as you'd expect and as looks good  
+ >>> when
+ >>> you use smoothing). BUT, in the circle by itself, those combined
+ >>> pixels are a combination or blue and white, not blue and red, and
+ >>> hence don't match, causing the image-inside? function to fail.
+ >>>
+ >>> I see a few options:
+ >>>
+ >>>  a) come up with a new implementation of image-inside (the obvious
+ >>> thing: draw the second image on top of the first at every  
+ >>> position and
+ >>> see if there is a position where the image doesn't change -- that
+ >>> doesn't work, because drawing is not idempotent; specifically, those
+ >>> pixels on the edge of the circle will get slightly closer to the
+ >>> circle's original color, each time the circle is drawn).
+ >>>
+ >>>  b) get rid of image-inside? -- this may lead to other complaints,
+ >>> since the naive way to implement image-inside (via image->color- 
+ >>> list)
+ >>> will not work and this may confuse some people (same issues as  
+ >>> above).
+ >>>
+ >>>  c) status quo and just explain to the people that complain what  
+ >>> is going on.
+ >>>
+ >>> Any other options? I don't like "c" much. I think I prefer b.
+ >>>
+ >>> But a, if possible, seems the best. Maybe there is some computation
+ >>> involving the alphas that says "if it was possible to have *some*
+ >>> background such that overlaying the circle on it would produce the
+ >>> given image, they we're set". I have no idea if this is feasible  
+ >>> or if
+ >>> it would produce sensible results.
+ >>>
+ >>> Robby
+ >>>
+ 
+
+Responsible changed from "nobody" to "robby" by eli at Sat, 06 Feb 2010 00:16:11 -0500
+Reason>>> images
+
+
+Class changed from "sw-bug" to "not-a-bug" by robby at Sat, 06 Feb 2010 08:29:41 -0500
+Reason>>> unfortunately, this is a limitation of the htdp/image's 
+internal architecture and won't be changing.
+
+Instead, we've designed 2htdp/image to not have this 
+problem. Give it a try (and let us know if you run into any 
+problems).
+
+State changed from "open" to "closed" by robby at Sat, 06 Feb 2010 08:29:41 -0500
+Reason>>> non bug
+

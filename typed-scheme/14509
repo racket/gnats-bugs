@@ -1,0 +1,167 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue May 13 23:27:08 2014
+Received: from mail-oa0-f52.google.com (mail-oa0-f52.google.com [209.85.219.52])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s4E3R7gs020753
+	for <bugs@bugs.plt-scheme.org>; Tue, 13 May 2014 23:27:07 -0400
+Message-Id: <201405140327.s4E3R5ew020736@winooski.ccs.neu.edu>
+Date: Tue, 13 May 2014 23:27:05 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Filter types do not allow indexing into args of outer functions with more args than inner functions
+
+>Number:         14509
+>Category:       typed-scheme
+>Synopsis:       Filter types do not allow indexing into args of outer functions with more args than inner functions
+>Class:          sw-bug
+>Responsible:    asumu
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue May 13 23:28:01 -0400 2014
+>Closed-Date:    Mon Jul 07 19:25:37 -0400 2014
+>Last-Modified:  Mon Jul 07 19:25:37 -0400 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+>Description:
+I expect the following to typecheck but it doesn't.
+
+/Users/endobson/tmp/tmp.rkt:6.13: ->: Filter proposition's object index 0 is larger than argument length 0
+  at: (Number @ 1 0)
+  in: (-> Boolean : #:+ (Number @ 1 0))
+  parsing context: 
+   while parsing filter proposition
+    term: (Number @ 1 0)
+    location: /Users/endobson/tmp/tmp.rkt:6.31
+   while parsing latent propositions and object
+    term: (#:+ (Number @ 1 0))
+    location: /Users/endobson/tmp/tmp.rkt:6.13
+>How-To-Repeat:
+#lang typed/racket
+
+(: f (-> Any (-> Any Boolean : #:+ (Number @ 1 0))))
+(define f (λ (x) (λ (y) (number? x))))
+
+(: g (-> Any (-> Boolean : #:+ (Number @ 1 0))))
+(define g (λ (x) (λ () (number? x))))
+
+>Fix:
+>Audit-Trail:
+From: Eric Dobson <eric.n.dobson@gmail.com>
+To: Asumu Takikawa <asumu@ccs.neu.edu>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14509: Filter types do not allow indexing into
+ args of outer functions with more args than inner functions
+Date: Tue, 13 May 2014 21:19:40 -0700
+
+ Why cannot this be solved with a parameter (of a stack) that parsing a
+ function type pushes onto?
+ 
+ On Tue, May 13, 2014 at 9:16 PM, Asumu Takikawa <asumu@ccs.neu.edu> wrote:
+ > On 2014-05-13 23:28:02 -0400, eric.n.dobson@gmail.com wrote:
+ >> *** Description:
+ >> I expect the following to typecheck but it doesn't.
+ >>
+ >> /Users/endobson/tmp/tmp.rkt:6.13: ->: Filter proposition's object index 0 is larger than argument length 0
+ >>   at: (Number @ 1 0)
+ >>   in: (-> Boolean : #:+ (Number @ 1 0))
+ >>   parsing context:
+ >>    while parsing filter proposition
+ >>     term: (Number @ 1 0)
+ >>     location: /Users/endobson/tmp/tmp.rkt:6.31
+ >>    while parsing latent propositions and object
+ >>     term: (#:+ (Number @ 1 0))
+ >>     location: /Users/endobson/tmp/tmp.rkt:6.13
+ >
+ > So there's a clear fix for this, which is to change this line from
+ > parse-type.rkt:
+ >
+ >   #:fail-unless (< (attribute i.arg) (length doms))
+ >
+ > to
+ >
+ >   #:fail-unless (or (not (zero? (attribute i.depth)))
+ >                     (< (attribute i.arg) (length doms)))
+ >
+ > but this doesn't do any checking when the depth is greater than 0. And
+ > we can't easily do that check, since that requires seeing the length of
+ > the domains of the function type *around* the current one.
+ >
+ > Should we worry about that case?
+ >
+ > Cheers,
+ > Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14509: Filter types do not allow indexing into
+ args of outer functions with more args than inner functions
+Date: Wed, 14 May 2014 00:16:35 -0400
+
+ On 2014-05-13 23:28:02 -0400, eric.n.dobson@gmail.com wrote:
+ > *** Description:
+ > I expect the following to typecheck but it doesn't.
+ > 
+ > /Users/endobson/tmp/tmp.rkt:6.13: ->: Filter proposition's object index 0 is larger than argument length 0
+ >   at: (Number @ 1 0)
+ >   in: (-> Boolean : #:+ (Number @ 1 0))
+ >   parsing context: 
+ >    while parsing filter proposition
+ >     term: (Number @ 1 0)
+ >     location: /Users/endobson/tmp/tmp.rkt:6.31
+ >    while parsing latent propositions and object
+ >     term: (#:+ (Number @ 1 0))
+ >     location: /Users/endobson/tmp/tmp.rkt:6.13
+ 
+ So there's a clear fix for this, which is to change this line from
+ parse-type.rkt:
+ 
+   #:fail-unless (< (attribute i.arg) (length doms))
+ 
+ to
+ 
+   #:fail-unless (or (not (zero? (attribute i.depth)))
+                     (< (attribute i.arg) (length doms)))
+ 
+ but this doesn't do any checking when the depth is greater than 0. And
+ we can't easily do that check, since that requires seeing the length of
+ the domains of the function type *around* the current one.
+ 
+ Should we worry about that case?
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: Eric Dobson <eric.n.dobson@gmail.com>
+Cc: bugs <bugs@racket-lang.org>, nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14509: Filter types do not allow indexing into
+ args of outer functions with more args than inner functions
+Date: Wed, 14 May 2014 00:21:50 -0400
+
+ On 2014-05-13 21:19:40 -0700, Eric Dobson wrote:
+ > Why cannot this be solved with a parameter (of a stack) that parsing a
+ > function type pushes onto?
+ 
+ That's a good idea, I'll look into implementing it. It might slow down
+ function type parsing a bit, but that's probably not a bottleneck (well
+ I really hope it isn't).
+ 
+ Cheers,
+ Asumu
+
+Responsible changed from "samth" to "asumu" by asumu@racket-lang.org at Mon, 07 Jul 2014 19:25:37 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/e62f1cb8d9
+State changed from "open" to "closed" by asumu@racket-lang.org at Mon, 07 Jul 2014 19:25:37 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/e62f1cb8d9
+  | Check function depth for parsing object indices
+  | 
+  | Closes PR 14509
+

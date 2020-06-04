@@ -1,0 +1,202 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jan 22 20:32:03 2008
+Received: from fk-out-0910.google.com (fk-out-0910.google.com [209.85.128.185])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id m0N1W29m017797
+	for <bugs@bugs.plt-scheme.org>; Tue, 22 Jan 2008 20:32:03 -0500
+Message-Id: <200801230131.m0N1Vwlk017792@champlain.ccs.neu.edu>
+Date: Tue, 22 Jan 2008 20:31:58 -0500
+From: andrew-scheme@areilly.bpc-users.org
+To: bugs@plt-scheme.org
+Subject: GC bug (fixed) on 64-bit archs
+
+>Number:         9161
+>Category:       mzscheme
+>Synopsis:       GC bug (fixed) on 64-bit archs
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jan 22 20:35:01 -0500 2008
+>Closed-Date:    Sun Apr 06 11:20:07 -0400 2008
+>Last-Modified:  Sun Apr 06 11:20:07 -0400 2008
+>Originator:     Andrew Reilly
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        372
+>Environment:
+unix "FreeBSD duncan.reilly.home 7.0-PRERELEASE FreeBSD 7.0-PRERELEASE #0: Tue Jan 22 01:32:02 EST 2008     root@duncan:/usr/obj/usr/src/sys/DUNCAN  amd64" (amd64-freebsd/3m) (get-display-depth) = 16
+Docs Installed:
+(("/usr/local/share/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-intermediate-access" "profj-advanced"))
+Human Language: english
+(current-memory-use) 112776664
+
+Collections:
+(("/usr/home/andrew/.plt-scheme/372/collects" non-existent-path) ("/usr/local/lib/plt/collects" "afm" "algol60" "big" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "lang" "launcher" "lazy" "make" "macro-debugger" "mred" "mrlib" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "readline" "scribble" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "tests" "tex2page" "texpict" "trace" "version" "web-server" "wxme" "xml" "info-domain"))
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+This tricked me for a while, because mred/drscheme went from working to not working (on my FreeBSD-7-STABLE/amd64 system) after a seemingly irrelevent change was made to the system gcc headers on 5 January (src/gcc/gthr-posix.h ver 1.1.1.8.2.1).  Symptom: mred segfaulted in newgc.c before anything else happened.
+Problem turned out to be in create_page(), which assumes incorrectly that memory returned from malloc is zero until set.  I replaced these malloc() calls with calloc() and it works again.
+
+I also made a few patches so that everything would compile with -Werror-implicit-function-declaration, because missing prototypes can cause dire badness on I32LP64 systems, due to pointer truncation.  Here's the patch against 372.  A similar one applies against trunk:
+
+diff -rup plt-372.orig/src/foreign/gcc/libffi/include/ffi_common.h plt-372/src/foreign/gcc/libffi/include/ffi_common.h
+--- plt-372.orig/src/foreign/gcc/libffi/include/ffi_common.h	2005-05-28 09:11:11.000000000 +1000
++++ plt-372/src/foreign/gcc/libffi/include/ffi_common.h	2008-01-23 10:30:49.000000000 +1100
+@@ -33,7 +33,7 @@ char *alloca ();
+ #endif
+ 
+ /* Check for the existence of memcpy. */
+-#if STDC_HEADERS
++#if 1 || STDC_HEADERS
+ # include <string.h>
+ #else
+ # ifndef HAVE_MEMCPY
+diff -rup plt-372.orig/src/mzscheme/gc/include/private/dbg_mlc.h plt-372/src/mzscheme/gc/include/private/dbg_mlc.h
+--- plt-372.orig/src/mzscheme/gc/include/private/dbg_mlc.h	2005-05-28 09:11:11.000000000 +1000
++++ plt-372/src/mzscheme/gc/include/private/dbg_mlc.h	2008-01-23 10:30:49.000000000 +1100
+@@ -171,5 +171,6 @@ typedef struct {
+ /* Store debugging info into p.  Return displaced pointer. */
+ /* Assumes we don't hold allocation lock.		   */
+ ptr_t GC_store_debug_info(/* p, sz, string, integer */);
++void GC_print_callers(/* info */);
+ 
+ #endif /* _DBG_MLC_H */
+diff -rup plt-372.orig/src/mzscheme/gc2/newgc.c plt-372/src/mzscheme/gc2/newgc.c
+--- plt-372.orig/src/mzscheme/gc2/newgc.c	2007-10-08 21:40:43.000000000 +1000
++++ plt-372/src/mzscheme/gc2/newgc.c	2008-01-23 11:21:25.000000000 +1100
+@@ -260,13 +260,13 @@ inline static struct mpage **create_page
+   pos = (unsigned long)p >> 48;
+   page_maps = page_mapss[pos];
+   if (!page_maps) {
+-    page_maps = (struct mpage ***)malloc(sizeof(struct mpage **) * (1 << 16));
++    page_maps = (struct mpage ***)calloc(1 << 16, sizeof(struct mpage **));
+     page_mapss[pos] = page_maps;
+   }
+   pos = ((unsigned long)p >> 32) & ((1 << 16) - 1);
+   page_map = page_maps[pos];
+   if (!page_map) {
+-    page_map = (struct mpage **)malloc(sizeof(struct mpage *) * (1 << USEFUL_ADDR_BITS));
++    page_map = (struct mpage **)calloc(1 << USEFUL_ADDR_BITS, sizeof(struct mpage *));
+     page_maps[pos] = page_map;
+   }
+   return page_map;
+@@ -327,7 +327,7 @@ static int avoid_collection;
+      mark it as potentially containing pointers from gen 1 to gen 0. 
+ 
+    During collections, it maps pointers to "from" pages. */
+-#define modify_page_map(page, val) {                                  \
++#define old_modify_page_map(page, val) {                                  \
+     long size_left = page->big_page ? page->size : APAGE_SIZE;         \
+     void *p = page;                                                   \
+     DECL_PAGE_MAP;                                                    \
+@@ -340,6 +340,20 @@ static int avoid_collection;
+     }                                                                 \
+   }
+ 
++inline void modify_page_map(struct mpage *page, struct mpage *val)
++{
++    long size_left = page->big_page ? page->size : APAGE_SIZE;
++    void *p = page;
++    DECL_PAGE_MAP;
++
++    while(size_left > 0) {
++      GET_PAGE_MAP(p);
++      page_map[ADDR_BITS(p)] = val;
++      size_left -= APAGE_SIZE;
++      p = (char *)p + APAGE_SIZE;
++    }
++}
++
+ inline static void pagemap_add(struct mpage *page)
+ {
+   modify_page_map(page, page);
+diff -rup plt-372.orig/src/wxxt/contrib/xpm/lib/xpmP.h plt-372/src/wxxt/contrib/xpm/lib/xpmP.h
+--- plt-372.orig/src/wxxt/contrib/xpm/lib/xpmP.h	2007-10-26 01:31:15.000000000 +1000
++++ plt-372/src/wxxt/contrib/xpm/lib/xpmP.h	2008-01-23 10:30:49.000000000 +1100
+@@ -53,7 +53,7 @@
+ extern FILE *popen();
+ #endif
+ 
+-#if defined(SYSV) || defined(SVR4) || defined(VMS)
++#if defined(__FreeBSD__) || defined(SYSV) || defined(SVR4) || defined(VMS)
+ #include <string.h>
+ 
+ #ifndef index
+diff -rup plt-372.orig/src/wxxt/src/XWidgets/xwArrow.c plt-372/src/wxxt/src/XWidgets/xwArrow.c
+--- plt-372.orig/src/wxxt/src/XWidgets/xwArrow.c	2007-12-29 14:30:35.000000000 +1100
++++ plt-372/src/wxxt/src/XWidgets/xwArrow.c	2008-01-23 10:30:49.000000000 +1100
+@@ -9,6 +9,8 @@
+ #include <wxtimeout.h>
+ #include "xwTools3d.h"
+ #include <./xwArrowP.h>
++#include "xwTabString.h"
++
+ static void activate_and_start_timer(
+ #if NeedFunctionPrototypes
+ Widget,XEvent*,String*,Cardinal*
+>How-To-Repeat:
+I've been using the following script to build and install, since the FreeBSD ports has drscheme marked broken at the moment.  Leave out the patch line and mred instantly segfaults on a -STABLE amd64 FreeBSD box.
+
+#!/bin/sh -v
+ver=372
+rm -rf plt-${ver}
+tar xvfz ../Desktop/plt-${ver}-src-unix.tgz
+patch -p0 <putative-372-patch
+cd plt-${ver}/src
+PREFIX=/usr/local
+X11BASE=/usr/local
+#CFLAGS="-O0 -Werror-implicit-function-declaration -pipe -g"
+CFLAGS="-O2 -Werror-implicit-function-declaration -pipe -g"
+LDFLAGS=-L/usr/local/lib
+CPPFLAGS="-I/usr/local/include -DLONG64"
+LIBTOOL=/usr/local/bin/libtool
+
+if true; then
+./configure -q \
+	    --prefix=${PREFIX} \
+	    --enable-shared \
+	    --enable-pthread \
+	    --enable-lt=${LIBTOOL} \
+	    --with-x \
+	    --x-includes=${X11BASE}/include \
+	    --x-libraries=${X11BASE}/lib \
+	    CFLAGS="${CFLAGS}" \
+	    LDFLAGS="${LDFLAGS}" \
+	    CPPFLAGS="${CPPFLAGS}" \
+	    --mandir=/usr/local/man \
+	    amd64-portbld-freebsd7.0
+fi
+
+gmake && sudo gmake install
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: andrew-scheme@areilly.bpc-users.org, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9161: GC bug (fixed) on 64-bit archs
+Date: Tue, 22 Jan 2008 18:41:39 -0700
+
+ At Tue, 22 Jan 2008 20:35:01 -0500, andrew-scheme@areilly.bpc-users.org wrote:
+ > *** Description:
+ > This tricked me for a while, because mred/drscheme went from working to not 
+ > working (on my FreeBSD-7-STABLE/amd64 system) after a seemingly irrelevent 
+ > change was made to the system gcc headers on 5 January (src/gcc/gthr-posix.h 
+ > ver 1.1.1.8.2.1).  Symptom: mred segfaulted in newgc.c before anything else 
+ > happened.
+ > Problem turned out to be in create_page(), which assumes incorrectly that 
+ > memory returned from malloc is zero until set.  I replaced these malloc() 
+ > calls with calloc() and it works again.
+ 
+ Thanks!!! I'm very grateful that you tracked this down.
+ 
+ Matthew
+ 
+
+Responsible changed from "nobody" to "mflatt" by eli at Sun, 06 Apr 2008 11:20:07 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Sun, 06 Apr 2008 11:20:07 -0400
+Reason>>> Matthew applied the patch
+

@@ -1,0 +1,249 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Sep 29 07:05:07 2013
+Received: from mail-wi0-f176.google.com (mail-wi0-f176.google.com [209.85.212.176])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id r8TB55QQ006419
+	for <bugs@bugs.plt-scheme.org>; Sun, 29 Sep 2013 07:05:06 -0400
+Message-Id: <201309291105.r8TB52kM006411@winooski.ccs.neu.edu>
+Date: Sun, 29 Sep 2013 07:05:02 -0400
+From: egnartsms@gmail.com
+To: bugs@racket-lang.org
+Subject: Custom gen:equal+hash causes racket/set iteration to hang up
+
+>Number:         14056
+>Category:       mzscheme
+>Synopsis:       Custom gen:equal+hash causes racket/set iteration to hang up
+>Class:          sw-bug
+>Responsible:    cce
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Sep 29 07:08:01 -0400 2013
+>Last-Modified:  Sat Oct 05 21:02:25 -0400 2013
+>Originator:     Sergey Mozgovoy
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.6
+>Environment:
+unix "Linux serhii-dell 3.2.0-53-generic #81-Ubuntu SMP Thu Aug 22 21:01:03 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 314620920
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.6):
+ [none]
+
+
+
+Collections:
+("/home/serhii/.racket/5.3.6/collects"
+ (non-existent-path))
+("/home/serhii/lib/racket/collects"
+ ("future-visualizer" "deinprogramm" "r6rs" "typed" "at-exp" "errortrace" "typed-scheme" "realm" "version" "typed-racket" "drracket" "html" "parser-tools" "pkg" "reader" "lang" "mzscheme" "games" "net" "ffi" "slideshow" "mysterx" "gui-debugger" "xml" "mred" "data" "scriblib" "srfi" "eopl" "db" "help" "string-constants" "slatex" "trace" "graphics" "compatibility" "embedded-gui" "plai" "mrlib" "datalog" "info-domain" "sgl" "swindle" "racket" "math" "schemeunit" "stepper" "make" "htdp" "picturing-programs" "teachpack" "mzlib" "preprocessor" "drscheme" "plot" "web-server" "raco" "2htdp" "icons" "config" "rnrs" "framework" "rackunit" "test-engine" "images" "setup" "dynext" "racklog" "wxme" "redex" "defaults" "macro-debugger" "readline" "algol60" "json" "profile" "hierlist" "launcher" "scribble" "compiler" "browser" "s-exp" "syntax-color" "r5rs" "texpict" "scribblings" "planet" "syntax" "xrepl" "file" "mzcom" "scheme" "unstable" "openssl" "tests" "frtime" "lazy"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket/base\n" #t #t ((main) (test))))
+>Description:
+This is a program that finds Knight's shortest path between
+two squares on the chessboard.  Knight's positions are re-
+presented by the kpos structure type which also has custom
+equality and hashing behavior.
+
+On each step, we're generating the set of reachable positions.
+>How-To-Repeat:
+Uncomment line 82 and evaluate the module in DrRacket.
+>Fix:
+>Audit-Trail:
+From: Sergey Mozgovoy <egnartsms@gmail.com>
+To: bugs@racket-lang.org
+Cc: 
+Subject: Re: all/14056 "Custom gen:equal+hash causes racket/set iteration to
+ hang up"
+Date: Sun, 29 Sep 2013 14:24:35 +0300
+
+ --047d7b5db26ae2d95104e783f6bb
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Seems I've forgotten to paste the program itself, so here it is:
+ 
+ #lang racket/base
+ 
+ (require racket/list
+          racket/match
+          racket/set)
+ 
+ (define knight-steps #((1  . -2) (2  . -1) (2  . 1) (1  . 2)
+                                  (-1 . -2) (-2 . -1) (-2 . 1) (-1 . 2)))
+ 
+ (struct kpos
+   (x y dist prev)
+   #:methods gen:equal+hash
+   [
+    (define (equal-proc pos1 pos2 rec)
+      (and (= (kpos-x pos1) (kpos-x pos2))
+           (= (kpos-y pos1) (kpos-y pos2))))
+    (define (hash-proc pos rec)
+      (+ (arithmetic-shift (kpos-x pos) 5)
+         (kpos-y pos)))
+    (define (hash2-proc pos rec)
+      10001)
+    ])
+ 
+ 
+ (define (dist p1 p2)
+   (+ (abs ((kpos-x p1) . - . (kpos-x p2)))
+      (abs ((kpos-y p1) . - . (kpos-y p2)))))
+ 
+ (define (knight-good-moves target pos)
+   (define (closer? x)
+     ((dist x target) . < . (dist pos target)))
+   (define (proximate? x)
+     ((dist x target) . <= . 3))
+   (define (good? x)
+     (or (closer? x) (proximate? x)))
+ 
+   (for/fold ([res '()])
+     ([step (in-vector knight-steps)])
+     (define new-pos (kpos (+ (kpos-x pos) (car step))
+                           (+ (kpos-y pos) (cdr step))
+                           (add1 (kpos-dist pos))
+                           pos))
+     (if (good? new-pos)
+         (cons new-pos res)
+         res)))
+ 
+ (define (next-reach target reach)
+   (apply set (apply append (set-map reach
+                                     (lambda (pos)
+                                       (knight-good-moves target pos))))))
+ 
+ (define (pos->reach pos)
+   (set pos))
+ 
+ (define (reach tx ty x0 y0)
+   (let* ([initial-pos (kpos x0 y0 0 (void))]
+          [target-pos  (kpos tx ty 0 (void))]
+          [generate (lambda (r) (next-reach target-pos r))])
+     (let go ([r (pos->reach initial-pos)])
+       (if (set-member? r target-pos)
+           (let ([found
+                  (findf (lambda (x) (equal? x target-pos))
+                         (set->list r))])
+             (trace-back found))
+           (begin
+             (printf "Size is: ~a~n" (set-count r))
+             ;; Uncomment the next sexp.  Set traversing will hung
+             ;; up after showing 614 elements.
+             #;(when (= (set-count r) 724)
+                 (for ([p (in-set r)]
+                       [i (in-naturals)])
+                   (printf "~a. ~a~n" i p)))
+             (go (generate r)))))))
+ 
+ (define (trace-back pos)
+   (if (void? pos)
+       '()
+       (cons (cons (kpos-x pos) (kpos-y pos))
+             (trace-back (kpos-prev pos)))))
+ 
+ ;; Uncomment the next line to get a hung-up.
+ ;(reach 50 50 10 10)
+ 
+ ;; This is for command-line interface.
+ #;(match (current-command-line-arguments)
+     [(vector x0 y0 tx ty)
+      ((lambda ()
+         (apply reach (map string->number (list tx ty x0 y0)))))])
+ 
+ --047d7b5db26ae2d95104e783f6bb
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Seems I&#39;ve forgotten to paste the program itself, so h=
+ ere it is:<div><br></div><div><div>#lang racket/base</div><div><br></div><d=
+ iv>(require racket/list</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0racket/=
+ match</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0racket/set)</div>
+ <div><br></div><div>(define knight-steps #((1 =C2=A0. -2) (2 =C2=A0. -1) (2=
+  =C2=A0. 1) (1 =C2=A0. 2)</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0(-1 . -2) (-2 . -1) (-2 . 1) (-1 . 2)))</div><div><br></div><div>(str=
+ uct kpos</div><div>=C2=A0 (x y dist prev)</div>
+ <div>=C2=A0 #:methods gen:equal+hash</div><div>=C2=A0 [</div><div>=C2=A0 =
+ =C2=A0(define (equal-proc pos1 pos2 rec)</div><div>=C2=A0 =C2=A0 =C2=A0(and=
+  (=3D (kpos-x pos1) (kpos-x pos2))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 (=3D (kpos-y pos1) (kpos-y pos2))))</div><div>=C2=A0 =C2=A0(define (=
+ hash-proc pos rec)</div>
+ <div>=C2=A0 =C2=A0 =C2=A0(+ (arithmetic-shift (kpos-x pos) 5)</div><div>=C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 (kpos-y pos)))</div><div>=C2=A0 =C2=A0(define (has=
+ h2-proc pos rec)</div><div>=C2=A0 =C2=A0 =C2=A010001)</div><div>=C2=A0 =C2=
+ =A0])</div><div><br></div><div><br></div><div>(define (dist p1 p2)</div>
+ <div>=C2=A0 (+ (abs ((kpos-x p1) . - . (kpos-x p2)))</div><div>=C2=A0 =C2=
+ =A0 =C2=A0(abs ((kpos-y p1) . - . (kpos-y p2)))))</div><div><br></div><div>=
+ (define (knight-good-moves target pos)</div><div>=C2=A0 (define (closer? x)=
+ </div><div>=C2=A0 =C2=A0 ((dist x target) . &lt; . (dist pos target)))</div=
+ >
+ <div>=C2=A0 (define (proximate? x)</div><div>=C2=A0 =C2=A0 ((dist x target)=
+  . &lt;=3D . 3))</div><div>=C2=A0 (define (good? x)</div><div>=C2=A0 =C2=A0=
+  (or (closer? x) (proximate? x)))</div><div>=C2=A0=C2=A0</div><div>=C2=A0 (=
+ for/fold ([res &#39;()])</div><div>=C2=A0 =C2=A0 ([step (in-vector knight-s=
+ teps)])</div>
+ <div>=C2=A0 =C2=A0 (define new-pos (kpos (+ (kpos-x pos) (car step))</div><=
+ div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 (+ (kpos-y pos) (cdr step))</div><div>=C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (add1 (kpos-dist pos))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 pos))</div>
+ <div>=C2=A0 =C2=A0 (if (good? new-pos)</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 (cons new-pos res)</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 res)))</div><d=
+ iv><br></div><div>(define (next-reach target reach)</div><div>=C2=A0 (apply=
+  set (apply append (set-map reach</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 (lambda (pos)</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (knight-good=
+ -moves target pos))))))</div><div><br></div><div>(define (pos-&gt;reach pos=
+ )</div><div>=C2=A0 (set pos))</div><div><br></div><div>(define (reach tx ty=
+  x0 y0)</div><div>=C2=A0 (let* ([initial-pos (kpos x0 y0 0 (void))]</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[target-pos =C2=A0(kpos tx ty 0 (voi=
+ d))]</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0[generate (lambda (r) (nex=
+ t-reach target-pos r))])</div><div>=C2=A0 =C2=A0 (let go ([r (pos-&gt;reach=
+  initial-pos)])</div><div>=C2=A0 =C2=A0 =C2=A0 (if (set-member? r target-po=
+ s)</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (let ([found</div><div>=C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(findf (lambda (x) (equ=
+ al? x target-pos))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (set-&gt;list r))])</div><div>=C2=A0=
+  =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (trace-back found))</div><div>=C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 (begin</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (printf &quot;Size is: ~a~n&=
+ quot; (set-count r))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ;;=
+  Uncomment the next sexp. =C2=A0Set traversing will hung</div><div>=C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 ;; up after showing 614 elements.</div><=
+ div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 #;(when (=3D (set-count r) 72=
+ 4)</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (for ([p (in-s=
+ et r)]</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =
+ =C2=A0 =C2=A0 =C2=A0 [i (in-naturals)])</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=
+ =A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (printf &quot;~a. ~a~n&quot; i p)))<=
+ /div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (go (generate r)))))))<=
+ /div><div><br></div>
+ <div>(define (trace-back pos)</div><div>=C2=A0 (if (void? pos)</div><div>=
+ =C2=A0 =C2=A0 =C2=A0 &#39;()</div><div>=C2=A0 =C2=A0 =C2=A0 (cons (cons (kp=
+ os-x pos) (kpos-y pos))</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0=
+  (trace-back (kpos-prev pos)))))</div><div><br></div><div>;; Uncomment the =
+ next line to get a hung-up.</div>
+ <div>;(reach 50 50 10 10)</div><div><br></div><div>;; This is for command-l=
+ ine interface.</div><div>#;(match (current-command-line-arguments)</div><di=
+ v>=C2=A0 =C2=A0 [(vector x0 y0 tx ty)</div><div>=C2=A0 =C2=A0 =C2=A0((lambd=
+ a ()</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 (apply reach (map string-&gt;num=
+ ber (list tx ty x0 y0)))))])</div>
+ </div></div>
+ 
+ --047d7b5db26ae2d95104e783f6bb--
+
+Responsible changed from "nobody" to "cce" by samth at Sat, 05 Oct 2013 21:02:25 -0400
+Reason>>> generic sets
+

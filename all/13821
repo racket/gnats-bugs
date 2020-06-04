@@ -1,0 +1,168 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jun  5 15:19:20 2013
+Received: from mail-oa0-f44.google.com (mail-oa0-f44.google.com [209.85.219.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r55JJFOH012709
+	for <bugs@bugs.plt-scheme.org>; Wed, 5 Jun 2013 15:19:16 -0400
+Message-Id: <201306051919.r55JJDsC012703@champlain.ccs.neu.edu>
+Date: Wed, 5 Jun 2013 15:19:13 -0400
+From: neil.toronto@gmail.com
+To: bugs@racket-lang.org
+Subject: TR: recursive, polymorphic types apparently hang the type checker (fer reals this time)
+
+>Number:         13821
+>Category:       all
+>Synopsis:       TR: recursive, polymorphic types apparently hang the type checker (fer reals this time)
+>Class:          sw-bug
+>Responsible:    asumu
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jun 05 15:20:01 -0400 2013
+>Closed-Date:    Fri Jun 07 15:14:33 -0400 2013
+>Last-Modified:  Fri Jun 07 15:14:33 -0400 2013
+>Originator:     Neil Toronto
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4.5--2013-04-25(b5b13222/d)
+>Environment:
+unix "Linux schroder 3.2.0-44-generic #69-Ubuntu SMP Thu May 16 17:35:01 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 640401944
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.4.5):
+ [none]
+
+
+
+Collections:
+("/home/neil/.racket/5.3.4.5/collects"
+ (non-existent-path))
+("/home/neil/plt/collects"
+ ("wxme" "texpict" "compiler" "typed" "games" "algol60" "browser" "file" "readline" "dynext" "scribblings" "mzcom" "compatibility" "trace" "profile" "data" "sirmail" "json" "parser-tools" "math" "tex2page" "scriblib" "swindle" "schemeunit" "r6rs" "xrepl" "mzlib" "handin-client" "repo-time-stamp" "mysterx" "mrlib" "scheme" "combinator-parser" "html" "test-engine" "planet2" "version" ".gitignore" "make" "ffi" "mzscheme" "picturing-programs" "hierlist" "teachpack" "at-exp" "lazy" "scribble" "openssl" "defaults" "racket" "handin-server" "2htdp" "drscheme" "help" "eopl" "racklog" "drracket" "realm" "icons" "db" "errortrace" "preprocessor" "rackunit" "rnrs" "string-constants" "meta" "slatex" "graphics" "redex" "reader" "plai" "honu" "config" "stepper" "frtime" "unstable" "r5rs" "planet" "tests" "s-exp" "embedded-gui" "info-domain" "syntax" "launcher" "typed-scheme" "syntax-color" "srfi" "test-box-recovery" "xml" "images" "future-visualizer" "plot" "datalog" "sgl" "htdp" "setup" "l!
+ ang" "raco" "gui-debugger" "framework" "web-server" "deinprogramm" "slideshow" "macro-debugger" "typed-racket" "net" "mred" "pkg"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t none) (default) #() "#lang racket\n" #t #f ((main) (test))))
+>Description:
+I think it may actually be super-quadratic asymptotic complexity, but I wasn't willing to wait for more than two minutes and 700MB used to find out.
+
+The program in reproduction steps apparently hangs the type checker. Changing to this:
+
+  (define-type (ISet X) (U (union X) (Setof X)))
+
+allows it to finish quickly (appx. TR's startup time). Changing to this:
+
+  (define-type (ISet X) (U (union X) (intersection X) (Setof X)))
+
+makes type checking take 7 seconds on my machine.
+
+Other things that allow type checking to finish quickly:
+
+ * Commenting out (union? A) in `iset->set'
+
+ * Removing all polymorphism.
+>How-To-Repeat:
+#lang typed/racket
+
+(struct: (X) union ([fst : (ISet X)] [snd : (ISet X)]) #:transparent)
+(struct: (X) intersection ([fst : (ISet X)] [snd : (ISet X)]) #:transparent)
+(struct: (X) complement ([fst : (ISet X)] [snd : (ISet X)]) #:transparent)
+(define-type (ISet X) (U (union X) (intersection X) (complement X) (Setof X)))
+
+(: iset->set (All (X) ((ISet X) -> (Setof X))))
+(define (iset->set A)
+  (union? A)
+  (error 'unimplemented))
+>Fix:
+>Audit-Trail:
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13821: TR: recursive, polymorphic types
+ apparently hang the type checker (fer reals this time)
+Date: Wed, 5 Jun 2013 17:46:42 -0400
+
+ On 2013-06-05 15:20:02 -0400, neil.toronto@gmail.com wrote:
+ > #lang typed/racket
+ >
+ > (struct: (X) union ([fst : (ISet X)] [snd : (ISet X)]) #:transparent)
+ > (struct: (X) intersection ([fst : (ISet X)] [snd : (ISet X)]) #:transparent)
+ > (struct: (X) complement ([fst : (ISet X)] [snd : (ISet X)]) #:transparent)
+ > (define-type (ISet X) (U (union X) (intersection X) (complement X) (Setof X)))
+ >
+ > (: iset->set (All (X) ((ISet X) -> (Setof X))))
+ > (define (iset->set A)
+ >   (union? A)
+ >   (error 'unimplemented))
+ 
+ The problem is also reproducible with just `(union? 5)` without the
+ function definition on my machine.
+ 
+ I'm also hypothesizing that type resolution caching may have something
+ to do with it. If you launch a REPL with just the type definitions
+ above, you can get a session like this:
+ 
+   > (union? 5)
+   ... hangs ...
+ 
+   Fresh REPL:
+ 
+   > (union? #f) ; slow, but finishes
+   #f
+   > (union? 5)  ; instantaneous
+   #f
+ 
+ This suggests that doing the type-checking for the #f case may be doing
+ some of the work that prevents the 5 case from getting stuck. Not sure
+ how exactly.
+ 
+ Cheers,
+ Asumu
+From: Asumu Takikawa <asumu@ccs.neu.edu>
+To: neil.toronto@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13821: TR: recursive, polymorphic types
+ apparently hang the type checker (fer reals this time)
+Date: Fri, 7 Jun 2013 13:23:58 -0400
+
+ On 2013-06-05 17:46:42 -0400, Asumu Takikawa wrote:
+ > I'm also hypothesizing that type resolution caching may have something
+ > to do with it. If you launch a REPL with just the type definitions
+ > above, you can get a session like this:
+ 
+ I made some progress on figuring out what's going wrong. It seems that
+ the cause of the infinite loop is due to type instantiation.
+ 
+ If you try to instantiate `union` like `(union Y)`, then you end up
+ traversing the type substituting the type variable. When you do that,
+ the traversal hits `(U (union X) ...)` and instantiates it to
+ `(U (union Y) ...)`.
+ 
+ When it does that, the `U` type will check if any of the union elements
+ are subtypes in order to compress the union. Checking this subtyping on
+ a type application like `(union Y)` will do the substitution again and
+ this completes the loop.
+ 
+ I don't know how to fix it yet.
+ 
+ Cheers,
+ Asumu
+Responsible changed from "nobody" to "asumu" by asumu@racket-lang.org at Fri, 07 Jun 2013 15:14:33 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c8e281a80e
+State changed from "open" to "closed" by asumu@racket-lang.org at Fri, 07 Jun 2013 15:14:33 -0400
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c8e281a80e
+  | Fix union merging
+  | 
+  | Trying to merge (and thus resolve) applications of struct
+  | types would cause infinite looping on type instantiation
+  | if the struct type used both a union and recursion.
+  | 
+  | Closes PR 13821
+

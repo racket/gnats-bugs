@@ -1,0 +1,124 @@
+From jos.koot@tiscali.nl Wed Sep  7 16:31:30 2005
+Received: from localhost (xs195-241-170-152.dial.tiscali.nl [195.241.170.152])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j87KVAZS028922
+	for <bugs>; Wed, 7 Sep 2005 16:31:14 -0400
+Message-Id: <200509072031.j87KVAZS028922@champlain.ccs.neu.edu>
+Date: Wed, 7 Sep 2005 16:31:10 -0400
+From: Jos Koot <jos.koot@tiscali.nl>
+To: bugs@plt-scheme.org
+Subject: how to define a syntax producing syntax containing refs to local vars of the code in which the syntax is used?
+
+>Number:         7569
+>Category:       mzscheme
+>Synopsis:       how to define a syntax producing syntax containing refs to local vars of the code in which the syntax is used?
+>Class:          not-a-bug
+>Responsible:    eli
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Sep 07 16:35:01 -0400 2005
+>Last-Modified:  Tue Sep 13 19:32:25 -0400 2005
+>Originator:     Jos Koot
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        209
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 16
+Docs Installed:
+("C:\\Program Files\\PLT\\collects\\doc\\web-server" "C:\\Program Files\\PLT\\collects\\doc\\tour" "C:\\Program Files\\PLT\\collects\\doc\\tools" "C:\\Program Files\\PLT\\collects\\doc\\tex2page" "C:\\Program Files\\PLT\\collects\\doc\\teachpack" "C:\\Program Files\\PLT\\collects\\doc\\t-y-scheme" "C:\\Program Files\\PLT\\collects\\doc\\swindle" "C:\\Program Files\\PLT\\collects\\doc\\srfi" "C:\\Program Files\\PLT\\collects\\doc\\r5rs" "C:\\Program Files\\PLT\\collects\\doc\\profj-intermediate" "C:\\Program Files\\PLT\\collects\\doc\\profj-beginner" "C:\\Program Files\\PLT\\collects\\doc\\profj-advanced" "C:\\Program Files\\PLT\\collects\\doc\\plot" "C:\\Program Files\\PLT\\collects\\doc\\mzscheme" "C:\\Program Files\\PLT\\collects\\doc\\mzlib" "C:\\Program Files\\PLT\\collects\\doc\\mzc" "C:\\Program Files\\PLT\\collects\\doc\\mred" "C:\\Program Files\\PLT\\collects\\doc\\misclib" "C:\\Program Files\\PLT\\collects\\doc\\intermediate-lambda" "C:\\Program Files\\PLT\\collects\\doc\\intermediate" "C:\\Program Files\\PLT\\collects\\doc\\insidemz" "C:\\Program Files\\PLT\\collects\\doc\\help" "C:\\Program Files\\PLT\\collects\\doc\\framework" "C:\\Program Files\\PLT\\collects\\doc\\drscheme" "C:\\Program Files\\PLT\\collects\\doc\\beginning-abbr" "C:\\Program Files\\PLT\\collects\\doc\\beginning" "C:\\Program Files\\PLT\\collects\\doc\\advanced")
+Collections: 
+(("C:\\Documents and Settings\\HP_Eigenaar\\Application Data\\PLT Scheme\\209\\collects" ("matlab-interface")) ("C:\\Program Files\\PLT\\collects" ("afm" "algol60" "browser" "compiler" "defaults" "doc" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "framework" "frtime" "games" "graphics" "help" "hierlist" "htdch" "htdp" "html" "icons" "koot" "lang" "launcher" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "setup" "sgl" "slatex" "slibinit" "slideshow" "srfi" "ssax" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "test-suite" "tex2page" "texpict" "trace" "version" "web-server" "xml")))
+ 
+Human Language: english
+ 
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Pretty Big (includes MrEd and Advanced)") #6(#f write mixed-fraction-e #f #t debug))
+>Description:
+Hi,
+See steps to reproduce for a stripped version of my problem.
+I want to prepare a helper syntax called `check' to be used in
+the body of a tranformer procedure. Check can be made in a
+separate module that is required for syntax, but such a check
+does not see local vars of the transformer (unless they are
+mentioned in the check-form)
+What is the best way to proceed in order to make a syntax check that
+(1) can be used in a transformer procedure and
+(2) can produce syntax containing refs to local vars of the tranformer
+without these vars being part of the check-form?
+Thanks in advance,
+Jos Koot
+
+ 
+>How-To-Repeat:
+;(module check mzscheme ; gives error because `swap-syntax-error' is not bound
+; (provide check)
+; (define-syntax check
+;  (syntax-rules ()
+;   ((check cond ... str subexpr)
+;    (or (and cond ...) (swap-syntax-error str subexpr))))))
+                
+(module check mzscheme ; does work, but is not elegant to my taste.
+ (provide check)
+ (require (lib "defmacro.ss"))
+ (define-macro check
+  (lambda x
+   (let ((x (reverse x)))
+    (let ((subexpr (car x)) (str (cadr x)) (cond (reverse (cddr x))))
+    `(or (and ,@cond) (swap-syntax-error ,str ,subexpr)))))))
+
+(module swap mzscheme
+ (provide swap)
+ (require-for-syntax check)
+ (define-syntax (swap stx)
+; (let-syntaxes       ; Does not work because no #%app syntax transformer is bound.
+;  (((check)          ; Something lik this is what I prefer, i.e. a syntax definition
+;    (syntax-rules () ; within the present module working in the transformer environment.
+;     ((check cond ... str subexpr)
+;      (or (and cond ...)
+;       (raise-syntax-error #f str stx subexpr))))))
+   (define (swap-syntax-error str subexpr)
+    (raise-syntax-error #f str stx subexpr))
+   (syntax-case stx ()
+    ((trafo a b)
+     (let ((stx-a (syntax a)) (stx-b (syntax b)))
+      (check (identifier? stx-a) "identifier expected" stx-a)
+      (check (identifier? stx-b) "this is not an identifier" stx-b)
+      (syntax (begin (let ((temp a)) (set! a b) (set! b temp)))))))));)
+
+(require swap)
+(define a 1)
+(define b 2)
+(swap a b)
+(list a b) ; --> (2 1)
+>Fix:
+>Audit-Trail:
+From: "jos koot" <jos.koot@tiscali.nl>
+To: <bugs@plt-scheme.org>, <jos.koot@tiscali.nl>
+Cc: 
+Subject: Re: all/7569: how to define a syntax producing syntax containing refs to local vars of the code in which the syntax is used?
+Date: Fri, 9 Sep 2005 00:23:36 +0200
+
+ Hi,
+ In a flash I saw the (or a?) answer to my question: (datum->syntax-object 
+ context-stx symbol)
+ My question apperas to have been a trivial one after all. Sorry to have 
+ bothered you with it.
+ Greetings, Jos.
+ 
+ ((((lambda(x)((((((x x)x)x)x)x)x))
+    (lambda(x)(lambda(y)(x(x y)))))
+   (lambda(x)(write x)x))
+  "PLT IS GREAT") 
+ 
+
+Class changed from "support" to "not-a-bug" by eli at Tue, 13 Sep 2005 19:32:25 -0400
+Reason>>> Not a bug.
+
+Responsible changed from "nobody" to "eli" by eli at Tue, 13 Sep 2005 19:32:25 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by eli at Tue, 13 Sep 2005 19:32:25 -0400
+Reason>>> Not a bug
+

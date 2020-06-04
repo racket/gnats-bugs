@@ -1,0 +1,183 @@
+From neil@neilvandyke.org  Sat Mar 15 21:04:18 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id VAA14310
+	for <bugs>; Sat, 15 Mar 2003 21:04:18 -0500
+Message-Id: <200303160204.VAA14310@champlain.ccs.neu.edu>
+Date: Sat, 15 Mar 2003 21:04:18 -0500
+From: "Neil W. Van Dyke" <neil@neilvandyke.org>
+To: bugs@plt-scheme.org
+Subject: string->url rejects some valid urls and mishandles user component
+
+>Number:         6152
+>Category:       misc
+>Synopsis:       string->url rejects some valid urls and mishandles user component
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sat Mar 15 21:05:00 EST 2003
+>Closed-Date:    Thu Apr 17 13:20:05 EDT 2003
+>Last-Modified:  Thu Apr 17 13:20:05 EDT 2003
+>Originator:     Neil W. Van Dyke
+>Release:        203.6
+>Organization:
+plt
+>Environment:
+unix "Linux winona 2.2.20 #1 Wed May 29 05:19:18 EDT 2002 i686 unknown unknown GNU/Linux" (i386-linux)
+
+Docs installed:
+("help" "mzscheme" "mzlib" "CVS" "drscheme" "insidemz" "misclib" "mzc" "r5rs" "t-y-scheme" "tex2page" "tools" "mred" "framework")
+
+Collections:
+(("/home/neil/plt/collects" ("CVS" "afm" "algol60" "doc" "browser" "ssax" "xml-tool" "compiler" "xml-lang" "cvs-time-stamp" "excess" "defaults" "sxpath" "backward" "browser2" "drscheme" "cogen" "dynext" "eopl" "errortrace" "countdwn" "framework" "games" "graphics" "debug" "drjava" "dromedary" "help" "drscheme-jr" "gusrspce" "hierlist" "htdp" "html" "file-browser" "icons" "java" "lang" "launcher" "make" "mrdemo" "mred" "mrflow" "helpdoc" "mysterx" "mzcom" "mrspidey" "mzlib" "mzos" "mzscheme" "net" "guibuilder" "guserspce" "parser-tools" "hierarchy" "readline" "html-generate" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "mzdynext" "test" "string-constants" "syntax" "newspidey" "tests" "tex2page" "texpict" "typeset" "system" "version" "waterworld" "web-server" "xml" "ollie-world" "quasiquote" "release-notes" "stepper-graphical" "userspce" "zodiac" "icfp-robot-gui" "robotclient" "mrlib" "srfi" "sxml" "python" "test-suite" "reduction-semantics" "sgl" "slib" "finish-install" "htmlprag" "drj" "openssl" "xelda" "sml" "spgsql" "libsndfile")))
+
+Human language: english
+Computer language: ("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)")
+>Description:
+string->url rejects some valid URLs, including those that
+have semicolon in the query part.  The cause is the use of
+first-position-of-marker for segmenting the input.
+(Incidentally, it appears the marker-locations vector\
+in url-unit.ss can be shared unsafely.)
+
+url->string also seems to mishandle the user@host URL
+syntax, treating it all as the host component. (Currently
+the url struct doesn't have a separate representation for
+the user component.)
+
+I couldn't find a few-line bug fix for the first issue, so
+I tried writing a drop-in replacement string->url for my
+own purposes.  The following regexp-based one is by no
+means optimal, and has not been heavily tested, but it
+it illustrates one grammar that accepts the URL special
+characters more liberally without incorrectly parsing
+valid URLs.
+
+Note that it currently does no validation of the path
+component, and may have other regressions.
+
+(define string->url
+  (let ((rx (regexp (string-append
+                     "^"
+                     "[ \t\f\r\n]*"
+                     "("                ; <1  front-opt
+                     "([a-zA-Z]*:)?"    ; =2  scheme-colon-opt
+                     "("                ; <3  slashslash-opt
+                     "//"
+                     "([^:/@;?#]*@)?"   ; =4  user-at-opt
+                     "([^:/@;?#]*)?"    ; =5  host
+                     "(:[0-9]*)?"       ; =6  colon-port-opt
+                     ")"                ; >3  slashslash-opt
+                     ")"                ; >1  front-opt
+                     "([^;?#]*)"        ; =7  path
+                     "(;[^?#]*)?"       ; =8  semi-parms-opt
+                     "(\\?[^#]*)?"      ; =9  question-query-opt
+                     "(#.*)?"           ; =10 hash-fragment-opt
+                     "[ \t\f\r\n]*"
+                     "$"))))
+    (lambda (str)
+      (let ((match (regexp-match-positions rx str)))
+        (if match
+            (let* ((get-str (lambda (pos skip-left skip-right)
+                              (let ((pair (list-ref match pos)))
+                                (if pair
+                                    (substring str
+                                               (+ (car pair) skip-left)
+                                               (- (cdr pair) skip-right))
+                                    #f))))
+                   (get-num (lambda (pos skip-left skip-right)
+                              (let ((s (get-str pos skip-left skip-right)))
+                                (if s (string->number s) #f)))))
+              (make-url (get-str 2  0 1) ; scheme
+                        (get-str 5  0 0) ; host
+                        (get-num 6  1 0) ; port
+                        (get-str 7  0 0) ; path
+                        (get-str 8  1 0) ; params
+                        (get-str 9  1 0) ; query
+                        (get-str 10 1 0) ; fragment
+                        ))
+            (url-error "Invalid URL string: ~s" string))))))
+>How-To-Repeat:
+(string->url "http://foo/xxx?yyy=ppp;qqq")
+Invalid URL string: "http://foo/xxx?yyy=ppp;qqq"
+
+(string->url "http://user@host/")
+#(struct:url "http" "user@host" #f "/" #f #f #f)
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: "Neil W. Van Dyke" <neil@neilvandyke.org>
+To: bugs@plt-scheme.org, steck@ccs.neu.edu
+Cc:  
+Subject: Re: all/6152: string->url rejects some valid urls and mishandles user component
+Date: Sat, 15 Mar 2003 23:26:01 -0500
+
+ A couple fixes to that code:
+ 
+   (define string->url
+     (let ((rx (regexp (string-append
+                        "^"
+                        "[ \t\f\r\n]*"
+                        "("                ; <1  front-opt
+                        "([a-zA-Z]*:)?"    ; =2  scheme-colon-opt
+                        "("                ; <3  slashslash-opt
+                        "//"
+                        "([^:/@;?#]*@)?"   ; =4  user-at-opt
+                        "([^:/@;?#]+)?"    ; =5  host-opt
+                        "(:[0-9]*)?"       ; =6  colon-port-opt
+                        ")?"               ; >3  slashslash-opt
+                        ")?"               ; >1  front-opt
+                        "([^;?#]*)"        ; =7  path
+                        "(;[^?#]*)?"       ; =8  semi-parms-opt
+                        "(\\?[^#]*)?"      ; =9  question-query-opt
+                        "(#.*)?"           ; =10 hash-fragment-opt
+                        "[ \t\f\r\n]*"
+                        "$"))))
+       (lambda (str)
+         (let ((match (regexp-match-positions rx str)))
+           (if match
+               (let* ((get-str (lambda (pos skip-left skip-right)
+                                 (let ((pair (list-ref match pos)))
+                                   (if pair
+                                       (substring str
+                                                  (+ (car pair) skip-left)
+                                                  (- (cdr pair) skip-right))
+                                       #f))))
+                      (get-num (lambda (pos skip-left skip-right)
+                                 (let ((s (get-str pos skip-left skip-right)))
+                                   (if s (string->number s) #f)))))
+                 (make-url (get-str 2  0 1) ; scheme
+                           (get-str 5  0 0) ; host
+                           (get-num 6  1 0) ; port
+                           (get-str 7  0 0) ; path
+                           (get-str 8  1 0) ; params
+                           (get-str 9  1 0) ; query
+                           (get-str 10 1 0) ; fragment
+                           ))
+               (url-error "Invalid URL string: ~s" str))))))
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Thu Apr 17 13:20:05 2003
+Responsible-Changed-Why:
+    net
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Thu Apr 17 13:20:05 2003
+State-Changed-Why:
+    Hi Neil,
+    
+    We put your code (with a few changes) into url-unit.ss. There's
+    a new url/user struct that provides the user information as well
+    as all of the old information. Let me know if you have opinions
+    on the changes.
+    
+    Thanks!
+    Matthew
+>Unformatted:
+

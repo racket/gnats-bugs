@@ -1,0 +1,232 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Feb 23 00:29:47 2015
+Received: from mail-oi0-f47.google.com (mail-oi0-f47.google.com [209.85.218.47])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t1N5TgTP030072
+	for <bugs@bugs.plt-scheme.org>; Mon, 23 Feb 2015 00:29:43 -0500
+Message-Id: <201502230529.t1N5TdI3030055@winooski.ccs.neu.edu>
+Date: Mon, 23 Feb 2015 00:29:39 -0500
+From: wekhslxm@sharklasers.com
+To: bugs@racket-lang.org
+Subject: Inexplicable "unbound identifier in module" when using scribble/lp 
+
+>Number:         14988
+>Category:       all
+>Synopsis:       Inexplicable "unbound identifier in module" when using scribble/lp
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Feb 23 00:32:01 -0500 2015
+>Last-Modified:  Tue Feb 24 03:08:01 -0500 2015
+>Originator:     Mack
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4
+>Environment:
+Win32 / Mozilla/5.0 (Windows NT 6.1; rv:24.0) Gecko/20100101 Firefox/24.0
+>Description:
+A simple program that contains macros claims there's an undefined symbol when the program is compiled with #lang scribble/lp, but compiles with no errors when the Scribble markup is deleted and #lang racket is used.
+>How-To-Repeat:
+Try to (require) this module:
+
+#lang scribble/lp
+@chunk[<everything>
+
+       (define-for-syntax (stx-prepend symbol stx)
+	 (datum->syntax stx
+		      (string->symbol
+		       (string-append (symbol->string symbol) (symbol->string (syntax->datum stx))))))
+       (define-for-syntax (stx-append stx symbol)
+	 (datum->syntax stx
+			(string->symbol
+			 (string-append (symbol->string (syntax->datum stx))
+					(symbol->string symbol)))))
+
+
+(define-syntax with-finalizer
+  (syntax-rules (=)
+    ((_ (binding = value-form) . cleanup-body)
+     (let ((v value-form)
+           (executor (make-will-executor)))
+       (will-register executor v
+                      (λ (binding) . cleanup-body))
+       (thread (λ () (will-execute executor)))
+       v))))
+
+(define-syntax define-finalized-struct (λ (stx)
+	(syntax-case stx (construct-by free-function)
+	  ((_ struct-name member-name wrapper-name
+	      construct-by c-constructor-form
+	      free-function c-free-name)
+	   (let ((make-struct (stx-prepend 'make- #`struct-name))
+		 (accessor (stx-append #`struct-name (syntax->datum (stx-prepend '- #`member-name)))))
+	     #`(begin
+		 (define-struct struct-name (member-name) #:mutable)
+		 (define (wrapper-name)
+		   (let ((value (#,make-struct c-constructor-form)))
+		     (cond ((= (#,accessor value) 0)
+			    (error (ERR_error_string (ERR_get_error) #f)))
+			   (else
+			    (with-finalizer (pointer = value)
+					    (c-free-name (#,accessor pointer)))
+			    value))))))))))
+
+(define (ERR_error_string errnum) "foo!")
+(define (ERR_get_error) 0)
+(define (malloc) #f)
+(define (free f) #f)
+
+(define-finalized-struct foobar value make-foobar-pointer
+	 construct-by (malloc)
+	 free-function free)
+]
+>Fix:
+>Audit-Trail:
+From: <dy4wd9s+aelntg@guerrillamail.com>
+To: "bugs@racket-lang.org" <bugs@racket-lang.org>
+Cc: 
+Subject: Re: all/14988: Inexplicable "unbound identifier in module" when using scribble/lp
+Date: Mon, 23 Feb 2015 07:57:19 +0000
+
+ I've found a shorter program to reproduce the problem. Essentially, if you use (unsyntax expr) within a (quasisyntax), variables that were defined outside the quasisyntax form will not be in the scope of the expr:
+ 
+ #lang scribble/lp
+ 
+ @chunk[
+ 
+ (define-syntax foobar
+   (λ (stx)
+     (syntax-case
+       ((_)
+        (let ((should-be-defined (syntax 'foo!)))
+           (quasisyntax (unsyntax should-be-defined)))))))
+ 
+ ]
+ 
+ You'll get "unbound identifier in module" for the "should-be-defined" variable.
+ 
+ 
+ 
+ 
+ 
+ ----
+ Sent using GuerrillaMail.com
+ Block or report abuse: https://www.guerrillamail.com/abuse/?a=Q1RzFi0SQrcejRr5%2FH8RdVrIX80%3D
+ 
+ 
+ 
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: wekhslxm@sharklasers.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14988: Inexplicable "unbound identifier in module" when using scribble/lp
+Date: Mon, 23 Feb 2015 20:09:25 -0700
+
+ The problem is that #, --- which is a shorthand for `unsyntax` --- is
+ an escape marker for `chunk`. That is, it escapes from the whole
+ `chunk` form, while you intended to only escape from the #`.
+ 
+ To avoid the special treatment of `unsyntax`, you can use `CHUNK`. The
+ escape form for `CHUNK` is `UNSYNTAX` (which has no shorthand).
+ 
+ 
+ Just in case: After changing `chunk` to `CHUNK`, you'll need to add
+ 
+  (require (for-syntax racket/base))
+ 
+ 
+ At Mon, 23 Feb 2015 00:32:02 -0500, wekhslxm@sharklasers.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14988
+ > 
+ > Reported by Mack for release: 5.3.4
+ > 
+ > *** Description:
+ > A simple program that contains macros claims there's an undefined symbol when 
+ > the program is compiled with #lang scribble/lp, but compiles with no errors 
+ > when the Scribble markup is deleted and #lang racket is used.
+ > 
+ > *** How to repeat:
+ > Try to (require) this module:
+ > 
+ > #lang scribble/lp
+ > @chunk[<everything>
+ > 
+ >        (define-for-syntax (stx-prepend symbol stx)
+ > 	 (datum->syntax stx
+ > 		      (string->symbol
+ > 		       (string-append (symbol->string symbol) (symbol->string 
+ > (syntax->datum stx))))))
+ >        (define-for-syntax (stx-append stx symbol)
+ > 	 (datum->syntax stx
+ > 			(string->symbol
+ > 			 (string-append (symbol->string (syntax->datum stx))
+ > 					(symbol->string symbol)))))
+ > 
+ > 
+ > (define-syntax with-finalizer
+ >   (syntax-rules (=)
+ >     ((_ (binding = value-form) . cleanup-body)
+ >      (let ((v value-form)
+ >            (executor (make-will-executor)))
+ >        (will-register executor v
+ >                       (Î» (binding) . cleanup-body))
+ >        (thread (Î» () (will-execute executor)))
+ >        v))))
+ > 
+ > (define-syntax define-finalized-struct (Î» (stx)
+ > 	(syntax-case stx (construct-by free-function)
+ > 	  ((_ struct-name member-name wrapper-name
+ > 	      construct-by c-constructor-form
+ > 	      free-function c-free-name)
+ > 	   (let ((make-struct (stx-prepend 'make- #`struct-name))
+ > 		 (accessor (stx-append #`struct-name (syntax->datum 
+ > (stx-prepend '- #`member-name)))))
+ > 	     #`(begin
+ > 		 (define-struct struct-name (member-name) #:mutable)
+ > 		 (define (wrapper-name)
+ > 		   (let ((value (#,make-struct c-constructor-form)))
+ > 		     (cond ((= (#,accessor value) 0)
+ > 			    (error (ERR_error_string (ERR_get_error) #f)))
+ > 			   (else
+ > 			    (with-finalizer (pointer = value)
+ > 					    (c-free-name (#,accessor pointer)))
+ > 			    value))))))))))
+ > 
+ > (define (ERR_error_string errnum) "foo!")
+ > (define (ERR_get_error) 0)
+ > (define (malloc) #f)
+ > (define (free f) #f)
+ > 
+ > (define-finalized-struct foobar value make-foobar-pointer
+ > 	 construct-by (malloc)
+ > 	 free-function free)
+ > ]
+ > 
+ > *** Environment:
+ > Win32 / Mozilla/5.0 (Windows NT 6.1; rv:24.0) Gecko/20100101 Firefox/24.0
+ 
+From: <dy4wd9s+aelntg@guerrillamail.com>
+To: "bugs@racket-lang.org" <bugs@racket-lang.org>
+Cc: 
+Subject: Re: all/14988: Inexplicable "unbound identifier in module" when using scribble/lp
+Date: Tue, 24 Feb 2015 08:06:42 +0000
+
+ Apparently there is no such thing as CHUNK:
+ 
+  CHUNK: unbound identifier in module
+    in: CHUNK
+ 
+ 
+ 
+ 
+ 
+ ----
+ Sent using GuerrillaMail.com
+ Block or report abuse: https://www.guerrillamail.com/abuse/?a=Q1RzFi0SQrcejRr5%2FH8RdVrIX80%3D
+ 
+ 
+ 
+ 

@@ -1,0 +1,212 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Jun 25 02:31:38 2014
+Received: from mail-oa0-f43.google.com (mail-oa0-f43.google.com [209.85.219.43])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s5P6VZn3019813
+	for <bugs@bugs.plt-scheme.org>; Wed, 25 Jun 2014 02:31:36 -0400
+Message-Id: <201406250631.s5P6VXP9019806@winooski.ccs.neu.edu>
+Date: Wed, 25 Jun 2014 02:31:33 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: Racket pegs cpu at 100% system when trying to output to blocked pipe
+
+>Number:         14596
+>Category:       all
+>Synopsis:       Racket pegs cpu at 100% system when trying to output to blocked pipe
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Jun 25 02:32:01 -0400 2014
+>Closed-Date:    Wed Jun 25 05:03:45 -0400 2014
+>Last-Modified:  Wed Jun 25 05:03:45 -0400 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+>Description:
+I am running a program which is outputing a bunch of logs (using racket/trace) and piping that to less. While slowing going through the output I notice that my computer is churning away and racket is using almost a single core and it is mostly in the system (according to activity monitor).
+
+OS = Mac OSX 10.9.2
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14596: Racket pegs cpu at 100% system when trying to output to blocked pipe
+Date: Wed, 25 Jun 2014 08:20:31 +0100
+
+ At Wed, 25 Jun 2014 02:32:02 -0400, eric.n.dobson@gmail.com wrote:
+ > I am running a program which is outputing a bunch of logs (using racket/trace) 
+ > and piping that to less. While slowing going through the output I notice that 
+ > my computer is churning away and racket is using almost a single core and it is 
+ > mostly in the system (according to activity monitor).
+ > 
+ > OS = Mac OSX 10.9.2
+ 
+ I'm able to replicate this problem on Mac OS X 10.9 and 10.8, but not
+ on 10.6 or Linux. It appears to be a bug in the OS, but maybe I'm
+ overlooking something.
+ 
+ The program below is a stand-lone illustration of the problem. If you
+ pipe the program's stdout to `more` and don't advance, then the program
+ should exit right away. On Mac OS X 10.9 and 10.8, it spins forever.
+ 
+ ----------------------------------------
+ #include <sys/select.h>
+ #include <unistd.h>
+ #include <errno.h>
+ #include <stdio.h>
+ #include <fcntl.h>
+ 
+ /* 1 is stdout */
+ #define FILEDESC 1
+ 
+ int is_ready_to_write()
+ {
+   int r;
+   fd_set fds;
+   struct timeval timeout = {0, 0};
+ 
+   FD_ZERO(&fds);
+   FD_SET(FILEDESC, &fds);
+ 
+   do {
+     /* This select() is returning 1 too often: */
+     r = select(FILEDESC+1, NULL, &fds, NULL, &timeout);
+   } while ((r == -1) && (errno == EINTR));
+ 
+   return (r > 0);
+ }
+ 
+ int try_write_nonblocking()
+ {
+   int len, errsaved, flags;
+ 
+   flags = fcntl(FILEDESC, F_GETFL, 0);
+   fcntl(FILEDESC, F_SETFL, flags | O_NONBLOCK);
+   
+   do {
+     len = write(FILEDESC, "something\n", 10);
+   } while ((len == -1) && (errno == EINTR));
+   
+   errsaved = errno;
+   fcntl(FILEDESC, F_SETFL, flags);
+   
+   return (len >= 0) || (errsaved != EAGAIN);
+ }
+ 
+ int main()
+ {
+   while (try_write_nonblocking()) {}
+ 
+   while (is_ready_to_write()) {}
+ }
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org, nobody@racket-lang.org,
+        bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14596: Racket pegs cpu at 100% system when trying to output to blocked pipe
+Date: Wed, 25 Jun 2014 08:33:13 +0100
+
+ ... and so I'm looking into switching the Mac OS X configuration to use
+ poll().
+ 
+ At Wed, 25 Jun 2014 08:20:31 +0100, Matthew Flatt wrote:
+ > At Wed, 25 Jun 2014 02:32:02 -0400, eric.n.dobson@gmail.com wrote:
+ > > I am running a program which is outputing a bunch of logs (using 
+ > racket/trace) 
+ > > and piping that to less. While slowing going through the output I notice that 
+ > > my computer is churning away and racket is using almost a single core and it 
+ > is 
+ > > mostly in the system (according to activity monitor).
+ > > 
+ > > OS = Mac OSX 10.9.2
+ > 
+ > I'm able to replicate this problem on Mac OS X 10.9 and 10.8, but not
+ > on 10.6 or Linux. It appears to be a bug in the OS, but maybe I'm
+ > overlooking something.
+ > 
+ > The program below is a stand-lone illustration of the problem. If you
+ > pipe the program's stdout to `more` and don't advance, then the program
+ > should exit right away. On Mac OS X 10.9 and 10.8, it spins forever.
+ > 
+ > ----------------------------------------
+ > #include <sys/select.h>
+ > #include <unistd.h>
+ > #include <errno.h>
+ > #include <stdio.h>
+ > #include <fcntl.h>
+ > 
+ > /* 1 is stdout */
+ > #define FILEDESC 1
+ > 
+ > int is_ready_to_write()
+ > {
+ >   int r;
+ >   fd_set fds;
+ >   struct timeval timeout = {0, 0};
+ > 
+ >   FD_ZERO(&fds);
+ >   FD_SET(FILEDESC, &fds);
+ > 
+ >   do {
+ >     /* This select() is returning 1 too often: */
+ >     r = select(FILEDESC+1, NULL, &fds, NULL, &timeout);
+ >   } while ((r == -1) && (errno == EINTR));
+ > 
+ >   return (r > 0);
+ > }
+ > 
+ > int try_write_nonblocking()
+ > {
+ >   int len, errsaved, flags;
+ > 
+ >   flags = fcntl(FILEDESC, F_GETFL, 0);
+ >   fcntl(FILEDESC, F_SETFL, flags | O_NONBLOCK);
+ >   
+ >   do {
+ >     len = write(FILEDESC, "something\n", 10);
+ >   } while ((len == -1) && (errno == EINTR));
+ >   
+ >   errsaved = errno;
+ >   fcntl(FILEDESC, F_SETFL, flags);
+ >   
+ >   return (len >= 0) || (errsaved != EAGAIN);
+ > }
+ > 
+ > int main()
+ > {
+ >   while (try_write_nonblocking()) {}
+ > 
+ >   while (is_ready_to_write()) {}
+ > }
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Wed, 25 Jun 2014 05:03:45 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/5cbe6cfdcb
+State changed from "open" to "closed" by mflatt@racket-lang.org at Wed, 25 Jun 2014 05:03:45 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/5cbe6cfdcb
+  | work around bug(?) in Mac OS X select()
+  | 
+  | Using select() to check whether a pipe is ready for writing seems to
+  | fail on Mac OS X 10.8 and 10.9. See the PR for a small C program to
+  | demonstrate. It's possible that the small program is broken and
+  | there's no bug, but the program works on Linux and on Mac OS X 10.7
+  | and 10.6.
+  | 
+  | Although poll() seems to work, switching completely to poll() is not a
+  | good option on Mac OS X, since poll() does not support devices on that
+  | platform.
+  | 
+  | The kqueue() facility seems to handle pipes and writing ok, so work
+  | around the bug by enabling the use of kqueue() on pipes.
+  | 
+  | Closes PR 14596
+

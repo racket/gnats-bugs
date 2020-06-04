@@ -1,0 +1,147 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Sep 11 10:26:45 2006
+Received: from nf-out-f131.google.com (nf-out-f131.google.com [64.233.182.131])
+	by champlain.ccs.neu.edu (8.13.7/8.13.7) with ESMTP id k8BEQcCf013042
+	for <bugs@bugs.plt-scheme.org>; Mon, 11 Sep 2006 10:26:39 -0400
+Message-Id: <200609111426.k8BEQXT2013035@champlain.ccs.neu.edu>
+Date: Mon, 11 Sep 2006 10:26:33 -0400
+From: cobbe@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Port location tracking not quite right for UTF8 files
+
+>Number:         8275
+>Category:       mzscheme
+>Synopsis:       Port location tracking not quite right for UTF8 files
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Sep 11 10:30:01 -0400 2006
+>Last-Modified:  Tue Oct 17 00:02:34 -0400 2006
+>Originator:     Richard Cobbe
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        352.5-svn4sep2006
+>Environment:
+macosx "Darwin vetinari.ccs.neu.edu 8.7.0 Darwin Kernel Version 8.7.0: Fri May 26 15:20:53 PDT 2006; root:xnu-792.6.76.obj~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx) (get-display-depth) = 32
+Docs Installed:
+(("/Users/cobbe/plt/trunk/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 85385216
+
+Collections:
+(("/Users/cobbe/Library/PLT Scheme/352.5/collects" non-existent-path) ("/Users/cobbe/plt/trunk/collects" ".svn" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "(module ...)") (#6(#t write mixed-fraction-e #f #t debug) (default) #0()))
+>Description:
+MzScheme's port-position tracking mechanism seems to behave quite strangely with UTF8 files that contain super-ASCII characters.  When I set port-count-lines on the port, I get the expected results.  If, however, port-count-lines is not set, the position numbers get off.  And it's not just the distinction between UTF8 code points and bytes, as the following example demonstrates.
+
+Further, it appears that setting port-count-lines on an input port tells MzScheme to track Unicode code points, rather than bytes, but section 11.2.1.1 of the manual isn't clear on this.
+>How-To-Repeat:
+Save the following text as test-utf8.txt, UTF8-encoded:
+------ CUT HERE ------
+agoron
+ἀγορῶν
+agoron
+------ CUT HERE ------
+(In case something in the communication channel can't handle super-ASCII Unicode code points, the middle line is 6 Unicode code points: \u1f00, \u03b3, \u03bf, \u03c1, \u1ff6, \u03bd.  Note that each of these 6 code points is represented in 2 bytes under UTF8.  There is a linefeed (\u000a) at the end of each of the three lines; there is no other whitespace in the file.)
+
+Save the following text as test-ascii.txt, again UTF8-encoded (trivial, since it's pure ASCII):
+------ CUT HERE ------
+agoron
+agoron
+agoron
+------ CUT HERE ------
+As before, the only whitespace is a newline \u000a at the end of each line in the file; no other whitespace.
+
+Welcome to DrScheme, version 352.5-svn4sep2006.
+Language: (module ...).
+> (define p (open-input-file "/Users/cobbe/test-utf8.txt"))
+ (define p2 (open-input-file "/Users/cobbe/test-utf8.txt"))
+ (define p3 (open-input-file "/Users/cobbe/test-ascii.txt"))
+ (define p4 (open-input-file "/Users/cobbe/test-ascii.txt"))
+> (port-count-lines! p) (port-count-lines! p3)
+> (read-syntax 'p p) (read-syntax 'p2 p2) (read-syntax 'p3 p3) (read-syntax 'p4 p4)
+.#<syntax:1:0>     ;; posn 1 line 1 col 0 span 6
+.#<syntax::1>      ;; 1 #f #f 6
+.#<syntax:1:0>     ;; 1 1 0 6
+.#<syntax::1>      ;; 1 #f #f 6
+> (port-next-location p)
+1
+6
+7
+> (port-next-location p2)
+#f
+#f
+7
+> (port-next-location p3)
+1
+6
+7
+> (port-next-location p4)
+#f
+#f
+7
+
+;;  So far, everything is as we expect.
+
+> (read-syntax 'p p) (read-syntax 'p2 p2) (read-syntax 'p3 p3) (read-syntax 'p4 p4)
+.#<syntax:2:0>   ;; posn 8 line 2 col 0 span 6 (correct)
+.#<syntax::10>   ;; 10 #f #f 12    (posn 10?!)
+.#<syntax:2:0>   ;; 8 2 0 6
+.#<syntax::8>    ;; 8 #f #f 6
+
+  ;; Everything's as expected, although the source info
+  ;; for the second syntax object is weird.  I'm assuming
+  ;; the span is 12 because the port is counting bytes 
+  ;; rather than code points -- that's fine, although the 
+  ;; docs aren't clear on when this happens.  But the 
+  ;; second syntax object's location of 10 is just wrong, 
+  ;; regardless of whether we're counting bytes or 
+  ;; codepoints.
+
+> (port-next-location p)
+2
+6
+14
+> (port-next-location p2)
+#f
+#f
+22
+> (port-next-location p3)
+2
+6
+14
+> (port-next-location p4)
+#f
+#f
+14
+
+  ;; back on track here
+
+> (read-syntax 'p p) (read-syntax 'p2 p2) (read-syntax 'p3 p3) (read-syntax 'p4 p4)
+.#<syntax:3:0>  posn 15 line 3 col 0 span 6, correct
+.#<syntax::23>  23 #f #f 6, correct if we count bytes
+.#<syntax:3:0>  15 3 0 6, correct
+.#<syntax::15>  15 #f #f 6, correct
+> 
+
+So it looks like something weird is happening in the IO system that affects the location of at least some utf8 symbols, but only when we're counting by bytes and not by characters, and only when the file contains super-ASCII characters.
+>Fix:
+>Audit-Trail:
+From: Richard Cobbe <cobbe@ccs.neu.edu>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8275: Port location tracking not quite right for UTF8 files
+Date: Mon, 11 Sep 2006 17:58:52 -0400
+
+ Actually, I mis-spoke above: not all of the super-ASCII characters are
+ represented in 2 bytes in UTF-8.  Chars \u1f00 and \u1ff6 take 3 bytes
+ each.  In any case, all 6 chars take more than one byte in UTF-8.
+ 
+ Richard
+ 
+ 
+

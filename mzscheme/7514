@@ -1,0 +1,182 @@
+From apache@plt-scheme.org Sun Jul 31 09:46:58 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j6VDksZS014213
+	for <bugs@plt-scheme.org>; Sun, 31 Jul 2005 09:46:54 -0400
+Message-Id: <200507311346.j6VDksBb014211@champlain.ccs.neu.edu>
+Date: Sun, 31 Jul 2005 09:46:54 -0400
+From: ilari.t.nieminen@iki.fi
+To: bugs@plt-scheme.org
+Subject: Pathological call/cc call leaks memory
+
+>Number:         7514
+>Category:       mzscheme
+>Synopsis:       Pathological call/cc call leaks memory
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jul 31 09:50:00 -0400 2005
+>Last-Modified:  Mon Aug 01 18:49:58 -0400 2005
+>Originator:     Ilari Nieminen
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        299.100
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(#<path:C:\Program Files\PLT\collects\doc\web-server> #<path:C:\Program Files\PLT\collects\doc\tour> #<path:C:\Program Files\PLT\collects\doc\tools> #<path:C:\Program Files\PLT\collects\doc\tex2page> #<path:C:\Program Files\PLT\collects\doc\teachpack> #<path:C:\Program Files\PLT\collects\doc\t-y-scheme> #<path:C:\Program Files\PLT\collects\doc\swindle> #<path:C:\Program Files\PLT\collects\doc\srfi> #<path:C:\Program Files\PLT\collects\doc\r5rs> #<path:C:\Program Files\PLT\collects\doc\profj-intermediate> #<path:C:\Program Files\PLT\collects\doc\profj-beginner> #<path:C:\Program Files\PLT\collects\doc\profj-advanced> #<path:C:\Program Files\PLT\collects\doc\plot> #<path:C:\Program Files\PLT\collects\doc\mzscheme> #<path:C:\Program Files\PLT\collects\doc\mzlib> #<path:C:\Program Files\PLT\collects\doc\mzc> #<path:C:\Program Files\PLT\collects\doc\mred> #<path:C:\Program Files\PLT\collects\doc\misclib> #<path:C:\Program Files\PLT\collects\doc\intermediate-lambda> #<path:C:\Program Files\PLT\collects\doc\intermediate> #<path:C:\Program Files\PLT\collects\doc\insidemz> #<path:C:\Program Files\PLT\collects\doc\help> #<path:C:\Program Files\PLT\collects\doc\framework> #<path:C:\Program Files\PLT\collects\doc\foreign> #<path:C:\Program Files\PLT\collects\doc\drscheme> #<path:C:\Program Files\PLT\collects\doc\beginning-abbr> #<path:C:\Program Files\PLT\collects\doc\beginning> #<path:C:\Program Files\PLT\collects\doc\advanced>)
+Collections:
+((#<path:C:\Documents and Settings\Ilari Nieminen\Application Data\PLT Scheme\299.100\collects> "non-existent path") (#<path:C:\Program Files\PLT\collects> (#<path:afm> #<path:algol60> #<path:browser> #<path:compiler> #<path:defaults> #<path:doc> #<path:drscheme> #<path:dynext> #<path:embedded-gui> #<path:eopl> #<path:errortrace> #<path:ffi> #<path:framework> #<path:frtime> #<path:games> #<path:graphics> #<path:help> #<path:hierlist> #<path:htdch> #<path:htdp> #<path:html> #<path:icons> #<path:info-domain> #<path:lang> #<path:launcher> #<path:make> #<path:mred> #<path:mrlib> #<path:mysterx> #<path:mzcom> #<path:mzlib> #<path:mzscheme> #<path:net> #<path:openssl> #<path:parser-tools> #<path:planet> #<path:plot> #<path:preprocessor> #<path:profj> #<path:profjWizard> #<path:setup> #<path:sgl> #<path:slatex> #<path:slibinit> #<path:slideshow> #<path:srfi> #<path:ssax> #<path:stepper> #<path:string-constants> #<path:swindle> #<path:syntax> #<path:syntax-color> #<path:test-suite> #<path:tex2page> #<path:texpict> #<path:trace> #<path:version> #<path:web-server> #<path:xml>)))
+Human Language: english
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Graphical (MrEd, includes MzScheme)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+((call/cc call/cc) (call/cc call/cc)) reserves large amounts of memory, but it won't be freed by the garbage collector even after the evaluation has been stopped.
+>How-To-Repeat:
+Run
+((call/cc call/cc) (call/cc call/cc))
+in MzScheme.
+>Fix:
+>Audit-Trail:
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: ilari.t.nieminen@iki.fi, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, Matthew Flatt <mflatt@cs.utah.edu>,
+        eli@plt-scheme.org, Robby Findler <robby@cs.uchicago.edu>
+Subject: Re: all/7514: Pathological call/cc call leaks memory
+Date: Sun, 31 Jul 2005 10:37:09 -0400
+
+ Hi -- I don't understand why you believe that this expression shouldn't 
+ consume any memory:
+ 
+     ((callcc callcc) (callcc callcc))
+ -> ((callcc (lambda (x) (x (callcc callcc)))) (callcc callcc))
+ -> (((lambda (x) (x (callcc callcc))) (lambda (x) (x (callcc callcc)))) 
+ (callcc callcc))
+ -> (((lambda (x) (x (callcc callcc))) (callcc callcc)) (callcc callcc))
+ -> (((lambda (x) (x (callcc callcc)))
+       (callcc (lambda (z) (((lambda (x) (x (callcc callcc))) z) (callcc 
+ callcc)))))
+      (callcc callcc))
+ -> ...
+ 
+ It just keeps on allocating continuations. Admittedly they are 
+ observationally equivalent but I would be surprised if compilers 
+ discovered it. While it is provable, it is an unusual proof system and 
+ compiler writers tend to implement common proof cases.
+ 
+ -- Matthias
+ 
+ 
+ On Jul 31, 2005, at 9:50 AM, ilari.t.nieminen@iki.fi wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=7514
+ >
+ > Reported by Ilari Nieminen for release: 299.100
+ >
+ > *** Description:
+ > ((call/cc call/cc) (call/cc call/cc)) reserves large amounts of 
+ > memory, but it won't be freed by the garbage collector even after the 
+ > evaluation has been stopped.
+ >
+ > *** How to repeat:
+ > Run
+ > ((call/cc call/cc) (call/cc call/cc))
+ > in MzScheme.
+ >
+ > *** Environment:
+ > windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) 
+ > (get-display-depth) = 32
+ > Docs Installed:
+ > (#<path:C:\Program Files\PLT\collects\doc\web-server> 
+ > #<path:C:\Program Files\PLT\collects\doc\tour> #<path:C:\Program 
+ > Files\PLT\collects\doc\tools> #<path:C:\Program 
+ > Files\PLT\collects\doc\tex2page> #<path:C:\Program 
+ > Files\PLT\collects\doc\teachpack> #<path:C:\Program 
+ > Files\PLT\collects\doc\t-y-scheme> #<path:C:\Program 
+ > Files\PLT\collects\doc\swindle> #<path:C:\Program 
+ > Files\PLT\collects\doc\srfi> #<path:C:\Program 
+ > Files\PLT\collects\doc\r5rs> #<path:C:\Program 
+ > Files\PLT\collects\doc\profj-intermediate> #<path:C:\Program 
+ > Files\PLT\collects\doc\profj-beginner> #<path:C:\Program 
+ > Files\PLT\collects\doc\profj-advanced> #<path:C:\Program 
+ > Files\PLT\collects\doc\plot> #<path:C:\Program 
+ > Files\PLT\collects\doc\mzscheme> #<path:C:\Program 
+ > Files\PLT\collects\doc\mzlib> #<path:C:\Program 
+ > Files\PLT\collects\doc\mzc> #<path:C:\Program 
+ > Files\PLT\collects\doc\mred> #<path:C:\Program 
+ > Files\PLT\collects\doc\misclib> #<path:C:\Program 
+ > Files\PLT\collects\doc\intermediate-lambda> #<path:C:\Prog!
+ >  ram Files\PLT\collects\doc\intermediate> #<path:C:\Program 
+ > Files\PLT\collects\doc\insidemz> #<path:C:\Program 
+ > Files\PLT\collects\doc\help> #<path:C:\Program 
+ > Files\PLT\collects\doc\framework> #<path:C:\Program 
+ > Files\PLT\collects\doc\foreign> #<path:C:\Program 
+ > Files\PLT\collects\doc\drscheme> #<path:C:\Program 
+ > Files\PLT\collects\doc\beginning-abbr> #<path:C:\Program 
+ > Files\PLT\collects\doc\beginning> #<path:C:\Program 
+ > Files\PLT\collects\doc\advanced>)
+ > Collections:
+ > ((#<path:C:\Documents and Settings\Ilari Nieminen\Application Data\PLT 
+ > Scheme\299.100\collects> "non-existent path") (#<path:C:\Program 
+ > Files\PLT\collects> (#<path:afm> #<path:algol60> #<path:browser> 
+ > #<path:compiler> #<path:defaults> #<path:doc> #<path:drscheme> 
+ > #<path:dynext> #<path:embedded-gui> #<path:eopl> #<path:errortrace> 
+ > #<path:ffi> #<path:framework> #<path:frtime> #<path:games> 
+ > #<path:graphics> #<path:help> #<path:hierlist> #<path:htdch> 
+ > #<path:htdp> #<path:html> #<path:icons> #<path:info-domain> 
+ > #<path:lang> #<path:launcher> #<path:make> #<path:mred> #<path:mrlib> 
+ > #<path:mysterx> #<path:mzcom> #<path:mzlib> #<path:mzscheme> 
+ > #<path:net> #<path:openssl> #<path:parser-tools> #<path:planet> 
+ > #<path:plot> #<path:preprocessor> #<path:profj> #<path:profjWizard> 
+ > #<path:setup> #<path:sgl> #<path:slatex> #<path:slibinit> 
+ > #<path:slideshow> #<path:srfi> #<path:ssax> #<path:stepper> 
+ > #<path:string-constants> #<path:swindle> #<path:syntax> 
+ > #<path:syntax-color> #<path:test-suite> !
+ >  #<path:tex2page> #<path:texpict> #<path:trace> #<path:version> 
+ > #<path:web-server> #<path:xml>)))
+ > Human Language: english
+ > Teachpack filenames: ()
+ > Computer Language: (("Professional Languages" "PLT" "Graphical (MrEd, 
+ > includes MzScheme)") #6(#t write mixed-fraction-e #f #t debug))
+ >
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: ilari.t.nieminen@iki.fi, bugs@plt-scheme.org
+Cc: matthias@ccs.neu.edu
+Subject: Re: all/7514: Pathological call/cc call leaks memory
+Date: Sun, 31 Jul 2005 13:29:32 -0600
+
+ At Sun, 31 Jul 2005 09:50:03 -0400, ilari.t.nieminen@iki.fi wrote:
+ > ((call/cc call/cc) (call/cc call/cc)) reserves large amounts of
+ > memory, but it won't be freed by the garbage collector even after the
+ > evaluation has been stopped.
+ 
+ Yes, and there are a couple of factors.
+ 
+ If you build and use mzscheme3m or drscheme3m, I think you'll find that
+ it works ok. The 3m variants use a more precise garbage collector.
+ There is a small trade-off in terms of performance, though, and a large
+ trade-off in terms of interoperability with other libraries, though,
+ which is why 3m is not yet the default.
+ 
+ For the non-3m variant, it may be that mzscheme or drscheme reuse the
+ space occupied by the computation, but cannot give the memory back to
+ the OS when it is not in use. This is a limitation of the collector.
+ 
+ Finally, in a non-3m variant, it may be the that case mzscheme or
+ drscheme don't effectively reuse the memory, even internally. Run the
+ loop enough times, and eventually memory from the earlier uses will get
+ reclaimed, but sometimes it takes too long. This, again, is a
+ limitation of the default "conservative" collector, and it's the main
+ reason that we're working on the 3m variant.
+ 
+ Matthew
+ 
+
+State changed from "open" to "closed" by mflatt at Mon, 01 Aug 2005 18:49:58 -0400
+Reason>>> explained
+

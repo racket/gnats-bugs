@@ -1,0 +1,129 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Dec 31 12:12:32 2010
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id oBVHCTq4030164
+	for <bugs@bugs.plt-scheme.org>; Fri, 31 Dec 2010 12:12:29 -0500
+Message-Id: <201012311712.oBVHCMev030156@champlain.ccs.neu.edu>
+Date: Fri, 31 Dec 2010 12:12:22 -0500
+From: clklein@eecs.northwestern.edu
+To: bugs@racket-lang.org
+Subject: Redex `cross' patterns, non-linear variables, and side-conditions
+
+>Number:         11580
+>Category:       redex
+>Synopsis:       Redex `cross' patterns, non-linear variables, and side-conditions
+>Class:          sw-bug
+>Responsible:    clklein
+>Severity:       serious
+>Priority:       medium
+>State:          analyzed
+>Confidential:   no
+>Arrival-Date:   Fri Dec 31 12:16:01 -0500 2010
+>Closed-Date:    
+>Last-Modified:  Wed Apr 06 12:35:55 -0400 2011
+>Originator:     Casey Klein
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.0.99.5--2010-12-31(cfce112/g)
+>Environment:
+macosx "Darwin wireless-165-124-114-198.nuwlan.northwestern.edu 9.7.0 Darwin Kernel Version 9.7.0: Tue Mar 31 22:52:17 PDT 2009; root:xnu-1228.12.14~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 273720680
+
+Collections:
+("/Users/clklein/Library/Racket/5.0.99.5/collects"
+ (non-existent-path))
+("/Users/clklein/git/plt/collects"
+ (".gitignore" "2htdp" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "data" "datalog" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "meta" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "repo-time-stamp" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "un!
+ stable" "version" "waterworld" "web-server" "wxme" "xml"))
+
+Computer Language: (("Determine language from source") (#(#t quasiquote mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t))
+>Description:
+Redex `cross' patterns behave strangely in the presence of naming, side-conditions, and in-hole.
+
+1. (cross e) doesn't allow holes at positions where e is underscored.
+
+(define-language L1
+ (e (+ e_1 e)
+    (* e e)
+    n)
+ (n number))
+
+> (redex-match L1 (cross e) (term (+ hole 2)))
+false
+
+It does, however, allow holes if you use a `name' pattern.
+
+(define-language L2
+ (e (+ (name e_1 e) e)
+    (* e e)
+    n)
+ (n number))
+
+> (redex-match L2 (cross e) (term (+ hole 2)))
+`(,(make-match `()))
+
+2. If you attach one name to both + operands, the context doesn't extend inside +, because one operand is hole and the other is an e.
+
+(define-language L3
+ (e (+ (name e_1 e) (name e_1 e))
+    (* e e)
+    n)
+ (n number))
+
+> (redex-match L3 (cross e) (term (+ hole 1)))
+false
+
+3. One might think that L2 is equivalent to this language
+
+(define-language L4
+ (e (+ (side-condition (name e_1 e) (e? (term e_1))) e)
+    (* e e)
+    n)
+ (n number))
+
+(define e? (redex-match L4 e))
+
+but it's not.
+
+> (redex-match L2 (cross e) (term (+ hole 1)))
+`(,(make-match `()))
+> (redex-match L4 (cross e) (term (+ hole 1)))
+false
+
+Maybe behaviors (2) and (3) are correct. I'm not really sure what compatible contexts should mean in Redex's fancy pattern language.
+
+4. Constructing the compatible context language sometimes constructs productions where a pattern variable appears at two different ellipsis depths.
+
+(require (only-in redex/private/matcher compiled-lang-cclang nt-name))
+
+(define-language L5
+  (p ((x (x_0 ...)) ...))
+  (x variable-not-otherwise-mentioned))
+
+> (findf (compose (curry equal? 'x-p) nt-name)
+         (compiled-lang-cclang L5))
+(make-nt 'x-p `(,(make-rhs `((x (x_0 ...)) ... ((cross x-x) (x_0 ...)) (x (x_0 ...)) ...))))
+
+5. `cross' and `in-hole' interact in a way that seems wrong.
+
+(define-language L6
+  (e (e e) (&#955; (x) (in-hole E e)) x)
+  (E hole (e ... E e ...))
+  (x variable-not-otherwise-mentioned))
+
+(redex-match L6 (in-hole (cross e) e) (term (&#955; (x) (hole x))))
+
+The problem is in e-e, the non-terminal synthesized to represent contexts that, when filled with an e, produce an e:
+
+e-e ::= .... | (&#955; (x) (in-hole (cross e-E) e)))
+
+The `hide-hole' in the shown production "steals" the hole intended to match what's inside the e-e context.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+State changed from "open" to "analyzed" by clklein at Wed, 06 Apr 2011 12:35:55 -0400
+Reason>>> I think the solution may be to give up and say that `cross'
+(and `compatible-closure') don't work when they would touch
+non-linear variables, side-conditions, or in-holes.
+

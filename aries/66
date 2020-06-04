@@ -1,0 +1,195 @@
+From robby@cs.rice.edu  Mon May  5 16:21:21 1997
+Received: from new-world.cs.rice.edu (new-world.cs.rice.edu [128.42.6.103]) by cs.rice.edu (8.8.5/8.7.1) with ESMTP id QAA29802 for <plt-gnats@cs.rice.edu>; Mon, 5 May 1997 16:21:21 -0500 (CDT)
+Message-Id: <199705052121.QAA09687@new-world.cs.rice.edu>
+Date: Mon, 5 May 1997 16:21:20 -0500 (CDT)
+From: Robert Findler <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: drscheme lost tail recursion
+X-Send-Pr-Version: 3.101
+
+>Number:         66
+>Category:       aries
+>Synopsis:       drscheme lost tail recursion
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    krentel
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Mon May  5 21:25:02 GMT 1997
+>Last-Modified:  Wed May 28 14:56:06 CDT 1997
+>Originator:     Robert Findler
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	
+>Description:
+DrScheme doesn't seem to preserve tail recursion correctly
+>How-To-Repeat:
+
+The first doesn't allocated, but the second one does: (switching the order
+of the cond lines also allocates)
+
+(letrec ([loop
+	  (lambda (n)
+	    (if (zero? n)
+		0
+		(loop (sub1 n))))])
+  (loop 100000))
+
+
+(letrec ([loop
+	  (lambda (n)
+	    (cond
+	      [(zero? n) 0]
+	      [else (loop (sub1 n))]))])
+  (loop 100000))
+
+>Fix:
+	
+>Audit-Trail:
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: plt-gnats@cs.rice.edu, robby@cs.rice.edu
+Cc: krentel@cs.rice.edu, shriram@cs.rice.edu, mflatt@cs.rice.edu,
+        robby@cs.rice.edu, cormac@cs.rice.edu, cobbe@cs.rice.edu,
+        four@cs.rice.edu, gbierner@cs.rice.edu
+Subject: Re: all/66: drscheme lost tail recursion
+Date: Mon, 5 May 1997 16:28:54 -0500 (CDT)
+
+ The loss of tail-recursion is totally unacceptable. -- Matthias
+
+From: Robert Findler <robby@cs.rice.edu>
+To: matthias@rice.edu
+Cc: plt-gnats@cs.rice.edu, krentel@cs.rice.edu, shriram@cs.rice.edu,
+        mflatt@cs.rice.edu, cormac@cs.rice.edu, cobbe@cs.rice.edu,
+        four@cs.rice.edu, gbierner@cs.rice.edu
+Subject: Re: all/66: drscheme lost tail recursion
+Date: Mon, 5 May 1997 16:30:01 -0500 (CDT)
+
+ Matthias Felleisen writes:
+ > 
+ > The loss of tail-recursion is totally unacceptable. -- Matthias
+ 
+ It's a bug -- don't worry. (it's also just cond, if seems to be fine ...)
+ 
+ Robby
+
+From: Robert Findler <robby@cs.rice.edu>
+To: matthias@rice.edu
+Cc: plt-gnats@cs.rice.edu, krentel@cs.rice.edu, shriram@cs.rice.edu,
+        mflatt@cs.rice.edu, cormac@cs.rice.edu, cobbe@cs.rice.edu,
+        four@cs.rice.edu, gbierner@cs.rice.edu
+Subject: Re: all/66: drscheme lost tail recursion
+Date: Mon, 5 May 1997 16:30:24 -0500 (CDT)
+
+ Matthias Felleisen writes:
+ > 
+ > The loss of tail-recursion is totally unacceptable. -- Matthias
+ 
+ It's probably a buggy bug fix, to begin with. Stupid multiple values.
+ 
+ Robby
+
+From: Shriram Krishnamurthi <shriram@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu, matthias@cs.rice.edu
+Subject: all/66: drscheme lost tail recursion
+Date: Mon, 5 May 1997 22:29:39 -0500 (CDT)
+
+ Well, I tried to look at this on my laptop and it ended up killing my
+ whole window manager -- BOTH versions did!
+ 
+ Anyway, I have a feeling the bug is either in MzScheme-under-DrScheme
+ (very unlikely) or in Aries (very likely).  It is not in M3 (contrary
+ to what I said before, Robby), because M3's output is quite reasonable
+ in both cases:
+ 
+ (letrec*-values
+   (((g1235:loop)
+     (case-lambda
+       ((g1236:n)
+        (if (zero? g1236:n)
+          '0
+          (g1235:loop (sub1 g1236:n)))))))
+   (g1235:loop '100000))                                   [if version]
+ 
+ (letrec*-values
+   (((g1237:loop)
+     (case-lambda
+       ((g1238:n)
+        (if (zero? g1238:n)
+          (begin '0)
+          (begin (g1237:loop (sub1 g1238:n))))))))
+   (g1237:loop '100000))                                 [cond version]
+ 
+ In MzScheme, both of these work fine.  Maybe one of the set-box'es got
+ put in the wrong place?  One might guess it's the set-box for begin's,
+ but the evidence on my laptop suggests both codes flake out.
+ 
+ 'shriram
+
+From: Robert Findler <robby@cs.rice.edu>
+To: shriram@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu, matthias@cs.rice.edu
+Subject: Re: all/66: drscheme lost tail recursion
+Date: Mon, 5 May 1997 22:41:21 -0500 (CDT)
+
+ Shriram Krishnamurthi writes:
+ > Well, I tried to look at this on my laptop and it ended up killing my
+ > whole window manager -- BOTH versions did!
+ > 
+ > Anyway, I have a feeling the bug is either in MzScheme-under-DrScheme
+ > (very unlikely) or in Aries (very likely).  It is not in M3 (contrary
+ > to what I said before, Robby), because M3's output is quite reasonable
+ > in both cases:
+ 
+ It looks like it's in aries, and that somehow begin is messing up (i
+ suspected aries all along, since that's what changed recently for the
+ stupid multiple values). I think it would be interesting to see the code
+ that aries produces for those two expressions. 
+ 
+ BTW, this cannot be tested on the laptop :) 
+ 
+ I'd reccommend setting a limit for 50 megs or something for process memory
+ and testing on nw.
+ 
+ Robby
+ 
+ > (letrec*-values
+ >   (((g1235:loop)
+ >     (case-lambda
+ >       ((g1236:n)
+ >        (if (zero? g1236:n)
+ >          '0
+ >          (g1235:loop (sub1 g1236:n)))))))
+ >   (g1235:loop '100000))                                   [if version]
+ > 
+ > (letrec*-values
+ >   (((g1237:loop)
+ >     (case-lambda
+ >       ((g1238:n)
+ >        (if (zero? g1238:n)
+ >          (begin '0)
+ >          (begin (g1237:loop (sub1 g1238:n))))))))
+ >   (g1237:loop '100000))                                 [cond version]
+ > 
+ > In MzScheme, both of these work fine.  Maybe one of the set-box'es got
+ > put in the wrong place?  One might guess it's the set-box for begin's,
+ > but the evidence on my laptop suggests both codes flake out.
+ > 
+ > 'shriram
+
+State-Changed-From-To: open-closed
+State-Changed-By: shriram
+State-Changed-When: Thu May 22 13:06:55 1997
+State-Changed-Why:
+Problem has been fixed.  We were wrapping around tail positions in a
+non-tail manner (begin0 <expr> <set the box>).
+>Unformatted:
+
+Does this belong in aries or mcmicmac?
+Anyway, don't leave closed problems in "all".  --mark

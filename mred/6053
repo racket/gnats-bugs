@@ -1,0 +1,132 @@
+From robby@cs.uchicago.edu  Sat Jan  4 11:15:11 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id LAA25496
+	for <bugs>; Sat, 4 Jan 2003 11:15:10 -0500
+Message-Id: <200301041615.LAA25496@champlain.ccs.neu.edu>
+Date: Sat, 4 Jan 2003 11:15:10 -0500
+From: Robert Bruce Findler <robby@cs.uchicago.edu>
+To: bugs@plt-scheme.org
+Subject: event handling for canvases doesn't work right
+
+>Number:         6053
+>Category:       mred
+>Synopsis:       event handling for canvases doesn't work right
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          suspended
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Sat Jan 04 11:20:00 -0500 2003
+>Closed-Date:    
+>Last-Modified:  Sun Mar 28 02:50:57 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        203
+>Organization:
+plt
+>Environment:
+macosx "Darwin seesen.local. 6.3 Darwin Kernel Version 6.3: Sat Dec 14 03:11:25 PST 2002; root:xnu/xnu-344.23.obj~4/RELEASE_PPC  Power Macintosh powerpc" (ppc-macosx)
+
+Docs installed:
+("advanced" "beginning" "beginning-abbr" "drscheme" "framework" "help" "insidemz" "intermediate" "intermediate-lambda" "misclib" "mred" "mzc" "mzlib" "mzscheme" "r5rs" "t-y-scheme" "tex2page" "tools" "tour")
+
+Collections:
+(("/Users/robby/cvs/exp/plt/collects/mzlib/../../MrEd.app/Contents/MacOS/../../../collects" ("afm" "algol60" "backward" "browser" "browser2" "cogen" "compiler" "countdwn" "CVS" "cvs-time-stamp" "debug" "defaults" "doc" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mrdemo" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "parser-tools" "readline" "reduction-semantics" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "string-constants" "syntax" "test-suite" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xml")))
+
+Human language: english
+Computer language: ("PLT" "Graphical (MrEd, includes MzScheme)")
+>Description:
+The problem below is worse than many of 
+the previous event handling mred bugs 
+because it keeps me from getting a 
+proper version of the little dragging thingy 
+between the definitions and interactions 
+to work properly (and off and on project 
+that I'd recently found time to work on).
+
+There are two problems: the lack of the
+up event (the major problem) and the
+output going to the std out window (less
+of a problem since its ignorable for now)
+>How-To-Repeat:
+- run the program below
+- click and drag the box between
+  the buttons around for a while
+- eventually you'll notice that output
+  goes to the stdout window instead of
+  the drscheme console. at this point
+  (and maybe even before it) releasing
+  the button doesn't do anything; the
+  up event never happens.
+
+(require (lib "list.ss")
+         (lib "etc.ss"))
+
+(define three-bar-canvas%
+  (class canvas%
+    (init-field vertical?)
+    (inherit get-dc get-client-size)
+    
+    (define resizing-start-dim #f)
+    
+    (inherit get-parent)
+    (rename [super-on-event on-event])
+    (define/override (on-event evt)
+      (let ([parent (get-parent)])
+        (cond
+          [(send evt button-down? 'left)
+           (printf "down\n")
+           (let ([c (send (get-parent) get-children)])
+             (set! resizing-start-dim (send (car c) min-height)))]
+          [(send evt button-up?)
+           (printf "up\n")
+           (set! resizing-start-dim #f)]
+          [(and resizing-start-dim (send evt moving?))
+           (printf "moving\n")
+           (let ([c (send (get-parent) get-children)])
+             (send (car c) min-height (+ resizing-start-dim (send evt get-y)))
+             (send (get-parent) container-flow-modified))]
+          [else (super-on-event evt)])))
+    
+    (define/override (on-paint)
+      (let ([dc (get-dc)])
+        (let-values ([(w h) (get-client-size)])
+          (send dc draw-rectangle 0 0 w h))))
+    
+    (super-instantiate ())
+    (inherit stretchable-height min-height)
+    (stretchable-height #f)
+    (min-height 10)))
+
+(define f (make-object frame% "frame" #f 40 500))
+(make-object button% "button" f void)
+(define tbc1 (make-object three-bar-canvas% #t f))
+(send (make-object button% "button" f void) stretchable-height #t)
+(send f show #t)
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Apr  4 15:45:03 2003
+Responsible-Changed-Why:
+    mr
+State-Changed-From-To: open->suspended
+State-Changed-By: mflatt
+State-Changed-When: Fri Apr  4 15:45:03 2003
+State-Changed-Why:
+    The output problem got fixed a few days ago.
+    
+    Dropping mouse-up events is a problem on all platforms for
+    a variety of reasons, some related to eventspaces. It's probably
+    a little worse on Mac OS X, but I haven't tried to improve things,
+    since it's a real problem on all platforms. The general solution
+    is to treat a move event without any buttons pressed as implying
+    a mouse up.
+    
+    Matthew
+>Unformatted:
+ 

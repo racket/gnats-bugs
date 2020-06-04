@@ -1,0 +1,222 @@
+From apache@plt-scheme.org Sat Nov 11 14:09:08 2006
+Received: from py-out-1112.google.com (py-out-1112.google.com [64.233.166.182])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id kABJ95hW003346
+	for <bugs@bugs.plt-scheme.org>; Sat, 11 Nov 2006 14:09:05 -0500
+Message-Id: <200611111909.kABJ93MG003339@champlain.ccs.neu.edu>
+Date: Sat, 11 Nov 2006 14:09:03 -0500
+From: jensaxel@soegaard.net
+To: bugs@plt-scheme.org
+Subject: Check Syntax 
+
+>Number:         8381
+>Category:       drscheme
+>Synopsis:       Check Syntax
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sat Nov 11 14:10:01 -0500 2006
+>Last-Modified:  Wed Dec 27 15:01:03 -0500 2006
+>Originator:     Jens Axel Søgaard
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        359.100-svn9nov2006
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Programmer\\PLT-FULL\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced") (* "C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\planet\\300\\359.100\\cache\\neil\\htmlprag.plt\\1\\3\\doc"))
+Human Language: english
+(current-memory-use) 130220032
+
+Collections:
+(("C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\359.100\\collects" non-existent-path) ("C:\\Programmer\\PLT-FULL\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Pretty Big (includes MrEd and Advanced Student)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+Paste the program in "Steps to Reproduce" into a definition window.
+Hit "Check Syntax". Wait a little. Hit "Stop".
+
+After hitting "Check Syntax" the editor window goes blank.
+Hitting Stop reveals the following error display in the
+syntax-checkwe pane at the top of the screen:
+
+[bug icon] reference to an identifier before its definition: registered?
+exception raised by error display handler: drscheme broke the contract 
+  (->
+   string?
+   (or/c any/c exn?)
+   (->
+    (listof srcloc?)
+    (or/c
+     false/c
+     (listof
+       (cons/c
+         (is-a?/c class:text%)
+         (cons/c
+           number?
+           (cons/c number? null?)))))
+    any)
+   any)
+on drscheme:debug:show-error-and-highlight; expected <(or/c false/c (listof (cons/c (is-a?/c class:text%) (cons/c number? (cons/c number? null?)))))>, given: ((#<struct:object:...s/test-suite/tool.ss:105:8> 1865 . 11) (#<struct:object:...s/test-suite/tool.ss:105:8> 1864 . 24)); original exception raised: reference to an identifier before its definition: registered?
+user break
+>How-To-Repeat:
+(module short-helpers mzscheme
+  (provide register registered?)
+  (provide register-transformer registered-transformers)
+  (provide transform-syntax)
+    
+  ;;; NAMES AND TYPES
+  
+  (require (lib "boundmap.ss" "syntax")) 
+  
+  (define registered-names
+    (make-module-identifier-mapping))
+  
+  ; registered? : identifier symbol -> boolean
+  (define (registered? name type)
+    (and (identifier? name)
+         (equal? (module-identifier-mapping-get registered-names
+                                                name (lambda() #f))
+                 type)))
+  
+  (define (register name type)
+    (module-identifier-mapping-put! registered-names
+                                    name type))
+  
+  ;;; TRANSFORMERS
+  
+  (define registered-transformers '())
+  
+  (define (register-transformer name transformer)
+    (set! registered-transformers 
+          (cons transformer registered-transformers)))
+    
+  (define (transform-syntax stx transformers)
+    (display (length registered-transformers))
+    (newline)
+    (if (null? transformers)
+        #f
+        (let ([stx2 ((car transformers) stx)])
+          (if stx2 stx2
+              (transform-syntax stx (cdr transformers)))))))
+
+(module transformer-builder mzscheme
+  (provide make-syntax-for-short-transformer)
+           
+  (require-for-template mzscheme short-helpers) 
+  
+  ; ((make-short-transformer #'() #'(a b c) #'(a))  #'(1 2 3))  ==> #'(1)
+  (define (make-syntax-for-short-transformer type keywords pattern template)
+    (with-syntax ([type     (syntax-object->datum type)]
+                  [keywords (syntax-object->datum keywords)]
+                  [pattern  (syntax-object->datum pattern)]
+                  [template (syntax-object->datum template)])
+      (let ([s 
+             #'(lambda (stx)
+                 (syntax-case stx keywords
+                   [pattern 
+                    (registered? #'__ 'type)
+                    #'template]
+                   [_       #f]))])
+        (display s) (newline)
+        s))))
+ 
+ ;;; DEFINE-SHORT  DECLARE
+ 
+
+(module short mzscheme
+  (provide declare 
+           define-short
+           app/short)
+  
+  (require-for-syntax short-helpers
+                      transformer-builder)
+  
+  (define-syntax (define-short stx)
+    (syntax-case stx ()
+      [(_ name keywords)
+       #'(begin)]
+      [(_ name keywords [pattern template] . more)
+       (begin
+         (register-transformer 
+          #'name (eval 
+                  (make-syntax-for-short-transformer 
+                   #'name #'keywords #'pattern #'template)))
+         #'(define-short name keywords . more))]))
+  
+  (define-syntax (declare stx)
+    (syntax-case stx ()
+      [(_) 
+       #'(begin)]
+      [(_ (name type) more ...)
+       (and (identifier? #'name) 
+            (identifier? #'type))
+       (begin
+         (register #'name (syntax-object->datum #'type))
+         (syntax-property
+          #'(declare more ...)
+          'disappeared-use #'name))]))
+
+  (define-syntax (app/short stx)
+    (syntax-case stx ()
+      [(_ arg0 arg1 ...)
+       (cond
+         [(transform-syntax #'(arg0 arg1 ...) registered-transformers)
+          => (lambda (result) result)]
+         [else
+          (begin
+            (display "No transformer ...\n")
+            (syntax/loc stx (#%app arg0 arg1 ...)))])]
+      [(_ . more) 
+       (syntax/loc stx (#%app . more))])))
+
+(require short)
+
+
+(define ht (make-hash-table 'equal))
+(define xs (vector 'a 'b 'c))
+
+(define-short vector (map for-each)
+  [(__ i)             (vector-ref __ i)]
+  [(__ i val)         (vector-set! __ i val)]
+  ;[(map __ proc)      (map proc (vector->list __))]
+  ;[(for-each __ proc) (for-each proc (vector->list __))]
+  )
+
+#;(define-short hash-table (map for-each)
+  [(__ key)          (hash-table-ref __ key)]
+  [(__ key val)      (hash-table-set! __ key val)]
+    [(map _ proc)      (hash-table-map __ proc)]
+  [(for-each __ proc) (hash-table-for-each __ proc)])
+
+;(declare (ht hash-table))
+(declare (xs vector))
+
+(app/short xs 2)
+(app/short xs 2 3)
+(app/short xs 2)
+>Fix:
+>Audit-Trail:
+From: =?ISO-8859-1?Q?Jens_Axel_S=F8gaard?= <jensaxel@soegaard.net>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/8381: Check Syntax
+Date: Sat, 11 Nov 2006 23:44:41 +0100
+
+ bugs@plt-scheme.org skrev:
+ > Thank you very much for your problem report.
+ > It has the internal identification `all/8381'.
+ > You can check on the status of your problem report at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=8381
+ > Assigned to Unclaimed <nobody@plt-scheme.org>.
+ 
+ I suspect it is the require-for-template that is
+ causing the problems, but I'm not 100% sure.
+ 
+ /Jens Axel
+ 
+ 
+

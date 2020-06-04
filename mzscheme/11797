@@ -1,0 +1,106 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Mar 11 04:40:54 2011
+Received: from mail-fx0-f44.google.com (mail-fx0-f44.google.com [209.85.161.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id p2B9eQnE007926
+	for <bugs@bugs.plt-scheme.org>; Fri, 11 Mar 2011 04:40:51 -0500
+Message-Id: <201103110940.p2B9el6U007933@champlain.ccs.neu.edu>
+Date: Fri, 11 Mar 2011 04:40:47 -0500
+From: eli@barzilay.org
+To: bugs@racket-lang.org
+Subject: Subprocess changes interaction with readline
+
+>Number:         11797
+>Category:       mzscheme
+>Synopsis:       Subprocess changes interaction with readline
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Fri Mar 11 04:44:02 -0500 2011
+>Last-Modified:  Sun Jul 10 02:40:02 -0400 2011
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+Unix
+>Description:
+The recent changes to subprocess etc made readline misbehave:
+
+  $ racket -q
+  Welcome to Racket v5.1.0.3.
+  > (require readline/rep)
+  > (system "ls")
+  ...directory listing...
+  #t
+
+and now the readline prompt is not shown.  It still works fine, just
+no prompt after every use of `system'.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eli@barzilay.org, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/11797: Subprocess changes interaction with readline
+Date: Fri, 11 Mar 2011 08:41:37 -0600
+
+ At Fri, 11 Mar 2011 04:44:02 -0500, eli@barzilay.org wrote:
+ > The recent changes to subprocess etc made readline misbehave:
+ 
+ I'm not sure how to fix this, yet, but the relevant changes were just
+ in readline.
+ 
+ 
+ Old behavior (v5.0.2):
+ 
+  > (begin (read-char) ; consumes the available newline
+           (read-bytes-avail!* (make-bytes 10)))
+  (+ 1 2)
+  8
+ 
+ That's the wrong result. The input port is not supposed to block in
+ response to `read-bytes-avail!*'.
+ 
+ This bad behavior became more significant when the Racket REPL could be
+ used with GUI programs, because blocking on any read meant that GUI
+ events wouldn't get handled while the REPL was waiting.
+ 
+ 
+ The new behavior on the same example has the correct non-blocking
+ behavior, but the prompt gets swallowed:
+ 
+  > (begin (read-char) (read-bytes-avail!* (make-bytes 10)))
+  0
+  (+ 1 2)
+  3
+ 
+ The problem is that at the point that the read is requested by
+ `read-bytes-avail!*', it's not time to print a prompt. But no data
+ actually becomes available until after it is time to print a prompt.
+ So, it's a race condition between the start of a new
+ `readline-bytes/hist' call as the start of a new REPL prompt.
+ 
+ The problem shows up with `system' because `system' pumps stdin to the
+ subprocess.
+ 
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org
+Subject: Re: [racket-bug] all/11797: Subprocess changes interaction with readline
+Date: Sun, 10 Jul 2011 02:39:06 -0400
+
+ Maybe a suitable solution involves allowing something like a 'line
+ buffer mode?  That is, it'll keep an input buffer and give you data
+ only up to a newline, and will add to the buffer only if you read
+ beyond that newline --?
+ 
+ (Seems like something that the readline reader should do anyway, but I
+ wonder if it should be generalized.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!

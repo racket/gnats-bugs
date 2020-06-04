@@ -1,0 +1,1072 @@
+From nobody@cs.rice.edu  Thu Apr 23 09:38:25 1998
+Received: from web.cs.rice.edu (web.cs.rice.edu [128.42.1.163])
+          by cs.rice.edu (8.8.5/8.8.4) with ESMTP
+	  id JAA00986 for <plt-gnats@cs.rice.edu>; Thu, 23 Apr 1998 09:38:25 -0500 (CDT)
+Message-Id: <199804231438.JAA06900@web.cs.rice.edu>
+Date: Thu, 23 Apr 1998 09:38:24 -0500 (CDT)
+From: mflatt@rice.edu
+Reply-To: mflatt@rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: DrScheme does not run programs in the main thread 
+
+>Number:         576
+>Category:       drscheme
+>Synopsis:       DrScheme does not run programs in the main thread
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Apr 23 14:45:03 GMT 1998
+>Last-Modified:  Sat Jul 18 18:27:03 MST 1998
+>Originator:     Matthew Flatt
+>Organization:
+titan
+>Release:        -x
+>Environment:
+Linux
+>Description:
+DrScheme does not run programs (either via execute or the REP) in 
+the main thread of the user's eventspace.
+
+As a result, programs writen in DrScheme may not execute properly
+in MrEd. For example, Matthias's battleship game can be run with
+(load "battle-ship.ss")
+(invoke-unit/sig gameU)
+in DrScheme, but this doesn't work in MrEd. The battleship game
+uses semaphore-wait to block until some events are handled,
+but semaphore-wait also blocks the events. (The correct function
+to use is wx:yield, which acts like semaphore-wait except that
+it allows events to be handled if the current thread is the main
+thread.)
+>How-To-Repeat:
+Run this program in DrScheme:
+ (send (make-object wx:frame% null "test") show #t)
+ (semaphore-wait (make-semaphore 0))
+You can close the frame by clicking the close box, but
+it should instead block until the semaphore-wait ends.
+
+In contrast, in MrEd, the frame cannot be closed without
+first breaking the semaphore-wait. That is the correct
+behavior for a complete program.
+>Fix:
+
+>Audit-Trail:
+
+From: Matthias Felleisen <matthias@cs.rice.edu>
+To: plt-gnats@cs.rice.edu, mflatt@rice.edu
+Cc: steck@cs.rice.edu, shriram@cs.rice.edu, mflatt@cs.rice.edu,
+        robby@cs.rice.edu, cormac@cs.rice.edu, cobbe@cs.rice.edu,
+        four@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Thu, 23 Apr 1998 09:48:52 -0500 (CDT)
+
+ I ran the program as a script in mred and under the mred repl in drs. 
+ 
+ I am also not sure why semaphore:wait isn't the right primitive. The
+ boards are a thread so I wait for them to post to a semaphore. 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: matthias@rice.edu
+Cc: plt-gnats@cs.rice.edu, steck@cs.rice.edu, shriram@cs.rice.edu,
+        robby@cs.rice.edu, cormac@cs.rice.edu, cobbe@cs.rice.edu,
+        four@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Thu, 23 Apr 1998 10:01:45 -0500 (CDT)
+
+ Quoting Matthias Felleisen:
+ > 
+ > I ran the program as a script in mred and under the mred repl in drs. 
+ > 
+ 
+ Yep - loading a file into MrEd with -u and -f seems to have the same
+ problem as DrScheme. I'm investigating.
+ 
+ > I am also not sure why semaphore:wait isn't the right primitive. The
+ > boards are a thread so I wait for them to post to a semaphore. 
+ 
+ Each eventspace has a designated thread that handles input events from
+ the user. This is the "main thread". DrScheme does execute your code in
+ a thread separate from the input-handling thread; that's the bug.
+ MrEd starts your code in the main thread, instead. 
+ 
+ Another way to run your program in MrEd is
+   (thread (lambda () (invoke-unit/sig gameU)))
+ This works, because now the user's input is always in a thread
+ different from the one calling semaphore-wait.
+ 
+ Starting in the main thread is the right thing, because it gives the
+ programmer control over when events are handled synchrnously and when
+ they're handled asynchronously. It's easy to create a new thread to
+ support asynchrnous event handling, and much trickier to go the other
+ way.  Also, synchronous event handling is far simpler and appropriate
+ for many applications (or perhaps most parts of any application).
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Thu Apr 23 10:18:58 1998
+Responsible-Changed-Why:
+
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: mflatt@rice.edu
+Cc: plt-gnats@cs.rice.edu, matthias@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread 
+Date: Thu, 23 Apr 1998 10:16:47 -0500 (CDT)
+
+ mflatt@rice.edu writes:
+ > DrScheme does not run programs (either via execute or the REP) in 
+ > the main thread of the user's eventspace.
+ > 
+ > Run this program in DrScheme:
+ >  (send (make-object wx:frame% null "test") show #t)
+ >  (semaphore-wait (make-semaphore 0))
+ > You can close the frame by clicking the close box, but
+ > it should instead block until the semaphore-wait ends.
+ 
+ I think that I understand the problem. However, I am not sure how to fix
+ it. In drs, I create an eventspace, and I create a thread. I then use the
+ thread to handle evaluations. Instead, I should create an eventspace, and
+ then, when it is time to execute something, I should swap over to the
+ eventspace's main thread and start executing there. I have to do this swap
+ each time execute is clicked or a repl interaction happens, since the
+ eventspace's thread may not be the same thread it was last time.
+ 
+ So, this means that if a user creates a window, clicks a button in the
+ window and triggers some long callback, they should not be able to run repl
+ interactions, but clicking on execute should kill the callback. In this
+ case, I imagine that the after the user submits an interaction expression
+ in the bottom window, the expression's evaluation should block until the
+ event being handled is finished and then it should start, after that. 
+ 
+ We probably want some graphical feedback in this case, right? Perhaps a
+ "running" icon, somewhere? The icon would light up whenever the handler
+ thread is working? This feedback would definately help with the
+ implementation and debugging! If it's possible to re-use the gc icon code
+ somehow, that would be great!
+ 
+ So, I guess that I need to use the semaphore-callbacks to get over to the
+ eventspace's thread to run various evaluations?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu, matthias@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread 
+Date: Thu, 23 Apr 1998 10:41:42 -0500 (CDT)
+
+ Quoting Robert Bruce Findler:
+ > I think that I understand the problem. However, I am not sure how to fix
+ > it. In drs, I create an eventspace, and I create a thread. I then use the
+ > thread to handle evaluations. Instead, I should create an eventspace, and
+ > then, when it is time to execute something, I should swap over to the
+ > eventspace's main thread and start executing there. I have to do this swap
+ > each time execute is clicked or a repl interaction happens, since the
+ > eventspace's thread may not be the same thread it was last time.
+ 
+ I wonder if there's a simpler solution: where you currentl;y create a
+ thread, just get the eventspace's main thread (using
+ semaphore-callback, etc.). Where you're thread currently blocks on a
+ semaphore to get the next REPL expression, instead block with
+ wx:yield. (Probably, you'll have to wrap the wx:yield with the same
+ stuff you wrap around an evaluation, in case a callback has an error.)
+ 
+ This doesn't simulate MrEd's behavior of occasionally re-creating the
+ main thread, but it's a fine approximation for now and still
+ consistent (MrEd doesn't *have* to create a new thread). A better
+ approximiation can be left to the future.
+ 
+ To report in the REPL that the main thread is currently servicing a
+ callback, set the event dispatch handler.
+ 
+ Matthew
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu, matthias@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread 
+Date: Thu, 23 Apr 1998 23:15:30 -0500 (CDT)
+
+ Matthew Flatt writes:
+ > Quoting Robert Bruce Findler:
+ > > I think that I understand the problem. However, I am not sure how to fix
+ > > it. In drs, I create an eventspace, and I create a thread. I then use the
+ > > thread to handle evaluations. Instead, I should create an eventspace, and
+ > > then, when it is time to execute something, I should swap over to the
+ > > eventspace's main thread and start executing there. I have to do this swap
+ > > each time execute is clicked or a repl interaction happens, since the
+ > > eventspace's thread may not be the same thread it was last time.
+ > 
+ > I wonder if there's a simpler solution: where you currentl;y create a
+ > thread, just get the eventspace's main thread (using
+ > semaphore-callback, etc.). Where you're thread currently blocks on a
+ > semaphore to get the next REPL expression, instead block with
+ > wx:yield. (Probably, you'll have to wrap the wx:yield with the same
+ > stuff you wrap around an evaluation, in case a callback has an error.)
+ > 
+ > This doesn't simulate MrEd's behavior of occasionally re-creating the
+ > main thread, but it's a fine approximation for now and still
+ > consistent (MrEd doesn't *have* to create a new thread). A better
+ > approximiation can be left to the future.
+ 
+ I'm having trouble understanding this solution. In particular, if I grab
+ the thread descriptor for some eventspace's main thread and save it in a
+ variable, does that ensure that the eventspace will always handle events
+ using that one thread? Or, will mred cons up a new thread to handle events
+ (but never gc the thread I held onto)?
+ 
+ Thanks,
+ Robby
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu, matthias@cs.rice.edu, mflatt@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main
+ thread 
+Date: Fri, 24 Apr 1998 19:44:53 -0500
+
+ So, after some more thought I now understand Matthew's
+ proposal. He suggests that I actually grab the thread in
+ the users's eventspace and go into an infinite loop, 
+ using wx:yield to allow the user to handle events.
+ 
+ I think that this solution is actually more complex
+ than the "correct" one that only grabs the user's eventspace
+ main thread when it needs it. In fact, it is easy to
+ change drscheme to grab the thread when it needs it, and 
+ relinquish the thread when it is done,
+ but there is one catch.
+ 
+ In old school drscheme, the break button would not break
+ callbacks from buttons etc.  The break button only
+ broke the evaluation thread, not the user's eventspace
+ main thread. Now, those two threads are the same thread.
+ So, during an evaluation, I can still arrange things to
+ let the break button work. That only leaves one case: breaking
+ an event callback (which has become much more important, now).
+ 
+ The catch here is, although we pretend that there
+ is only one eventspace handler thread, there are many
+ such eventspace event handling threads.
+ Each event may potentially be run in a different thread.
+ But, I think that it is possible to break those evaluations, too.
+ All I need to do is create a wx:eventspace-serialization-handler
+ (that's the wrong name, but I forget the right one) and
+ before every event, update some variable with the current
+ thread descriptor. Then break will work fine.
+ 
+ I don't see any problems with this solution, neither in
+ implementing it, nor in it's appropriateness.
+ 
+ What do you think?
+ 
+ Robby
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu, matthias@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main
+ thread 
+Date: Fri, 24 Apr 1998 08:20:44 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > So, after some more thought I now understand Matthew's
+ > proposal. He suggests that I actually grab the thread in
+ > the users's eventspace and go into an infinite loop, 
+ > using wx:yield to allow the user to handle events.
+ > 
+ > I think that this solution is actually more complex
+ > than the "correct" one that only grabs the user's eventspace
+ > main thread when it needs it. In fact, it is easy to
+ > change drscheme to grab the thread when it needs it, and 
+ > relinquish the thread when it is done,
+ > but there is one catch.
+ 
+ Sounds fine. I misunderstood your description of what currently
+ happens. I had the impression that there's a single evaluation thread
+ that lives until the end of the program.
+ 
+ I must admit that I don't see how the REPL works if you create a new
+ thread for every evaluation. I thought you were using a single thread
+ so that the REPL behaves like MzScheme for continuations across
+ top-level expressions, etc.
+ 
+ In any case, being able to break from an event callback sounds
+ great. Keep in mind that event handlings can be nested (if the client
+ program uses wx:yeild).
+ 
+ Matthew
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu
+Cc: matthias@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Fri, 24 Apr 1998 08:40:42 -0500 (CDT)
+
+ > Sounds fine. I misunderstood your description of what currently
+ > happens. I had the impression that there's a single evaluation thread
+ > that lives until the end of the program.
+ 
+ The repl currently does use one thread that lives until execute is clicked
+ (at which point, a new one is created). I don't know how you got the
+ impression that it doesn't... (Maybe this is just incredulity that the
+ abstractions I set up come very close to supporting both styles of
+ threading?)
+ 
+ But, this brings up an interesting point. MrEd has a prompt at each
+ repl prompt already!
+ 
+ Welcome to MrEd version 52/2.
+ Copyright (c) 1995-1998 PLT, Rice University (Matthew Flatt and Robert
+ Bruce Findler).
+ > (define k (call/cc (lambda (x) x)))
+ > k
+ #<continuation>
+ > (k 1)
+ continuation application: attempted to cross a continuation boundary
+ 
+ So, this is a fairly major difference in mzscheme and mred, which leads to
+ yet another point. DrScheme should provide two modes: a mzscheme mode and a
+ mred mode. At first I thought that this was only a difference in the
+ libraries (and how (kill-thread (current-thread)) behaves), but it appears
+ that there are more major differences between the two. 
+ 
+ I would prefer to move the two languages together, rather than support both
+ in drscheme, if that is possible.....
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: matthias@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Fri, 24 Apr 1998 09:27:51 -0500 (CDT)
+
+ Quoting Robert Bruce Findler:
+ > > Sounds fine. I misunderstood your description of what currently
+ > > happens. I had the impression that there's a single evaluation thread
+ > > that lives until the end of the program.
+ > 
+ > The repl currently does use one thread that lives until execute is clicked
+ > (at which point, a new one is created). I don't know how you got the
+ > impression that it doesn't... (Maybe this is just incredulity that the
+ > abstractions I set up come very close to supporting both styles of
+ > threading?)
+ 
+ My reasoning went like this:
+ 
+  * DrScheme currently uses one thread for the duration of the 
+    REPL.
+ 
+  * DrScheme needs to use the eventspace's main thread as the
+    REPL thread.
+ 
+  * Therefore, the eventspace's main thread must be captured from
+    the start, once, forever as the single REPL thread.
+ 
+ When you said you can implement things by grabbing different main
+ threads as MrEd creates them, I ran this logic in reverse:
+ 
+  * The main thread and the REPL thread are the same.
+ 
+  * There is more than one main thread (only one at any given time,
+    but many across the history of the REPL).
+ 
+  * Therefore, there is no single thread representing the REPL.
+ 
+ The point where either of these logical chains breaks down is the
+ point where we're miscommunicating.
+ 
+ > But, this brings up an interesting point. MrEd has a prompt at each
+ > repl prompt already!
+ 
+ The MrEd REPL language is uninteresting. It will be entirely replaced
+ by DrScheme.
+ 
+ Matthew
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, matthias@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Fri, 24 Apr 1998 22:10:43 -0500 (CDT)
+
+ Responding To:    Matthew Flatt <mflatt@cs.rice.edu>
+ Original Date:    Fri, 24 Apr 1998 09:27:51 -0500 (CDT)
+ > My reasoning went like this:
+ > 
+ >  * DrScheme currently uses one thread for the duration of the 
+ >    REPL.
+ > 
+ >  * DrScheme needs to use the eventspace's main thread as the
+ >    REPL thread.
+ 
+ The logical step from the first two to the third is not quite right. I 
+ think that you are not taking into account the structure of the code. Just 
+ because I use one thread currently does not mean the implementation is tied 
+ to using one thread. It's a question of modules. I have the thread 
+ manipulation code in a "module" (just a set of instance variables really) 
+ and so I only need to look at that module. It turns out that module's 
+ interface only changes a tiny bit for the new implementation (In fact, the 
+ types stay the same; the only change is that a state-based post-condition 
+ is lifted!).
+ 
+ >  * Therefore, the eventspace's main thread must be captured from
+ >    the start, once, forever as the single REPL thread.
+ > 
+ > When you said you can implement things by grabbing different main
+ > threads as MrEd creates them, I ran this logic in reverse:
+ 
+ Ah. Perhaps this is my original mis-statement. DrScheme will only grab
+ time on the the eventspace thread(s) as it needs time. It won't
+ actually hold onto the thread or anything.
+ 
+ > > But, this brings up an interesting point. MrEd has a prompt at each
+ > > repl prompt already!
+ >
+ > The MrEd REPL language is uninteresting. It will be entirely replaced
+ > by DrScheme.
+ 
+ I see that I have again botched my delivery. Take 2. Peek-ahead conclusion: 
+ If DrScheme is too support the MrEd evaluation model, then I don't see how 
+ to allow continuations that jump across repl interactions. 
+ 
+ Now I have to tell you my perception of the MrEd model. I believe that the 
+ MrEd model is for the eventspace's thread and the evaluation thread to be 
+ one and the same. And, in fact, the threads are not just the same, but the 
+ eventspace's thread's creation/destrution/maintence is under the control of 
+ the mred engine. So, that means DrScheme should just queue (high-priority) 
+ events to handle evaluation in the repl and execution. 
+ 
+ With this model, I think that we cannot support continuations that jump 
+ across repl interactions, since the continuations will actually be jumping 
+ across event callbacks, which is not allowed.
+ 
+ Now, let me add my 2c. I think that it is reasonable for two separate 
+ interactions with the repl to have the same behavior as two separate event 
+ callbacks. In fact, in a GUI style system, I believe that is preferred.
+ 
+ In a GUI system, everything happens as the result of an event callback. 
+ When I test my program in the repl, each test case will (probably) 
+ correspond to some particular action that the user does. When the user 
+ preforms two actions, they will appear to my program as two different event 
+ callbacks. Thus, when I test those two actions in the repl, they should 
+ also appear to my program as two different event callbacks.
+ 
+ Note that, for the record, I am not against continuations that jump across 
+ event callbacks.
+ 
+ Robert "hoping this is lucid" Bruce
+ 
+ PS: I am glad that we are having this conversation in email, rather than in 
+ a meeting. I need time between reading and responding to consider your 
+ messages and the code and, in this case, even do a test implementation.
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 09:47:32 -0500 (CDT)
+
+ [Matthias has been removed from the cc list at his request.]
+ 
+ Quoting Robby Findler:
+ >
+ > >  * DrScheme currently uses one thread for the duration of the
+ > >    REPL.
+ > >
+ > >  * DrScheme needs to use the eventspace's main thread as the
+ > >    REPL thread.
+ >
+ > The logical step from the first two to the third is not quite right. I
+ > think that you are not taking into account the structure of the code.
+ 
+ In my view, these first two points were part of the *definition* (from
+ the user's perspective) of the event queue and REPL interaction, not
+ just implications for an implementation of the REPL.
+ 
+ > Just because I use one thread currently does not mean the
+ > implementation is tied to using one thread. It's a question of
+ > modules.
+ 
+ It's nice that you're implementation can go either way, but that's not
+ what I was talking about.
+ 
+ The user can detect (and depend on) whether the same thread is used
+ for a sequence of REPLs and event callbacks. I think we agree that
+ this needs to be clearly defined.
+ 
+ It turns out that you intend to define the REPL so that the first
+ point above doesn't hold. I think that the first point should be part
+ of the REPL's definition. 
+ 
+ (It seems that we agree on including the second point in the REPL's
+ definition.)
+ 
+ > Now I have to tell you my perception of the MrEd model. I believe
+ > that the MrEd model is for the eventspace's thread and the
+ > evaluation thread to be one and the same. And, in fact, the threads
+ > are not just the same, but the eventspace's thread's
+ > creation/destrution/maintence is under the control of the mred
+ > engine. So, that means DrScheme should just queue (high-priority)
+ > events to handle evaluation in the repl and execution.
+ 
+ I am opposed to this model because it widens the gap between MzScheme
+ and MrEd. I expect that we agree on this: a MzScheme program should
+ run unmodified in MrEd. It seems to me that a sequence of REPL
+ interactions should *also* work unmodified.
+ 
+ To avoid a divergence in the definition of the REPL, MrEd's repl
+ should be a equivalent to MzScheme's repl when it is restricted to
+ MzScheme programs. If we agree on this, then the question becomes
+ which model to use:
+ 
+   * MzScheme's current single-thread model; or
+ 
+   * a single-threaded model where the actual thread may change
+     between evaluations, and there is always a prompt between
+     evaluations.
+ 
+ I'm in favor of the first model because it has been long tested.
+ Also, it isn't clear how much of our MzScheme/DrScheme model would
+ have to change if we redefine the REPL. For example, as I understand
+ things, clicking `Execute' in DrScheme is the same as evaluating each
+ of the program expressions in the REPL. If we move to the latter of
+ the above REPL models, then execute != REPLs (otherwise,
+ `current-thread' can return a new thread for each top-level expression
+ in a program, which is weird).
+ 
+ The question of which REPL model to use is debatable. However, it
+ seems clear that we should stick to the first model for 52.
+ 
+ > If DrScheme is too support the MrEd evaluation model, then I don't
+ > see how to allow continuations that jump across repl interactions.
+ 
+ Here is a sketch that hopefully clarifies my previous messages:
+ 
+  e = (wx:make-eventspace)
+  rs = (make-semaphore)
+ 
+  in e's parameterization:
+   (let ([d (wx:event-dispatch-handler)])
+     (wx:event-dispatch-handler
+      (lambda (es)
+        (with-drscheme-wrapping (lambda () (d es))))))
+ 
+  in e's main thread:
+   (let loop ()
+     (unless (semaphore-try-wait? rs) ; so a sequence can be evaluated
+       (wx:yield rs))
+     (with-drscheme-wrapping (lambda () (handle-repl-expr)))
+     (loop))
+ 
+  with-drscheme-wrapping = bracket user-defined code as usual 
+   (e.g., enable the break button); this procedure must be re-entrant
+    to handle calls to (wx:yield) by the user
+ 
+  handle-repl-expr = eval next REPL; when DrScheme has a new 
+    expr ready from the REPL, it posts to rs, and
+    handle-repl-expr will evaluate that expr when it is called
+ 
+  if n experssions are ready to be evaluated (because we're executing
+    a program or because the user provided multiple expressions at
+    a single prompt), rs should be posted n times, so no event handling
+    occurs until all exprs are evaluated
+ 
+ 
+ Matthew
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 10:23:38 -0500 (CDT)
+
+ Responding To:    Matthew Flatt <mflatt@cs.rice.edu>
+ Original Date:    Sat, 25 Apr 1998 09:47:32 -0500 (CDT)
+ > Quoting Robby Findler:
+ > >
+ > > >  * DrScheme currently uses one thread for the duration of the
+ > > >    REPL.
+ > > >
+ > > >  * DrScheme needs to use the eventspace's main thread as the
+ > > >    REPL thread.
+ > >
+ 
+ > It turns out that you intend to define the REPL so that the first
+ > point above doesn't hold. I think that the first point should be part
+ > of the REPL's definition. 
+ 
+ To me, the second point implies the opposite of the first point.
+ 
+ >   * MzScheme's current single-thread model; or
+ > 
+ >   * a single-threaded model where the actual thread may change
+ >     between evaluations, and there is always a prompt between
+ >     evaluations.
+ > 
+ > I'm in favor of the first model because it has been long tested.
+ 
+ Both models have been long tested, I believe.
+ 
+ I would like to hear a response to the "my 2c" section. You seem to think 
+ that the logic is flawed, somehow. Why do you think so?
+ 
+ Robby
+ 
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.ed, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 10:55:42 -0500 (CDT)
+
+ my 2c, reformulated in terms of an example:
+ 
+ Let's say that some programmer implements a program. His program (to the 
+ outside world) consists of two functions, A and B. In a few cases, A and B 
+ need to share continuations. He packages this up as a mzscheme product and 
+ all his customers interact with his program in the mzscheme repl.
+ 
+ One day, he enounters drscheme and realizes that his program would reach a 
+ much wider audience if he could slap a gui on it. Luckily, A and B each 
+ only take some small easily gui-able input. So, he builds a window with 
+ some controls to specify the inputs to A and B and two buttons: A and B.
+ 
+ Now, he runs his test suite in drscheme. He runs it in two ways:
+ 
+ 1) he runs some monolithic function that passes almost all inputs to A and 
+ B that are possible
+ 2) he runs a few test suites, calling A and B in the repl
+ 3) he clicks on the window, calling A and B.
+ 
+ We have been arguing wheather 2) should be the same as 1) or should be the 
+ same as 3). But, there is a larger problem. This programmer really wants 
+ 1), 2) and 3) all to have the same behaviour, so that he be confident after 
+ running test 1) that 2) and 3) will succeed.
+ 
+ Can we support this guy's wishes? Is he just deranged for wanting that? 
+ 
+ Robby
+ 
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 10:57:19 -0500 (CDT)
+
+ my 2c, reformulated in terms of an example:
+ 
+ Let's say that some programmer implements a program. His program (to the 
+ outside world) consists of two functions, A and B. In a few cases, A and B 
+ need to share continuations. He packages this up as a mzscheme product and 
+ all his customers interact with his program in the mzscheme repl.
+ 
+ One day, he enounters drscheme and realizes that his program would reach a 
+ much wider audience if he could slap a gui on it. Luckily, A and B each 
+ only take some small easily gui-able input. So, he builds a window with 
+ some controls to specify the inputs to A and B and two buttons: A and B.
+ 
+ Now, he runs his test suite in drscheme. He runs it in two ways:
+ 
+ 1) he runs some monolithic function that passes almost all inputs to A and 
+ B that are possible
+ 2) he runs a few test suites, calling A and B in the repl
+ 3) he clicks on the window, calling A and B.
+ 
+ We have been arguing wheather 2) should be the same as 1) or should be the 
+ same as 3). But, there is a larger problem. This programmer really wants 
+ 1), 2) and 3) all to have the same behaviour, so that he be confident after 
+ running test 1) that 2) and 3) will succeed.
+ 
+ Can we support this guy's wishes? Is he deranged for wanting that?
+ 
+ Robby
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 11:04:13 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > 
+ > >   * MzScheme's current single-thread model; or
+ > > 
+ > >   * a single-threaded model where the actual thread may change
+ > >     between evaluations, and there is always a prompt between
+ > >     evaluations.
+ > > 
+ > > I'm in favor of the first model because it has been long tested.
+ > 
+ > Both models have been long tested, I believe.
+ 
+ While I work on a response to the other stuff, can you point me to our
+ REPL using the second model?
+ 
+ Thanks,
+ Matthew
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 11:05:27 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > > >
+ > > > >  * DrScheme currently uses one thread for the duration of the
+ > > > >    REPL.
+ > > > >
+ > > > >  * DrScheme needs to use the eventspace's main thread as the
+ > > > >    REPL thread.
+ > > >
+ > 
+ > > It turns out that you intend to define the REPL so that the first
+ > > point above doesn't hold. I think that the first point should be part
+ > > of the REPL's definition. 
+ > 
+ > To me, the second point implies the opposite of the first point.
+ 
+ Perhaps you could elaborate on this, too. If it helps, you can phrase
+ your reply in terms of the implementation sketch I sent you (which I
+ belive implements both of these points).
+ 
+ Matthew
+ 
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 11:09:42 -0500 (CDT)
+
+ Responding To:    Matthew Flatt <mflatt@cs.rice.edu>
+ Original Date:    Sat, 25 Apr 1998 11:04:13 -0500 (CDT)
+ > While I work on a response to the other stuff, can you point me to our
+ > REPL using the second model?
+ > 
+ 
+ MrEd?
+ 
+ Robby
+ 
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 11:16:47 -0500 (CDT)
+
+ > > To me, the second point implies the opposite of the first point.
+ > 
+ > Perhaps you could elaborate on this, too. If it helps, you can phrase
+ > your reply in terms of the implementation sketch I sent you (which I
+ > belive implements both of these points).
+ 
+ I am basing this on my understanding of eventspaces. The documentation page 
+ I'm thinking of is:
+ 
+   http://www.cs.rice.edu/CS/PLT/packages/doc/toolbox/node81.htm
+ 
+ So, you implementation, strictly speaking, falsifies this page.
+ 
+ I have tried to say this several times. I don't know why I am not being 
+ clear. To me, if drscheme is going to use the eventspace's thread to 
+ evaluate things, that means that drscheme has to let the eventspace control 
+ the maintence of the thread.
+ 
+ Robby
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 11:31:29 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > > > To me, the second point implies the opposite of the first point.
+ > > 
+ > > Perhaps you could elaborate on this, too. If it helps, you can phrase
+ > > your reply in terms of the implementation sketch I sent you (which I
+ > > belive implements both of these points).
+ > 
+ > I am basing this on my understanding of eventspaces. The documentation page 
+ > I'm thinking of is:
+ > 
+ >   http://www.cs.rice.edu/CS/PLT/packages/doc/toolbox/node81.htm
+ >
+ > So, you implementation, strictly speaking, falsifies this page.
+ > 
+ 
+ I'm not sure what is being falsified:
+ 
+  1) Could be MrEd's actual behavior; i.e., you claim it is impossible
+     to implement what I have described given the constrains specified
+     on this page.
+ 
+    However, my implementation is perfectly consistent with the second
+    paragraph on that page, which explains that wx:yield causes the
+    handler thread to be reused to handle nested events.
+ 
+  2) Could be that DrScheme won't simulate MrEd's actual behavior;
+     i.e., it won't create threads often enough.
+ 
+     I granted this from the start. In MrEd, it's possible for a new
+     thread to be created for each event. (The footnote on that page
+     is relevant here, in that it allows MrEd to reuse a handler
+     thread even without wx:yield.) In DrScheme, a new thread will
+     never be created. This means that DrScheme programs using
+     `current-thread' can possibly fail in the real MrEd, but not
+     vice-versa.
+ 
+ Matthew
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 11:35:10 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > 1) he runs some monolithic function that passes almost all inputs to A and 
+ > B that are possible
+ > 2) he runs a few test suites, calling A and B in the repl
+ > 3) he clicks on the window, calling A and B.
+ > 
+ > We have been arguing wheather 2) should be the same as 1) or should be the 
+ > same as 3). But, there is a larger problem. This programmer really wants 
+ > 1), 2) and 3) all to have the same behaviour, so that he be confident after 
+ > running test 1) that 2) and 3) will succeed.
+ > 
+ > Can we support this guy's wishes? Is he deranged for wanting that?
+ > 
+ 
+ It is not unreasonable to want event callbacks to be handled by a
+ single thread without prompts. Unfortunately, we cannot provide this
+ behavior.
+ 
+ The current system of prompts and handler threads is an artifact of:
+ 
+  1) a C++-based GUI library that wasn't developed for multi-threaded
+    programming or continuation hops; and
+ 
+  2) conservative collection. 
+ 
+ Neither of these problems is easily remedied. :)
+ 
+ Matthew
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 18:03:35 -0500 (CDT)
+
+ So, in general, the game is to allow as much jumping around of 
+ continuations as possible?
+ 
+ Along those lines, I have a question. Is it true (I think that you told me 
+ this before...) that there is an implicit prompt around every call thru C? 
+ In particular, if I call wx:media-buffer::insert and then on-insert is 
+ called, no jumping across there is permitted?
+ 
+ Boy, call/cc can really mess with a program's assumptions, can't it.
+ 
+ ; --
+ 
+ I still have the opinion that a repl interaction should be treated the same 
+ as an event callback. So, given the limitations of event callbacks, we 
+ should enforce those same restrictions on repl interactions. And, to answer 
+ an earlier question, multiple expressions can be evaluated in one 
+ interaction (either via execute or just typing more than one expression 
+ after the prompt) and they should count as one event callback.
+ 
+ This is useful, since programmers can have the flexibility of a REPL and 
+ still simulate user input to their programs.
+ 
+ I understand an agree with the concern that we want drscheme's repl to be 
+ the same as mzscheme. My tentative suggestion for normalizing the repls is 
+ to have an eventspace hold onto it's thread (and never free it or create a 
+ new thread) and add prompts in the mzscheme repl, one around each 
+ interaction.
+ 
+ Robby
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 19:16:01 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > Along those lines, I have a question. Is it true (I think that you told me 
+ > this before...) that there is an implicit prompt around every call thru C? 
+ > In particular, if I call wx:media-buffer::insert and then on-insert is 
+ > called, no jumping across there is permitted?
+ 
+ Yes.
+ 
+ > My tentative suggestion for normalizing the repls is 
+ > to have an eventspace hold onto it's thread (and never free it or create a 
+ > new thread) 
+ 
+ This cannot be implemented, mostly due to GC concerns: 1) a thread
+ that doesn't die must be kept running, 2) all running threads are
+ reachable, and 3) a thread can reach its eventspace. So no eventspace
+ would ever get collected. I tried to work around this (by relaxing the
+ condition that running threads are reachable) and couldn't.
+ 
+ > and add prompts in the mzscheme repl, one around each 
+ > interaction.
+ 
+ I'm very hesitant to change this aspect of MzScheme. You were present
+ when I explained to Matthias why I think continuation jumps across
+ prompts make sense, right?
+ 
+ I suspect we're at an impasse, and the question will have to be
+ addressed by the group as a whole.
+ 
+ Matthew
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 21:48:35 -0500 (CDT)
+
+ Is the only objection to my DrScheme REPL implementation suggestion that it 
+ cannot be done in mzscheme?
+ 
+ Robby
+ 
+ 
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 22:03:39 -0500 (CDT)
+
+ Responding To:    Matthew Flatt <mflatt@cs.rice.edu>
+ Original Date:    Sat, 25 Apr 1998 19:16:01 -0500 (CDT)
+ > This cannot be implemented, mostly due to GC concerns: 1) a thread
+ > that doesn't die must be kept running, 2) all running threads are
+ > reachable, and 3) a thread can reach its eventspace. 
+ 
+ I understand points 1) and 2), but not 3). Why must a thread point to it's 
+ eventspace?
+  
+ > > and add prompts in the mzscheme repl, one around each 
+ > > interaction.
+ > 
+ > I'm very hesitant to change this aspect of MzScheme. You were present
+ > when I explained to Matthias why I think continuation jumps across
+ > prompts make sense, right?
+ 
+ Yes. I think that sense can be made out of either viewpoint. I am only 
+ suggesting this if we agree that my repl suggestion for DrScheme is the 
+ right thing.
+ 
+ Robby
+ 
+ 
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 22:04:27 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > Is the only objection to my DrScheme REPL implementation suggestion
+ > that it cannot be done in mzscheme?
+ 
+ No. To summarize my position:
+ 
+  1) I still think it's better to allow continuation jumps across
+     REP expression, but this is a conservative opinion that
+     the rest of PLT may not agree with.
+ 
+ Regardless of the outcome on 1,
+ 
+  2) I think that the REP should run in a single thread, to provide
+     both consistency with MzScheme(*) and intuitive behavior for someone
+     exploring threads.    (*) One could imagine a MzScheme that
+     disallows continuation hops across a prompt, but it doesn't make
+     sense to create a new thread for each REPL expression.
+ 
+     Given that MrEd can't keep a single thread for an eventspace, I'm
+     opposed to defining the REPL in terms of an event loop because it
+     does not gurantee a single thread for all REPL expressions.
+ 
+ Matthew
+
+From: Matthew Flatt <mflatt@cs.rice.edu>
+To: "Robby Findler" <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 22:05:03 -0500 (CDT)
+
+ Quoting Robby Findler:
+ > Responding To:    Matthew Flatt <mflatt@cs.rice.edu>
+ > Original Date:    Sat, 25 Apr 1998 19:16:01 -0500 (CDT)
+ > > This cannot be implemented, mostly due to GC concerns: 1) a thread
+ > > that doesn't die must be kept running, 2) all running threads are
+ > > reachable, and 3) a thread can reach its eventspace. 
+ > 
+ > I understand points 1) and 2), but not 3). Why must a thread point to it's 
+ > eventspace?
+ 
+ A thread has a parameterization, and a parameterization has an
+ eventspace.
+ 
+ Matthew
+
+From: "Robby Findler" <robby@cs.rice.edu>
+To: mflatt@cs.rice.edu, plt-gnats@cs.rice.edu
+Cc:  Subject: Re: all/576: DrScheme does not run programs in the main thread
+Date: Sat, 25 Apr 1998 23:49:56 -0500 (CDT)
+
+ Responding To:    Matthew Flatt <mflatt@cs.rice.edu>
+ Original Date:    Sat, 25 Apr 1998 22:04:27 -0500 (CDT)
+ >  2) I think that the REP should run in a single thread, to provide
+ >     both consistency with MzScheme(*) and intuitive behavior for someone
+ >     exploring threads.    
+ >
+ > [...]
+ >
+ >     Given that MrEd can't keep a single thread for an eventspace, I'm
+ >     opposed to defining the REPL in terms of an event loop because it
+ >     does not gurantee a single thread for all REPL expressions.
+ 
+ I think that this is a reasonable position for 52.
+ I guess that I just needed a summary or soemthing.
+ 
+ I am not yet convinced that we have not yet gotten to the local maximum for 
+ DrScheme in general, but this is clearly a local maximum for 52. Perhpas we 
+ can make this the topic of a meeting when you are back in town?
+ 
+ Robby
+
+State-Changed-From-To: open-closed
+State-Changed-By: robby
+State-Changed-When: Sat Jul 18 18:26:30 1998
+State-Changed-Why:
+
+ 
+ 
+>Unformatted:

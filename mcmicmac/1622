@@ -1,0 +1,153 @@
+From clements@cs.rice.edu  Wed Aug 23 15:39:29 2000
+Received: from localhost (barbican.cs.rice.edu [128.42.2.142])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id PAA05211
+	for <plt-gnats>; Wed, 23 Aug 2000 15:39:28 -0500 (CDT)
+Message-Id: <200008232039.PAA05211@cs.rice.edu>
+Date: Wed, 23 Aug 2000 15:39:28 -0500 (CDT)
+From: clements@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: let-macro stomps top-level macro defs in zodiac
+
+>Number:         1622
+>Category:       mcmicmac
+>Synopsis:       let-macro stomps top-level macro defs in zodiac
+>Class:          sw-bug
+>Responsible:    shriram
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Aug 23 16:45:20 -0400 2000
+>Last-Modified:  Wed Apr 28 11:05:53 -0400 2004
+>Originator:     John Clements
+>Organization:
+titan
+>Submitter-Id:   unknown
+>Release:        103/1d1
+>Environment:
+macos (ppc-mac) (get-display-depth) = 32
+Tools: ("analysis" "CVS" "debug" "project-manager" "syncheck" "unit-bundle")
+Docs Installed:
+("drscheme" "framework" "help" "icons" "insidemz" "match" "misclib" "mred" "mzc" "mzscheme" "r5rs" "teachpack" "tools")
+Collections:
+(("Barbican:stable:plt:collects" ("afm" "browser" "cogen" "compiler" "CVS" "defaults" "doc" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "guserspce" "help" "hierarchy" "hierlist" "htdp" "icons" "launcher" "make" "mred" "mrspidey" "mzlib" "mzscheme" "net" "quasiquote" "setup" "slatex" "slibinit" "stepper" "stepper-graphical" "tests" "texpict" "userspce" "xml" "zodiac")) ("Barbican:robby:collects:" ("CVS" "magic")) ("Barbican:clements:collects:" ("clements-lib" "CVS")))
+>Description:
+A let-macro with a given name, upon return, destroys the top-level
+macro definition with the same name.  This comes up while running
+macro.ss from the MzScheme test suite in DrJr, and this is _not_
+one of the tests that is predicated upon the definition of 
+'in-drscheme?.  This test file used to work, so either Zodiac
+has changed, or the test suite has.
+
+The following piece of code produces different results in the 
+MrEd and MrEd no debugging language levels:
+>How-To-Repeat:
+(define-macro mx
+  (lambda (x)
+    (list x 1 8)))
+
+(let-macro mx (lambda (x) (list x 6 7)) (mx +)) ; should be 13
+(let-macro mx2 (lambda (x y) (list 'mx y)) (mx2 + -)) ; should be -7
+
+>Fix:
+>Audit-Trail:
+From: Shriram Krishnamurthi <sk@cs.brown.edu>
+To: clements@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu, mflatt@cs.utah.edu
+Subject: all/1622: let-macro stomps top-level macro defs in zodiac
+Date: Wed, 23 Aug 2000 23:39:10 -0400 (EDT)
+
+ clements@cs.rice.edu wrote:
+ 
+ >		  This test file used to work, so either Zodiac
+ > has changed, or the test suite has.
+ 
+ This should work, and used to.  It must be one of the casualties of
+ the syntax house of cards.  I've spent a little time looking at the
+ code and it's not clear to me where the problem is, yet.  Matthew, is
+ it perhaps obvious to you?
+ 
+ Shriram
+
+Responsible-Changed-From-To: steck->shriram
+Responsible-Changed-By: shriram
+Responsible-Changed-When: Wed Aug 23 23:41:25 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-analyzed
+State-Changed-By: shriram
+State-Changed-When: Wed Aug 23 23:41:30 2000
+State-Changed-Why:
+Change suggested by Matthew; as he points out, it's the minimum
+necessary.
+
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Shriram Krishnamurthi <sk@cs.brown.edu>
+Cc: clements@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/1622: let-macro stomps top-level macro defs in zodiac
+Date: Wed, 23 Aug 2000 21:22:35 -0700
+
+ Quoting Shriram Krishnamurthi:
+ > clements@cs.rice.edu wrote:
+ > 
+ > >		  This test file used to work, so either Zodiac
+ > > has changed, or the test suite has.
+ > 
+ > This should work, and used to.  It must be one of the casualties of
+ > the syntax house of cards.
+ 
+ Well, it worked with the original houise of cards, but my inexcusably
+ hurried, ugly, and sloppy "fix" for Patch 102-1 broke it.
+ 
+ The problem is line 115 in x.ss:
+ 
+           (unless stdname?
+ 
+ should at least be
+ 
+           (when (and (not stdname?)
+ 		     (vocabulary-record-namespace-based? vocab))
+ 
+ Even better, of course, the code would be rearranged to something less
+ opaque...
+ 
+ Matthew
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Shriram Krishnamurthi <sk@cs.brown.edu>
+Cc: clements@cs.rice.edu, plt-gnats@cs.rice.edu
+Subject: Re: all/1622: let-macro stomps top-level macro defs in zodiac
+Date: Wed, 23 Aug 2000 21:22:35 -0700
+
+ Quoting Shriram Krishnamurthi:
+ > clements@cs.rice.edu wrote:
+ > 
+ > >		  This test file used to work, so either Zodiac
+ > > has changed, or the test suite has.
+ > 
+ > This should work, and used to.  It must be one of the casualties of
+ > the syntax house of cards.
+ 
+ Well, it worked with the original houise of cards, but my inexcusably
+ hurried, ugly, and sloppy "fix" for Patch 102-1 broke it.
+ 
+ The problem is line 115 in x.ss:
+ 
+           (unless stdname?
+ 
+ should at least be
+ 
+           (when (and (not stdname?)
+ 		     (vocabulary-record-namespace-based? vocab))
+ 
+ Even better, of course, the code would be rearranged to something less
+ opaque...
+ 
+ Matthew
+ 
+State changed from "analyzed" to "closed" by eli at Wed, 28 Apr 2004 11:05:53 -0400
+Reason>>> mcmicmac is dead
+
+>Unformatted:

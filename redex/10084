@@ -1,0 +1,170 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Feb 20 11:46:01 2009
+Received: from yx-out-2324.google.com (yx-out-2324.google.com [74.125.44.28])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n1KGjpbY028083
+	for <bugs@bugs.plt-scheme.org>; Fri, 20 Feb 2009 11:45:51 -0500
+Message-Id: <200902201645.n1KGjmWv028077@champlain.ccs.neu.edu>
+Date: Fri, 20 Feb 2009 11:45:48 -0500
+From: sstrickl@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Redex: fresh variables cannot be used in where clauses
+
+>Number:         10084
+>Category:       redex
+>Synopsis:       Redex: fresh variables cannot be used in where clauses
+>Class:          sw-bug
+>Responsible:    clklein
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Feb 20 11:48:01 -0500 2009
+>Closed-Date:    Thu Oct 21 11:22:39 -0400 2010
+>Last-Modified:  Thu Oct 21 11:22:39 -0400 2010
+>Originator:     Stevie Strickland
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.4.3-svn20feb2009
+>Environment:
+macosx "Darwin Bonn.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 156168268
+
+Collections:
+(("/Users/sstrickl/Library/PLT Scheme/4.1.4.3/collects" non-existent-path) ("/Users/sstrickl/plt/collects" ".svn" "2htdp" "afm" "algol60" "at-exp" "beamer" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "redex" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "stxclass" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed" "typed-scheme" "vers!
+ ion" "waterworld" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+I'd like to use some fresh variables (generated using the "fresh" form) in some where clauses, but I can't.
+
+In fact, in general, it'd be nice if the fresh and where clauses were more let*-ish instead of let-ish, in the sense that you could use the new bindings in later clauses (so you could bind using where, generate fresh variable lists using the stuff just bound in the previous where clauses, use the new fresh stuff in following where clauses, etc.)
+>How-To-Repeat:
+Try running the following program, get "no pattern variables before ellipses in..."
+
+#lang scheme
+
+(require redex)
+
+(define-language base-lang
+  (e x v
+     (begin e e)
+     (compound-unit (import x ...) (export x ...) e e))
+  (v (unit (import x ...) (export x ...) d ... e))
+  (d (define x e))
+  (x variable-not-otherwise-mentioned)
+  (E hole
+     (compound-unit (import x ...) (export x ...) E e)
+     (compound-unit (import x ...) (export x ...) v E)
+     (begin E e)))
+
+(define reducts
+  (reduction-relation base-lang
+    (==> (compound-unit (import x_i ...) (export x_i ...)
+            (name u1 (unit (import x_i1 ...) (export x_e1 ...) (define x_d1 e_d1) ... e_1))
+            (name u2 (unit (import x_i2 ...) (export x_e2 ...) (define x_d2 e_d2) ... e_2)))
+          (unit (import x_i ...) (export x_i ...)
+                (define x_d1n e_d1n) ...
+                (define x_d2n e_d2n) ...
+                (begin e_1n e_2n))
+          (fresh ((x_n1 ...) (x_d1 ...))
+                 ((x_n2 ...) (x_d2 ...)))
+          (where ((define x_d1n e_d1n) ... e_1n)
+            (ξ u1 (x_n1 ...)))
+          (where ((define x_d2n e_d2n) ... e_2n)
+                 (ξ u2 (x_n2 ...))))
+    (==> (begin v e) e)
+    with
+    [(--> (in-hole E a) (in-hole E b))
+     (==> a b)]))
+
+(define-metafunction base-lang
+  ξ : u (x ...) -> (d ... e)
+  [(ξ (unit (import x_i ...) (export x_e ...) (define x_d e_d) ... e))
+   ((define x_d e_d) ... e)])
+>Fix:
+>Audit-Trail:
+From: Stevie Strickland <sstrickl@plt-scheme.org>
+To: robby@plt-scheme.org
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10084: Redex: fresh variables cannot be used in where clauses
+Date: Fri, 20 Feb 2009 12:32:33 -0500
+
+ On Feb 20, 2009, at 11:48 AM, sstrickl@ccs.neu.edu wrote:
+ > I'd like to use some fresh variables (generated using the "fresh"  
+ > form) in some where clauses, but I can't.
+ >
+ > In fact, in general, it'd be nice if the fresh and where clauses  
+ > were more let*-ish instead of let-ish, in the sense that you could  
+ > use the new bindings in later clauses (so you could bind using  
+ > where, generate fresh variable lists using the stuff just bound in  
+ > the previous where clauses, use the new fresh stuff in following  
+ > where clauses, etc.)
+ 
+ Just to make it clear, though, if the interleaving is problematic, but  
+ allowing fresh names to be bound in where clauses is easy enough,  
+ that's all I need at the moment.  I used to seemingly need the  
+ interleaving, but as my model's evolved, I no longer do.
+ 
+ Stevie
+From: Stevie Strickland <sstrickl@ccs.neu.edu>
+To: robby@plt-scheme.org
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10084: Redex: fresh variables cannot be used in where clauses
+Date: Fri, 20 Feb 2009 13:17:47 -0500
+
+ On Feb 20, 2009, at 12:32 PM, Stevie Strickland wrote:
+ 
+ > On Feb 20, 2009, at 11:48 AM, sstrickl@ccs.neu.edu wrote:
+ >> I'd like to use some fresh variables (generated using the "fresh" =20
+ >> form) in some where clauses, but I can't.
+ >>
+ >> In fact, in general, it'd be nice if the fresh and where clauses =20
+ >> were more let*-ish instead of let-ish, in the sense that you could =20=
+ 
+ >> use the new bindings in later clauses (so you could bind using =20
+ >> where, generate fresh variable lists using the stuff just bound in =20=
+ 
+ >> the previous where clauses, use the new fresh stuff in following =20
+ >> where clauses, etc.)
+ >
+ > Just to make it clear, though, if the interleaving is problematic, =20
+ > but allowing fresh names to be bound in where clauses is easy =20
+ > enough, that's all I need at the moment.  I used to seemingly need =20
+ > the interleaving, but as my model's evolved, I no longer do.
+ 
+ And looking at the Redex code, it looks like it's *meant* to be the =20
+ case that fresh variables are bound in side conditions, so maybe this =20=
+ 
+ is just a bug?
+ 
+ Yes, I imagine it is, because if I shift the where clauses to become =20
+ term-lets inside the main body of the rule (which should not change =20
+ the meaning, I'd think), the error goes away.  i.e.
+ 
+ (=3D=3D> (compound-unit (import x_i ...) (export x_i ...)
+              (name u1 (unit (import x_i1 ...) (export x_e1 ...) =20
+ (define x_d1 e_d1) ... e_1))
+              (name u2 (unit (import x_i2 ...) (export x_e2 ...) =20
+ (define x_d2 e_d2) ... e_2)))
+            ,(term-let ([((define x_d1n e_d1n) ... e_1n)
+                         (term (=CE=BE u1 (x_n1 ...)))])
+               (term-let ([((define x_d2n e_d2n) ... e_2n)
+                           (term (=CE=BE u2 (x_n2 ...)))])
+                 (term (unit (import x_i ...) (export x_i ...)
+                             (define x_d1n e_d1n) ...
+                             (define x_d2n e_d2n) ...
+                             (begin e_1n e_2n)))))
+            (fresh ((x_n1 ...) (x_d1 ...))
+                   ((x_n2 ...) (x_d2 ...))))
+ 
+ works just as expected.
+ 
+ Stevie=
+
+
+Responsible changed from "robby" to "clklein" by clklein at Thu, 21 Oct 2010 11:22:39 -0400
+Reason>>> .
+
+State changed from "open" to "closed" by clklein at Thu, 21 Oct 2010 11:22:39 -0400
+Reason>>> This appears to be fixed. Please reopen the PR if I'm mistaken.
+

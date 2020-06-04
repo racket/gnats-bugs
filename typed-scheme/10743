@@ -1,0 +1,423 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Feb  8 03:15:19 2010
+Received: from mail-yw0-f182.google.com (mail-yw0-f182.google.com [209.85.211.182])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o188FISc017574
+	for <bugs@bugs.plt-scheme.org>; Mon, 8 Feb 2010 03:15:18 -0500
+Message-Id: <201002080815.o188FDqO017565@champlain.ccs.neu.edu>
+Date: Mon, 8 Feb 2010 03:15:13 -0500
+From: eli@barzilay.org
+To: bugs@plt-scheme.org
+Subject: TS: unused type variables are still needed
+
+>Number:         10743
+>Category:       typed-scheme
+>Synopsis:       TS: unused type variables are still needed
+>Class:          sw-bug
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Feb 08 03:16:01 -0500 2010
+>Closed-Date:    Thu Aug 25 12:23:51 -0400 2011
+>Last-Modified:  Thu Aug 25 12:23:51 -0400 2011
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.4
+>Environment:
+unix "Linux winooski.ccs.neu.edu 2.6.23.17-88.fc7 #1 SMP Thu May 15 00:02:29 EDT 2008 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 16
+Human Language: english
+(current-memory-use) 194162760
+
+Collections:
+(("/home/eli/.plt-scheme/4.2.4/collects" "info-domain" "pl") ("/home/eli/plt/collects" "icons" "ffi" "mred" "dynext" "mzscheme" "make" "preprocessor" "file" "openssl" "sgl" "scriblib" "s-exp" "slideshow" "mysterx" "graphics" "test-engine" "scheme" "frtime" "wxme" "lazy" "mzlib" "macro-debugger" "scribble" "syntax-color" "mzcom" "help" "swindle" "config" "net" "hierlist" "test-box-recovery" "2htdp" "profile" "trace" "mrlib" "algol60" "browser" "framework" "typed-scheme" "at-exp" "info-domain" "compiler" "errortrace" "eopl" "syntax" "combinator-parser" "string-constants" "html" "slatex" "stepper" "launcher" "unstable" "htdp" "lang" "rnrs" "setup" "deinprogramm" "plot" "teachpack" "xml" "scribblings" "planet" "readline" "parser-tools" "embedded-gui" "drscheme" "defaults" "srfi" "afm" "r6rs" "version" "typed" "texpict" "games" "tex2page" "gui-debugger" "web-server" "r5rs" "redex"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #() "#lang scheme\n" #t))
+>Description:
+In the program below (inst rest Number) used to work when `rest' had
+the right type.  Regardless of how the new type is broken there is a
+problem that this points to: its type has two variables, so both must
+be provided even when only one is significant.  In this case `String'
+is just some random type that makes it work, and any other type will
+work there.  I would expect this to work when I specify only one type
+by ignoring the first part of the `case-lambda' type that is in the
+`All'.
+
+(This is not something that I'll have a problem with for my language,
+since I'll need to make these types sane again.  Luckily, I still have
+the definitions I used from the earlier time they were broken.)
+>How-To-Repeat:
+#lang typed/scheme
+(: sequence : (All (A) ((A -> A) A A -> (Listof A))))
+(define (sequence f first last)
+  (if (equal? first last)
+    (list first)
+    (cons first (sequence f (f first) last))))
+(sequence (inst rest Number String) (list 1 2 3) null)
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: bugs@plt-scheme.org
+Cc: bug-notification@plt-scheme.org
+Subject: Urgent: Re: [plt-bug] all/10743: TS: unused type variables are still needed
+Date: Mon, 8 Feb 2010 05:34:40 -0500
+
+ On Feb  8, eli@barzilay.org wrote:
+ > In the program below (inst rest Number) used to work when `rest' had
+ > the right type.  Regardless of how the new type is broken there is a
+ > problem that this points to: its type has two variables, so both
+ > must be provided even when only one is significant.  In this case
+ > `String' is just some random type that makes it work, and any other
+ > type will work there.  I would expect this to work when I specify
+ > only one type by ignoring the first part of the `case-lambda' type
+ > that is in the `All'.
+ > 
+ > (This is not something that I'll have a problem with for my
+ > language, since I'll need to make these types sane again.  Luckily,
+ > I still have the definitions I used from the earlier time they were
+ > broken.)
+ 
+ Unfortunately for me, it is.  I'm trying to come up with sane types
+ but this problem is biting me.  BTW, a better example of this problem
+ is with `filter-not' or `remq*' or `remv*' -- for some reason they
+ have two type arguments where the second one is not used, but still TS
+ requires two types for `inst'.
+ 
+ As for my case, I *think* that the type that I need is:
+ 
+   [rest (-poly (a b)
+           (cl->* (->acc (list (-pair a (-lst b))) (-lst b) (list -cdr))
+                  (->* (list (-lst a)) (-lst a))))]
+ 
+ but I have no idea what's the difference between this and
+ 
+   [rest (-poly (a b) (cl-> [((-pair a (-lst b))) (-lst b)]
+                            [((-lst a)) (-lst a)]))]
+ 
+ It looks like this might be something related to the paths feature,
+ but I can't track it down.
+ 
+ The complete description of my problem is as follows:
+ 
+ * I have code that uses `first' and `second' on a (List A B) input,
+   where they're used as a kind of an alist -- so I need some type like
+   the above that allows both uses.
+ 
+ * But I also have some example in a past homework where I used that
+   (inst rest Number).  This cannot be changed since students used that
+   in submitted solutions.
+ 
+ * If I go back to using just (-poly (a) ((-lst a) . -> . (-lst a))), I
+   get a type for `rest' that is fundamentally different from `first'
+   and `second', which means that a (List A B) is this weird kind of
+   thing that is only usable with some random subset of all list
+   functions.  (I realize that this is how things were in 4.2.3 too,
+   and that I just didn't run into any problems for some reason -- but
+   I consider such a hack a non-solution, which is yet another headache
+   waiting to happen.)
+ 
+ I need a solution for this soon, since I have a homework that is
+ supposed to be due today, a handin server that is not functional, and
+ a mixture of 4.2.3 and 4.2.4 versions that students use.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: eli@barzilay.org, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10743: TS: unused type variables are still needed
+Date: Mon, 8 Feb 2010 13:02:49 -0500
+
+ What do you think the semantics of this should be?  It sounds like you
+ want to get back a non-polymorphic type, but that doesn't seem like
+ the right thing to do.  Would you want the missing arguments to be
+ filled in with `Any'?  Or some or suggestion I haven't thought of?
+ 
+ On Mon, Feb 8, 2010 at 3:16 AM,  <eli@barzilay.org> wrote:
+ > A new problem report is waiting at
+ > =A0http://bugs.plt-scheme.org/query/?cmd=3Dview&pr=3D10743
+ >
+ > Reported by Eli Barzilay for release: 4.2.4
+ >
+ > *** Description:
+ > In the program below (inst rest Number) used to work when `rest' had
+ > the right type. =A0Regardless of how the new type is broken there is a
+ > problem that this points to: its type has two variables, so both must
+ > be provided even when only one is significant. =A0In this case `String'
+ > is just some random type that makes it work, and any other type will
+ > work there. =A0I would expect this to work when I specify only one type
+ > by ignoring the first part of the `case-lambda' type that is in the
+ > `All'.
+ >
+ > (This is not something that I'll have a problem with for my language,
+ > since I'll need to make these types sane again. =A0Luckily, I still have
+ > the definitions I used from the earlier time they were broken.)
+ >
+ > *** How to repeat:
+ > #lang typed/scheme
+ > (: sequence : (All (A) ((A -> A) A A -> (Listof A))))
+ > (define (sequence f first last)
+ > =A0(if (equal? first last)
+ > =A0 =A0(list first)
+ > =A0 =A0(cons first (sequence f (f first) last))))
+ > (sequence (inst rest Number String) (list 1 2 3) null)
+ >
+ > *** Environment:
+ > unix "Linux winooski.ccs.neu.edu 2.6.23.17-88.fc7 #1 SMP Thu May 15 00:02=
+ :29 EDT 2008 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display=
+ -depth) =3D 16
+ > Human Language: english
+ > (current-memory-use) 194162760
+ >
+ > Collections:
+ > (("/home/eli/.plt-scheme/4.2.4/collects" "info-domain" "pl") ("/home/eli/=
+ plt/collects" "icons" "ffi" "mred" "dynext" "mzscheme" "make" "preprocessor=
+ " "file" "openssl" "sgl" "scriblib" "s-exp" "slideshow" "mysterx" "graphics=
+ " "test-engine" "scheme" "frtime" "wxme" "lazy" "mzlib" "macro-debugger" "s=
+ cribble" "syntax-color" "mzcom" "help" "swindle" "config" "net" "hierlist" =
+ "test-box-recovery" "2htdp" "profile" "trace" "mrlib" "algol60" "browser" "=
+ framework" "typed-scheme" "at-exp" "info-domain" "compiler" "errortrace" "e=
+ opl" "syntax" "combinator-parser" "string-constants" "html" "slatex" "stepp=
+ er" "launcher" "unstable" "htdp" "lang" "rnrs" "setup" "deinprogramm" "plot=
+ " "teachpack" "xml" "scribblings" "planet" "readline" "parser-tools" "embed=
+ ded-gui" "drscheme" "defaults" "srfi" "afm" "r6rs" "version" "typed" "texpi=
+ ct" "games" "tex2page" "gui-debugger" "web-server" "r5rs" "redex"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) =
+ (default) #() "#lang scheme\n" #t))
+ >
+ >
+ 
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10743: TS: unused type variables are still needed
+Date: Mon, 8 Feb 2010 13:08:19 -0500
+
+ On Feb  8, Sam Tobin-Hochstadt wrote:
+ > What do you think the semantics of this should be?  It sounds like
+ > you want to get back a non-polymorphic type, but that doesn't seem
+ > like the right thing to do.  Would you want the missing arguments to
+ > be filled in with `Any'?  Or some or suggestion I haven't thought
+ > of?
+ 
+ [To highlight a later email I sent: this is what I'm trying to resolve
+ now, so if there's a simple patch to fix typed scheme please tell me
+ and I'll make my language do that patch for students.]
+ 
+ Actually that seem like a good idea.  Also, IIRC you have some kind of
+ an error type that should not be used right?  If so, then it might be
+ be a better candidate.
+ 
+ Also#2 -- assuming there is such an error type, you could extend it to
+ have a message argument which would be used if this type is used.  For
+ example, with a smaller number of type arguments it would use some
+ (-error "missing type variables to a polymorphic type") and when it's
+ used for untyped function arguments (like when you guess a type since
+ the type declaration is messed up somehow) you'd use (-error "some
+ other text").
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10743: TS: unused type variables are still needed
+Date: Mon, 8 Feb 2010 13:14:13 -0500
+
+ On Mon, Feb 8, 2010 at 1:08 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Feb =A08, Sam Tobin-Hochstadt wrote:
+ >> What do you think the semantics of this should be? =A0It sounds like
+ >> you want to get back a non-polymorphic type, but that doesn't seem
+ >> like the right thing to do. =A0Would you want the missing arguments to
+ >> be filled in with `Any'? =A0Or some or suggestion I haven't thought
+ >> of?
+ >
+ > [To highlight a later email I sent: this is what I'm trying to resolve
+ > now, so if there's a simple patch to fix typed scheme please tell me
+ > and I'll make my language do that patch for students.]
+ 
+ Fix Typed Scheme how?  To do something different than it's always done
+ with these functions?  To give a different type for `cddr' or `rest'?
+ 
+ The former I'm not going to do imminently, the latter I'm going to fix
+ to be correct, but you can always supply arbitrary different types for
+ these functions in your own language (the magic of mutation).
+ 
+ > Actually that seem like a good idea. =A0Also, IIRC you have some kind of
+ > an error type that should not be used right? =A0If so, then it might be
+ > be a better candidate.
+ 
+ Right now, the invariant is that the Error type only appears when
+ there is an error in your program, and the program will never be
+ executed.  I don't want to disturb that invariant.
+ 
+ > Also#2 -- assuming there is such an error type, you could extend it to
+ > have a message argument which would be used if this type is used. =A0For
+ > example, with a smaller number of type arguments it would use some
+ > (-error "missing type variables to a polymorphic type") and when it's
+ > used for untyped function arguments (like when you guess a type since
+ > the type declaration is messed up somehow) you'd use (-error "some
+ > other text").
+ >
+ > --
+ > =A0 =A0 =A0 =A0 =A0((lambda (x) (x x)) (lambda (x) (x x))) =A0 =A0 =A0 =
+ =A0 =A0Eli Barzilay:
+ > =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0 =A0http://barzilay.org/ =A0 =A0 =A0 =
+ =A0 =A0 =A0 =A0 =A0 =A0 Maze is Life!
+ >
+ 
+ 
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+From: Eli Barzilay <eli@barzilay.org>
+To: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10743: TS: unused type variables are still needed
+Date: Mon, 8 Feb 2010 13:20:28 -0500
+
+ On Feb  8, Sam Tobin-Hochstadt wrote:
+ > On Mon, Feb 8, 2010 at 1:08 PM, Eli Barzilay <eli@barzilay.org> wrote=
+ :
+ > > On Feb =C2=A08, Sam Tobin-Hochstadt wrote:
+ > >> What do you think the semantics of this should be=3F =C2=A0It soun=
+ ds like
+ > >> you want to get back a non-polymorphic type, but that doesn't seem=
+ 
+ > >> like the right thing to do. =C2=A0Would you want the missing argum=
+ ents to
+ > >> be filled in with `Any'=3F =C2=A0Or some or suggestion I haven't t=
+ hought
+ > >> of=3F
+ > >
+ > > [To highlight a later email I sent: this is what I'm trying to reso=
+ lve
+ > > now, so if there's a simple patch to fix typed scheme please tell m=
+ e
+ > > and I'll make my language do that patch for students.]
+ >=20
+ > Fix Typed Scheme how=3F  To do something different than it's always d=
+ one
+ > with these functions=3F  To give a different type for `cddr' or `rest=
+ '=3F
+ >=20
+ > The former I'm not going to do imminently, the latter I'm going to fi=
+ x
+ > to be correct, but you can always supply arbitrary different types fo=
+ r
+ > these functions in your own language (the magic of mutation).
+ 
+ I was hoping for the former.  I tried the latter since yesterday, and
+ couldn't make it work -- is there any way that I can get this
+ 
+   > (: x : (List Integer String))
+   > (define x (list 1 "2"))
+   > (rest x)
+   - : (Listof String)
+   ("2")
+ 
+ without a `-poly' with two type variables=3F
+ 
+ 
+ > > Actually that seem like a good idea. =C2=A0Also, IIRC you have some=
+  kind of
+ > > an error type that should not be used right=3F =C2=A0If so, then it=
+  might be
+ > > be a better candidate.
+ >=20
+ > Right now, the invariant is that the Error type only appears when
+ > there is an error in your program, and the program will never be
+ > executed.  I don't want to disturb that invariant.
+ 
+ It seems like a minor change: the error type appears when there's a
+ potential error in your code, and if it goes away (as the second
+ argument to `filter-not' does) then there's no error.
+ 
+ --=20
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay=
+ :
+                     http://barzilay.org/                   Maze is Life=
+ !
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10743: TS: unused type variables are still needed
+Date: Mon, 8 Feb 2010 13:25:07 -0500
+
+ On Mon, Feb 8, 2010 at 1:20 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ > On Feb =A08, Sam Tobin-Hochstadt wrote:
+ >> On Mon, Feb 8, 2010 at 1:08 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ >> > On Feb =A08, Sam Tobin-Hochstadt wrote:
+ >> >> What do you think the semantics of this should be? =A0It sounds like
+ >> >> you want to get back a non-polymorphic type, but that doesn't seem
+ >> >> like the right thing to do. =A0Would you want the missing arguments t=
+ o
+ >> >> be filled in with `Any'? =A0Or some or suggestion I haven't thought
+ >> >> of?
+ >> >
+ >> > [To highlight a later email I sent: this is what I'm trying to resolve
+ >> > now, so if there's a simple patch to fix typed scheme please tell me
+ >> > and I'll make my language do that patch for students.]
+ >>
+ >> Fix Typed Scheme how? =A0To do something different than it's always done
+ >> with these functions? =A0To give a different type for `cddr' or `rest'?
+ >>
+ >> The former I'm not going to do imminently, the latter I'm going to fix
+ >> to be correct, but you can always supply arbitrary different types for
+ >> these functions in your own language (the magic of mutation).
+ >
+ > I was hoping for the former. =A0I tried the latter since yesterday, and
+ > couldn't make it work -- is there any way that I can get this
+ >
+ > =A0> (: x : (List Integer String))
+ > =A0> (define x (list 1 "2"))
+ > =A0> (rest x)
+ > =A0- : (Listof String)
+ > =A0("2")
+ >
+ > without a `-poly' with two type variables?
+ 
+ You could try this type (untested), which might actually be better for TS:
+ 
+ (-poly (a)
+              (cl->*
+               (->acc (list (-pair Univ (-lst a))) (-lst a) (list -cdr))
+               (->* (list (-lst a)) (-lst a))))
+ 
+ Let me know if that works for you.
+ 
+ >> > Actually that seem like a good idea. =A0Also, IIRC you have some kind =
+ of
+ >> > an error type that should not be used right? =A0If so, then it might b=
+ e
+ >> > be a better candidate.
+ >>
+ >> Right now, the invariant is that the Error type only appears when
+ >> there is an error in your program, and the program will never be
+ >> executed. =A0I don't want to disturb that invariant.
+ >
+ > It seems like a minor change: the error type appears when there's a
+ > potential error in your code, and if it goes away (as the second
+ > argument to `filter-not' does) then there's no error.
+ 
+ No, it's not a minor change.  For example, T <: Error and Error <: S
+ for all T and S.  That means that if any program variable gets the
+ type Error, the whole system is unsound.  That's why it's cordoned
+ off.
+ 
+ --=20
+ sam th
+ samth@ccs.neu.edu
+
+
+State changed from "open" to "closed" by samth at Thu, 25 Aug 2011 12:23:51 -0400
+Reason>>> not a bug, althought pr 9781 is relevant here
+

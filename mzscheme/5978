@@ -1,0 +1,892 @@
+From eli@barzilay.org  Tue Nov 26 01:23:45 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id BAA08664
+	for <bugs>; Tue, 26 Nov 2002 01:23:44 -0500
+Message-Id: <200211260623.BAA08664@champlain.ccs.neu.edu>
+Date: Tue, 26 Nov 2002 01:23:44 -0500
+From: Eli Barzilay <eli@barzilay.org>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: Strange interaction between exception-handler and semaphore-wait
+
+>Number:         5978
+>Category:       mzscheme
+>Synopsis:       Strange interaction between exception-handler and semaphore-wait
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Nov 26 01:30:00 EST 2002
+>Closed-Date:    Fri Dec 06 22:14:07 EST 2002
+>Last-Modified:  Fri Dec 06 22:14:07 EST 2002
+>Originator:     Eli Barzilay
+>Release:        202
+>Organization:
+plt
+>Environment:
+unix "Linux lambda.cs.cornell.edu 2.4.18-18.8.0 #1 Thu Nov 14 00:10:29 EST 2002 i686 i686 i386 GNU/Linux" (i386-linux)
+
+Docs Installed:
+("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack" "misclib" "framework" "mred" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "tex2page" "tools" "tour" "t-y-scheme" "insidemz")
+
+Collections:
+(("/home/eli/scheme/my-plt" ("pics")) ("/home/eli/plt/collects" ("browser" "compiler" "defaults" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper" "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm" "version" "eopl" "web-server" "tex2page" "doc" "swindle" "texpict")))
+
+Human Language: english
+>Description:
+I'm not sure if this is a bug, but it doesn't feel right that
+this leads to the process being stuck without responding to
+^C.
+
+>How-To-Repeat:
+Run the following program (in Linux)
+
+(define sema (make-semaphore 1))
+(thread (lambda ()
+          (let loop ()
+            (semaphore-wait/enable-break sema)
+            (printf "Won't die for 5 seconds...\n")
+            (sleep 5) (semaphore-post sema) ;(sleep 1)
+            (loop))))
+(current-exception-handler
+ (lambda _
+   (printf "BOOM 1!\n")
+   (semaphore-wait/enable-break sema)
+   (printf "BOOM 2!\n")
+   (exit 1)))
+(sleep 30)
+
+And hit ^C.  The process will continue to happily run, with
+the only possibility of killing it from a different
+terminal (or suspending it with ^Z and killing it then).
+
+Something that makes it look more like a bug is that if the
+(sleep 1) is uncommented then after the ^C you have to wait
+until that sleep is done and then the whole thing will die
+as it should.
+
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 05:20:20 -0700 (MST)
+
+ At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > Run the following program (in Linux)
+ > 
+ > (define sema (make-semaphore 1))
+ > (thread (lambda ()
+ >           (let loop ()
+ >             (semaphore-wait/enable-break sema)
+ >             (printf "Won't die for 5 seconds...\n")
+ >             (sleep 5) (semaphore-post sema) ;(sleep 1)
+ >             (loop))))
+ > (current-exception-handler
+ >  (lambda _
+ >    (printf "BOOM 1!\n")
+ >    (semaphore-wait/enable-break sema)
+ >    (printf "BOOM 2!\n")
+ >    (exit 1)))
+ > (sleep 30)
+ > 
+ > And hit ^C.  The process will continue to happily run, with
+ > the only possibility of killing it from a different
+ > terminal (or suspending it with ^Z and killing it then).
+ 
+ So far, I think there is no bug here, though here is a documentation
+ problem. When breaks are disabled in an exception handler, using an
+ `.../enable-break' function doesn't enable breaks.
+ 
+ ere is also unfairness, in that the created thread tends to get the
+ semaphore every time, but we don't claim that MzScheme's semaphores
+ provide fairness. (Maybe they should.)
+ 
+ > Something that makes it look more like a bug is that if the
+ > (sleep 1) is uncommented then after the ^C you have to wait
+ > until that sleep is done and then the whole thing will die
+ > as it should.
+ 
+ I haven't been able to reproduce this part. If I uncomment the `(sleep
+ 1)' and add a printf after it, I don't see the printf when I hit Ctl-C.
+ 
+ Matthew
+ 
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Eli Barzilay <eli@barzilay.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 13:59:23 -0500
+
+ On Nov 26, Matthew Flatt wrote:
+ > At Tue, 26 Nov 2002 01:23:44 -0500, Eli Barzilay wrote:
+ > 
+ > So far, I think there is no bug here, though here is a documentation
+ > problem. When breaks are disabled in an exception handler, using an
+ > `.../enable-break' function doesn't enable breaks.
+ 
+ Ah...  Is there any particular reason?  Ugh, actually when I think
+ about it, if ^C just throws an exception, then there is not much point
+ in enabling break until the exception handler is done.  Maybe this
+ should be mentioned in the docs with a warning that since ^C is caught
+ as an exception, then you shouldn't be surprised if you get into
+ situations like a process that won't respond to ^C's.
+ 
+ 
+ > ere is also unfairness, in that the created thread tends to get the
+ > semaphore every time, but we don't claim that MzScheme's semaphores
+ > provide fairness. (Maybe they should.)
+ 
+ It doesn't look like getting a little more fairness would be hard if a
+ semaphore-post would yield a thread if others are waiting on the same
+ one.  It might even make sense since it looks reasonable to expect
+ code that looks like
+ 
+           (let loop ()
+             (semaphore-wait/enable-break sema)
+             (do-something)
+             (semaphore-post sema)
+             (loop))
+ 
+ will allow other threads to grab the semaphore, which would make sense
+ if you want to have do-something get 100% cpu otherwise (so you won't
+ put redundant sleeps).
+ 
+ 
+ > > Something that makes it look more like a bug is that if the
+ > > (sleep 1) is uncommented then after the ^C you have to wait
+ > > until that sleep is done and then the whole thing will die
+ > > as it should.
+ > 
+ > I haven't been able to reproduce this part. If I uncomment the
+ > `(sleep 1)' and add a printf after it, I don't see the printf when I
+ > hit Ctl-C.
+ 
+ Again I demonstrate bad communication skills when tired...  What I
+ meant was that when you uncomment the `(sleep 1)', then after hitting
+ ^C you have to wait for the `(sleep 5)' to finish before the whole
+ thing dies as expected.  This is fine given the above.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 12:56:05 -0700 (MST)
+
+ At Tue, 26 Nov 2002 13:59:23 -0500, Eli Barzilay wrote:
+ > It doesn't look like getting a little more fairness would be hard if a
+ > semaphore-post would yield a thread if others are waiting on the same
+ > one.  
+ 
+ It's actually not as easy as it may sound, since a waiting thread might
+ get a break instead, etc. The main reason I haven't tried hard, though,
+ is performance.
+ 
+ Note that `(sleep)' is useful for approximating fairness in practice.
+ 
+ > It might even make sense since it looks reasonable to expect
+ > code that looks like
+ > 
+ >           (let loop ()
+ >             (semaphore-wait/enable-break sema)
+ >             (do-something)
+ >             (semaphore-post sema)
+ >             (loop))
+ 
+ Yes - there are good arguments in favor of fairness.
+ 
+ I'd like to implement something that's fair on average, but I haven't
+ given it enough thought.
+ 
+ Matthew
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5978: Strange interaction between exception-handler and semaphore-wait
+Date: Tue, 26 Nov 2002 14:33:56 -0700 (MST)
+
+ I've brushed up on my concurrency terminology enough to note that "fair
+ on average" (which I wrote before) doesn't make sense.
+ 
+ Fairness is already defined in the way that I was thinking. I.e.,
+ something that can run will eventually run, though not necessarily as
+ often as other things.
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Dec  6 22:14:07 2002
+Responsible-Changed-Why:
+    mz
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Dec  6 22:14:07 2002
+State-Changed-Why:
+    clarified
+>Unformatted:
+

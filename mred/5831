@@ -1,0 +1,315 @@
+From dskippy@ccs.neu.edu  Tue Sep 17 13:50:04 2002
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id NAA27134
+	for <bugs>; Tue, 17 Sep 2002 13:50:03 -0400
+Message-Id: <200209171750.NAA27134@champlain.ccs.neu.edu>
+Date: Tue, 17 Sep 2002 13:50:03 -0400
+From: Mike MacHenry <dskippy@ccs.neu.edu>
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: get-snip-location behaves differently when called multiple times.
+
+>Number:         5831
+>Category:       mred
+>Synopsis:       get-snip-location behaves differently when called multiple times.
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Tue Sep 17 14:00:00 -0400 2002
+>Closed-Date:    Fri Oct 18 11:38:01 -0400 2002
+>Last-Modified:  Sun Mar 28 02:50:38 -0500 2004
+>Originator:     Mike MacHenry
+>Release:        202.2
+>Organization:
+plt
+>Environment:
+unix "Linux accessory.cs.uchicago.edu 2.4.17 #2 Thu Feb 14 16:48:33 CST 2002 i586 unknown" (i386-linux)
+
+Docs Installed:
+("help" "drscheme" "r5rs" "mzscheme" "mred" "insidemz" "mzlib")
+
+Collections:
+(("~/plt-work/collects" ("lambda-calculus" "mike" "aligned-pasteboard" "test-suite")) ("/home/dskippy/plt/collects" ("CVS" "afm" "algol60" "doc" "browser" "backward" "cogen" "compiler" "browser2" "cvs-time-stamp" "debug" "defaults" "countdwn" "drscheme" "dynext" "eopl" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mrdemo" "mred" "mrflow" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "parser-tools" "readline" "setup" "sirmail" "slatex" "slibinit" "srpersist" "stepper" "string-constants" "syntax" "tests" "tex2page" "texpict" "typeset" "version" "waterworld" "web-server" "xml")))
+
+Human Language: english
+>Description:
+Sorry about the long bug report. It's been very difficult to reduce it to even this size. The problem I'm noticing is this. When the program is run, the check function prints the out put for get-snip-location twice. The outputs should be the same. On the second (and last) line of the outputs are different. In attempting to reduce the bug further I have noticed two changes that can be made that illiminate the bad behavior.
+1) Take calc/realign out of the after-insert method and call it with the apporpriate values after the insert call. This method is show but commented out at the bottom of the file. Comment out the after-insert overriden method and uncomment the three calls to calc/realign to see the bad behavior go away.
+2) Switch the order of the calls to get-snip-location at lines 140 and 141.
+>How-To-Repeat:
+(require
+ (lib "mred.ss" "mred")
+ (lib "class.ss")
+ (lib "etc.ss")
+ (lib "match.ss")
+ (lib "list.ss"))
+
+(define-struct rect (x y width height stretchable?))
+
+(define aligned-editor-container<%> (interface ()))
+(define aligned-editor-canvas%
+  (class* editor-canvas% (aligned-editor-container<%>)
+    (inherit get-editor)
+    ;;set-aligned-min-size (-> (void))
+    ;;sets the aligned min width and height of all aligned children
+    (define/public (set-aligned-min-sizes)
+      (send (get-editor) set-aligned-min-sizes))
+    (super-instantiate ())))
+
+(define calls-to-realign 0)
+
+(define aligned-editor-snip%
+  (class* editor-snip% (aligned-editor-container<%>)
+    (inherit get-editor get-margin)
+    (init-field (name "unnamed"))
+    (define/public (get-name) name)
+    
+    ;;resize (number? number? . -> . boolean?)
+    ;;called to resize the snip
+    (rename (super-resize resize))
+    (define/override (resize width height)        
+      (super-resize width height)
+      (set! calls-to-realign (+ calls-to-realign 1))
+      (when (<= calls-to-realign 2)
+        (send (get-editor) realign)))
+    
+    ;;set-aligned-min-size (-> (void))
+    ;;calculates and stores the minimum height and width of the snip
+    (define/public (set-aligned-min-sizes)
+      (send (get-editor) set-aligned-min-sizes))
+    
+    (super-instantiate ())
+    ))
+
+;;contruct the basic mixin that both pasteboards will be created from
+(define aligned-pasteboard<%> (interface ()))
+(define (make-aligned-pasteboard type)
+  (class* pasteboard% (aligned-pasteboard<%>)
+    (inherit get-view-size resize move-to find-first-snip)
+    (init-field (name "unnamed"))
+    (define/public (get-name) name)
+    (field (aligned-min-width 0) (aligned-min-height 0) (resizing false))
+    
+    ;;get-aligned-min-width (-> number?)
+    ;;the aligned-min-width of the pasteboard
+    (define/public (get-aligned-min-width) aligned-min-width)
+    
+    ;;get-aligned-min-height (-> number?)
+    ;;the aligned-min-height of the pasteboard
+    (define/public (get-aligned-min-height) aligned-min-height)
+    
+    ;;realign (-> void?)
+    ;;called by the parent to realign the pasteboard's children
+    (define/public (realign)
+      (let ([width (box 0)]
+            [height (box 0)])
+        (get-view-size width height)
+        (when (and (positive? (unbox width)) (positive? (unbox height)))
+          (set! resizing true)
+          (for-each-snip move/resize (find-first-snip) (align))
+          (set! resizing false))))
+    
+    (define/public (set-aligned-min-sizes)
+      (set!-values (aligned-min-width aligned-min-height)
+                   (get-aligned-min-sizes type (find-first-snip))))
+    
+    ;;move/resize (snip-pos? rect? . -> . void?)
+    ;;moves and resizes the snips with in pasteboard
+    (define (move/resize snip r)
+      (match r
+        [($ rect x y width height stretchable?)
+         ;(printf "(send ~a move-to ~a ~s ~s)~n" name (send snip get-name) x y)
+         (move-to snip x y)
+         (when stretchable?
+           ;(printf "(send ~a resize ~a ~s ~s)~n" name (send snip get-name) width height)
+           (resize snip width height))]))
+    
+    ;;after-insert ((is-a?/c snip%) (is-a?/c snip%) number? number? . -> . void?)
+    ;;called after a snip is inserted to the pasteboard
+    (rename (super-after-insert after-insert))
+    (define/override (after-insert snip before x y)
+      (super-after-insert snip before x y)
+      (calc/realign this))
+    
+    ;;resized ((is-a?/c snip%) . -> . void?)
+    ;;called when a snip inside the editor is resized
+    (rename (super-resized resized))
+    (define/override (resized snip redraw-now?)
+      (super-resized snip redraw-now?)
+      (when (not resizing) (calc/realign pb1)))
+    
+    (super-instantiate ())
+    ))
+
+(define vertical-pasteboard% (make-aligned-pasteboard 'vertical))
+(define horizontal-pasteboard% (make-aligned-pasteboard 'horizontal))
+
+(define align
+  (let ([rets
+         (list
+          (list (make-rect 0 0 368.0 468.0 #t))
+          (list (make-rect 0 0 240.0 456.0 #t) (make-rect 240.0 0 116 13 #f))
+          (list)
+          (list (make-rect 0 0 368.0 468.0 #t))
+          (list (make-rect 0 0 240.0 456.0 #t) (make-rect 240.0 0 116 13 #f))
+          (list)
+          (list (make-rect 0 0 368.0 468.0 #t))
+          (list (make-rect 0 0 240.0 456.0 #t) (make-rect 240.0 0 116 13 #f))
+          (list))])
+    (lambda ignored
+      (let ([ret (car rets)])
+        (set! rets (cdr rets))
+        ret))))
+
+(define (check snip)
+    (when snip
+      (let ([pb (send snip get-editor)])
+        (when pb
+          (let ([first-snip (send pb find-first-snip)])
+            (when first-snip
+              (let* ([a-snip (send first-snip next)]
+                     [local-snip-width
+                      (lambda ()
+                        (let ([left (box 0)]
+                              [right (box 0)])
+                          (send pb get-snip-location a-snip left (box 0) #f)
+                          (send pb get-snip-location a-snip right (box 0) #t)
+                          (list left right)))])
+                ;(message-box "Break" "Break-point")
+                (printf "~s ~s\n" (local-snip-width) (local-snip-width)))))))))
+
+;;get-aligned-min-sizes (((symbols 'horizontal vertical) (is-a?/c snip%)) . ->* . (number? number?))
+;;calculate the aligned min sizes for the pasteboard containing the given snips
+(define get-aligned-min-sizes
+  (let ([count 0])
+    (lambda (type init-snip)
+      (check init-snip)
+      (set! count (add1 count))
+      (cond 
+        [(= count 1) (values 0 0)]
+        [(= count 2) (values 126 13)]
+        [else (error 'count "too high")]))))
+
+;;calc/realign ((is-a?/c aligned-pasteboard<%>) . -> . void?)
+;;sends a message to the pasteboard to recalculate min sizes and realign
+(define (calc/realign pasteboard)
+  (let ([parent (pasteboard-parent pasteboard)])
+    (when parent (send parent set-aligned-min-sizes))
+    (send pasteboard realign)))
+
+;;gets the canvas or snip that the pasteboard is displayed in
+(define pasteboard-parent
+  (lambda (pasteboard)
+    (let ([admin (send pasteboard get-admin)])
+      (cond
+        [(is-a? admin editor-snip-editor-admin<%>)
+         (send admin get-snip)]
+        [(is-a? admin editor-admin%)
+         (send pasteboard get-canvas)]
+        [else false]))))
+
+;;applies the function to all the snips
+(define (for-each-snip f first-snip . init-lists)
+  (let loop ([snip first-snip]
+             [lists init-lists])
+    (cond
+      [(is-a? snip snip%)
+       (apply f (cons snip (map first lists)))
+       (loop (send snip next)
+             (map rest lists))]
+      [else (void)])))
+;--------------------------------
+(define named-string-snip%
+  (class string-snip%
+    (init string)
+    (init-field (name "unnamed"))
+    (define/public (get-name) name)
+    (super-make-object string)))
+
+(define frame (instantiate frame% () (label "big-min") (width 400) (height 500)))
+(define pb1 (instantiate vertical-pasteboard% () (name "pb1")))
+(define canvas (instantiate aligned-editor-canvas% () (parent frame) (editor pb1)))
+
+(send frame show true)
+
+(define pb2 (instantiate horizontal-pasteboard% () (name "pb2")))
+(define pb3 (instantiate horizontal-pasteboard% () (name "pb3")))
+(define sp3 (instantiate aligned-editor-snip% () (editor pb3) (name "sp3")))
+(define string (instantiate named-string-snip% ()
+                 (string "Testing String Snip") (name "string")))
+(define sp2 (instantiate aligned-editor-snip% () (editor pb2) (name "sp2")))
+;-------------------------------
+(send pb2 insert sp3 false)
+;(calc/realign pb2)
+(send pb2 insert string false)
+;(calc/realign pb2)
+(send pb1 insert sp2)
+;(calc/realign pb1)
+>Fix:
+
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Mike MacHenry <dskippy@ccs.neu.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/5831: get-snip-location behaves differently when called multiple times.
+Date: Tue, 17 Sep 2002 15:08:02 -0600 (MDT)
+
+ I haven't been able to say exactly what's happening, but I can explain
+ how the changes you make produce different results.
+ 
+ If I change the code in `local-snip-width' to
+ 
+  (printf "lsw in~n")
+  (send pb get-snip-location a-snip left (box 0) #f)
+  (send pb get-snip-location a-snip right (box 0) #t)
+  (printf "lsw out~n")
+ 
+ I see
+ 
+  lsw in
+  lsw in
+  lsw out
+  lsw in
+  lsw out
+  (#&0.0 #&106.0) (#&0.0 #&106.0)
+  lsw out
+  lsw in
+  lsw out
+  (#&0.0 #&346.0) (#&240.0 #&346.0)
+ 
+ That explains things to some degree: the results are different because
+ something major happens during the first computation.
+ 
+ More specifically, asking for the bottom-right corner of a snip is
+ forcing the computation of snip sizes, and something about that moves
+ snips around (I guess your code to align the snips?).
+ 
+ Getting the top-left location of a snip doesn't require calculating the
+ snip's sizes, so that's why swapping the order of the left- and
+ right-location queries changes the result.
+ 
+ Moving the `calc/realign' call out of `after-insert' also changes the
+ timing of size calculations, since `insert' issues an internal
+ `begin-/end-edit-sequence'.
+ 
+ Matthew
+ 
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Oct 18 11:38:01 2002
+Responsible-Changed-Why:
+    mr
+State-Changed-From-To: open->closed
+State-Changed-By: mflatt
+State-Changed-When: Fri Oct 18 11:38:01 2002
+State-Changed-Why:
+    docs improved
+>Unformatted:
+ 

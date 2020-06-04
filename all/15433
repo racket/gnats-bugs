@@ -1,0 +1,71 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed May 10 21:53:45 2017
+Received: from mail-it0-f44.google.com (mail-it0-f44.google.com [209.85.214.44])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id v4B1rd7Z019028
+	for <bugs@bugs.plt-scheme.org>; Wed, 10 May 2017 21:53:39 -0400
+Message-Id: <201705110153.v4B1rawV019021@winooski.ccs.neu.edu>
+Date: Wed, 10 May 2017 21:53:36 -0400
+From: michael@orlitzky.com
+To: bugs@racket-lang.org
+Subject: Occasional segfaults in racketcgc during build
+
+>Number:         15433
+>Category:       all
+>Synopsis:       Occasional segfaults in racketcgc during build
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Wed May 10 21:56:01 -0400 2017
+>Originator:     Michael Orlitzky
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        6.9
+>Environment:
+Linux x86_64 / Mozilla/5.0 (X11; Linux x86_64; rv:45.0) Gecko/20100101 Firefox/45.0
+>Description:
+I'm trying to package racket-6.9 on Gentoo, and I don't like saying that it fails "randomly", but the build pretty much fails randomly =)
+
+I can run the same set of steps repeatedly, and sometimes the build completes, and others it doesn't. When it fails, it's due to a segfault in racketcgc, which is used throughout the build process. The last time it failed, I kept a copy of my build tree around, and was able to strace the "racketcgc" binary, which segfaults on its own with no arguments. These are the last few lines of the strace:
+
+
+getcwd("/var/tmp/portage/dev-scheme/racket-6.9/work/racket-6.9/src/racket/gc2", 1023) = 70
+stat("/var/tmp/portage/dev-scheme/racket-6.9/work/racket-6.9/src/racket/gc2", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+stat("/var/tmp/portage/dev-scheme/racket-6.9/work/racket-6.9/src/racket/gc2/", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+mmap(NULL, 16384, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x37cea110000
+mprotect(0x37cea110000, 4096, PROT_NONE) = 0
+clone(child_stack=0x37cea112230, flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, parent_tidptr=0x37cea1139d0, tls=0x37cea113700, child_tidptr=0x37cea1139d0) = 9996
++++ killed by SIGSEGV +++
+Segmentation fault
+
+
+I was also able to get a gdb backtrace, which suggests the problem is related to the GC/malloc:
+
+
+Thread 1 (Thread 0x342b68694c0 (LWP 10005)):
+#0  do_malloc (set_no=1, size=256, common=0x342b68a17c0 <atomic_common>, 
+    othersptr=0x342b68a21c8 <atomic_others>, flags=1) at ./sgc.c:2631
+#1  0x00000342b689b54b in GC_malloc_atomic (size=256) at ./sgc.c:2767
+#2  0x00000342b6573ba5 in scheme_init_print_buffers_places () at ./print.c:235
+#3  0x00000342b634d070 in place_instance_init (stack_base=0x3b085deb798, 
+    initial_main_os_thread=1) at ./env.c:546
+#4  0x00000342b634cacb in scheme_engine_instance_init () at ./env.c:314
+#5  0x00000342b634c9e8 in scheme_basic_env () at ./env.c:234
+#6  0x0000000000405c3d in run_from_cmd_line (argc=0, _argv=0x3b085deb918, 
+    mk_basic_env=0x342b634c9ae <scheme_basic_env>, 
+    cont_run=0x406012 <cont_run>) at ./cmdline.inc:1701
+#7  0x0000000000406000 in main_after_stack (data=0x3b085deb800) at ./main.c:475
+#8  0x00000342b65bcba8 in do_main_stack_setup (no_auto_statics=1, 
+    _main=0x405f6e <main_after_stack>, data=0x3b085deb800) at ./salloc.c:207
+#9  0x00000342b65bcc06 in scheme_main_stack_setup (no_auto_statics=1, 
+    _main=0x405f6e <main_after_stack>, data=0x3b085deb800) at ./salloc.c:327
+#10 0x0000000000405f6c in main_after_dlls (argc=1, argv=0x3b085deb918) at ./main.c:406
+#11 0x0000000000405f35 in main (argc=1, argv=0x3b085deb918) at ./main.c:366
+
+
+I'm available to help debug if necessary.
+>How-To-Repeat:
+
+>Fix:

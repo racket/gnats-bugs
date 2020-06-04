@@ -1,0 +1,170 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jun 19 12:22:34 2014
+Received: from mail-oa0-f49.google.com (mail-oa0-f49.google.com [209.85.219.49])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s5JGMXr6005258
+	for <bugs@bugs.plt-scheme.org>; Thu, 19 Jun 2014 12:22:33 -0400
+Message-Id: <201406191622.s5JGMV43005251@winooski.ccs.neu.edu>
+Date: Thu, 19 Jun 2014 12:22:31 -0400
+From: eric.n.dobson@gmail.com
+To: bugs@racket-lang.org
+Subject: for/fold is slower with #:break than a manually implemented one
+
+>Number:         14588
+>Category:       all
+>Synopsis:       for/fold is slower with #:break than a manually implemented one
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jun 19 12:24:01 -0400 2014
+>Closed-Date:    Fri Jun 20 06:51:13 -0400 2014
+>Last-Modified:  Fri Jun 20 06:51:13 -0400 2014
+>Originator:     Eric Dobson
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        HEAD
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+>Description:
+I expect the core libraries to have efficient methods, and it seems that #:break clauses are not implemented as efficiently as possible.
+
+The 'and' method is not general, but the let/ec way I believe is.
+>How-To-Repeat:
+#lang racket
+ 
+(define N 100000000)
+(define K 50000000)
+ 
+(for ((j 5))
+  (time 
+   (for/fold ([c 0]) ([i (in-range N)] #:break (not c))
+     (if (= i K)
+         #f
+         (add1 c))))
+   
+  (time 
+   (for/fold ([c 0]) ([i (in-range N)])
+    (and c
+       (if (= i K)
+           #f
+           (add1 c)))))
+
+  (time 
+    (let/ec exit
+      (for/fold ([c 0]) ([i (in-range N)])
+        (if (not c)
+            (exit c)
+            (if (= i K)
+                #f
+                (add1 c)))))))
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: eric.n.dobson@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14588: for/fold is slower with #:break than a manually implemented one
+Date: Fri, 20 Jun 2014 10:31:23 +0100
+
+ The `let/ec` variant is slower for a small number of iterations, such
+ as when N is 100, and it requires allocation in a way that `#:break`
+ doesn't. So, I don't think it would be the right implementation
+ strategy in general.
+ 
+ Compared to `and`, the generality of `#:break` costs fairly little
+ (considering that you have to run millions of iterations to make the
+ overhead measurable). When you know that `and` works, then it makes
+ sense that you can make things a little faster, as usual when you can
+ tell things that the compiler can't.
+ 
+ All of that is to say that I don't think it's worth trying to improve
+ the compiler for just this example.
+ 
+ And yet... exploring the possibilities uncovered some bugs in the
+ optimizer. In addition, a relatively ad hoc transformation of `(if
+ (values ....) (values ....))` is needed to improve `#:break`, but other
+ little improvements are needed to push the ad hoc transformation
+ through, and those little improvements could apply widely. So, it look
+ like I'll make `#:break` faster, at least for this example.
+ 
+ At Thu, 19 Jun 2014 12:24:01 -0400, eric.n.dobson@gmail.com wrote:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14588
+ > 
+ > Reported by Eric Dobson for release: HEAD
+ > 
+ > *** Description:
+ > I expect the core libraries to have efficient methods, and it seems that 
+ > #:break clauses are not implemented as efficiently as possible.
+ > 
+ > The 'and' method is not general, but the let/ec way I believe is.
+ > 
+ > *** How to repeat:
+ > #lang racket
+ >  
+ > (define N 100000000)
+ > (define K 50000000)
+ >  
+ > (for ((j 5))
+ >   (time 
+ >    (for/fold ([c 0]) ([i (in-range N)] #:break (not c))
+ >      (if (= i K)
+ >          #f
+ >          (add1 c))))
+ >    
+ >   (time 
+ >    (for/fold ([c 0]) ([i (in-range N)])
+ >     (and c
+ >        (if (= i K)
+ >            #f
+ >            (add1 c)))))
+ > 
+ >   (time 
+ >     (let/ec exit
+ >       (for/fold ([c 0]) ([i (in-range N)])
+ >         (if (not c)
+ >             (exit c)
+ >             (if (= i K)
+ >                 #f
+ >                 (add1 c)))))))
+ > 
+ > *** Environment:
+ > MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_5) AppleWebKit/537.36 
+ > (KHTML, like Gecko) Chrome/33.0.1750.27 Safari/537.36
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 20 Jun 2014 06:51:13 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/22b7cc6a5e
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 20 Jun 2014 06:51:13 -0400
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/22b7cc6a5e
+  | optimizer: improvements mostly for splitting of multiple-value bindings
+  | 
+  | Convert
+  | 
+  |  (let-values ([(<id> ...) (if <id-t>
+  |                               (values <e1> ...)
+  |                               (values <e2> ...))])
+  |     ....)
+  | 
+  | to
+  | 
+  |  (let ([<id> (if <id-t> <e1> <e2>)]
+  |        ...)
+  |     ....)
+  | 
+  | which duplicates the `(if <id-t> ....)` test, but that's likely to
+  | be worthwhile to avoid multiple-values shuffling and enable more
+  | constant and copy propagation.
+  | 
+  | A related improvement is to more eagerly discard `let` wrappers
+  | with unused bindings during optimization, which could enable
+  | further optimization, and allow moving conditionals relative
+  | to other expressions to avoid intermediate binding.
+  | 
+  | Eagerly discarding `let` wrappers exposed a bug in the optimizer's
+  | shifting of variable locations by exercising the relavant shifting
+  | operation in shift_closure_compilation().
+  | 
+  | Closes PR 14588
+

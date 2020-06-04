@@ -1,0 +1,3574 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Jan 14 19:55:45 2014
+Received: from mail-oa0-f42.google.com (mail-oa0-f42.google.com [209.85.219.42])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s0F0tfpk010972
+	for <bugs@bugs.plt-scheme.org>; Tue, 14 Jan 2014 19:55:41 -0500
+Message-Id: <201401150055.s0F0tcji010964@winooski.ccs.neu.edu>
+Date: Tue, 14 Jan 2014 19:55:38 -0500
+From: ezyang@cs.stanford.edu
+To: bugs@racket-lang.org
+Subject: Redex named ellipsis should carry over
+
+>Number:         14291
+>Category:       all
+>Synopsis:       Redex named ellipsis should carry over
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Jan 14 19:56:01 -0500 2014
+>Closed-Date:    Wed Jan 15 14:50:31 -0500 2014
+>Last-Modified:  Thu Jan 16 09:56:01 -0500 2014
+>Originator:     Edward Z. Yang
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4
+>Environment:
+unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 475350712
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.4):
+ [none]
+
+
+
+Collections:
+("/home/ezyang/.racket/5.3.4/collects"
+ (non-existent-path))
+("/usr/share/racket/collects"
+ ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help" "drracket" "browser" "string-constants" "dynext" "preprocessor" "framework" "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "games" "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r5rs" "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net" "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "make" "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml" "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "ffi" "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet" "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugger" "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace" "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "swindle" "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "raco" "setup" "errortrace"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+According to the manual:
+
+"If the ellipses is named (ie, has an underscore and a name following it, like a variable may), the pattern matcher records the length of the list and ensures that any other occurrences of the same named ellipses must have the same length."
+
+In reduction-relation, we can define 'where' extras which define extra named matches to be used in the conclusion, as stated here:
+
+"Each where clause acts as a side condition requiring a successful pattern match, and it can bind pattern variables in the side-conditions (and where clauses) that follow and in the metafunction result."
+
+One might reasonably expect that named ellipses would also carry-over into the metafunction result. However, as the program below shows, this is not the case: ellipsis names have no effect. It would be nice if they did carry over.
+>How-To-Repeat:
+#lang racket
+(require redex)
+
+(define-language L (n number) (e n (e ...)))
+(define red
+  (reduction-relation
+   L #:domain e
+   (--> ((n_0 ..._a) e)
+        ((n_0 n_1) ...)
+        (where (n_1 ..._a) e))
+   ))
+(traces red (term ((0 1) (0 1 2))))
+>Fix:
+>Audit-Trail:
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: ezyang@cs.stanford.edu, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        Max New <maxnew2013@u.northwestern.edu>,
+        Burke Fetscher <burke.fetscher@eecs.northwestern.edu>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Tue, 14 Jan 2014 20:24:30 -0600
+
+ --089e0158ab2046984104eff90298
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I (finally) figured out what happened here: the problem is that the _a in
+ the ellipsis is eliminated by rewrite-side-conditions/check-errs because it
+ is given only the pattern ((n_0 ..._a) e) and does not see that the _a is
+ going to be important in a subsequent pattern match.
+ 
+ So I think that rewrite-side-conditions/check-errs will have to preserve
+ the names on the ellipses in all cases (unless they weren't present in the
+ input, I suppose).
+ 
+ Burke, Max: do you expect that to break the unifier or the enumerator?
+ 
+ Robby
+ 
+ 
+ 
+ 
+ 
+ On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ 
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14291
+ >
+ > Reported by Edward Z. Yang for release: 5.3.4
+ >
+ > *** Description:
+ > According to the manual:
+ >
+ > "If the ellipses is named (ie, has an underscore and a name following it,
+ > like a variable may), the pattern matcher records the length of the list
+ > and ensures that any other occurrences of the same named ellipses must have
+ > the same length."
+ >
+ > In reduction-relation, we can define 'where' extras which define extra
+ > named matches to be used in the conclusion, as stated here:
+ >
+ > "Each where clause acts as a side condition requiring a successful pattern
+ > match, and it can bind pattern variables in the side-conditions (and where
+ > clauses) that follow and in the metafunction result."
+ >
+ > One might reasonably expect that named ellipses would also carry-over into
+ > the metafunction result. However, as the program below shows, this is not
+ > the case: ellipsis names have no effect. It would be nice if they did carry
+ > over.
+ >
+ > *** How to repeat:
+ > #lang racket
+ > (require redex)
+ >
+ > (define-language L (n number) (e n (e ...)))
+ > (define red
+ >   (reduction-relation
+ >    L #:domain e
+ >    (--> ((n_0 ..._a) e)
+ >         ((n_0 n_1) ...)
+ >         (where (n_1 ..._a) e))
+ >    ))
+ > (traces red (term ((0 1) (0 1 2))))
+ >
+ > *** Environment:
+ > unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC
+ > 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth)
+ > = 32
+ > Human Language: english
+ > (current-memory-use) 475350712
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = ();
+ > (links #:user? #f #:root? #t) = ()
+ > raco pkg (show):
+ > Installation-wide:
+ >  [none]
+ > User-specific, all-version:
+ >  [none]
+ > User-specific, version-specific (5.3.4):
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("/home/ezyang/.racket/5.3.4/collects"
+ >  (non-existent-path))
+ > ("/usr/share/racket/collects"
+ >  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help"
+ > "drracket" "browser" "string-constants" "dynext" "preprocessor" "framework"
+ > "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "games"
+ > "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r5rs"
+ > "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net"
+ > "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "make"
+ > "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml"
+ > "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "ffi"
+ > "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet"
+ > "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugger"
+ > "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace"
+ > "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "swindle"
+ > "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "raco"
+ > "setup" "errortrace"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main)
+ > (test))))
+ >
+ >
+ 
+ --089e0158ab2046984104eff90298
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I (finally) figured out what happened here: the problem is=
+  that the _a in the ellipsis is eliminated by rewrite-side-conditions/check=
+ -errs because it is given only the pattern ((n_0 ..._a) e) and does not see=
+  that the _a is going to be important in a subsequent pattern match.<div>
+ <br></div><div>So I think that rewrite-side-conditions/check-errs will have=
+  to preserve the names on the ellipses in all cases (unless they weren&#39;=
+ t present in the input, I suppose).</div><div><br></div><div>Burke, Max: do=
+  you expect that to break the unifier or the enumerator?</div>
+ <div><br></div><div>Robby</div><div><br></div><div><br></div><div><br></div=
+ ></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Tue=
+ , Jan 14, 2014 at 6:56 PM,  <span dir=3D"ltr">&lt;<a href=3D"mailto:ezyang@=
+ cs.stanford.edu" target=3D"_blank">ezyang@cs.stanford.edu</a>&gt;</span> wr=
+ ote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">A new problem report is waiting at<br>
+ =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14=
+ 291" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=
+ =3D14291</a><br>
+ <br>
+ Reported by Edward Z. Yang for release: 5.3.4<br>
+ <br>
+ *** Description:<br>
+ According to the manual:<br>
+ <br>
+ &quot;If the ellipses is named (ie, has an underscore and a name following =
+ it, like a variable may), the pattern matcher records the length of the lis=
+ t and ensures that any other occurrences of the same named ellipses must ha=
+ ve the same length.&quot;<br>
+ 
+ <br>
+ In reduction-relation, we can define &#39;where&#39; extras which define ex=
+ tra named matches to be used in the conclusion, as stated here:<br>
+ <br>
+ &quot;Each where clause acts as a side condition requiring a successful pat=
+ tern match, and it can bind pattern variables in the side-conditions (and w=
+ here clauses) that follow and in the metafunction result.&quot;<br>
+ <br>
+ One might reasonably expect that named ellipses would also carry-over into =
+ the metafunction result. However, as the program below shows, this is not t=
+ he case: ellipsis names have no effect. It would be nice if they did carry =
+ over.<br>
+ 
+ <br>
+ *** How to repeat:<br>
+ #lang racket<br>
+ (require redex)<br>
+ <br>
+ (define-language L (n number) (e n (e ...)))<br>
+ (define red<br>
+ =C2=A0 (reduction-relation<br>
+ =C2=A0 =C2=A0L #:domain e<br>
+ =C2=A0 =C2=A0(--&gt; ((n_0 ..._a) e)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((n_0 n_1) ...)<br>
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where (n_1 ..._a) e))<br>
+ =C2=A0 =C2=A0))<br>
+ (traces red (term ((0 1) (0 1 2))))<br>
+ <br>
+ *** Environment:<br>
+ unix &quot;Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55=
+  UTC 2013 x86_64 x86_64 x86_64 GNU/Linux&quot; (x86_64-linux/3m) (get-displ=
+ ay-depth) =3D 32<br>
+ Human Language: english<br>
+ (current-memory-use) 475350712<br>
+ Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t) =3D ()=
+ ; (links #:user? #f #:root? #t) =3D ()<br>
+ raco pkg (show):<br>
+ Installation-wide:<br>
+ =C2=A0[none]<br>
+ User-specific, all-version:<br>
+ =C2=A0[none]<br>
+ User-specific, version-specific (5.3.4):<br>
+ =C2=A0[none]<br>
+ <br>
+ <br>
+ <br>
+ Collections:<br>
+ (&quot;/home/ezyang/.racket/5.3.4/collects&quot;<br>
+ =C2=A0(non-existent-path))<br>
+ (&quot;/usr/share/racket/collects&quot;<br>
+ =C2=A0(&quot;r6rs&quot; &quot;srfi&quot; &quot;math&quot; &quot;mzscheme&qu=
+ ot; &quot;scheme&quot; &quot;typed-racket&quot; &quot;help&quot; &quot;drra=
+ cket&quot; &quot;browser&quot; &quot;string-constants&quot; &quot;dynext&qu=
+ ot; &quot;preprocessor&quot; &quot;framework&quot; &quot;schemeunit&quot; &=
+ quot;future-visualizer&quot; &quot;texpict&quot; &quot;eopl&quot; &quot;gui=
+ -debugger&quot; &quot;games&quot; &quot;file&quot; &quot;reader&quot; &quot=
+ ;deinprogramm&quot; &quot;launcher&quot; &quot;lazy&quot; &quot;graphics&qu=
+ ot; &quot;syntax&quot; &quot;r5rs&quot; &quot;stepper&quot; &quot;scriblib&=
+ quot; &quot;test-engine&quot; &quot;slideshow&quot; &quot;syntax-color&quot=
+ ; &quot;net&quot; &quot;profile&quot; &quot;rackunit&quot; &quot;unstable&q=
+ uot; &quot;plot&quot; &quot;data&quot; &quot;picturing-programs&quot; &quot=
+ ;make&quot; &quot;scribble&quot; &quot;2htdp&quot; &quot;frtime&quot; &quot=
+ ;typed&quot; &quot;algol60&quot; &quot;openssl&quot; &quot;lang&quot; &quot=
+ ;xml&quot; &quot;readline&quot; &quot;htdp&quot; &quot;hierlist&quot; &quot=
+ ;mrlib&quot; &quot;mzcom&quot; &quot;pkg&quot; &quot;at-exp&quot; &quot;pla=
+ i&quot; &quot;ffi&quot; &quot;teachpack&quot; &quot;mzlib&quot; &quot;redex=
+ &quot; &quot;sgl&quot; &quot;defaults&quot; &quot;images&quot; &quot;db&quo=
+ t; &quot;planet&quot; &quot;datalog&quot; &quot;web-server&quot; &quot;scri=
+ bblings&quot; &quot;version&quot; &quot;s-exp&quot; &quot;macro-debugger&qu=
+ ot; &quot;compatibility&quot; &quot;icons&quot; &quot;wxme&quot; &quot;html=
+ &quot; &quot;mysterx&quot; &quot;info-domain&quot; &quot;trace&quot; &quot;=
+ json&quot; &quot;compiler&quot; &quot;slatex&quot; &quot;racket&quot; &quot=
+ ;xrepl&quot; &quot;rnrs&quot; &quot;embedded-gui&quot; &quot;swindle&quot; =
+ &quot;drscheme&quot; &quot;parser-tools&quot; &quot;typed-scheme&quot; &quo=
+ t;mred&quot; &quot;racklog&quot; &quot;config&quot; &quot;raco&quot; &quot;=
+ setup&quot; &quot;errortrace&quot;))<br>
+ 
+ <br>
+ Computer Language: ((&quot;Determine language from source&quot;) (#(#t prin=
+ t mixed-fraction-e #f #t debug) (default) #() &quot;#lang racket\n&quot; #t=
+  #t ((main) (test))))<br>
+ <br>
+ </blockquote></div><br></div>
+ 
+ --089e0158ab2046984104eff90298--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: ezyang@cs.stanford.edu, bugs <bugs@racket-lang.org>
+Cc: nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        Max New <maxnew2013@u.northwestern.edu>,
+        Burke Fetscher <burke.fetscher@eecs.northwestern.edu>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Tue, 14 Jan 2014 22:29:29 -0600
+
+ --089e0160c35e3d561504effac1e7
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Well, it turns out that more than the change below,
+ rewrite-side-conditions/check-errs's other results (the list of available
+ vars) also has to change to fix this bug. I've prepared a commit that does
+ that, but I'll wait a little bit before pushing, just to think about it for
+ a while.
+ 
+ Robby
+ 
+ On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler <robby@eecs.northwestern.edu>
+ wrote:
+ >
+ > I (finally) figured out what happened here: the problem is that the _a in
+ the ellipsis is eliminated by rewrite-side-conditions/check-errs because it
+ is given only the pattern ((n_0 ..._a) e) and does not see that the _a is
+ going to be important in a subsequent pattern match.
+ >
+ > So I think that rewrite-side-conditions/check-errs will have to preserve
+ the names on the ellipses in all cases (unless they weren't present in the
+ input, I suppose).
+ >
+ > Burke, Max: do you expect that to break the unifier or the enumerator?
+ >
+ > Robby
+ >
+ >
+ >
+ >
+ >
+ > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ >>
+ >> A new problem report is waiting at
+ >>   http://bugs.racket-lang.org/query/?cmd=view&pr=14291
+ >>
+ >> Reported by Edward Z. Yang for release: 5.3.4
+ >>
+ >> *** Description:
+ >> According to the manual:
+ >>
+ >> "If the ellipses is named (ie, has an underscore and a name following
+ it, like a variable may), the pattern matcher records the length of the
+ list and ensures that any other occurrences of the same named ellipses must
+ have the same length."
+ >>
+ >> In reduction-relation, we can define 'where' extras which define extra
+ named matches to be used in the conclusion, as stated here:
+ >>
+ >> "Each where clause acts as a side condition requiring a successful
+ pattern match, and it can bind pattern variables in the side-conditions
+ (and where clauses) that follow and in the metafunction result."
+ >>
+ >> One might reasonably expect that named ellipses would also carry-over
+ into the metafunction result. However, as the program below shows, this is
+ not the case: ellipsis names have no effect. It would be nice if they did
+ carry over.
+ >>
+ >> *** How to repeat:
+ >> #lang racket
+ >> (require redex)
+ >>
+ >> (define-language L (n number) (e n (e ...)))
+ >> (define red
+ >>   (reduction-relation
+ >>    L #:domain e
+ >>    (--> ((n_0 ..._a) e)
+ >>         ((n_0 n_1) ...)
+ >>         (where (n_1 ..._a) e))
+ >>    ))
+ >> (traces red (term ((0 1) (0 1 2))))
+ >>
+ >> *** Environment:
+ >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55
+ UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ (get-display-depth) = 32
+ >> Human Language: english
+ >> (current-memory-use) 475350712
+ >> Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = ();
+ (links #:user? #f #:root? #t) = ()
+ >> raco pkg (show):
+ >> Installation-wide:
+ >>  [none]
+ >> User-specific, all-version:
+ >>  [none]
+ >> User-specific, version-specific (5.3.4):
+ >>  [none]
+ >>
+ >>
+ >>
+ >> Collections:
+ >> ("/home/ezyang/.racket/5.3.4/collects"
+ >>  (non-existent-path))
+ >> ("/usr/share/racket/collects"
+ >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help"
+ "drracket" "browser" "string-constants" "dynext" "preprocessor" "framework"
+ "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "games"
+ "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r5rs"
+ "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net"
+ "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "make"
+ "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml"
+ "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "ffi"
+ "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet"
+ "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugger"
+ "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace"
+ "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "swindle"
+ "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "raco"
+ "setup" "errortrace"))
+ >>
+ >> Computer Language: (("Determine language from source") (#(#t print
+ mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main)
+ (test))))
+ >>
+ >
+ 
+ --089e0160c35e3d561504effac1e7
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Well, it turns out that more than the change below, rewrit=
+ e-side-conditions/check-errs&#39;s other results (the list of available var=
+ s) also has to change to fix this bug. I&#39;ve prepared a commit that does=
+  that, but I&#39;ll wait a little bit before pushing, just to think about i=
+ t for a while.=C2=A0<div>
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby Fin=
+ dler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwes=
+ tern.edu</a>&gt; wrote:<br>&gt;<br>&gt; I (finally) figured out what happen=
+ ed here: the problem is that the _a in the ellipsis is eliminated by rewrit=
+ e-side-conditions/check-errs because it is given only the pattern ((n_0 ...=
+ _a) e) and does not see that the _a is going to be important in a subsequen=
+ t pattern match.<br>
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will have t=
+ o preserve the names on the ellipses in all cases (unless they weren&#39;t =
+ present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do you expect=
+  that to break the unifier or the enumerator?<br>
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On Tue, =
+ Jan 14, 2014 at 6:56 PM, &lt;<a href=3D"mailto:ezyang@cs.stanford.edu">ezya=
+ ng@cs.stanford.edu</a>&gt; wrote:<br>&gt;&gt;<br>&gt;&gt; A new problem rep=
+ ort is waiting at<br>
+ &gt;&gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&am=
+ p;pr=3D14291">http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14291<=
+ /a><br>&gt;&gt;<br>&gt;&gt; Reported by Edward Z. Yang for release: 5.3.4<b=
+ r>&gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the manual:<br>&gt;&gt;<=
+ br>&gt;&gt; &quot;If the ellipses is named (ie, has an underscore and a nam=
+ e following it, like a variable may), the pattern matcher records the lengt=
+ h of the list and ensures that any other occurrences of the same named elli=
+ pses must have the same length.&quot;<br>
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define &#39;where&#39; e=
+ xtras which define extra named matches to be used in the conclusion, as sta=
+ ted here:<br>&gt;&gt;<br>&gt;&gt; &quot;Each where clause acts as a side co=
+ ndition requiring a successful pattern match, and it can bind pattern varia=
+ bles in the side-conditions (and where clauses) that follow and in the meta=
+ function result.&quot;<br>
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses would =
+ also carry-over into the metafunction result. However, as the program below=
+  shows, this is not the case: ellipsis names have no effect. It would be ni=
+ ce if they did carry over.<br>
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang racket<br>&gt;&gt=
+ ; (require redex)<br>&gt;&gt;<br>&gt;&gt; (define-language L (n number) (e =
+ n (e ...)))<br>&gt;&gt; (define red<br>&gt;&gt; =C2=A0 (reduction-relation<=
+ br>
+ &gt;&gt; =C2=A0 =C2=A0L #:domain e<br>&gt;&gt; =C2=A0 =C2=A0(--&gt; ((n_0 .=
+ .._a) e)<br>&gt;&gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((n_0 n_1) ...)<br>&gt;&gt=
+ ; =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where (n_1 ..._a) e))<br>&gt;&gt; =C2=A0 =C2=
+ =A0))<br>&gt;&gt; (traces red (term ((0 1) (0 1 2))))<br>&gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix &quot;Linux sabre 3.11.0-14-gene=
+ ric #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Li=
+ nux&quot; (x86_64-linux/3m) (get-display-depth) =3D 32<br>&gt;&gt; Human La=
+ nguage: english<br>
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D (); =
+ (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? #f #:r=
+ oot? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; Installation-wide:=
+ <br>
+ &gt;&gt; =C2=A0[none]<br>&gt;&gt; User-specific, all-version:<br>&gt;&gt; =
+ =C2=A0[none]<br>&gt;&gt; User-specific, version-specific (5.3.4):<br>&gt;&g=
+ t; =C2=A0[none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; Collections=
+ :<br>&gt;&gt; (&quot;/home/ezyang/.racket/5.3.4/collects&quot;<br>
+ &gt;&gt; =C2=A0(non-existent-path))<br>&gt;&gt; (&quot;/usr/share/racket/co=
+ llects&quot;<br>&gt;&gt; =C2=A0(&quot;r6rs&quot; &quot;srfi&quot; &quot;mat=
+ h&quot; &quot;mzscheme&quot; &quot;scheme&quot; &quot;typed-racket&quot; &q=
+ uot;help&quot; &quot;drracket&quot; &quot;browser&quot; &quot;string-consta=
+ nts&quot; &quot;dynext&quot; &quot;preprocessor&quot; &quot;framework&quot;=
+  &quot;schemeunit&quot; &quot;future-visualizer&quot; &quot;texpict&quot; &=
+ quot;eopl&quot; &quot;gui-debugger&quot; &quot;games&quot; &quot;file&quot;=
+  &quot;reader&quot; &quot;deinprogramm&quot; &quot;launcher&quot; &quot;laz=
+ y&quot; &quot;graphics&quot; &quot;syntax&quot; &quot;r5rs&quot; &quot;step=
+ per&quot; &quot;scriblib&quot; &quot;test-engine&quot; &quot;slideshow&quot=
+ ; &quot;syntax-color&quot; &quot;net&quot; &quot;profile&quot; &quot;rackun=
+ it&quot; &quot;unstable&quot; &quot;plot&quot; &quot;data&quot; &quot;pictu=
+ ring-programs&quot; &quot;make&quot; &quot;scribble&quot; &quot;2htdp&quot;=
+  &quot;frtime&quot; &quot;typed&quot; &quot;algol60&quot; &quot;openssl&quo=
+ t; &quot;lang&quot; &quot;xml&quot; &quot;readline&quot; &quot;htdp&quot; &=
+ quot;hierlist&quot; &quot;mrlib&quot; &quot;mzcom&quot; &quot;pkg&quot; &qu=
+ ot;at-exp&quot; &quot;plai&quot; &quot;ffi&quot; &quot;teachpack&quot; &quo=
+ t;mzlib&quot; &quot;redex&quot; &quot;sgl&quot; &quot;defaults&quot; &quot;=
+ images&quot; &quot;db&quot; &quot;planet&quot; &quot;datalog&quot; &quot;we=
+ b-server&quot; &quot;scribblings&quot; &quot;version&quot; &quot;s-exp&quot=
+ ; &quot;macro-debugger&quot; &quot;compatibility&quot; &quot;icons&quot; &q=
+ uot;wxme&quot; &quot;html&quot; &quot;mysterx&quot; &quot;info-domain&quot;=
+  &quot;trace&quot; &quot;json&quot; &quot;compiler&quot; &quot;slatex&quot;=
+  &quot;racket&quot; &quot;xrepl&quot; &quot;rnrs&quot; &quot;embedded-gui&q=
+ uot; &quot;swindle&quot; &quot;drscheme&quot; &quot;parser-tools&quot; &quo=
+ t;typed-scheme&quot; &quot;mred&quot; &quot;racklog&quot; &quot;config&quot=
+ ; &quot;raco&quot; &quot;setup&quot; &quot;errortrace&quot;))<br>
+ &gt;&gt;<br>&gt;&gt; Computer Language: ((&quot;Determine language from sou=
+ rce&quot;) (#(#t print mixed-fraction-e #f #t debug) (default) #() &quot;#l=
+ ang racket\n&quot; #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ </div></div>
+ 
+ --089e0160c35e3d561504effac1e7--
+From: Burke Fetscher <burke.fetscher@eecs.northwestern.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: ezyang@cs.stanford.edu, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        Max New <maxnew2013@u.northwestern.edu>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Tue, 14 Jan 2014 23:23:20 -0600
+
+ --Apple-Mail=_743BEFBB-C39F-4BAF-8990-89057616B825
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=windows-1252
+ 
+ Wait, is this actually broken? Don't these matches work (afte expansion) =
+ like the following examples:
+ 
+ > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+       (redex-let L ([(n_1 ..._a) (term e)])
+           (term (n_1 ...))))
+ '(0 1 2)
+ > (redex-let L ([number_1 5])
+      (redex-let L ([number_1 6])
+          (term number_1)))
+ 6
+ > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+       (redex-let L ([(n_1 ..._a) (term e)])
+           (term ((n_0 n_1) ...))))
+ . syntax: incompatible ellipsis match counts for template in: ...
+ >=20
+ 
+ Doesn=92t (and shouldn=92t) =85_a just get shadowed in the same way that =
+ number_1 does?
+ 
+ Or maybe I am confused... In any case, it definitely won=92t break the =
+ unifier since it just blows up whenever it sees an ellipsis already.
+ 
+ Burke
+ 
+ On Jan 14, 2014, at 10:29 PM, Robby Findler =
+ <robby@eecs.northwestern.edu> wrote:
+ 
+ > Well, it turns out that more than the change below, =
+ rewrite-side-conditions/check-errs's other results (the list of =
+ available vars) also has to change to fix this bug. I've prepared a =
+ commit that does that, but I'll wait a little bit before pushing, just =
+ to think about it for a while.=20
+ >=20
+ > Robby
+ >=20
+ > On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler =
+ <robby@eecs.northwestern.edu> wrote:
+ > >
+ > > I (finally) figured out what happened here: the problem is that the =
+ _a in the ellipsis is eliminated by rewrite-side-conditions/check-errs =
+ because it is given only the pattern ((n_0 ..._a) e) and does not see =
+ that the _a is going to be important in a subsequent pattern match.
+ > >
+ > > So I think that rewrite-side-conditions/check-errs will have to =
+ preserve the names on the ellipses in all cases (unless they weren't =
+ present in the input, I suppose).
+ > >
+ > > Burke, Max: do you expect that to break the unifier or the =
+ enumerator?
+ > >
+ > > Robby
+ > >
+ > >
+ > >
+ > >
+ > >
+ > > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ > >>
+ > >> A new problem report is waiting at
+ > >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D14291
+ > >>
+ > >> Reported by Edward Z. Yang for release: 5.3.4
+ > >>
+ > >> *** Description:
+ > >> According to the manual:
+ > >>
+ > >> "If the ellipses is named (ie, has an underscore and a name =
+ following it, like a variable may), the pattern matcher records the =
+ length of the list and ensures that any other occurrences of the same =
+ named ellipses must have the same length."
+ > >>
+ > >> In reduction-relation, we can define 'where' extras which define =
+ extra named matches to be used in the conclusion, as stated here:
+ > >>
+ > >> "Each where clause acts as a side condition requiring a successful =
+ pattern match, and it can bind pattern variables in the side-conditions =
+ (and where clauses) that follow and in the metafunction result."
+ > >>
+ > >> One might reasonably expect that named ellipses would also =
+ carry-over into the metafunction result. However, as the program below =
+ shows, this is not the case: ellipsis names have no effect. It would be =
+ nice if they did carry over.
+ > >>
+ > >> *** How to repeat:
+ > >> #lang racket
+ > >> (require redex)
+ > >>
+ > >> (define-language L (n number) (e n (e ...)))
+ > >> (define red
+ > >>   (reduction-relation
+ > >>    L #:domain e
+ > >>    (--> ((n_0 ..._a) e)
+ > >>         ((n_0 n_1) ...)
+ > >>         (where (n_1 ..._a) e))
+ > >>    ))
+ > >> (traces red (term ((0 1) (0 1 2))))
+ > >>
+ > >> *** Environment:
+ > >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 =
+ 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) =
+ (get-display-depth) =3D 32
+ > >> Human Language: english
+ > >> (current-memory-use) 475350712
+ > >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? =
+ #t) =3D (); (links #:user? #f #:root? #t) =3D ()
+ > >> raco pkg (show):
+ > >> Installation-wide:
+ > >>  [none]
+ > >> User-specific, all-version:
+ > >>  [none]
+ > >> User-specific, version-specific (5.3.4):
+ > >>  [none]
+ > >>
+ > >>
+ > >>
+ > >> Collections:
+ > >> ("/home/ezyang/.racket/5.3.4/collects"
+ > >>  (non-existent-path))
+ > >> ("/usr/share/racket/collects"
+ > >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help" =
+ "drracket" "browser" "string-constants" "dynext" "preprocessor" =
+ "framework" "schemeunit" "future-visualizer" "texpict" "eopl" =
+ "gui-debugger" "games" "file" "reader" "deinprogramm" "launcher" "lazy" =
+ "graphics" "syntax" "r5rs" "stepper" "scriblib" "test-engine" =
+ "slideshow" "syntax-color" "net" "profile" "rackunit" "unstable" "plot" =
+ "data" "picturing-programs" "make" "scribble" "2htdp" "frtime" "typed" =
+ "algol60" "openssl" "lang" "xml" "readline" "htdp" "hierlist" "mrlib" =
+ "mzcom" "pkg" "at-exp" "plai" "ffi" "teachpack" "mzlib" "redex" "sgl" =
+ "defaults" "images" "db" "planet" "datalog" "web-server" "scribblings" =
+ "version" "s-exp" "macro-debugger" "compatibility" "icons" "wxme" "html" =
+ "mysterx" "info-domain" "trace" "json" "compiler" "slatex" "racket" =
+ "xrepl" "rnrs" "embedded-gui" "swindle" "drscheme" "parser-tools" =
+ "typed-scheme" "mred" "racklog" "config" "raco" "setup" "errortrace"))
+ > >>
+ > >> Computer Language: (("Determine language from source") (#(#t print =
+ mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t =
+ ((main) (test))))
+ > >>
+ > >
+ 
+ 
+ --Apple-Mail=_743BEFBB-C39F-4BAF-8990-89057616B825
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=windows-1252
+ 
+ <html><head><meta http-equiv=3D"Content-Type" content=3D"text/html =
+ charset=3Dwindows-1252"></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">Wait, =
+ is this actually broken? Don't these matches work (afte expansion) like =
+ the following examples:<div><br></div><div><div>&gt; (redex-let L =
+ ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])</div><div>&nbsp; &nbsp; =
+ &nbsp; (redex-let L ([(n_1 ..._a) (term e)])</div><div>&nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; (term (n_1 ...))))</div><div>'(0 1 =
+ 2)</div><div>&gt; (redex-let L ([number_1 5])</div><div>&nbsp; &nbsp; =
+ &nbsp;(redex-let L ([number_1 6])</div><div>&nbsp; &nbsp; &nbsp; &nbsp; =
+ &nbsp;(term number_1)))</div><div>6</div><div>&gt; (redex-let L ([((n_0 =
+ ..._a) e) (term ((0 1) (0 1 2)))])</div><div>&nbsp; &nbsp; &nbsp; =
+ (redex-let L ([(n_1 ..._a) (term e)])</div><div>&nbsp; &nbsp; &nbsp; =
+ &nbsp; &nbsp; (term ((n_0 n_1) ...))))</div><div>. syntax: incompatible =
+ ellipsis match counts for template in: =
+ ...</div><div>&gt;&nbsp;</div><div><br></div><div>Doesn=92t (and =
+ shouldn=92t) =85_a just get shadowed in the same way that number_1 =
+ does?</div><div><br></div><div>Or maybe I am confused... In any case, it =
+ definitely won=92t break the unifier since it just blows up whenever it =
+ sees an ellipsis =
+ already.</div><div><br></div><div>Burke</div></div><div><br></div><div><di=
+ v>On Jan 14, 2014, at 10:29 PM, Robby Findler &lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a=
+ >&gt; wrote:</div><br class=3D"Apple-interchange-newline"><blockquote =
+ type=3D"cite"><div dir=3D"ltr">Well, it turns out that more than the =
+ change below, rewrite-side-conditions/check-errs's other results (the =
+ list of available vars) also has to change to fix this bug. I've =
+ prepared a commit that does that, but I'll wait a little bit before =
+ pushing, just to think about it for a while.&nbsp;<div>
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby =
+ Findler &lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a=
+ >&gt; wrote:<br>&gt;<br>&gt; I (finally) figured out what happened here: =
+ the problem is that the _a in the ellipsis is eliminated by =
+ rewrite-side-conditions/check-errs because it is given only the pattern =
+ ((n_0 ..._a) e) and does not see that the _a is going to be important in =
+ a subsequent pattern match.<br>
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will =
+ have to preserve the names on the ellipses in all cases (unless they =
+ weren't present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do =
+ you expect that to break the unifier or the enumerator?<br>
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On =
+ Tue, Jan 14, 2014 at 6:56 PM, &lt;<a =
+ href=3D"mailto:ezyang@cs.stanford.edu">ezyang@cs.stanford.edu</a>&gt; =
+ wrote:<br>&gt;&gt;<br>&gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt; &nbsp; <a =
+ href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14291">http=
+ ://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14291</a><br>&gt;&gt;<b=
+ r>&gt;&gt; Reported by Edward Z. Yang for release: 5.3.4<br>&gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the =
+ manual:<br>&gt;&gt;<br>&gt;&gt; "If the ellipses is named (ie, has an =
+ underscore and a name following it, like a variable may), the pattern =
+ matcher records the length of the list and ensures that any other =
+ occurrences of the same named ellipses must have the same length."<br>
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define 'where' extras =
+ which define extra named matches to be used in the conclusion, as stated =
+ here:<br>&gt;&gt;<br>&gt;&gt; "Each where clause acts as a side =
+ condition requiring a successful pattern match, and it can bind pattern =
+ variables in the side-conditions (and where clauses) that follow and in =
+ the metafunction result."<br>
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses =
+ would also carry-over into the metafunction result. However, as the =
+ program below shows, this is not the case: ellipsis names have no =
+ effect. It would be nice if they did carry over.<br>
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang =
+ racket<br>&gt;&gt; (require redex)<br>&gt;&gt;<br>&gt;&gt; =
+ (define-language L (n number) (e n (e ...)))<br>&gt;&gt; (define =
+ red<br>&gt;&gt; &nbsp; (reduction-relation<br>
+ &gt;&gt; &nbsp; &nbsp;L #:domain e<br>&gt;&gt; &nbsp; &nbsp;(--&gt; =
+ ((n_0 ..._a) e)<br>&gt;&gt; &nbsp; &nbsp; &nbsp; &nbsp; ((n_0 n_1) =
+ ...)<br>&gt;&gt; &nbsp; &nbsp; &nbsp; &nbsp; (where (n_1 ..._a) =
+ e))<br>&gt;&gt; &nbsp; &nbsp;))<br>&gt;&gt; (traces red (term ((0 1) (0 =
+ 1 2))))<br>&gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix "Linux sabre =
+ 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 =
+ x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) =3D =
+ 32<br>&gt;&gt; Human Language: english<br>
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D =
+ (); (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? =
+ #f #:root? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; =
+ Installation-wide:<br>
+ &gt;&gt; &nbsp;[none]<br>&gt;&gt; User-specific, =
+ all-version:<br>&gt;&gt; &nbsp;[none]<br>&gt;&gt; User-specific, =
+ version-specific (5.3.4):<br>&gt;&gt; =
+ &nbsp;[none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; =
+ Collections:<br>&gt;&gt; ("/home/ezyang/.racket/5.3.4/collects"<br>
+ &gt;&gt; &nbsp;(non-existent-path))<br>&gt;&gt; =
+ ("/usr/share/racket/collects"<br>&gt;&gt; &nbsp;("r6rs" "srfi" "math" =
+ "mzscheme" "scheme" "typed-racket" "help" "drracket" "browser" =
+ "string-constants" "dynext" "preprocessor" "framework" "schemeunit" =
+ "future-visualizer" "texpict" "eopl" "gui-debugger" "games" "file" =
+ "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r5rs" =
+ "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net" =
+ "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" =
+ "make" "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" =
+ "xml" "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" =
+ "ffi" "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" =
+ "planet" "datalog" "web-server" "scribblings" "version" "s-exp" =
+ "macro-debugger" "compatibility" "icons" "wxme" "html" "mysterx" =
+ "info-domain" "trace" "json" "compiler" "slatex" "racket" "xrepl" "rnrs" =
+ "embedded-gui" "swindle" "drscheme" "parser-tools" "typed-scheme" "mred" =
+ "racklog" "config" "raco" "setup" "errortrace"))<br>
+ &gt;&gt;<br>&gt;&gt; Computer Language: (("Determine language from =
+ source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang =
+ racket\n" #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ </div></div>
+ </blockquote></div><br></body></html>=
+ 
+ --Apple-Mail=_743BEFBB-C39F-4BAF-8990-89057616B825--
+From: Burke Fetscher <burke.fetscher@eecs.northwestern.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: ezyang@cs.stanford.edu, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        Max New <maxnew2013@u.northwestern.edu>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Wed, 15 Jan 2014 00:35:10 -0600
+
+ --Apple-Mail=_9B83DFE2-AE2B-4C53-AEAD-1D566A4FB24A
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/plain;
+ 	charset=windows-1252
+ 
+ Nevermind, looks like I was confused. The relevant code is =
+ generate-binding-constraints and bind-withs, correct? After looking =
+ through that, what you=92re saying about rewrite-side-conditions makes =
+ sense. If you added a new item to the result list like:
+ 
+ (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =85)) =
+ ->
+ (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =85) =
+ (ellipsis-names =85))
+ 
+ That seems unlikely to break anything I=92m familiar with. Possibly ok =
+ to add them to the names already there too, although I=92m less sure =
+ about that.
+ 
+ Burke
+ 
+ On Jan 14, 2014, at 11:23 PM, Burke Fetscher =
+ <burke.fetscher@eecs.northwestern.edu> wrote:
+ 
+ > Wait, is this actually broken? Don't these matches work (afte =
+ expansion) like the following examples:
+ >=20
+ > > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >       (redex-let L ([(n_1 ..._a) (term e)])
+ >           (term (n_1 ...))))
+ > '(0 1 2)
+ > > (redex-let L ([number_1 5])
+ >      (redex-let L ([number_1 6])
+ >          (term number_1)))
+ > 6
+ > > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >       (redex-let L ([(n_1 ..._a) (term e)])
+ >           (term ((n_0 n_1) ...))))
+ > . syntax: incompatible ellipsis match counts for template in: ...
+ > >=20
+ >=20
+ > Doesn=92t (and shouldn=92t) =85_a just get shadowed in the same way =
+ that number_1 does?
+ >=20
+ > Or maybe I am confused... In any case, it definitely won=92t break the =
+ unifier since it just blows up whenever it sees an ellipsis already.
+ >=20
+ > Burke
+ >=20
+ > On Jan 14, 2014, at 10:29 PM, Robby Findler =
+ <robby@eecs.northwestern.edu> wrote:
+ >=20
+ >> Well, it turns out that more than the change below, =
+ rewrite-side-conditions/check-errs's other results (the list of =
+ available vars) also has to change to fix this bug. I've prepared a =
+ commit that does that, but I'll wait a little bit before pushing, just =
+ to think about it for a while.=20
+ >>=20
+ >> Robby
+ >>=20
+ >> On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler =
+ <robby@eecs.northwestern.edu> wrote:
+ >> >
+ >> > I (finally) figured out what happened here: the problem is that the =
+ _a in the ellipsis is eliminated by rewrite-side-conditions/check-errs =
+ because it is given only the pattern ((n_0 ..._a) e) and does not see =
+ that the _a is going to be important in a subsequent pattern match.
+ >> >
+ >> > So I think that rewrite-side-conditions/check-errs will have to =
+ preserve the names on the ellipses in all cases (unless they weren't =
+ present in the input, I suppose).
+ >> >
+ >> > Burke, Max: do you expect that to break the unifier or the =
+ enumerator?
+ >> >
+ >> > Robby
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ >> >>
+ >> >> A new problem report is waiting at
+ >> >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D14291
+ >> >>
+ >> >> Reported by Edward Z. Yang for release: 5.3.4
+ >> >>
+ >> >> *** Description:
+ >> >> According to the manual:
+ >> >>
+ >> >> "If the ellipses is named (ie, has an underscore and a name =
+ following it, like a variable may), the pattern matcher records the =
+ length of the list and ensures that any other occurrences of the same =
+ named ellipses must have the same length."
+ >> >>
+ >> >> In reduction-relation, we can define 'where' extras which define =
+ extra named matches to be used in the conclusion, as stated here:
+ >> >>
+ >> >> "Each where clause acts as a side condition requiring a successful =
+ pattern match, and it can bind pattern variables in the side-conditions =
+ (and where clauses) that follow and in the metafunction result."
+ >> >>
+ >> >> One might reasonably expect that named ellipses would also =
+ carry-over into the metafunction result. However, as the program below =
+ shows, this is not the case: ellipsis names have no effect. It would be =
+ nice if they did carry over.
+ >> >>
+ >> >> *** How to repeat:
+ >> >> #lang racket
+ >> >> (require redex)
+ >> >>
+ >> >> (define-language L (n number) (e n (e ...)))
+ >> >> (define red
+ >> >>   (reduction-relation
+ >> >>    L #:domain e
+ >> >>    (--> ((n_0 ..._a) e)
+ >> >>         ((n_0 n_1) ...)
+ >> >>         (where (n_1 ..._a) e))
+ >> >>    ))
+ >> >> (traces red (term ((0 1) (0 1 2))))
+ >> >>
+ >> >> *** Environment:
+ >> >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 =
+ 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) =
+ (get-display-depth) =3D 32
+ >> >> Human Language: english
+ >> >> (current-memory-use) 475350712
+ >> >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? =
+ #t) =3D (); (links #:user? #f #:root? #t) =3D ()
+ >> >> raco pkg (show):
+ >> >> Installation-wide:
+ >> >>  [none]
+ >> >> User-specific, all-version:
+ >> >>  [none]
+ >> >> User-specific, version-specific (5.3.4):
+ >> >>  [none]
+ >> >>
+ >> >>
+ >> >>
+ >> >> Collections:
+ >> >> ("/home/ezyang/.racket/5.3.4/collects"
+ >> >>  (non-existent-path))
+ >> >> ("/usr/share/racket/collects"
+ >> >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help" =
+ "drracket" "browser" "string-constants" "dynext" "preprocessor" =
+ "framework" "schemeunit" "future-visualizer" "texpict" "eopl" =
+ "gui-debugger" "games" "file" "reader" "deinprogramm" "launcher" "lazy" =
+ "graphics" "syntax" "r5rs" "stepper" "scriblib" "test-engine" =
+ "slideshow" "syntax-color" "net" "profile" "rackunit" "unstable" "plot" =
+ "data" "picturing-programs" "make" "scribble" "2htdp" "frtime" "typed" =
+ "algol60" "openssl" "lang" "xml" "readline" "htdp" "hierlist" "mrlib" =
+ "mzcom" "pkg" "at-exp" "plai" "ffi" "teachpack" "mzlib" "redex" "sgl" =
+ "defaults" "images" "db" "planet" "datalog" "web-server" "scribblings" =
+ "version" "s-exp" "macro-debugger" "compatibility" "icons" "wxme" "html" =
+ "mysterx" "info-domain" "trace" "json" "compiler" "slatex" "racket" =
+ "xrepl" "rnrs" "embedded-gui" "swindle" "drscheme" "parser-tools" =
+ "typed-scheme" "mred" "racklog" "config" "raco" "setup" "errortrace"))
+ >> >>
+ >> >> Computer Language: (("Determine language from source") (#(#t print =
+ mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t =
+ ((main) (test))))
+ >> >>
+ >> >
+ >=20
+ 
+ 
+ --Apple-Mail=_9B83DFE2-AE2B-4C53-AEAD-1D566A4FB24A
+ Content-Transfer-Encoding: quoted-printable
+ Content-Type: text/html;
+ 	charset=windows-1252
+ 
+ <html><head><meta http-equiv=3D"Content-Type" content=3D"text/html =
+ charset=3Dwindows-1252"></head><body style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: =
+ after-white-space;">Nevermind, looks like I was confused. The relevant =
+ code is generate-binding-constraints and bind-withs, correct? After =
+ looking through that, what you=92re saying about rewrite-side-conditions =
+ makes sense. If you added a new item to the result list =
+ like:<div><br><div>(syncheck-exp side-conditions-rewritten (names ...) =
+ (names/ellipses =85)) -&gt;</div><div>(syncheck-exp =
+ side-conditions-rewritten (names ...) (names/ellipses =85) =
+ (ellipsis-names =85))</div><div><br></div><div><div>That seems unlikely =
+ to break anything I=92m familiar with. Possibly ok to add them to the =
+ names already there too, although I=92m less sure about =
+ that.</div><div><br></div><div>Burke</div><div><br><div><div>On Jan 14, =
+ 2014, at 11:23 PM, Burke Fetscher &lt;<a =
+ href=3D"mailto:burke.fetscher@eecs.northwestern.edu">burke.fetscher@eecs.n=
+ orthwestern.edu</a>&gt; wrote:</div><br =
+ class=3D"Apple-interchange-newline"><blockquote type=3D"cite"><meta =
+ http-equiv=3D"Content-Type" content=3D"text/html =
+ charset=3Dwindows-1252"><div style=3D"word-wrap: break-word; =
+ -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">Wait, =
+ is this actually broken? Don't these matches work (afte expansion) like =
+ the following examples:<div><br></div><div><div>&gt; (redex-let L =
+ ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])</div><div>&nbsp; &nbsp; =
+ &nbsp; (redex-let L ([(n_1 ..._a) (term e)])</div><div>&nbsp; &nbsp; =
+ &nbsp; &nbsp; &nbsp; (term (n_1 ...))))</div><div>'(0 1 =
+ 2)</div><div>&gt; (redex-let L ([number_1 5])</div><div>&nbsp; &nbsp; =
+ &nbsp;(redex-let L ([number_1 6])</div><div>&nbsp; &nbsp; &nbsp; &nbsp; =
+ &nbsp;(term number_1)))</div><div>6</div><div>&gt; (redex-let L ([((n_0 =
+ ..._a) e) (term ((0 1) (0 1 2)))])</div><div>&nbsp; &nbsp; &nbsp; =
+ (redex-let L ([(n_1 ..._a) (term e)])</div><div>&nbsp; &nbsp; &nbsp; =
+ &nbsp; &nbsp; (term ((n_0 n_1) ...))))</div><div>. syntax: incompatible =
+ ellipsis match counts for template in: =
+ ...</div><div>&gt;&nbsp;</div><div><br></div><div>Doesn=92t (and =
+ shouldn=92t) =85_a just get shadowed in the same way that number_1 =
+ does?</div><div><br></div><div>Or maybe I am confused... In any case, it =
+ definitely won=92t break the unifier since it just blows up whenever it =
+ sees an ellipsis =
+ already.</div><div><br></div><div>Burke</div></div><div><br></div><div><di=
+ v>On Jan 14, 2014, at 10:29 PM, Robby Findler &lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a=
+ >&gt; wrote:</div><br class=3D"Apple-interchange-newline"><blockquote =
+ type=3D"cite"><div dir=3D"ltr">Well, it turns out that more than the =
+ change below, rewrite-side-conditions/check-errs's other results (the =
+ list of available vars) also has to change to fix this bug. I've =
+ prepared a commit that does that, but I'll wait a little bit before =
+ pushing, just to think about it for a while.&nbsp;<div>
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby =
+ Findler &lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu">robby@eecs.northwestern.edu</a=
+ >&gt; wrote:<br>&gt;<br>&gt; I (finally) figured out what happened here: =
+ the problem is that the _a in the ellipsis is eliminated by =
+ rewrite-side-conditions/check-errs because it is given only the pattern =
+ ((n_0 ..._a) e) and does not see that the _a is going to be important in =
+ a subsequent pattern match.<br>
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will =
+ have to preserve the names on the ellipses in all cases (unless they =
+ weren't present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do =
+ you expect that to break the unifier or the enumerator?<br>
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On =
+ Tue, Jan 14, 2014 at 6:56 PM, &lt;<a =
+ href=3D"mailto:ezyang@cs.stanford.edu">ezyang@cs.stanford.edu</a>&gt; =
+ wrote:<br>&gt;&gt;<br>&gt;&gt; A new problem report is waiting at<br>
+ &gt;&gt; &nbsp; <a =
+ href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14291">http=
+ ://bugs.racket-lang.org/query/?cmd=3Dview&amp;pr=3D14291</a><br>&gt;&gt;<b=
+ r>&gt;&gt; Reported by Edward Z. Yang for release: 5.3.4<br>&gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the =
+ manual:<br>&gt;&gt;<br>&gt;&gt; "If the ellipses is named (ie, has an =
+ underscore and a name following it, like a variable may), the pattern =
+ matcher records the length of the list and ensures that any other =
+ occurrences of the same named ellipses must have the same length."<br>
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define 'where' extras =
+ which define extra named matches to be used in the conclusion, as stated =
+ here:<br>&gt;&gt;<br>&gt;&gt; "Each where clause acts as a side =
+ condition requiring a successful pattern match, and it can bind pattern =
+ variables in the side-conditions (and where clauses) that follow and in =
+ the metafunction result."<br>
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses =
+ would also carry-over into the metafunction result. However, as the =
+ program below shows, this is not the case: ellipsis names have no =
+ effect. It would be nice if they did carry over.<br>
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang =
+ racket<br>&gt;&gt; (require redex)<br>&gt;&gt;<br>&gt;&gt; =
+ (define-language L (n number) (e n (e ...)))<br>&gt;&gt; (define =
+ red<br>&gt;&gt; &nbsp; (reduction-relation<br>
+ &gt;&gt; &nbsp; &nbsp;L #:domain e<br>&gt;&gt; &nbsp; &nbsp;(--&gt; =
+ ((n_0 ..._a) e)<br>&gt;&gt; &nbsp; &nbsp; &nbsp; &nbsp; ((n_0 n_1) =
+ ...)<br>&gt;&gt; &nbsp; &nbsp; &nbsp; &nbsp; (where (n_1 ..._a) =
+ e))<br>&gt;&gt; &nbsp; &nbsp;))<br>&gt;&gt; (traces red (term ((0 1) (0 =
+ 1 2))))<br>&gt;&gt;<br>
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix "Linux sabre =
+ 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 =
+ x86_64 x86_64 GNU/Linux" (x86_64-linux/3m) (get-display-depth) =3D =
+ 32<br>&gt;&gt; Human Language: english<br>
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D =
+ (); (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? =
+ #f #:root? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; =
+ Installation-wide:<br>
+ &gt;&gt; &nbsp;[none]<br>&gt;&gt; User-specific, =
+ all-version:<br>&gt;&gt; &nbsp;[none]<br>&gt;&gt; User-specific, =
+ version-specific (5.3.4):<br>&gt;&gt; =
+ &nbsp;[none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; =
+ Collections:<br>&gt;&gt; ("/home/ezyang/.racket/5.3.4/collects"<br>
+ &gt;&gt; &nbsp;(non-existent-path))<br>&gt;&gt; =
+ ("/usr/share/racket/collects"<br>&gt;&gt; &nbsp;("r6rs" "srfi" "math" =
+ "mzscheme" "scheme" "typed-racket" "help" "drracket" "browser" =
+ "string-constants" "dynext" "preprocessor" "framework" "schemeunit" =
+ "future-visualizer" "texpict" "eopl" "gui-debugger" "games" "file" =
+ "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r5rs" =
+ "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net" =
+ "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" =
+ "make" "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" =
+ "xml" "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" =
+ "ffi" "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" =
+ "planet" "datalog" "web-server" "scribblings" "version" "s-exp" =
+ "macro-debugger" "compatibility" "icons" "wxme" "html" "mysterx" =
+ "info-domain" "trace" "json" "compiler" "slatex" "racket" "xrepl" "rnrs" =
+ "embedded-gui" "swindle" "drscheme" "parser-tools" "typed-scheme" "mred" =
+ "racklog" "config" "raco" "setup" "errortrace"))<br>
+ &gt;&gt;<br>&gt;&gt; Computer Language: (("Determine language from =
+ source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang =
+ racket\n" #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ </div></div>
+ =
+ </blockquote></div><br></div></blockquote></div><br></div></div></div></bo=
+ dy></html>=
+ 
+ --Apple-Mail=_9B83DFE2-AE2B-4C53-AEAD-1D566A4FB24A--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Burke Fetscher <burke.fetscher@eecs.northwestern.edu>
+Cc: Edward Yang <ezyang@cs.stanford.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        Max New <maxnew2013@u.northwestern.edu>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Wed, 15 Jan 2014 07:45:19 -0600
+
+ --089e01182c7e0dd12104f0028577
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Yes, that's the code for the second half of the issue. The first half is
+ that the ellipsis in the repeat loses its name in the
+ "side-conditions-rewrite" part of the result, which is the part that I
+ worry about changing for the enumerator and the unifier.
+ 
+ For the second half, I'm more optimistic that we can uncover the problems
+ since that tends to flow into places that just find variables for the user
+ code of Redex.
+ 
+ Robby
+ 
+ 
+ 
+ On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher <
+ burke.fetscher@eecs.northwestern.edu> wrote:
+ 
+ > Nevermind, looks like I was confused. The relevant code is
+ > generate-binding-constraints and bind-withs, correct? After looking throu=
+ gh
+ > that, what you=E2=80=99re saying about rewrite-side-conditions makes sens=
+ e. If you
+ > added a new item to the result list like:
+ >
+ > (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =E2=
+ =80=A6)) ->
+ > (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =E2=
+ =80=A6)
+ > (ellipsis-names =E2=80=A6))
+ >
+ > That seems unlikely to break anything I=E2=80=99m familiar with. Possibly=
+  ok to
+ > add them to the names already there too, although I=E2=80=99m less sure a=
+ bout that.
+ >
+ > Burke
+ >
+ > On Jan 14, 2014, at 11:23 PM, Burke Fetscher <
+ > burke.fetscher@eecs.northwestern.edu> wrote:
+ >
+ > Wait, is this actually broken? Don't these matches work (afte expansion)
+ > like the following examples:
+ >
+ > > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >       (redex-let L ([(n_1 ..._a) (term e)])
+ >           (term (n_1 ...))))
+ > '(0 1 2)
+ > > (redex-let L ([number_1 5])
+ >      (redex-let L ([number_1 6])
+ >          (term number_1)))
+ > 6
+ > > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >       (redex-let L ([(n_1 ..._a) (term e)])
+ >           (term ((n_0 n_1) ...))))
+ > . syntax: incompatible ellipsis match counts for template in: ...
+ > >
+ >
+ > Doesn=E2=80=99t (and shouldn=E2=80=99t) =E2=80=A6_a just get shadowed in =
+ the same way that
+ > number_1 does?
+ >
+ > Or maybe I am confused... In any case, it definitely won=E2=80=99t break =
+ the
+ > unifier since it just blows up whenever it sees an ellipsis already.
+ >
+ > Burke
+ >
+ > On Jan 14, 2014, at 10:29 PM, Robby Findler <robby@eecs.northwestern.edu>
+ > wrote:
+ >
+ > Well, it turns out that more than the change below,
+ > rewrite-side-conditions/check-errs's other results (the list of available
+ > vars) also has to change to fix this bug. I've prepared a commit that doe=
+ s
+ > that, but I'll wait a little bit before pushing, just to think about it f=
+ or
+ > a while.
+ >
+ > Robby
+ >
+ > On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler <
+ > robby@eecs.northwestern.edu> wrote:
+ > >
+ > > I (finally) figured out what happened here: the problem is that the _a
+ > in the ellipsis is eliminated by rewrite-side-conditions/check-errs becau=
+ se
+ > it is given only the pattern ((n_0 ..._a) e) and does not see that the _a
+ > is going to be important in a subsequent pattern match.
+ > >
+ > > So I think that rewrite-side-conditions/check-errs will have to preserv=
+ e
+ > the names on the ellipses in all cases (unless they weren't present in th=
+ e
+ > input, I suppose).
+ > >
+ > > Burke, Max: do you expect that to break the unifier or the enumerator?
+ > >
+ > > Robby
+ > >
+ > >
+ > >
+ > >
+ > >
+ > > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ > >>
+ > >> A new problem report is waiting at
+ > >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D14291
+ > >>
+ > >> Reported by Edward Z. Yang for release: 5.3.4
+ > >>
+ > >> *** Description:
+ > >> According to the manual:
+ > >>
+ > >> "If the ellipses is named (ie, has an underscore and a name following
+ > it, like a variable may), the pattern matcher records the length of the
+ > list and ensures that any other occurrences of the same named ellipses mu=
+ st
+ > have the same length."
+ > >>
+ > >> In reduction-relation, we can define 'where' extras which define extra
+ > named matches to be used in the conclusion, as stated here:
+ > >>
+ > >> "Each where clause acts as a side condition requiring a successful
+ > pattern match, and it can bind pattern variables in the side-conditions
+ > (and where clauses) that follow and in the metafunction result."
+ > >>
+ > >> One might reasonably expect that named ellipses would also carry-over
+ > into the metafunction result. However, as the program below shows, this i=
+ s
+ > not the case: ellipsis names have no effect. It would be nice if they did
+ > carry over.
+ > >>
+ > >> *** How to repeat:
+ > >> #lang racket
+ > >> (require redex)
+ > >>
+ > >> (define-language L (n number) (e n (e ...)))
+ > >> (define red
+ > >>   (reduction-relation
+ > >>    L #:domain e
+ > >>    (--> ((n_0 ..._a) e)
+ > >>         ((n_0 n_1) ...)
+ > >>         (where (n_1 ..._a) e))
+ > >>    ))
+ > >> (traces red (term ((0 1) (0 1 2))))
+ > >>
+ > >> *** Environment:
+ > >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:55
+ > UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ > (get-display-depth) =3D 32
+ > >> Human Language: english
+ > >> (current-memory-use) 475350712
+ > >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t) =
+ =3D ();
+ > (links #:user? #f #:root? #t) =3D ()
+ > >> raco pkg (show):
+ > >> Installation-wide:
+ > >>  [none]
+ > >> User-specific, all-version:
+ > >>  [none]
+ > >> User-specific, version-specific (5.3.4):
+ > >>  [none]
+ > >>
+ > >>
+ > >>
+ > >> Collections:
+ > >> ("/home/ezyang/.racket/5.3.4/collects"
+ > >>  (non-existent-path))
+ > >> ("/usr/share/racket/collects"
+ > >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help"
+ > "drracket" "browser" "string-constants" "dynext" "preprocessor" "framewor=
+ k"
+ > "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "games"
+ > "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r5r=
+ s"
+ > "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net"
+ > "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "make"
+ > "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml"
+ > "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "ffi"
+ > "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet"
+ > "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugger"
+ > "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace"
+ > "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "swindl=
+ e"
+ > "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "raco"
+ > "setup" "errortrace"))
+ > >>
+ > >> Computer Language: (("Determine language from source") (#(#t print
+ > mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main=
+ )
+ > (test))))
+ > >>
+ > >
+ >
+ >
+ >
+ >
+ 
+ --089e01182c7e0dd12104f0028577
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Yes, that&#39;s the code for the second half of the issue.=
+  The first half is that the ellipsis in the repeat loses its name in the &q=
+ uot;side-conditions-rewrite&quot; part of the result, which is the part tha=
+ t I worry about changing for the enumerator and the unifier.<div>
+ <br></div><div>For the second half, I&#39;m more optimistic that we can unc=
+ over the problems since that tends to flow into places that just find varia=
+ bles for the user code of Redex.</div><div><br></div><div>Robby</div><div>
+ <br></div></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quot=
+ e">On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher <span dir=3D"ltr">&lt;<=
+ a href=3D"mailto:burke.fetscher@eecs.northwestern.edu" target=3D"_blank">bu=
+ rke.fetscher@eecs.northwestern.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div style=3D"word-wrap:break-word">Nevermin=
+ d, looks like I was confused. The relevant code is generate-binding-constra=
+ ints and bind-withs, correct? After looking through that, what you=E2=80=99=
+ re saying about rewrite-side-conditions makes sense. If you added a new ite=
+ m to the result list like:<div>
+ <br><div>(syncheck-exp side-conditions-rewritten (names ...) (names/ellipse=
+ s =E2=80=A6)) -&gt;</div><div>(syncheck-exp side-conditions-rewritten (name=
+ s ...) (names/ellipses =E2=80=A6) (ellipsis-names =E2=80=A6))</div><div><br=
+ ></div><div><div>That seems unlikely to break anything I=E2=80=99m familiar=
+  with. Possibly ok to add them to the names already there too, although I=
+ =E2=80=99m less sure about that.</div>
+ <span class=3D"HOEnZb"><font color=3D"#888888"><div><br></div><div>Burke</d=
+ iv></font></span><div><div class=3D"h5"><div><br><div><div>On Jan 14, 2014,=
+  at 11:23 PM, Burke Fetscher &lt;<a href=3D"mailto:burke.fetscher@eecs.nort=
+ hwestern.edu" target=3D"_blank">burke.fetscher@eecs.northwestern.edu</a>&gt=
+ ; wrote:</div>
+ <br><blockquote type=3D"cite"><div style=3D"word-wrap:break-word">Wait, is =
+ this actually broken? Don&#39;t these matches work (afte expansion) like th=
+ e following examples:<div><br></div><div><div>&gt; (redex-let L ([((n_0 ...=
+ _a) e) (term ((0 1) (0 1 2)))])</div>
+ <div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</div><div>=
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term (n_1 ...))))</div><div>&#39;(0 1 2=
+ )</div><div>&gt; (redex-let L ([number_1 5])</div><div>=C2=A0 =C2=A0 =C2=A0=
+ (redex-let L ([number_1 6])</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(te=
+ rm number_1)))</div>
+ <div>6</div><div>&gt; (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))=
+ ])</div><div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</di=
+ v><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term ((n_0 n_1) ...))))</div><di=
+ v>. syntax: incompatible ellipsis match counts for template in: ...</div>
+ <div>&gt;=C2=A0</div><div><br></div><div>Doesn=E2=80=99t (and shouldn=E2=80=
+ =99t) =E2=80=A6_a just get shadowed in the same way that number_1 does?</di=
+ v><div><br></div><div>Or maybe I am confused... In any case, it definitely =
+ won=E2=80=99t break the unifier since it just blows up whenever it sees an =
+ ellipsis already.</div>
+ <div><br></div><div>Burke</div></div><div><br></div><div><div>On Jan 14, 20=
+ 14, at 10:29 PM, Robby Findler &lt;<a href=3D"mailto:robby@eecs.northwester=
+ n.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt; wrote:</div><b=
+ r>
+ <blockquote type=3D"cite"><div dir=3D"ltr">Well, it turns out that more tha=
+ n the change below, rewrite-side-conditions/check-errs&#39;s other results =
+ (the list of available vars) also has to change to fix this bug. I&#39;ve p=
+ repared a commit that does that, but I&#39;ll wait a little bit before push=
+ ing, just to think about it for a while.=C2=A0<div>
+ 
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby Fin=
+ dler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">r=
+ obby@eecs.northwestern.edu</a>&gt; wrote:<br>&gt;<br>&gt; I (finally) figur=
+ ed out what happened here: the problem is that the _a in the ellipsis is el=
+ iminated by rewrite-side-conditions/check-errs because it is given only the=
+  pattern ((n_0 ..._a) e) and does not see that the _a is going to be import=
+ ant in a subsequent pattern match.<br>
+ 
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will have t=
+ o preserve the names on the ellipses in all cases (unless they weren&#39;t =
+ present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do you expect=
+  that to break the unifier or the enumerator?<br>
+ 
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On Tue, =
+ Jan 14, 2014 at 6:56 PM, &lt;<a href=3D"mailto:ezyang@cs.stanford.edu" targ=
+ et=3D"_blank">ezyang@cs.stanford.edu</a>&gt; wrote:<br>&gt;&gt;<br>&gt;&gt;=
+  A new problem report is waiting at<br>
+ 
+ &gt;&gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&am=
+ p;pr=3D14291" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dvi=
+ ew&amp;pr=3D14291</a><br>&gt;&gt;<br>&gt;&gt; Reported by Edward Z. Yang fo=
+ r release: 5.3.4<br>
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the manual:<br>&gt;&gt;<=
+ br>&gt;&gt; &quot;If the ellipses is named (ie, has an underscore and a nam=
+ e following it, like a variable may), the pattern matcher records the lengt=
+ h of the list and ensures that any other occurrences of the same named elli=
+ pses must have the same length.&quot;<br>
+ 
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define &#39;where&#39; e=
+ xtras which define extra named matches to be used in the conclusion, as sta=
+ ted here:<br>&gt;&gt;<br>&gt;&gt; &quot;Each where clause acts as a side co=
+ ndition requiring a successful pattern match, and it can bind pattern varia=
+ bles in the side-conditions (and where clauses) that follow and in the meta=
+ function result.&quot;<br>
+ 
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses would =
+ also carry-over into the metafunction result. However, as the program below=
+  shows, this is not the case: ellipsis names have no effect. It would be ni=
+ ce if they did carry over.<br>
+ 
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang racket<br>&gt;&gt=
+ ; (require redex)<br>&gt;&gt;<br>&gt;&gt; (define-language L (n number) (e =
+ n (e ...)))<br>&gt;&gt; (define red<br>&gt;&gt; =C2=A0 (reduction-relation<=
+ br>
+ 
+ &gt;&gt; =C2=A0 =C2=A0L #:domain e<br>&gt;&gt; =C2=A0 =C2=A0(--&gt; ((n_0 .=
+ .._a) e)<br>&gt;&gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((n_0 n_1) ...)<br>&gt;&gt=
+ ; =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where (n_1 ..._a) e))<br>&gt;&gt; =C2=A0 =C2=
+ =A0))<br>&gt;&gt; (traces red (term ((0 1) (0 1 2))))<br>&gt;&gt;<br>
+ 
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix &quot;Linux sabre 3.11.0-14-gene=
+ ric #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Li=
+ nux&quot; (x86_64-linux/3m) (get-display-depth) =3D 32<br>&gt;&gt; Human La=
+ nguage: english<br>
+ 
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D (); =
+ (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? #f #:r=
+ oot? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; Installation-wide:=
+ <br>
+ 
+ &gt;&gt; =C2=A0[none]<br>&gt;&gt; User-specific, all-version:<br>&gt;&gt; =
+ =C2=A0[none]<br>&gt;&gt; User-specific, version-specific (5.3.4):<br>&gt;&g=
+ t; =C2=A0[none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; Collections=
+ :<br>&gt;&gt; (&quot;/home/ezyang/.racket/5.3.4/collects&quot;<br>
+ 
+ &gt;&gt; =C2=A0(non-existent-path))<br>&gt;&gt; (&quot;/usr/share/racket/co=
+ llects&quot;<br>&gt;&gt; =C2=A0(&quot;r6rs&quot; &quot;srfi&quot; &quot;mat=
+ h&quot; &quot;mzscheme&quot; &quot;scheme&quot; &quot;typed-racket&quot; &q=
+ uot;help&quot; &quot;drracket&quot; &quot;browser&quot; &quot;string-consta=
+ nts&quot; &quot;dynext&quot; &quot;preprocessor&quot; &quot;framework&quot;=
+  &quot;schemeunit&quot; &quot;future-visualizer&quot; &quot;texpict&quot; &=
+ quot;eopl&quot; &quot;gui-debugger&quot; &quot;games&quot; &quot;file&quot;=
+  &quot;reader&quot; &quot;deinprogramm&quot; &quot;launcher&quot; &quot;laz=
+ y&quot; &quot;graphics&quot; &quot;syntax&quot; &quot;r5rs&quot; &quot;step=
+ per&quot; &quot;scriblib&quot; &quot;test-engine&quot; &quot;slideshow&quot=
+ ; &quot;syntax-color&quot; &quot;net&quot; &quot;profile&quot; &quot;rackun=
+ it&quot; &quot;unstable&quot; &quot;plot&quot; &quot;data&quot; &quot;pictu=
+ ring-programs&quot; &quot;make&quot; &quot;scribble&quot; &quot;2htdp&quot;=
+  &quot;frtime&quot; &quot;typed&quot; &quot;algol60&quot; &quot;openssl&quo=
+ t; &quot;lang&quot; &quot;xml&quot; &quot;readline&quot; &quot;htdp&quot; &=
+ quot;hierlist&quot; &quot;mrlib&quot; &quot;mzcom&quot; &quot;pkg&quot; &qu=
+ ot;at-exp&quot; &quot;plai&quot; &quot;ffi&quot; &quot;teachpack&quot; &quo=
+ t;mzlib&quot; &quot;redex&quot; &quot;sgl&quot; &quot;defaults&quot; &quot;=
+ images&quot; &quot;db&quot; &quot;planet&quot; &quot;datalog&quot; &quot;we=
+ b-server&quot; &quot;scribblings&quot; &quot;version&quot; &quot;s-exp&quot=
+ ; &quot;macro-debugger&quot; &quot;compatibility&quot; &quot;icons&quot; &q=
+ uot;wxme&quot; &quot;html&quot; &quot;mysterx&quot; &quot;info-domain&quot;=
+  &quot;trace&quot; &quot;json&quot; &quot;compiler&quot; &quot;slatex&quot;=
+  &quot;racket&quot; &quot;xrepl&quot; &quot;rnrs&quot; &quot;embedded-gui&q=
+ uot; &quot;swindle&quot; &quot;drscheme&quot; &quot;parser-tools&quot; &quo=
+ t;typed-scheme&quot; &quot;mred&quot; &quot;racklog&quot; &quot;config&quot=
+ ; &quot;raco&quot; &quot;setup&quot; &quot;errortrace&quot;))<br>
+ 
+ &gt;&gt;<br>&gt;&gt; Computer Language: ((&quot;Determine language from sou=
+ rce&quot;) (#(#t print mixed-fraction-e #f #t debug) (default) #() &quot;#l=
+ ang racket\n&quot; #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ 
+ </div></div>
+ </blockquote></div><br></div></blockquote></div><br></div></div></div></div=
+ ></div></div></blockquote></div><br></div>
+ 
+ --089e01182c7e0dd12104f0028577--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Burke Fetscher <burke.fetscher@eecs.northwestern.edu>
+Cc: Edward Yang <ezyang@cs.stanford.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        Max New <maxnew2013@u.northwestern.edu>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Wed, 15 Jan 2014 07:57:13 -0600
+
+ --001a1134ad06998ff404f002af7e
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Just to clarify the "first half", I'm thinking of changing things so that
+ 
+   (a ..._1)
+ 
+ turns into
+ 
+   (list (repeat (name a (nt a)) ..._1 #f))
+ 
+ instead of the two #fs, like it currently does.
+ 
+ Robby
+ 
+ 
+ 
+ 
+ On Wed, Jan 15, 2014 at 7:45 AM, Robby Findler
+ <robby@eecs.northwestern.edu>wrote:
+ 
+ > Yes, that's the code for the second half of the issue. The first half is
+ > that the ellipsis in the repeat loses its name in the
+ > "side-conditions-rewrite" part of the result, which is the part that I
+ > worry about changing for the enumerator and the unifier.
+ >
+ > For the second half, I'm more optimistic that we can uncover the problems
+ > since that tends to flow into places that just find variables for the use=
+ r
+ > code of Redex.
+ >
+ > Robby
+ >
+ >
+ >
+ > On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher <
+ > burke.fetscher@eecs.northwestern.edu> wrote:
+ >
+ >> Nevermind, looks like I was confused. The relevant code is
+ >> generate-binding-constraints and bind-withs, correct? After looking thro=
+ ugh
+ >> that, what you=E2=80=99re saying about rewrite-side-conditions makes sen=
+ se. If you
+ >> added a new item to the result list like:
+ >>
+ >> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =E2=
+ =80=A6)) ->
+ >> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =E2=
+ =80=A6)
+ >> (ellipsis-names =E2=80=A6))
+ >>
+ >> That seems unlikely to break anything I=E2=80=99m familiar with. Possibl=
+ y ok to
+ >> add them to the names already there too, although I=E2=80=99m less sure =
+ about that.
+ >>
+ >> Burke
+ >>
+ >> On Jan 14, 2014, at 11:23 PM, Burke Fetscher <
+ >> burke.fetscher@eecs.northwestern.edu> wrote:
+ >>
+ >> Wait, is this actually broken? Don't these matches work (afte expansion)
+ >> like the following examples:
+ >>
+ >> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>           (term (n_1 ...))))
+ >> '(0 1 2)
+ >> > (redex-let L ([number_1 5])
+ >>      (redex-let L ([number_1 6])
+ >>          (term number_1)))
+ >> 6
+ >> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>           (term ((n_0 n_1) ...))))
+ >> . syntax: incompatible ellipsis match counts for template in: ...
+ >> >
+ >>
+ >> Doesn=E2=80=99t (and shouldn=E2=80=99t) =E2=80=A6_a just get shadowed in=
+  the same way that
+ >> number_1 does?
+ >>
+ >> Or maybe I am confused... In any case, it definitely won=E2=80=99t break=
+  the
+ >> unifier since it just blows up whenever it sees an ellipsis already.
+ >>
+ >> Burke
+ >>
+ >> On Jan 14, 2014, at 10:29 PM, Robby Findler <robby@eecs.northwestern.edu=
+ >
+ >> wrote:
+ >>
+ >> Well, it turns out that more than the change below,
+ >> rewrite-side-conditions/check-errs's other results (the list of availabl=
+ e
+ >> vars) also has to change to fix this bug. I've prepared a commit that do=
+ es
+ >> that, but I'll wait a little bit before pushing, just to think about it =
+ for
+ >> a while.
+ >>
+ >> Robby
+ >>
+ >> On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler <
+ >> robby@eecs.northwestern.edu> wrote:
+ >> >
+ >> > I (finally) figured out what happened here: the problem is that the _a
+ >> in the ellipsis is eliminated by rewrite-side-conditions/check-errs beca=
+ use
+ >> it is given only the pattern ((n_0 ..._a) e) and does not see that the _=
+ a
+ >> is going to be important in a subsequent pattern match.
+ >> >
+ >> > So I think that rewrite-side-conditions/check-errs will have to
+ >> preserve the names on the ellipses in all cases (unless they weren't
+ >> present in the input, I suppose).
+ >> >
+ >> > Burke, Max: do you expect that to break the unifier or the enumerator?
+ >> >
+ >> > Robby
+ >> >
+ >> >
+ >> >
+ >> >
+ >> >
+ >> > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ >> >>
+ >> >> A new problem report is waiting at
+ >> >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D14291
+ >> >>
+ >> >> Reported by Edward Z. Yang for release: 5.3.4
+ >> >>
+ >> >> *** Description:
+ >> >> According to the manual:
+ >> >>
+ >> >> "If the ellipses is named (ie, has an underscore and a name following
+ >> it, like a variable may), the pattern matcher records the length of the
+ >> list and ensures that any other occurrences of the same named ellipses m=
+ ust
+ >> have the same length."
+ >> >>
+ >> >> In reduction-relation, we can define 'where' extras which define extr=
+ a
+ >> named matches to be used in the conclusion, as stated here:
+ >> >>
+ >> >> "Each where clause acts as a side condition requiring a successful
+ >> pattern match, and it can bind pattern variables in the side-conditions
+ >> (and where clauses) that follow and in the metafunction result."
+ >> >>
+ >> >> One might reasonably expect that named ellipses would also carry-over
+ >> into the metafunction result. However, as the program below shows, this =
+ is
+ >> not the case: ellipsis names have no effect. It would be nice if they di=
+ d
+ >> carry over.
+ >> >>
+ >> >> *** How to repeat:
+ >> >> #lang racket
+ >> >> (require redex)
+ >> >>
+ >> >> (define-language L (n number) (e n (e ...)))
+ >> >> (define red
+ >> >>   (reduction-relation
+ >> >>    L #:domain e
+ >> >>    (--> ((n_0 ..._a) e)
+ >> >>         ((n_0 n_1) ...)
+ >> >>         (where (n_1 ..._a) e))
+ >> >>    ))
+ >> >> (traces red (term ((0 1) (0 1 2))))
+ >> >>
+ >> >> *** Environment:
+ >> >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12 17:04:5=
+ 5
+ >> UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >> (get-display-depth) =3D 32
+ >> >> Human Language: english
+ >> >> (current-memory-use) 475350712
+ >> >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t) =
+ =3D ();
+ >> (links #:user? #f #:root? #t) =3D ()
+ >> >> raco pkg (show):
+ >> >> Installation-wide:
+ >> >>  [none]
+ >> >> User-specific, all-version:
+ >> >>  [none]
+ >> >> User-specific, version-specific (5.3.4):
+ >> >>  [none]
+ >> >>
+ >> >>
+ >> >>
+ >> >> Collections:
+ >> >> ("/home/ezyang/.racket/5.3.4/collects"
+ >> >>  (non-existent-path))
+ >> >> ("/usr/share/racket/collects"
+ >> >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help"
+ >> "drracket" "browser" "string-constants" "dynext" "preprocessor" "framewo=
+ rk"
+ >> "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "games"
+ >> "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r5=
+ rs"
+ >> "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net"
+ >> "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "make=
+ "
+ >> "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml"
+ >> "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "ffi"
+ >> "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet"
+ >> "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugger"
+ >> "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace"
+ >> "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "swind=
+ le"
+ >> "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "raco=
+ "
+ >> "setup" "errortrace"))
+ >> >>
+ >> >> Computer Language: (("Determine language from source") (#(#t print
+ >> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((mai=
+ n)
+ >> (test))))
+ >> >>
+ >> >
+ >>
+ >>
+ >>
+ >>
+ >
+ 
+ --001a1134ad06998ff404f002af7e
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">Just to clarify the &quot;first half&quot;, I&#39;m thinki=
+ ng of changing things so that<div><br></div><div>=C2=A0 (a ..._1)=C2=A0</di=
+ v><div><br></div><div>turns into</div><div><br></div><div>=C2=A0 (list (rep=
+ eat (name a (nt a)) ..._1 #f))</div>
+ <div><br></div><div>instead of the two #fs, like it currently does.</div><d=
+ iv><br></div><div>Robby</div><div><br></div><div><br></div></div><div class=
+ =3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Wed, Jan 15, 2014 at=
+  7:45 AM, Robby Findler <span dir=3D"ltr">&lt;<a href=3D"mailto:robby@eecs.=
+ northwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt;</sp=
+ an> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Yes, that&#39;s the code fo=
+ r the second half of the issue. The first half is that the ellipsis in the =
+ repeat loses its name in the &quot;side-conditions-rewrite&quot; part of th=
+ e result, which is the part that I worry about changing for the enumerator =
+ and the unifier.<div>
+ 
+ <br></div><div>For the second half, I&#39;m more optimistic that we can unc=
+ over the problems since that tends to flow into places that just find varia=
+ bles for the user code of Redex.</div><span class=3D"HOEnZb"><font color=3D=
+ "#888888"><div>
+ <br></div><div>Robby</div><div>
+ <br></div></font></span></div><div class=3D"HOEnZb"><div class=3D"h5"><div =
+ class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Wed, Jan 15, 20=
+ 14 at 12:35 AM, Burke Fetscher <span dir=3D"ltr">&lt;<a href=3D"mailto:burk=
+ e.fetscher@eecs.northwestern.edu" target=3D"_blank">burke.fetscher@eecs.nor=
+ thwestern.edu</a>&gt;</span> wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div style=3D"word-wrap:break-word">Nevermin=
+ d, looks like I was confused. The relevant code is generate-binding-constra=
+ ints and bind-withs, correct? After looking through that, what you=E2=80=99=
+ re saying about rewrite-side-conditions makes sense. If you added a new ite=
+ m to the result list like:<div>
+ 
+ <br><div>(syncheck-exp side-conditions-rewritten (names ...) (names/ellipse=
+ s =E2=80=A6)) -&gt;</div><div>(syncheck-exp side-conditions-rewritten (name=
+ s ...) (names/ellipses =E2=80=A6) (ellipsis-names =E2=80=A6))</div><div><br=
+ ></div><div><div>That seems unlikely to break anything I=E2=80=99m familiar=
+  with. Possibly ok to add them to the names already there too, although I=
+ =E2=80=99m less sure about that.</div>
+ 
+ <span><font color=3D"#888888"><div><br></div><div>Burke</div></font></span>=
+ <div><div><div><br><div><div>On Jan 14, 2014, at 11:23 PM, Burke Fetscher &=
+ lt;<a href=3D"mailto:burke.fetscher@eecs.northwestern.edu" target=3D"_blank=
+ ">burke.fetscher@eecs.northwestern.edu</a>&gt; wrote:</div>
+ 
+ <br><blockquote type=3D"cite"><div style=3D"word-wrap:break-word">Wait, is =
+ this actually broken? Don&#39;t these matches work (afte expansion) like th=
+ e following examples:<div><br></div><div><div>&gt; (redex-let L ([((n_0 ...=
+ _a) e) (term ((0 1) (0 1 2)))])</div>
+ 
+ <div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</div><div>=
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term (n_1 ...))))</div><div>&#39;(0 1 2=
+ )</div><div>&gt; (redex-let L ([number_1 5])</div><div>=C2=A0 =C2=A0 =C2=A0=
+ (redex-let L ([number_1 6])</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(te=
+ rm number_1)))</div>
+ 
+ <div>6</div><div>&gt; (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))=
+ ])</div><div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</di=
+ v><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term ((n_0 n_1) ...))))</div><di=
+ v>. syntax: incompatible ellipsis match counts for template in: ...</div>
+ 
+ <div>&gt;=C2=A0</div><div><br></div><div>Doesn=E2=80=99t (and shouldn=E2=80=
+ =99t) =E2=80=A6_a just get shadowed in the same way that number_1 does?</di=
+ v><div><br></div><div>Or maybe I am confused... In any case, it definitely =
+ won=E2=80=99t break the unifier since it just blows up whenever it sees an =
+ ellipsis already.</div>
+ 
+ <div><br></div><div>Burke</div></div><div><br></div><div><div>On Jan 14, 20=
+ 14, at 10:29 PM, Robby Findler &lt;<a href=3D"mailto:robby@eecs.northwester=
+ n.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt; wrote:</div><b=
+ r>
+ 
+ <blockquote type=3D"cite"><div dir=3D"ltr">Well, it turns out that more tha=
+ n the change below, rewrite-side-conditions/check-errs&#39;s other results =
+ (the list of available vars) also has to change to fix this bug. I&#39;ve p=
+ repared a commit that does that, but I&#39;ll wait a little bit before push=
+ ing, just to think about it for a while.=C2=A0<div>
+ 
+ 
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby Fin=
+ dler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">r=
+ obby@eecs.northwestern.edu</a>&gt; wrote:<br>&gt;<br>&gt; I (finally) figur=
+ ed out what happened here: the problem is that the _a in the ellipsis is el=
+ iminated by rewrite-side-conditions/check-errs because it is given only the=
+  pattern ((n_0 ..._a) e) and does not see that the _a is going to be import=
+ ant in a subsequent pattern match.<br>
+ 
+ 
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will have t=
+ o preserve the names on the ellipses in all cases (unless they weren&#39;t =
+ present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do you expect=
+  that to break the unifier or the enumerator?<br>
+ 
+ 
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On Tue, =
+ Jan 14, 2014 at 6:56 PM, &lt;<a href=3D"mailto:ezyang@cs.stanford.edu" targ=
+ et=3D"_blank">ezyang@cs.stanford.edu</a>&gt; wrote:<br>&gt;&gt;<br>&gt;&gt;=
+  A new problem report is waiting at<br>
+ 
+ 
+ &gt;&gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&am=
+ p;pr=3D14291" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dvi=
+ ew&amp;pr=3D14291</a><br>&gt;&gt;<br>&gt;&gt; Reported by Edward Z. Yang fo=
+ r release: 5.3.4<br>
+ 
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the manual:<br>&gt;&gt;<=
+ br>&gt;&gt; &quot;If the ellipses is named (ie, has an underscore and a nam=
+ e following it, like a variable may), the pattern matcher records the lengt=
+ h of the list and ensures that any other occurrences of the same named elli=
+ pses must have the same length.&quot;<br>
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define &#39;where&#39; e=
+ xtras which define extra named matches to be used in the conclusion, as sta=
+ ted here:<br>&gt;&gt;<br>&gt;&gt; &quot;Each where clause acts as a side co=
+ ndition requiring a successful pattern match, and it can bind pattern varia=
+ bles in the side-conditions (and where clauses) that follow and in the meta=
+ function result.&quot;<br>
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses would =
+ also carry-over into the metafunction result. However, as the program below=
+  shows, this is not the case: ellipsis names have no effect. It would be ni=
+ ce if they did carry over.<br>
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang racket<br>&gt;&gt=
+ ; (require redex)<br>&gt;&gt;<br>&gt;&gt; (define-language L (n number) (e =
+ n (e ...)))<br>&gt;&gt; (define red<br>&gt;&gt; =C2=A0 (reduction-relation<=
+ br>
+ 
+ 
+ &gt;&gt; =C2=A0 =C2=A0L #:domain e<br>&gt;&gt; =C2=A0 =C2=A0(--&gt; ((n_0 .=
+ .._a) e)<br>&gt;&gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((n_0 n_1) ...)<br>&gt;&gt=
+ ; =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where (n_1 ..._a) e))<br>&gt;&gt; =C2=A0 =C2=
+ =A0))<br>&gt;&gt; (traces red (term ((0 1) (0 1 2))))<br>&gt;&gt;<br>
+ 
+ 
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix &quot;Linux sabre 3.11.0-14-gene=
+ ric #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Li=
+ nux&quot; (x86_64-linux/3m) (get-display-depth) =3D 32<br>&gt;&gt; Human La=
+ nguage: english<br>
+ 
+ 
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D (); =
+ (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? #f #:r=
+ oot? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; Installation-wide:=
+ <br>
+ 
+ 
+ &gt;&gt; =C2=A0[none]<br>&gt;&gt; User-specific, all-version:<br>&gt;&gt; =
+ =C2=A0[none]<br>&gt;&gt; User-specific, version-specific (5.3.4):<br>&gt;&g=
+ t; =C2=A0[none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; Collections=
+ :<br>&gt;&gt; (&quot;/home/ezyang/.racket/5.3.4/collects&quot;<br>
+ 
+ 
+ &gt;&gt; =C2=A0(non-existent-path))<br>&gt;&gt; (&quot;/usr/share/racket/co=
+ llects&quot;<br>&gt;&gt; =C2=A0(&quot;r6rs&quot; &quot;srfi&quot; &quot;mat=
+ h&quot; &quot;mzscheme&quot; &quot;scheme&quot; &quot;typed-racket&quot; &q=
+ uot;help&quot; &quot;drracket&quot; &quot;browser&quot; &quot;string-consta=
+ nts&quot; &quot;dynext&quot; &quot;preprocessor&quot; &quot;framework&quot;=
+  &quot;schemeunit&quot; &quot;future-visualizer&quot; &quot;texpict&quot; &=
+ quot;eopl&quot; &quot;gui-debugger&quot; &quot;games&quot; &quot;file&quot;=
+  &quot;reader&quot; &quot;deinprogramm&quot; &quot;launcher&quot; &quot;laz=
+ y&quot; &quot;graphics&quot; &quot;syntax&quot; &quot;r5rs&quot; &quot;step=
+ per&quot; &quot;scriblib&quot; &quot;test-engine&quot; &quot;slideshow&quot=
+ ; &quot;syntax-color&quot; &quot;net&quot; &quot;profile&quot; &quot;rackun=
+ it&quot; &quot;unstable&quot; &quot;plot&quot; &quot;data&quot; &quot;pictu=
+ ring-programs&quot; &quot;make&quot; &quot;scribble&quot; &quot;2htdp&quot;=
+  &quot;frtime&quot; &quot;typed&quot; &quot;algol60&quot; &quot;openssl&quo=
+ t; &quot;lang&quot; &quot;xml&quot; &quot;readline&quot; &quot;htdp&quot; &=
+ quot;hierlist&quot; &quot;mrlib&quot; &quot;mzcom&quot; &quot;pkg&quot; &qu=
+ ot;at-exp&quot; &quot;plai&quot; &quot;ffi&quot; &quot;teachpack&quot; &quo=
+ t;mzlib&quot; &quot;redex&quot; &quot;sgl&quot; &quot;defaults&quot; &quot;=
+ images&quot; &quot;db&quot; &quot;planet&quot; &quot;datalog&quot; &quot;we=
+ b-server&quot; &quot;scribblings&quot; &quot;version&quot; &quot;s-exp&quot=
+ ; &quot;macro-debugger&quot; &quot;compatibility&quot; &quot;icons&quot; &q=
+ uot;wxme&quot; &quot;html&quot; &quot;mysterx&quot; &quot;info-domain&quot;=
+  &quot;trace&quot; &quot;json&quot; &quot;compiler&quot; &quot;slatex&quot;=
+  &quot;racket&quot; &quot;xrepl&quot; &quot;rnrs&quot; &quot;embedded-gui&q=
+ uot; &quot;swindle&quot; &quot;drscheme&quot; &quot;parser-tools&quot; &quo=
+ t;typed-scheme&quot; &quot;mred&quot; &quot;racklog&quot; &quot;config&quot=
+ ; &quot;raco&quot; &quot;setup&quot; &quot;errortrace&quot;))<br>
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; Computer Language: ((&quot;Determine language from sou=
+ rce&quot;) (#(#t print mixed-fraction-e #f #t debug) (default) #() &quot;#l=
+ ang racket\n&quot; #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ 
+ 
+ </div></div>
+ </blockquote></div><br></div></blockquote></div><br></div></div></div></div=
+ ></div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a1134ad06998ff404f002af7e--
+Responsible changed from "nobody" to "robby" by robby@racket-lang.org at Wed, 15 Jan 2014 14:50:31 -0500
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/b5cfb7affe
+State changed from "open" to "closed" by robby@racket-lang.org at Wed, 15 Jan 2014 14:50:31 -0500
+Reason>>> A commit by robby@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/b5cfb7affe
+  | Adjust rewrite-side-conditions/check-errs so that it
+  | returns the ellipses names in addition to the regular names
+  | 
+  | keeping the names in the pattern and including them in the last
+  | two results
+  | 
+  | closes PR 14291
+
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Burke Fetscher <burke.fetscher@eecs.northwestern.edu>
+Cc: Edward Yang <ezyang@cs.stanford.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>,
+        Max New <maxnew2013@u.northwestern.edu>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Wed, 15 Jan 2014 13:54:34 -0600
+
+ --047d7b471e5c90fa0e04f007adca
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ And I realize that there is no way that this will break the unifier because
+ it doesn't handle ellipses yet.
+ 
+ Max: no test cases fail, but that may well be because you were counting on
+ an invariant of rewrite-side-conditions, so there may be a way to break the
+ enumerator now, as it will be given patterns with named ellipses when there
+ is only a single use of a given name.
+ 
+ Robby
+ 
+ 
+ On Wed, Jan 15, 2014 at 7:57 AM, Robby Findler
+ <robby@eecs.northwestern.edu>wrote:
+ 
+ > Just to clarify the "first half", I'm thinking of changing things so that
+ >
+ >   (a ..._1)
+ >
+ > turns into
+ >
+ >   (list (repeat (name a (nt a)) ..._1 #f))
+ >
+ > instead of the two #fs, like it currently does.
+ >
+ > Robby
+ >
+ >
+ >
+ >
+ > On Wed, Jan 15, 2014 at 7:45 AM, Robby Findler <
+ > robby@eecs.northwestern.edu> wrote:
+ >
+ >> Yes, that's the code for the second half of the issue. The first half is
+ >> that the ellipsis in the repeat loses its name in the
+ >> "side-conditions-rewrite" part of the result, which is the part that I
+ >> worry about changing for the enumerator and the unifier.
+ >>
+ >> For the second half, I'm more optimistic that we can uncover the problem=
+ s
+ >> since that tends to flow into places that just find variables for the us=
+ er
+ >> code of Redex.
+ >>
+ >> Robby
+ >>
+ >>
+ >>
+ >> On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher <
+ >> burke.fetscher@eecs.northwestern.edu> wrote:
+ >>
+ >>> Nevermind, looks like I was confused. The relevant code is
+ >>> generate-binding-constraints and bind-withs, correct? After looking thr=
+ ough
+ >>> that, what you=E2=80=99re saying about rewrite-side-conditions makes se=
+ nse. If you
+ >>> added a new item to the result list like:
+ >>>
+ >>> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =E2=
+ =80=A6))
+ >>> ->
+ >>> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =E2=
+ =80=A6)
+ >>> (ellipsis-names =E2=80=A6))
+ >>>
+ >>> That seems unlikely to break anything I=E2=80=99m familiar with. Possib=
+ ly ok to
+ >>> add them to the names already there too, although I=E2=80=99m less sure=
+  about that.
+ >>>
+ >>> Burke
+ >>>
+ >>> On Jan 14, 2014, at 11:23 PM, Burke Fetscher <
+ >>> burke.fetscher@eecs.northwestern.edu> wrote:
+ >>>
+ >>> Wait, is this actually broken? Don't these matches work (afte expansion=
+ )
+ >>> like the following examples:
+ >>>
+ >>> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>>           (term (n_1 ...))))
+ >>> '(0 1 2)
+ >>> > (redex-let L ([number_1 5])
+ >>>      (redex-let L ([number_1 6])
+ >>>          (term number_1)))
+ >>> 6
+ >>> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>>           (term ((n_0 n_1) ...))))
+ >>> . syntax: incompatible ellipsis match counts for template in: ...
+ >>> >
+ >>>
+ >>> Doesn=E2=80=99t (and shouldn=E2=80=99t) =E2=80=A6_a just get shadowed i=
+ n the same way that
+ >>> number_1 does?
+ >>>
+ >>> Or maybe I am confused... In any case, it definitely won=E2=80=99t brea=
+ k the
+ >>> unifier since it just blows up whenever it sees an ellipsis already.
+ >>>
+ >>> Burke
+ >>>
+ >>> On Jan 14, 2014, at 10:29 PM, Robby Findler <robby@eecs.northwestern.ed=
+ u>
+ >>> wrote:
+ >>>
+ >>> Well, it turns out that more than the change below,
+ >>> rewrite-side-conditions/check-errs's other results (the list of availab=
+ le
+ >>> vars) also has to change to fix this bug. I've prepared a commit that d=
+ oes
+ >>> that, but I'll wait a little bit before pushing, just to think about it=
+  for
+ >>> a while.
+ >>>
+ >>> Robby
+ >>>
+ >>> On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler <
+ >>> robby@eecs.northwestern.edu> wrote:
+ >>> >
+ >>> > I (finally) figured out what happened here: the problem is that the _=
+ a
+ >>> in the ellipsis is eliminated by rewrite-side-conditions/check-errs bec=
+ ause
+ >>> it is given only the pattern ((n_0 ..._a) e) and does not see that the =
+ _a
+ >>> is going to be important in a subsequent pattern match.
+ >>> >
+ >>> > So I think that rewrite-side-conditions/check-errs will have to
+ >>> preserve the names on the ellipses in all cases (unless they weren't
+ >>> present in the input, I suppose).
+ >>> >
+ >>> > Burke, Max: do you expect that to break the unifier or the enumerator=
+ ?
+ >>> >
+ >>> > Robby
+ >>> >
+ >>> >
+ >>> >
+ >>> >
+ >>> >
+ >>> > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ >>> >>
+ >>> >> A new problem report is waiting at
+ >>> >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D14291
+ >>> >>
+ >>> >> Reported by Edward Z. Yang for release: 5.3.4
+ >>> >>
+ >>> >> *** Description:
+ >>> >> According to the manual:
+ >>> >>
+ >>> >> "If the ellipses is named (ie, has an underscore and a name followin=
+ g
+ >>> it, like a variable may), the pattern matcher records the length of the
+ >>> list and ensures that any other occurrences of the same named ellipses =
+ must
+ >>> have the same length."
+ >>> >>
+ >>> >> In reduction-relation, we can define 'where' extras which define
+ >>> extra named matches to be used in the conclusion, as stated here:
+ >>> >>
+ >>> >> "Each where clause acts as a side condition requiring a successful
+ >>> pattern match, and it can bind pattern variables in the side-conditions
+ >>> (and where clauses) that follow and in the metafunction result."
+ >>> >>
+ >>> >> One might reasonably expect that named ellipses would also carry-ove=
+ r
+ >>> into the metafunction result. However, as the program below shows, this=
+  is
+ >>> not the case: ellipsis names have no effect. It would be nice if they d=
+ id
+ >>> carry over.
+ >>> >>
+ >>> >> *** How to repeat:
+ >>> >> #lang racket
+ >>> >> (require redex)
+ >>> >>
+ >>> >> (define-language L (n number) (e n (e ...)))
+ >>> >> (define red
+ >>> >>   (reduction-relation
+ >>> >>    L #:domain e
+ >>> >>    (--> ((n_0 ..._a) e)
+ >>> >>         ((n_0 n_1) ...)
+ >>> >>         (where (n_1 ..._a) e))
+ >>> >>    ))
+ >>> >> (traces red (term ((0 1) (0 1 2))))
+ >>> >>
+ >>> >> *** Environment:
+ >>> >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12
+ >>> 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >>> (get-display-depth) =3D 32
+ >>> >> Human Language: english
+ >>> >> (current-memory-use) 475350712
+ >>> >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t)=
+  =3D
+ >>> (); (links #:user? #f #:root? #t) =3D ()
+ >>> >> raco pkg (show):
+ >>> >> Installation-wide:
+ >>> >>  [none]
+ >>> >> User-specific, all-version:
+ >>> >>  [none]
+ >>> >> User-specific, version-specific (5.3.4):
+ >>> >>  [none]
+ >>> >>
+ >>> >>
+ >>> >>
+ >>> >> Collections:
+ >>> >> ("/home/ezyang/.racket/5.3.4/collects"
+ >>> >>  (non-existent-path))
+ >>> >> ("/usr/share/racket/collects"
+ >>> >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help"
+ >>> "drracket" "browser" "string-constants" "dynext" "preprocessor" "framew=
+ ork"
+ >>> "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "games=
+ "
+ >>> "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "r=
+ 5rs"
+ >>> "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net"
+ >>> "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "mak=
+ e"
+ >>> "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml"
+ >>> "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "ffi=
+ "
+ >>> "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet"
+ >>> "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugger"
+ >>> "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace"
+ >>> "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "swin=
+ dle"
+ >>> "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "rac=
+ o"
+ >>> "setup" "errortrace"))
+ >>> >>
+ >>> >> Computer Language: (("Determine language from source") (#(#t print
+ >>> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((ma=
+ in)
+ >>> (test))))
+ >>> >>
+ >>> >
+ >>>
+ >>>
+ >>>
+ >>>
+ >>
+ >
+ 
+ --047d7b471e5c90fa0e04f007adca
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">And I realize that there is no way that this will break th=
+ e unifier because it doesn&#39;t handle ellipses yet.<div><br></div><div>Ma=
+ x: no test cases fail, but that may well be because you were counting on an=
+  invariant of rewrite-side-conditions, so there may be a way to break the e=
+ numerator now, as it will be given patterns with named ellipses when there =
+ is only a single use of a given name.</div>
+ <div><br></div><div>Robby</div></div><div class=3D"gmail_extra"><br><br><di=
+ v class=3D"gmail_quote">On Wed, Jan 15, 2014 at 7:57 AM, Robby Findler <spa=
+ n dir=3D"ltr">&lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"=
+ _blank">robby@eecs.northwestern.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Just to clarify the &quot;f=
+ irst half&quot;, I&#39;m thinking of changing things so that<div><br></div>=
+ <div>
+ =C2=A0 (a ..._1)=C2=A0</div><div><br></div><div>turns into</div><div><br></=
+ div><div>=C2=A0 (list (repeat (name a (nt a)) ..._1 #f))</div>
+ <div><br></div><div>instead of the two #fs, like it currently does.</div><s=
+ pan class=3D"HOEnZb"><font color=3D"#888888"><div><br></div><div>Robby</div=
+ ><div><br></div><div><br></div></font></span></div><div class=3D"HOEnZb"><d=
+ iv class=3D"h5">
+ <div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Wed, Jan 1=
+ 5, 2014 at 7:45 AM, Robby Findler <span dir=3D"ltr">&lt;<a href=3D"mailto:r=
+ obby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu</=
+ a>&gt;</span> wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Yes, that&#39;s the code fo=
+ r the second half of the issue. The first half is that the ellipsis in the =
+ repeat loses its name in the &quot;side-conditions-rewrite&quot; part of th=
+ e result, which is the part that I worry about changing for the enumerator =
+ and the unifier.<div>
+ 
+ 
+ <br></div><div>For the second half, I&#39;m more optimistic that we can unc=
+ over the problems since that tends to flow into places that just find varia=
+ bles for the user code of Redex.</div><span><font color=3D"#888888"><div>
+ 
+ <br></div><div>Robby</div><div>
+ <br></div></font></span></div><div><div><div class=3D"gmail_extra"><br><br>=
+ <div class=3D"gmail_quote">On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher=
+  <span dir=3D"ltr">&lt;<a href=3D"mailto:burke.fetscher@eecs.northwestern.e=
+ du" target=3D"_blank">burke.fetscher@eecs.northwestern.edu</a>&gt;</span> w=
+ rote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div style=3D"word-wrap:break-word">Nevermin=
+ d, looks like I was confused. The relevant code is generate-binding-constra=
+ ints and bind-withs, correct? After looking through that, what you=E2=80=99=
+ re saying about rewrite-side-conditions makes sense. If you added a new ite=
+ m to the result list like:<div>
+ 
+ 
+ <br><div>(syncheck-exp side-conditions-rewritten (names ...) (names/ellipse=
+ s =E2=80=A6)) -&gt;</div><div>(syncheck-exp side-conditions-rewritten (name=
+ s ...) (names/ellipses =E2=80=A6) (ellipsis-names =E2=80=A6))</div><div><br=
+ ></div><div><div>That seems unlikely to break anything I=E2=80=99m familiar=
+  with. Possibly ok to add them to the names already there too, although I=
+ =E2=80=99m less sure about that.</div>
+ 
+ 
+ <span><font color=3D"#888888"><div><br></div><div>Burke</div></font></span>=
+ <div><div><div><br><div><div>On Jan 14, 2014, at 11:23 PM, Burke Fetscher &=
+ lt;<a href=3D"mailto:burke.fetscher@eecs.northwestern.edu" target=3D"_blank=
+ ">burke.fetscher@eecs.northwestern.edu</a>&gt; wrote:</div>
+ 
+ 
+ <br><blockquote type=3D"cite"><div style=3D"word-wrap:break-word">Wait, is =
+ this actually broken? Don&#39;t these matches work (afte expansion) like th=
+ e following examples:<div><br></div><div><div>&gt; (redex-let L ([((n_0 ...=
+ _a) e) (term ((0 1) (0 1 2)))])</div>
+ 
+ 
+ <div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</div><div>=
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term (n_1 ...))))</div><div>&#39;(0 1 2=
+ )</div><div>&gt; (redex-let L ([number_1 5])</div><div>=C2=A0 =C2=A0 =C2=A0=
+ (redex-let L ([number_1 6])</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(te=
+ rm number_1)))</div>
+ 
+ 
+ <div>6</div><div>&gt; (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))=
+ ])</div><div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</di=
+ v><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term ((n_0 n_1) ...))))</div><di=
+ v>. syntax: incompatible ellipsis match counts for template in: ...</div>
+ 
+ 
+ <div>&gt;=C2=A0</div><div><br></div><div>Doesn=E2=80=99t (and shouldn=E2=80=
+ =99t) =E2=80=A6_a just get shadowed in the same way that number_1 does?</di=
+ v><div><br></div><div>Or maybe I am confused... In any case, it definitely =
+ won=E2=80=99t break the unifier since it just blows up whenever it sees an =
+ ellipsis already.</div>
+ 
+ 
+ <div><br></div><div>Burke</div></div><div><br></div><div><div>On Jan 14, 20=
+ 14, at 10:29 PM, Robby Findler &lt;<a href=3D"mailto:robby@eecs.northwester=
+ n.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt; wrote:</div><b=
+ r>
+ 
+ 
+ <blockquote type=3D"cite"><div dir=3D"ltr">Well, it turns out that more tha=
+ n the change below, rewrite-side-conditions/check-errs&#39;s other results =
+ (the list of available vars) also has to change to fix this bug. I&#39;ve p=
+ repared a commit that does that, but I&#39;ll wait a little bit before push=
+ ing, just to think about it for a while.=C2=A0<div>
+ 
+ 
+ 
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby Fin=
+ dler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">r=
+ obby@eecs.northwestern.edu</a>&gt; wrote:<br>&gt;<br>&gt; I (finally) figur=
+ ed out what happened here: the problem is that the _a in the ellipsis is el=
+ iminated by rewrite-side-conditions/check-errs because it is given only the=
+  pattern ((n_0 ..._a) e) and does not see that the _a is going to be import=
+ ant in a subsequent pattern match.<br>
+ 
+ 
+ 
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will have t=
+ o preserve the names on the ellipses in all cases (unless they weren&#39;t =
+ present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do you expect=
+  that to break the unifier or the enumerator?<br>
+ 
+ 
+ 
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On Tue, =
+ Jan 14, 2014 at 6:56 PM, &lt;<a href=3D"mailto:ezyang@cs.stanford.edu" targ=
+ et=3D"_blank">ezyang@cs.stanford.edu</a>&gt; wrote:<br>&gt;&gt;<br>&gt;&gt;=
+  A new problem report is waiting at<br>
+ 
+ 
+ 
+ &gt;&gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&am=
+ p;pr=3D14291" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dvi=
+ ew&amp;pr=3D14291</a><br>&gt;&gt;<br>&gt;&gt; Reported by Edward Z. Yang fo=
+ r release: 5.3.4<br>
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the manual:<br>&gt;&gt;<=
+ br>&gt;&gt; &quot;If the ellipses is named (ie, has an underscore and a nam=
+ e following it, like a variable may), the pattern matcher records the lengt=
+ h of the list and ensures that any other occurrences of the same named elli=
+ pses must have the same length.&quot;<br>
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define &#39;where&#39; e=
+ xtras which define extra named matches to be used in the conclusion, as sta=
+ ted here:<br>&gt;&gt;<br>&gt;&gt; &quot;Each where clause acts as a side co=
+ ndition requiring a successful pattern match, and it can bind pattern varia=
+ bles in the side-conditions (and where clauses) that follow and in the meta=
+ function result.&quot;<br>
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses would =
+ also carry-over into the metafunction result. However, as the program below=
+  shows, this is not the case: ellipsis names have no effect. It would be ni=
+ ce if they did carry over.<br>
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang racket<br>&gt;&gt=
+ ; (require redex)<br>&gt;&gt;<br>&gt;&gt; (define-language L (n number) (e =
+ n (e ...)))<br>&gt;&gt; (define red<br>&gt;&gt; =C2=A0 (reduction-relation<=
+ br>
+ 
+ 
+ 
+ &gt;&gt; =C2=A0 =C2=A0L #:domain e<br>&gt;&gt; =C2=A0 =C2=A0(--&gt; ((n_0 .=
+ .._a) e)<br>&gt;&gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((n_0 n_1) ...)<br>&gt;&gt=
+ ; =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where (n_1 ..._a) e))<br>&gt;&gt; =C2=A0 =C2=
+ =A0))<br>&gt;&gt; (traces red (term ((0 1) (0 1 2))))<br>&gt;&gt;<br>
+ 
+ 
+ 
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix &quot;Linux sabre 3.11.0-14-gene=
+ ric #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Li=
+ nux&quot; (x86_64-linux/3m) (get-display-depth) =3D 32<br>&gt;&gt; Human La=
+ nguage: english<br>
+ 
+ 
+ 
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D (); =
+ (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? #f #:r=
+ oot? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; Installation-wide:=
+ <br>
+ 
+ 
+ 
+ &gt;&gt; =C2=A0[none]<br>&gt;&gt; User-specific, all-version:<br>&gt;&gt; =
+ =C2=A0[none]<br>&gt;&gt; User-specific, version-specific (5.3.4):<br>&gt;&g=
+ t; =C2=A0[none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; Collections=
+ :<br>&gt;&gt; (&quot;/home/ezyang/.racket/5.3.4/collects&quot;<br>
+ 
+ 
+ 
+ &gt;&gt; =C2=A0(non-existent-path))<br>&gt;&gt; (&quot;/usr/share/racket/co=
+ llects&quot;<br>&gt;&gt; =C2=A0(&quot;r6rs&quot; &quot;srfi&quot; &quot;mat=
+ h&quot; &quot;mzscheme&quot; &quot;scheme&quot; &quot;typed-racket&quot; &q=
+ uot;help&quot; &quot;drracket&quot; &quot;browser&quot; &quot;string-consta=
+ nts&quot; &quot;dynext&quot; &quot;preprocessor&quot; &quot;framework&quot;=
+  &quot;schemeunit&quot; &quot;future-visualizer&quot; &quot;texpict&quot; &=
+ quot;eopl&quot; &quot;gui-debugger&quot; &quot;games&quot; &quot;file&quot;=
+  &quot;reader&quot; &quot;deinprogramm&quot; &quot;launcher&quot; &quot;laz=
+ y&quot; &quot;graphics&quot; &quot;syntax&quot; &quot;r5rs&quot; &quot;step=
+ per&quot; &quot;scriblib&quot; &quot;test-engine&quot; &quot;slideshow&quot=
+ ; &quot;syntax-color&quot; &quot;net&quot; &quot;profile&quot; &quot;rackun=
+ it&quot; &quot;unstable&quot; &quot;plot&quot; &quot;data&quot; &quot;pictu=
+ ring-programs&quot; &quot;make&quot; &quot;scribble&quot; &quot;2htdp&quot;=
+  &quot;frtime&quot; &quot;typed&quot; &quot;algol60&quot; &quot;openssl&quo=
+ t; &quot;lang&quot; &quot;xml&quot; &quot;readline&quot; &quot;htdp&quot; &=
+ quot;hierlist&quot; &quot;mrlib&quot; &quot;mzcom&quot; &quot;pkg&quot; &qu=
+ ot;at-exp&quot; &quot;plai&quot; &quot;ffi&quot; &quot;teachpack&quot; &quo=
+ t;mzlib&quot; &quot;redex&quot; &quot;sgl&quot; &quot;defaults&quot; &quot;=
+ images&quot; &quot;db&quot; &quot;planet&quot; &quot;datalog&quot; &quot;we=
+ b-server&quot; &quot;scribblings&quot; &quot;version&quot; &quot;s-exp&quot=
+ ; &quot;macro-debugger&quot; &quot;compatibility&quot; &quot;icons&quot; &q=
+ uot;wxme&quot; &quot;html&quot; &quot;mysterx&quot; &quot;info-domain&quot;=
+  &quot;trace&quot; &quot;json&quot; &quot;compiler&quot; &quot;slatex&quot;=
+  &quot;racket&quot; &quot;xrepl&quot; &quot;rnrs&quot; &quot;embedded-gui&q=
+ uot; &quot;swindle&quot; &quot;drscheme&quot; &quot;parser-tools&quot; &quo=
+ t;typed-scheme&quot; &quot;mred&quot; &quot;racklog&quot; &quot;config&quot=
+ ; &quot;raco&quot; &quot;setup&quot; &quot;errortrace&quot;))<br>
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; Computer Language: ((&quot;Determine language from sou=
+ rce&quot;) (#(#t print mixed-fraction-e #f #t debug) (default) #() &quot;#l=
+ ang racket\n&quot; #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ 
+ 
+ 
+ </div></div>
+ </blockquote></div><br></div></blockquote></div><br></div></div></div></div=
+ ></div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --047d7b471e5c90fa0e04f007adca--
+From: Max New <maxnew2013@u.northwestern.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Burke Fetscher <burke.fetscher@eecs.northwestern.edu>,
+        Edward Yang <ezyang@cs.stanford.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Thu, 16 Jan 2014 08:50:31 -0600
+
+ --001a11c2205c0aec4e04f0178c05
+ Content-Type: text/plain; charset=windows-1252
+ Content-Transfer-Encoding: quoted-printable
+ 
+ The only effect of this will be to have more named patterns preserved
+ right? That shouldn't affect the enumerator at all.
+ 
+ 
+ On Wed, Jan 15, 2014 at 1:54 PM, Robby Findler
+ <robby@eecs.northwestern.edu>wrote:
+ 
+ > And I realize that there is no way that this will break the unifier
+ > because it doesn't handle ellipses yet.
+ >
+ > Max: no test cases fail, but that may well be because you were counting o=
+ n
+ > an invariant of rewrite-side-conditions, so there may be a way to break t=
+ he
+ > enumerator now, as it will be given patterns with named ellipses when the=
+ re
+ > is only a single use of a given name.
+ >
+ > Robby
+ >
+ >
+ > On Wed, Jan 15, 2014 at 7:57 AM, Robby Findler <
+ > robby@eecs.northwestern.edu> wrote:
+ >
+ >> Just to clarify the "first half", I'm thinking of changing things so tha=
+ t
+ >>
+ >>   (a ..._1)
+ >>
+ >> turns into
+ >>
+ >>   (list (repeat (name a (nt a)) ..._1 #f))
+ >>
+ >> instead of the two #fs, like it currently does.
+ >>
+ >> Robby
+ >>
+ >>
+ >>
+ >>
+ >> On Wed, Jan 15, 2014 at 7:45 AM, Robby Findler <
+ >> robby@eecs.northwestern.edu> wrote:
+ >>
+ >>> Yes, that's the code for the second half of the issue. The first half i=
+ s
+ >>> that the ellipsis in the repeat loses its name in the
+ >>> "side-conditions-rewrite" part of the result, which is the part that I
+ >>> worry about changing for the enumerator and the unifier.
+ >>>
+ >>> For the second half, I'm more optimistic that we can uncover the
+ >>> problems since that tends to flow into places that just find variables =
+ for
+ >>> the user code of Redex.
+ >>>
+ >>> Robby
+ >>>
+ >>>
+ >>>
+ >>> On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher <
+ >>> burke.fetscher@eecs.northwestern.edu> wrote:
+ >>>
+ >>>> Nevermind, looks like I was confused. The relevant code is
+ >>>> generate-binding-constraints and bind-withs, correct? After looking th=
+ rough
+ >>>> that, what you=92re saying about rewrite-side-conditions makes sense. =
+ If you
+ >>>> added a new item to the result list like:
+ >>>>
+ >>>> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =
+ =85))
+ >>>> ->
+ >>>> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =
+ =85)
+ >>>> (ellipsis-names =85))
+ >>>>
+ >>>> That seems unlikely to break anything I=92m familiar with. Possibly ok=
+  to
+ >>>> add them to the names already there too, although I=92m less sure abou=
+ t that.
+ >>>>
+ >>>> Burke
+ >>>>
+ >>>> On Jan 14, 2014, at 11:23 PM, Burke Fetscher <
+ >>>> burke.fetscher@eecs.northwestern.edu> wrote:
+ >>>>
+ >>>> Wait, is this actually broken? Don't these matches work (afte
+ >>>> expansion) like the following examples:
+ >>>>
+ >>>> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>>>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>>>           (term (n_1 ...))))
+ >>>> '(0 1 2)
+ >>>> > (redex-let L ([number_1 5])
+ >>>>      (redex-let L ([number_1 6])
+ >>>>          (term number_1)))
+ >>>> 6
+ >>>> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>>>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>>>           (term ((n_0 n_1) ...))))
+ >>>> . syntax: incompatible ellipsis match counts for template in: ...
+ >>>> >
+ >>>>
+ >>>> Doesn=92t (and shouldn=92t) =85_a just get shadowed in the same way th=
+ at
+ >>>> number_1 does?
+ >>>>
+ >>>> Or maybe I am confused... In any case, it definitely won=92t break the
+ >>>> unifier since it just blows up whenever it sees an ellipsis already.
+ >>>>
+ >>>> Burke
+ >>>>
+ >>>> On Jan 14, 2014, at 10:29 PM, Robby Findler <
+ >>>> robby@eecs.northwestern.edu> wrote:
+ >>>>
+ >>>> Well, it turns out that more than the change below,
+ >>>> rewrite-side-conditions/check-errs's other results (the list of availa=
+ ble
+ >>>> vars) also has to change to fix this bug. I've prepared a commit that =
+ does
+ >>>> that, but I'll wait a little bit before pushing, just to think about i=
+ t for
+ >>>> a while.
+ >>>>
+ >>>> Robby
+ >>>>
+ >>>> On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler <
+ >>>> robby@eecs.northwestern.edu> wrote:
+ >>>> >
+ >>>> > I (finally) figured out what happened here: the problem is that the
+ >>>> _a in the ellipsis is eliminated by rewrite-side-conditions/check-errs
+ >>>> because it is given only the pattern ((n_0 ..._a) e) and does not see =
+ that
+ >>>> the _a is going to be important in a subsequent pattern match.
+ >>>> >
+ >>>> > So I think that rewrite-side-conditions/check-errs will have to
+ >>>> preserve the names on the ellipses in all cases (unless they weren't
+ >>>> present in the input, I suppose).
+ >>>> >
+ >>>> > Burke, Max: do you expect that to break the unifier or the enumerato=
+ r?
+ >>>> >
+ >>>> > Robby
+ >>>> >
+ >>>> >
+ >>>> >
+ >>>> >
+ >>>> >
+ >>>> > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ >>>> >>
+ >>>> >> A new problem report is waiting at
+ >>>> >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D14291
+ >>>> >>
+ >>>> >> Reported by Edward Z. Yang for release: 5.3.4
+ >>>> >>
+ >>>> >> *** Description:
+ >>>> >> According to the manual:
+ >>>> >>
+ >>>> >> "If the ellipses is named (ie, has an underscore and a name
+ >>>> following it, like a variable may), the pattern matcher records the le=
+ ngth
+ >>>> of the list and ensures that any other occurrences of the same named
+ >>>> ellipses must have the same length."
+ >>>> >>
+ >>>> >> In reduction-relation, we can define 'where' extras which define
+ >>>> extra named matches to be used in the conclusion, as stated here:
+ >>>> >>
+ >>>> >> "Each where clause acts as a side condition requiring a successful
+ >>>> pattern match, and it can bind pattern variables in the side-condition=
+ s
+ >>>> (and where clauses) that follow and in the metafunction result."
+ >>>> >>
+ >>>> >> One might reasonably expect that named ellipses would also
+ >>>> carry-over into the metafunction result. However, as the program below
+ >>>> shows, this is not the case: ellipsis names have no effect. It would b=
+ e
+ >>>> nice if they did carry over.
+ >>>> >>
+ >>>> >> *** How to repeat:
+ >>>> >> #lang racket
+ >>>> >> (require redex)
+ >>>> >>
+ >>>> >> (define-language L (n number) (e n (e ...)))
+ >>>> >> (define red
+ >>>> >>   (reduction-relation
+ >>>> >>    L #:domain e
+ >>>> >>    (--> ((n_0 ..._a) e)
+ >>>> >>         ((n_0 n_1) ...)
+ >>>> >>         (where (n_1 ..._a) e))
+ >>>> >>    ))
+ >>>> >> (traces red (term ((0 1) (0 1 2))))
+ >>>> >>
+ >>>> >> *** Environment:
+ >>>> >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12
+ >>>> 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >>>> (get-display-depth) =3D 32
+ >>>> >> Human Language: english
+ >>>> >> (current-memory-use) 475350712
+ >>>> >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #t=
+ ) =3D
+ >>>> (); (links #:user? #f #:root? #t) =3D ()
+ >>>> >> raco pkg (show):
+ >>>> >> Installation-wide:
+ >>>> >>  [none]
+ >>>> >> User-specific, all-version:
+ >>>> >>  [none]
+ >>>> >> User-specific, version-specific (5.3.4):
+ >>>> >>  [none]
+ >>>> >>
+ >>>> >>
+ >>>> >>
+ >>>> >> Collections:
+ >>>> >> ("/home/ezyang/.racket/5.3.4/collects"
+ >>>> >>  (non-existent-path))
+ >>>> >> ("/usr/share/racket/collects"
+ >>>> >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help"
+ >>>> "drracket" "browser" "string-constants" "dynext" "preprocessor" "frame=
+ work"
+ >>>> "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "game=
+ s"
+ >>>> "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" "=
+ r5rs"
+ >>>> "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net"
+ >>>> "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "ma=
+ ke"
+ >>>> "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml"
+ >>>> "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "ff=
+ i"
+ >>>> "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet"
+ >>>> "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugger=
+ "
+ >>>> "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace"
+ >>>> "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "swi=
+ ndle"
+ >>>> "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "ra=
+ co"
+ >>>> "setup" "errortrace"))
+ >>>> >>
+ >>>> >> Computer Language: (("Determine language from source") (#(#t print
+ >>>> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((m=
+ ain)
+ >>>> (test))))
+ >>>> >>
+ >>>> >
+ >>>>
+ >>>>
+ >>>>
+ >>>>
+ >>>
+ >>
+ >
+ 
+ --001a11c2205c0aec4e04f0178c05
+ Content-Type: text/html; charset=windows-1252
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">The only effect of this will be to have more named pattern=
+ s preserved right? That shouldn&#39;t affect the enumerator at all.<br></di=
+ v><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Wed, Jan=
+  15, 2014 at 1:54 PM, Robby Findler <span dir=3D"ltr">&lt;<a href=3D"mailto=
+ :robby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu=
+ </a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">And I realize that there is=
+  no way that this will break the unifier because it doesn&#39;t handle elli=
+ pses yet.<div>
+ <br></div><div>Max: no test cases fail, but that may well be because you we=
+ re counting on an invariant of rewrite-side-conditions, so there may be a w=
+ ay to break the enumerator now, as it will be given patterns with named ell=
+ ipses when there is only a single use of a given name.</div>
+ <span class=3D"HOEnZb"><font color=3D"#888888">
+ <div><br></div><div>Robby</div></font></span></div><div class=3D"HOEnZb"><d=
+ iv class=3D"h5"><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quot=
+ e">On Wed, Jan 15, 2014 at 7:57 AM, Robby Findler <span dir=3D"ltr">&lt;<a =
+ href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.no=
+ rthwestern.edu</a>&gt;</span> wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Just to clarify the &quot;f=
+ irst half&quot;, I&#39;m thinking of changing things so that<div><br></div>=
+ <div>
+ 
+ =A0 (a ..._1)=A0</div><div><br></div><div>turns into</div><div><br></div><d=
+ iv>=A0 (list (repeat (name a (nt a)) ..._1 #f))</div>
+ <div><br></div><div>instead of the two #fs, like it currently does.</div><s=
+ pan><font color=3D"#888888"><div><br></div><div>Robby</div><div><br></div><=
+ div><br></div></font></span></div><div><div>
+ <div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Wed, Jan 1=
+ 5, 2014 at 7:45 AM, Robby Findler <span dir=3D"ltr">&lt;<a href=3D"mailto:r=
+ obby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu</=
+ a>&gt;</span> wrote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Yes, that&#39;s the code fo=
+ r the second half of the issue. The first half is that the ellipsis in the =
+ repeat loses its name in the &quot;side-conditions-rewrite&quot; part of th=
+ e result, which is the part that I worry about changing for the enumerator =
+ and the unifier.<div>
+ 
+ 
+ 
+ <br></div><div>For the second half, I&#39;m more optimistic that we can unc=
+ over the problems since that tends to flow into places that just find varia=
+ bles for the user code of Redex.</div><span><font color=3D"#888888"><div>
+ 
+ 
+ <br></div><div>Robby</div><div>
+ <br></div></font></span></div><div><div><div class=3D"gmail_extra"><br><br>=
+ <div class=3D"gmail_quote">On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher=
+  <span dir=3D"ltr">&lt;<a href=3D"mailto:burke.fetscher@eecs.northwestern.e=
+ du" target=3D"_blank">burke.fetscher@eecs.northwestern.edu</a>&gt;</span> w=
+ rote:<br>
+ 
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div style=3D"word-wrap:break-word">Nevermin=
+ d, looks like I was confused. The relevant code is generate-binding-constra=
+ ints and bind-withs, correct? After looking through that, what you=92re say=
+ ing about rewrite-side-conditions makes sense. If you added a new item to t=
+ he result list like:<div>
+ 
+ 
+ 
+ <br><div>(syncheck-exp side-conditions-rewritten (names ...) (names/ellipse=
+ s =85)) -&gt;</div><div>(syncheck-exp side-conditions-rewritten (names ...)=
+  (names/ellipses =85) (ellipsis-names =85))</div><div><br></div><div><div>T=
+ hat seems unlikely to break anything I=92m familiar with. Possibly ok to ad=
+ d them to the names already there too, although I=92m less sure about that.=
+ </div>
+ 
+ 
+ 
+ <span><font color=3D"#888888"><div><br></div><div>Burke</div></font></span>=
+ <div><div><div><br><div><div>On Jan 14, 2014, at 11:23 PM, Burke Fetscher &=
+ lt;<a href=3D"mailto:burke.fetscher@eecs.northwestern.edu" target=3D"_blank=
+ ">burke.fetscher@eecs.northwestern.edu</a>&gt; wrote:</div>
+ 
+ 
+ 
+ <br><blockquote type=3D"cite"><div style=3D"word-wrap:break-word">Wait, is =
+ this actually broken? Don&#39;t these matches work (afte expansion) like th=
+ e following examples:<div><br></div><div><div>&gt; (redex-let L ([((n_0 ...=
+ _a) e) (term ((0 1) (0 1 2)))])</div>
+ 
+ 
+ 
+ <div>=A0 =A0 =A0 (redex-let L ([(n_1 ..._a) (term e)])</div><div>=A0 =A0 =
+ =A0 =A0 =A0 (term (n_1 ...))))</div><div>&#39;(0 1 2)</div><div>&gt; (redex=
+ -let L ([number_1 5])</div><div>=A0 =A0 =A0(redex-let L ([number_1 6])</div=
+ ><div>=A0 =A0 =A0 =A0 =A0(term number_1)))</div>
+ 
+ 
+ 
+ <div>6</div><div>&gt; (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))=
+ ])</div><div>=A0 =A0 =A0 (redex-let L ([(n_1 ..._a) (term e)])</div><div>=
+ =A0 =A0 =A0 =A0 =A0 (term ((n_0 n_1) ...))))</div><div>. syntax: incompatib=
+ le ellipsis match counts for template in: ...</div>
+ 
+ 
+ 
+ <div>&gt;=A0</div><div><br></div><div>Doesn=92t (and shouldn=92t) =85_a jus=
+ t get shadowed in the same way that number_1 does?</div><div><br></div><div=
+ >Or maybe I am confused... In any case, it definitely won=92t break the uni=
+ fier since it just blows up whenever it sees an ellipsis already.</div>
+ 
+ 
+ 
+ <div><br></div><div>Burke</div></div><div><br></div><div><div>On Jan 14, 20=
+ 14, at 10:29 PM, Robby Findler &lt;<a href=3D"mailto:robby@eecs.northwester=
+ n.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt; wrote:</div><b=
+ r>
+ 
+ 
+ 
+ <blockquote type=3D"cite"><div dir=3D"ltr">Well, it turns out that more tha=
+ n the change below, rewrite-side-conditions/check-errs&#39;s other results =
+ (the list of available vars) also has to change to fix this bug. I&#39;ve p=
+ repared a commit that does that, but I&#39;ll wait a little bit before push=
+ ing, just to think about it for a while.=A0<div>
+ 
+ 
+ 
+ 
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby Fin=
+ dler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">r=
+ obby@eecs.northwestern.edu</a>&gt; wrote:<br>&gt;<br>&gt; I (finally) figur=
+ ed out what happened here: the problem is that the _a in the ellipsis is el=
+ iminated by rewrite-side-conditions/check-errs because it is given only the=
+  pattern ((n_0 ..._a) e) and does not see that the _a is going to be import=
+ ant in a subsequent pattern match.<br>
+ 
+ 
+ 
+ 
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will have t=
+ o preserve the names on the ellipses in all cases (unless they weren&#39;t =
+ present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do you expect=
+  that to break the unifier or the enumerator?<br>
+ 
+ 
+ 
+ 
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On Tue, =
+ Jan 14, 2014 at 6:56 PM, &lt;<a href=3D"mailto:ezyang@cs.stanford.edu" targ=
+ et=3D"_blank">ezyang@cs.stanford.edu</a>&gt; wrote:<br>&gt;&gt;<br>&gt;&gt;=
+  A new problem report is waiting at<br>
+ 
+ 
+ 
+ 
+ &gt;&gt; =A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&amp;p=
+ r=3D14291" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dview&=
+ amp;pr=3D14291</a><br>&gt;&gt;<br>&gt;&gt; Reported by Edward Z. Yang for r=
+ elease: 5.3.4<br>
+ 
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the manual:<br>&gt;&gt;<=
+ br>&gt;&gt; &quot;If the ellipses is named (ie, has an underscore and a nam=
+ e following it, like a variable may), the pattern matcher records the lengt=
+ h of the list and ensures that any other occurrences of the same named elli=
+ pses must have the same length.&quot;<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define &#39;where&#39; e=
+ xtras which define extra named matches to be used in the conclusion, as sta=
+ ted here:<br>&gt;&gt;<br>&gt;&gt; &quot;Each where clause acts as a side co=
+ ndition requiring a successful pattern match, and it can bind pattern varia=
+ bles in the side-conditions (and where clauses) that follow and in the meta=
+ function result.&quot;<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses would =
+ also carry-over into the metafunction result. However, as the program below=
+  shows, this is not the case: ellipsis names have no effect. It would be ni=
+ ce if they did carry over.<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang racket<br>&gt;&gt=
+ ; (require redex)<br>&gt;&gt;<br>&gt;&gt; (define-language L (n number) (e =
+ n (e ...)))<br>&gt;&gt; (define red<br>&gt;&gt; =A0 (reduction-relation<br>
+ 
+ 
+ 
+ 
+ &gt;&gt; =A0 =A0L #:domain e<br>&gt;&gt; =A0 =A0(--&gt; ((n_0 ..._a) e)<br>=
+ &gt;&gt; =A0 =A0 =A0 =A0 ((n_0 n_1) ...)<br>&gt;&gt; =A0 =A0 =A0 =A0 (where=
+  (n_1 ..._a) e))<br>&gt;&gt; =A0 =A0))<br>&gt;&gt; (traces red (term ((0 1)=
+  (0 1 2))))<br>&gt;&gt;<br>
+ 
+ 
+ 
+ 
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix &quot;Linux sabre 3.11.0-14-gene=
+ ric #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Li=
+ nux&quot; (x86_64-linux/3m) (get-display-depth) =3D 32<br>&gt;&gt; Human La=
+ nguage: english<br>
+ 
+ 
+ 
+ 
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D (); =
+ (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? #f #:r=
+ oot? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; Installation-wide:=
+ <br>
+ 
+ 
+ 
+ 
+ &gt;&gt; =A0[none]<br>&gt;&gt; User-specific, all-version:<br>&gt;&gt; =A0[=
+ none]<br>&gt;&gt; User-specific, version-specific (5.3.4):<br>&gt;&gt; =A0[=
+ none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; Collections:<br>&gt;&=
+ gt; (&quot;/home/ezyang/.racket/5.3.4/collects&quot;<br>
+ 
+ 
+ 
+ 
+ &gt;&gt; =A0(non-existent-path))<br>&gt;&gt; (&quot;/usr/share/racket/colle=
+ cts&quot;<br>&gt;&gt; =A0(&quot;r6rs&quot; &quot;srfi&quot; &quot;math&quot=
+ ; &quot;mzscheme&quot; &quot;scheme&quot; &quot;typed-racket&quot; &quot;he=
+ lp&quot; &quot;drracket&quot; &quot;browser&quot; &quot;string-constants&qu=
+ ot; &quot;dynext&quot; &quot;preprocessor&quot; &quot;framework&quot; &quot=
+ ;schemeunit&quot; &quot;future-visualizer&quot; &quot;texpict&quot; &quot;e=
+ opl&quot; &quot;gui-debugger&quot; &quot;games&quot; &quot;file&quot; &quot=
+ ;reader&quot; &quot;deinprogramm&quot; &quot;launcher&quot; &quot;lazy&quot=
+ ; &quot;graphics&quot; &quot;syntax&quot; &quot;r5rs&quot; &quot;stepper&qu=
+ ot; &quot;scriblib&quot; &quot;test-engine&quot; &quot;slideshow&quot; &quo=
+ t;syntax-color&quot; &quot;net&quot; &quot;profile&quot; &quot;rackunit&quo=
+ t; &quot;unstable&quot; &quot;plot&quot; &quot;data&quot; &quot;picturing-p=
+ rograms&quot; &quot;make&quot; &quot;scribble&quot; &quot;2htdp&quot; &quot=
+ ;frtime&quot; &quot;typed&quot; &quot;algol60&quot; &quot;openssl&quot; &qu=
+ ot;lang&quot; &quot;xml&quot; &quot;readline&quot; &quot;htdp&quot; &quot;h=
+ ierlist&quot; &quot;mrlib&quot; &quot;mzcom&quot; &quot;pkg&quot; &quot;at-=
+ exp&quot; &quot;plai&quot; &quot;ffi&quot; &quot;teachpack&quot; &quot;mzli=
+ b&quot; &quot;redex&quot; &quot;sgl&quot; &quot;defaults&quot; &quot;images=
+ &quot; &quot;db&quot; &quot;planet&quot; &quot;datalog&quot; &quot;web-serv=
+ er&quot; &quot;scribblings&quot; &quot;version&quot; &quot;s-exp&quot; &quo=
+ t;macro-debugger&quot; &quot;compatibility&quot; &quot;icons&quot; &quot;wx=
+ me&quot; &quot;html&quot; &quot;mysterx&quot; &quot;info-domain&quot; &quot=
+ ;trace&quot; &quot;json&quot; &quot;compiler&quot; &quot;slatex&quot; &quot=
+ ;racket&quot; &quot;xrepl&quot; &quot;rnrs&quot; &quot;embedded-gui&quot; &=
+ quot;swindle&quot; &quot;drscheme&quot; &quot;parser-tools&quot; &quot;type=
+ d-scheme&quot; &quot;mred&quot; &quot;racklog&quot; &quot;config&quot; &quo=
+ t;raco&quot; &quot;setup&quot; &quot;errortrace&quot;))<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; Computer Language: ((&quot;Determine language from sou=
+ rce&quot;) (#(#t print mixed-fraction-e #f #t debug) (default) #() &quot;#l=
+ ang racket\n&quot; #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ 
+ 
+ 
+ 
+ </div></div>
+ </blockquote></div><br></div></blockquote></div><br></div></div></div></div=
+ ></div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --001a11c2205c0aec4e04f0178c05--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Max New <maxnew2013@u.northwestern.edu>
+Cc: Burke Fetscher <burke.fetscher@eecs.northwestern.edu>,
+        Edward Yang <ezyang@cs.stanford.edu>, bugs <bugs@racket-lang.org>,
+        nobody <nobody@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14291: Redex named ellipsis should carry over
+Date: Thu, 16 Jan 2014 08:52:26 -0600
+
+ --089e0160c35ee51b6104f01792d8
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ More named ellipses preserved, right.
+ 
+ Good!
+ 
+ 
+ On Thu, Jan 16, 2014 at 8:50 AM, Max New <maxnew2013@u.northwestern.edu>wro=
+ te:
+ 
+ > The only effect of this will be to have more named patterns preserved
+ > right? That shouldn't affect the enumerator at all.
+ >
+ >
+ > On Wed, Jan 15, 2014 at 1:54 PM, Robby Findler <
+ > robby@eecs.northwestern.edu> wrote:
+ >
+ >> And I realize that there is no way that this will break the unifier
+ >> because it doesn't handle ellipses yet.
+ >>
+ >> Max: no test cases fail, but that may well be because you were counting
+ >> on an invariant of rewrite-side-conditions, so there may be a way to bre=
+ ak
+ >> the enumerator now, as it will be given patterns with named ellipses whe=
+ n
+ >> there is only a single use of a given name.
+ >>
+ >> Robby
+ >>
+ >>
+ >> On Wed, Jan 15, 2014 at 7:57 AM, Robby Findler <
+ >> robby@eecs.northwestern.edu> wrote:
+ >>
+ >>> Just to clarify the "first half", I'm thinking of changing things so th=
+ at
+ >>>
+ >>>   (a ..._1)
+ >>>
+ >>> turns into
+ >>>
+ >>>   (list (repeat (name a (nt a)) ..._1 #f))
+ >>>
+ >>> instead of the two #fs, like it currently does.
+ >>>
+ >>> Robby
+ >>>
+ >>>
+ >>>
+ >>>
+ >>> On Wed, Jan 15, 2014 at 7:45 AM, Robby Findler <
+ >>> robby@eecs.northwestern.edu> wrote:
+ >>>
+ >>>> Yes, that's the code for the second half of the issue. The first half
+ >>>> is that the ellipsis in the repeat loses its name in the
+ >>>> "side-conditions-rewrite" part of the result, which is the part that I
+ >>>> worry about changing for the enumerator and the unifier.
+ >>>>
+ >>>> For the second half, I'm more optimistic that we can uncover the
+ >>>> problems since that tends to flow into places that just find variables=
+  for
+ >>>> the user code of Redex.
+ >>>>
+ >>>> Robby
+ >>>>
+ >>>>
+ >>>>
+ >>>> On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher <
+ >>>> burke.fetscher@eecs.northwestern.edu> wrote:
+ >>>>
+ >>>>> Nevermind, looks like I was confused. The relevant code is
+ >>>>> generate-binding-constraints and bind-withs, correct? After looking t=
+ hrough
+ >>>>> that, what you=E2=80=99re saying about rewrite-side-conditions makes =
+ sense. If you
+ >>>>> added a new item to the result list like:
+ >>>>>
+ >>>>> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses
+ >>>>> =E2=80=A6)) ->
+ >>>>> (syncheck-exp side-conditions-rewritten (names ...) (names/ellipses =
+ =E2=80=A6)
+ >>>>> (ellipsis-names =E2=80=A6))
+ >>>>>
+ >>>>> That seems unlikely to break anything I=E2=80=99m familiar with. Poss=
+ ibly ok
+ >>>>> to add them to the names already there too, although I=E2=80=99m less=
+  sure about
+ >>>>> that.
+ >>>>>
+ >>>>> Burke
+ >>>>>
+ >>>>> On Jan 14, 2014, at 11:23 PM, Burke Fetscher <
+ >>>>> burke.fetscher@eecs.northwestern.edu> wrote:
+ >>>>>
+ >>>>> Wait, is this actually broken? Don't these matches work (afte
+ >>>>> expansion) like the following examples:
+ >>>>>
+ >>>>> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>>>>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>>>>           (term (n_1 ...))))
+ >>>>> '(0 1 2)
+ >>>>> > (redex-let L ([number_1 5])
+ >>>>>      (redex-let L ([number_1 6])
+ >>>>>          (term number_1)))
+ >>>>> 6
+ >>>>> > (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))])
+ >>>>>       (redex-let L ([(n_1 ..._a) (term e)])
+ >>>>>           (term ((n_0 n_1) ...))))
+ >>>>> . syntax: incompatible ellipsis match counts for template in: ...
+ >>>>> >
+ >>>>>
+ >>>>> Doesn=E2=80=99t (and shouldn=E2=80=99t) =E2=80=A6_a just get shadowed=
+  in the same way that
+ >>>>> number_1 does?
+ >>>>>
+ >>>>> Or maybe I am confused... In any case, it definitely won=E2=80=99t br=
+ eak the
+ >>>>> unifier since it just blows up whenever it sees an ellipsis already.
+ >>>>>
+ >>>>> Burke
+ >>>>>
+ >>>>> On Jan 14, 2014, at 10:29 PM, Robby Findler <
+ >>>>> robby@eecs.northwestern.edu> wrote:
+ >>>>>
+ >>>>> Well, it turns out that more than the change below,
+ >>>>> rewrite-side-conditions/check-errs's other results (the list of avail=
+ able
+ >>>>> vars) also has to change to fix this bug. I've prepared a commit that=
+  does
+ >>>>> that, but I'll wait a little bit before pushing, just to think about =
+ it for
+ >>>>> a while.
+ >>>>>
+ >>>>> Robby
+ >>>>>
+ >>>>> On Tue, Jan 14, 2014 at 8:24 PM, Robby Findler <
+ >>>>> robby@eecs.northwestern.edu> wrote:
+ >>>>> >
+ >>>>> > I (finally) figured out what happened here: the problem is that the
+ >>>>> _a in the ellipsis is eliminated by rewrite-side-conditions/check-err=
+ s
+ >>>>> because it is given only the pattern ((n_0 ..._a) e) and does not see=
+  that
+ >>>>> the _a is going to be important in a subsequent pattern match.
+ >>>>> >
+ >>>>> > So I think that rewrite-side-conditions/check-errs will have to
+ >>>>> preserve the names on the ellipses in all cases (unless they weren't
+ >>>>> present in the input, I suppose).
+ >>>>> >
+ >>>>> > Burke, Max: do you expect that to break the unifier or the
+ >>>>> enumerator?
+ >>>>> >
+ >>>>> > Robby
+ >>>>> >
+ >>>>> >
+ >>>>> >
+ >>>>> >
+ >>>>> >
+ >>>>> > On Tue, Jan 14, 2014 at 6:56 PM, <ezyang@cs.stanford.edu> wrote:
+ >>>>> >>
+ >>>>> >> A new problem report is waiting at
+ >>>>> >>   http://bugs.racket-lang.org/query/?cmd=3Dview&pr=3D14291
+ >>>>> >>
+ >>>>> >> Reported by Edward Z. Yang for release: 5.3.4
+ >>>>> >>
+ >>>>> >> *** Description:
+ >>>>> >> According to the manual:
+ >>>>> >>
+ >>>>> >> "If the ellipses is named (ie, has an underscore and a name
+ >>>>> following it, like a variable may), the pattern matcher records the l=
+ ength
+ >>>>> of the list and ensures that any other occurrences of the same named
+ >>>>> ellipses must have the same length."
+ >>>>> >>
+ >>>>> >> In reduction-relation, we can define 'where' extras which define
+ >>>>> extra named matches to be used in the conclusion, as stated here:
+ >>>>> >>
+ >>>>> >> "Each where clause acts as a side condition requiring a successful
+ >>>>> pattern match, and it can bind pattern variables in the side-conditio=
+ ns
+ >>>>> (and where clauses) that follow and in the metafunction result."
+ >>>>> >>
+ >>>>> >> One might reasonably expect that named ellipses would also
+ >>>>> carry-over into the metafunction result. However, as the program belo=
+ w
+ >>>>> shows, this is not the case: ellipsis names have no effect. It would =
+ be
+ >>>>> nice if they did carry over.
+ >>>>> >>
+ >>>>> >> *** How to repeat:
+ >>>>> >> #lang racket
+ >>>>> >> (require redex)
+ >>>>> >>
+ >>>>> >> (define-language L (n number) (e n (e ...)))
+ >>>>> >> (define red
+ >>>>> >>   (reduction-relation
+ >>>>> >>    L #:domain e
+ >>>>> >>    (--> ((n_0 ..._a) e)
+ >>>>> >>         ((n_0 n_1) ...)
+ >>>>> >>         (where (n_1 ..._a) e))
+ >>>>> >>    ))
+ >>>>> >> (traces red (term ((0 1) (0 1 2))))
+ >>>>> >>
+ >>>>> >> *** Environment:
+ >>>>> >> unix "Linux sabre 3.11.0-14-generic #21-Ubuntu SMP Tue Nov 12
+ >>>>> 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux" (x86_64-linux/3m)
+ >>>>> (get-display-depth) =3D 32
+ >>>>> >> Human Language: english
+ >>>>> >> (current-memory-use) 475350712
+ >>>>> >> Links: (links) =3D (); (links #:user? #f) =3D (); (links #:root? #=
+ t) =3D
+ >>>>> (); (links #:user? #f #:root? #t) =3D ()
+ >>>>> >> raco pkg (show):
+ >>>>> >> Installation-wide:
+ >>>>> >>  [none]
+ >>>>> >> User-specific, all-version:
+ >>>>> >>  [none]
+ >>>>> >> User-specific, version-specific (5.3.4):
+ >>>>> >>  [none]
+ >>>>> >>
+ >>>>> >>
+ >>>>> >>
+ >>>>> >> Collections:
+ >>>>> >> ("/home/ezyang/.racket/5.3.4/collects"
+ >>>>> >>  (non-existent-path))
+ >>>>> >> ("/usr/share/racket/collects"
+ >>>>> >>  ("r6rs" "srfi" "math" "mzscheme" "scheme" "typed-racket" "help"
+ >>>>> "drracket" "browser" "string-constants" "dynext" "preprocessor" "fram=
+ ework"
+ >>>>> "schemeunit" "future-visualizer" "texpict" "eopl" "gui-debugger" "gam=
+ es"
+ >>>>> "file" "reader" "deinprogramm" "launcher" "lazy" "graphics" "syntax" =
+ "r5rs"
+ >>>>> "stepper" "scriblib" "test-engine" "slideshow" "syntax-color" "net"
+ >>>>> "profile" "rackunit" "unstable" "plot" "data" "picturing-programs" "m=
+ ake"
+ >>>>> "scribble" "2htdp" "frtime" "typed" "algol60" "openssl" "lang" "xml"
+ >>>>> "readline" "htdp" "hierlist" "mrlib" "mzcom" "pkg" "at-exp" "plai" "f=
+ fi"
+ >>>>> "teachpack" "mzlib" "redex" "sgl" "defaults" "images" "db" "planet"
+ >>>>> "datalog" "web-server" "scribblings" "version" "s-exp" "macro-debugge=
+ r"
+ >>>>> "compatibility" "icons" "wxme" "html" "mysterx" "info-domain" "trace"
+ >>>>> "json" "compiler" "slatex" "racket" "xrepl" "rnrs" "embedded-gui" "sw=
+ indle"
+ >>>>> "drscheme" "parser-tools" "typed-scheme" "mred" "racklog" "config" "r=
+ aco"
+ >>>>> "setup" "errortrace"))
+ >>>>> >>
+ >>>>> >> Computer Language: (("Determine language from source") (#(#t print
+ >>>>> mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((=
+ main)
+ >>>>> (test))))
+ >>>>> >>
+ >>>>> >
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>>
+ >>>>
+ >>>
+ >>
+ >
+ 
+ --089e0160c35ee51b6104f01792d8
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">More named ellipses preserved, right.<div><br></div><div>G=
+ ood!</div></div><div class=3D"gmail_extra"><br><br><div class=3D"gmail_quot=
+ e">On Thu, Jan 16, 2014 at 8:50 AM, Max New <span dir=3D"ltr">&lt;<a href=
+ =3D"mailto:maxnew2013@u.northwestern.edu" target=3D"_blank">maxnew2013@u.no=
+ rthwestern.edu</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">The only effect of this wil=
+ l be to have more named patterns preserved right? That shouldn&#39;t affect=
+  the enumerator at all.<br>
+ </div><div class=3D"HOEnZb"><div class=3D"h5"><div class=3D"gmail_extra"><b=
+ r><br><div class=3D"gmail_quote">On Wed, Jan 15, 2014 at 1:54 PM, Robby Fin=
+ dler <span dir=3D"ltr">&lt;<a href=3D"mailto:robby@eecs.northwestern.edu" t=
+ arget=3D"_blank">robby@eecs.northwestern.edu</a>&gt;</span> wrote:<br>
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">And I realize that there is=
+  no way that this will break the unifier because it doesn&#39;t handle elli=
+ pses yet.<div>
+ 
+ <br></div><div>Max: no test cases fail, but that may well be because you we=
+ re counting on an invariant of rewrite-side-conditions, so there may be a w=
+ ay to break the enumerator now, as it will be given patterns with named ell=
+ ipses when there is only a single use of a given name.</div>
+ 
+ <span><font color=3D"#888888">
+ <div><br></div><div>Robby</div></font></span></div><div><div><div class=3D"=
+ gmail_extra"><br><br><div class=3D"gmail_quote">On Wed, Jan 15, 2014 at 7:5=
+ 7 AM, Robby Findler <span dir=3D"ltr">&lt;<a href=3D"mailto:robby@eecs.nort=
+ hwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt;</span> =
+ wrote:<br>
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Just to clarify the &quot;f=
+ irst half&quot;, I&#39;m thinking of changing things so that<div><br></div>=
+ <div>
+ 
+ 
+ =C2=A0 (a ..._1)=C2=A0</div><div><br></div><div>turns into</div><div><br></=
+ div><div>=C2=A0 (list (repeat (name a (nt a)) ..._1 #f))</div>
+ <div><br></div><div>instead of the two #fs, like it currently does.</div><s=
+ pan><font color=3D"#888888"><div><br></div><div>Robby</div><div><br></div><=
+ div><br></div></font></span></div><div><div>
+ <div class=3D"gmail_extra"><br><br><div class=3D"gmail_quote">On Wed, Jan 1=
+ 5, 2014 at 7:45 AM, Robby Findler <span dir=3D"ltr">&lt;<a href=3D"mailto:r=
+ obby@eecs.northwestern.edu" target=3D"_blank">robby@eecs.northwestern.edu</=
+ a>&gt;</span> wrote:<br>
+ 
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div dir=3D"ltr">Yes, that&#39;s the code fo=
+ r the second half of the issue. The first half is that the ellipsis in the =
+ repeat loses its name in the &quot;side-conditions-rewrite&quot; part of th=
+ e result, which is the part that I worry about changing for the enumerator =
+ and the unifier.<div>
+ 
+ 
+ 
+ 
+ <br></div><div>For the second half, I&#39;m more optimistic that we can unc=
+ over the problems since that tends to flow into places that just find varia=
+ bles for the user code of Redex.</div><span><font color=3D"#888888"><div>
+ 
+ 
+ 
+ <br></div><div>Robby</div><div>
+ <br></div></font></span></div><div><div><div class=3D"gmail_extra"><br><br>=
+ <div class=3D"gmail_quote">On Wed, Jan 15, 2014 at 12:35 AM, Burke Fetscher=
+  <span dir=3D"ltr">&lt;<a href=3D"mailto:burke.fetscher@eecs.northwestern.e=
+ du" target=3D"_blank">burke.fetscher@eecs.northwestern.edu</a>&gt;</span> w=
+ rote:<br>
+ 
+ 
+ 
+ 
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><div style=3D"word-wrap:break-word">Nevermin=
+ d, looks like I was confused. The relevant code is generate-binding-constra=
+ ints and bind-withs, correct? After looking through that, what you=E2=80=99=
+ re saying about rewrite-side-conditions makes sense. If you added a new ite=
+ m to the result list like:<div>
+ 
+ 
+ 
+ 
+ <br><div>(syncheck-exp side-conditions-rewritten (names ...) (names/ellipse=
+ s =E2=80=A6)) -&gt;</div><div>(syncheck-exp side-conditions-rewritten (name=
+ s ...) (names/ellipses =E2=80=A6) (ellipsis-names =E2=80=A6))</div><div><br=
+ ></div><div><div>That seems unlikely to break anything I=E2=80=99m familiar=
+  with. Possibly ok to add them to the names already there too, although I=
+ =E2=80=99m less sure about that.</div>
+ 
+ 
+ 
+ 
+ <span><font color=3D"#888888"><div><br></div><div>Burke</div></font></span>=
+ <div><div><div><br><div><div>On Jan 14, 2014, at 11:23 PM, Burke Fetscher &=
+ lt;<a href=3D"mailto:burke.fetscher@eecs.northwestern.edu" target=3D"_blank=
+ ">burke.fetscher@eecs.northwestern.edu</a>&gt; wrote:</div>
+ 
+ 
+ 
+ 
+ <br><blockquote type=3D"cite"><div style=3D"word-wrap:break-word">Wait, is =
+ this actually broken? Don&#39;t these matches work (afte expansion) like th=
+ e following examples:<div><br></div><div><div>&gt; (redex-let L ([((n_0 ...=
+ _a) e) (term ((0 1) (0 1 2)))])</div>
+ 
+ 
+ 
+ 
+ <div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</div><div>=
+ =C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term (n_1 ...))))</div><div>&#39;(0 1 2=
+ )</div><div>&gt; (redex-let L ([number_1 5])</div><div>=C2=A0 =C2=A0 =C2=A0=
+ (redex-let L ([number_1 6])</div><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0(te=
+ rm number_1)))</div>
+ 
+ 
+ 
+ 
+ <div>6</div><div>&gt; (redex-let L ([((n_0 ..._a) e) (term ((0 1) (0 1 2)))=
+ ])</div><div>=C2=A0 =C2=A0 =C2=A0 (redex-let L ([(n_1 ..._a) (term e)])</di=
+ v><div>=C2=A0 =C2=A0 =C2=A0 =C2=A0 =C2=A0 (term ((n_0 n_1) ...))))</div><di=
+ v>. syntax: incompatible ellipsis match counts for template in: ...</div>
+ 
+ 
+ 
+ 
+ <div>&gt;=C2=A0</div><div><br></div><div>Doesn=E2=80=99t (and shouldn=E2=80=
+ =99t) =E2=80=A6_a just get shadowed in the same way that number_1 does?</di=
+ v><div><br></div><div>Or maybe I am confused... In any case, it definitely =
+ won=E2=80=99t break the unifier since it just blows up whenever it sees an =
+ ellipsis already.</div>
+ 
+ 
+ 
+ 
+ <div><br></div><div>Burke</div></div><div><br></div><div><div>On Jan 14, 20=
+ 14, at 10:29 PM, Robby Findler &lt;<a href=3D"mailto:robby@eecs.northwester=
+ n.edu" target=3D"_blank">robby@eecs.northwestern.edu</a>&gt; wrote:</div><b=
+ r>
+ 
+ 
+ 
+ 
+ <blockquote type=3D"cite"><div dir=3D"ltr">Well, it turns out that more tha=
+ n the change below, rewrite-side-conditions/check-errs&#39;s other results =
+ (the list of available vars) also has to change to fix this bug. I&#39;ve p=
+ repared a commit that does that, but I&#39;ll wait a little bit before push=
+ ing, just to think about it for a while.=C2=A0<div>
+ 
+ 
+ 
+ 
+ 
+ <div><br></div><div>Robby<br><br>On Tue, Jan 14, 2014 at 8:24 PM, Robby Fin=
+ dler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu" target=3D"_blank">r=
+ obby@eecs.northwestern.edu</a>&gt; wrote:<br>&gt;<br>&gt; I (finally) figur=
+ ed out what happened here: the problem is that the _a in the ellipsis is el=
+ iminated by rewrite-side-conditions/check-errs because it is given only the=
+  pattern ((n_0 ..._a) e) and does not see that the _a is going to be import=
+ ant in a subsequent pattern match.<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;<br>&gt; So I think that rewrite-side-conditions/check-errs will have t=
+ o preserve the names on the ellipses in all cases (unless they weren&#39;t =
+ present in the input, I suppose).<br>&gt;<br>&gt; Burke, Max: do you expect=
+  that to break the unifier or the enumerator?<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;<br>&gt; Robby<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt;<br>&gt; On Tue, =
+ Jan 14, 2014 at 6:56 PM, &lt;<a href=3D"mailto:ezyang@cs.stanford.edu" targ=
+ et=3D"_blank">ezyang@cs.stanford.edu</a>&gt; wrote:<br>&gt;&gt;<br>&gt;&gt;=
+  A new problem report is waiting at<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt; =C2=A0 <a href=3D"http://bugs.racket-lang.org/query/?cmd=3Dview&am=
+ p;pr=3D14291" target=3D"_blank">http://bugs.racket-lang.org/query/?cmd=3Dvi=
+ ew&amp;pr=3D14291</a><br>&gt;&gt;<br>&gt;&gt; Reported by Edward Z. Yang fo=
+ r release: 5.3.4<br>
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>
+ &gt;&gt; *** Description:<br>&gt;&gt; According to the manual:<br>&gt;&gt;<=
+ br>&gt;&gt; &quot;If the ellipses is named (ie, has an underscore and a nam=
+ e following it, like a variable may), the pattern matcher records the lengt=
+ h of the list and ensures that any other occurrences of the same named elli=
+ pses must have the same length.&quot;<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; In reduction-relation, we can define &#39;where&#39; e=
+ xtras which define extra named matches to be used in the conclusion, as sta=
+ ted here:<br>&gt;&gt;<br>&gt;&gt; &quot;Each where clause acts as a side co=
+ ndition requiring a successful pattern match, and it can bind pattern varia=
+ bles in the side-conditions (and where clauses) that follow and in the meta=
+ function result.&quot;<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; One might reasonably expect that named ellipses would =
+ also carry-over into the metafunction result. However, as the program below=
+  shows, this is not the case: ellipsis names have no effect. It would be ni=
+ ce if they did carry over.<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; *** How to repeat:<br>&gt;&gt; #lang racket<br>&gt;&gt=
+ ; (require redex)<br>&gt;&gt;<br>&gt;&gt; (define-language L (n number) (e =
+ n (e ...)))<br>&gt;&gt; (define red<br>&gt;&gt; =C2=A0 (reduction-relation<=
+ br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt; =C2=A0 =C2=A0L #:domain e<br>&gt;&gt; =C2=A0 =C2=A0(--&gt; ((n_0 .=
+ .._a) e)<br>&gt;&gt; =C2=A0 =C2=A0 =C2=A0 =C2=A0 ((n_0 n_1) ...)<br>&gt;&gt=
+ ; =C2=A0 =C2=A0 =C2=A0 =C2=A0 (where (n_1 ..._a) e))<br>&gt;&gt; =C2=A0 =C2=
+ =A0))<br>&gt;&gt; (traces red (term ((0 1) (0 1 2))))<br>&gt;&gt;<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt; *** Environment:<br>&gt;&gt; unix &quot;Linux sabre 3.11.0-14-gene=
+ ric #21-Ubuntu SMP Tue Nov 12 17:04:55 UTC 2013 x86_64 x86_64 x86_64 GNU/Li=
+ nux&quot; (x86_64-linux/3m) (get-display-depth) =3D 32<br>&gt;&gt; Human La=
+ nguage: english<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt; (current-memory-use) 475350712<br>&gt;&gt; Links: (links) =3D (); =
+ (links #:user? #f) =3D (); (links #:root? #t) =3D (); (links #:user? #f #:r=
+ oot? #t) =3D ()<br>&gt;&gt; raco pkg (show):<br>&gt;&gt; Installation-wide:=
+ <br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt; =C2=A0[none]<br>&gt;&gt; User-specific, all-version:<br>&gt;&gt; =
+ =C2=A0[none]<br>&gt;&gt; User-specific, version-specific (5.3.4):<br>&gt;&g=
+ t; =C2=A0[none]<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt;<br>&gt;&gt; Collections=
+ :<br>&gt;&gt; (&quot;/home/ezyang/.racket/5.3.4/collects&quot;<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt; =C2=A0(non-existent-path))<br>&gt;&gt; (&quot;/usr/share/racket/co=
+ llects&quot;<br>&gt;&gt; =C2=A0(&quot;r6rs&quot; &quot;srfi&quot; &quot;mat=
+ h&quot; &quot;mzscheme&quot; &quot;scheme&quot; &quot;typed-racket&quot; &q=
+ uot;help&quot; &quot;drracket&quot; &quot;browser&quot; &quot;string-consta=
+ nts&quot; &quot;dynext&quot; &quot;preprocessor&quot; &quot;framework&quot;=
+  &quot;schemeunit&quot; &quot;future-visualizer&quot; &quot;texpict&quot; &=
+ quot;eopl&quot; &quot;gui-debugger&quot; &quot;games&quot; &quot;file&quot;=
+  &quot;reader&quot; &quot;deinprogramm&quot; &quot;launcher&quot; &quot;laz=
+ y&quot; &quot;graphics&quot; &quot;syntax&quot; &quot;r5rs&quot; &quot;step=
+ per&quot; &quot;scriblib&quot; &quot;test-engine&quot; &quot;slideshow&quot=
+ ; &quot;syntax-color&quot; &quot;net&quot; &quot;profile&quot; &quot;rackun=
+ it&quot; &quot;unstable&quot; &quot;plot&quot; &quot;data&quot; &quot;pictu=
+ ring-programs&quot; &quot;make&quot; &quot;scribble&quot; &quot;2htdp&quot;=
+  &quot;frtime&quot; &quot;typed&quot; &quot;algol60&quot; &quot;openssl&quo=
+ t; &quot;lang&quot; &quot;xml&quot; &quot;readline&quot; &quot;htdp&quot; &=
+ quot;hierlist&quot; &quot;mrlib&quot; &quot;mzcom&quot; &quot;pkg&quot; &qu=
+ ot;at-exp&quot; &quot;plai&quot; &quot;ffi&quot; &quot;teachpack&quot; &quo=
+ t;mzlib&quot; &quot;redex&quot; &quot;sgl&quot; &quot;defaults&quot; &quot;=
+ images&quot; &quot;db&quot; &quot;planet&quot; &quot;datalog&quot; &quot;we=
+ b-server&quot; &quot;scribblings&quot; &quot;version&quot; &quot;s-exp&quot=
+ ; &quot;macro-debugger&quot; &quot;compatibility&quot; &quot;icons&quot; &q=
+ uot;wxme&quot; &quot;html&quot; &quot;mysterx&quot; &quot;info-domain&quot;=
+  &quot;trace&quot; &quot;json&quot; &quot;compiler&quot; &quot;slatex&quot;=
+  &quot;racket&quot; &quot;xrepl&quot; &quot;rnrs&quot; &quot;embedded-gui&q=
+ uot; &quot;swindle&quot; &quot;drscheme&quot; &quot;parser-tools&quot; &quo=
+ t;typed-scheme&quot; &quot;mred&quot; &quot;racklog&quot; &quot;config&quot=
+ ; &quot;raco&quot; &quot;setup&quot; &quot;errortrace&quot;))<br>
+ 
+ 
+ 
+ 
+ 
+ &gt;&gt;<br>&gt;&gt; Computer Language: ((&quot;Determine language from sou=
+ rce&quot;) (#(#t print mixed-fraction-e #f #t debug) (default) #() &quot;#l=
+ ang racket\n&quot; #t #t ((main) (test))))<br>&gt;&gt;<br>&gt;<br></div>
+ 
+ 
+ 
+ 
+ 
+ </div></div>
+ </blockquote></div><br></div></blockquote></div><br></div></div></div></div=
+ ></div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --089e0160c35ee51b6104f01792d8--

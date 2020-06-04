@@ -1,0 +1,808 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Dec 27 08:16:11 2012
+Received: from mail-oa0-f52.google.com (mail-oa0-f52.google.com [209.85.219.52])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id qBRDG7g4030877
+	for <bugs@bugs.plt-scheme.org>; Thu, 27 Dec 2012 08:16:07 -0500
+Message-Id: <201212271316.qBRDG4nf030871@champlain.ccs.neu.edu>
+Date: Thu, 27 Dec 2012 08:16:04 -0500
+From: olopierpa@gmail.com
+To: bugs@racket-lang.org
+Subject: Missing leap seconds
+
+>Number:         13390
+>Category:       all
+>Synopsis:       Missing leap seconds
+>Class:          sw-bug
+>Responsible:    asumu
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Dec 27 08:20:01 -0500 2012
+>Closed-Date:    Fri Jan 18 10:47:34 -0500 2013
+>Last-Modified:  Thu Jan 08 20:32:01 -0500 2015
+>Originator:     Pierpaolo BERNARDI
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.1
+>Environment:
+windows "Windows NT 6.2 (Build 9200)" (win32\i386\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 347879368
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+
+
+Collections:
+("C:\\Users\\pierpa\\AppData\\Roaming\\Racket\\5.3.1\\collects"
+ (non-existent-path))
+("E:\\Sgabuzzino\\Chiavette\\EM Desk\\Software\\Local\\RacketPortable-5.3.1\\App\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+The srfi/19 implementation included in Racket, has the leap seconds table
+embedded in the source. This table has not been updated after 2006.
+
+To bring the table up to date, the first lines should be:
+
+(define tm:leap-second-table
+  '((1341100800 . 35) ; 2012 JUL 1
+    (1230768000 . 34) ; 2009 JAN 1
+    (1136073600 . 33) ; 2006 JAN 1
+    (915148800  . 32)
+    (867715200  . 31)
+    ...
+
+What about a function that retrieves the table from usno.mil and
+stores it somewhere in the filesystem.
+
+Then the module will load the table from the filesystem, and bomb
+if the file is more than 6 months old (leap seconds are announced 
+6 months in advance), or automatically attempts to download the 
+new file, or direct the user to do the update manually.
+
+========
+
+Also, in the docs for Racket time related function:
+
+"14.6 Time
+(current-seconds) → exact-integer?
+Returns the current time in seconds since midnight UTC, January 1, 1970."
+
+Actually it doesn't. It returns what it says less the leap seconds:
+
+> (let ((tai (current-tai))
+        (racket (current-seconds)))
+    (values tai racket (- (truncate tai) racket)))
+1356564179.199
+1356564144
+35.0
+
+Where current-tai is defined as below.
+I think this should be mentioned in the docs.
+
+====
+(require (prefix-in srfi/19: srfi/19))
+
+(define (current-tai)
+  (let ((t (srfi/19:date->time-tai (srfi/19:current-date))))
+    (+ (srfi/19:time-second t)
+       (* #i1/1000000000 (srfi/19:time-nanosecond t)))))
+
+====
+
+Also, the documentation for seconds->date says:
+"Takes secs-n, a platform-specific time in seconds returned by current-seconds,"
+which looks odd, since current-seconds documents what it returns in 
+platform-independent terms.
+>How-To-Repeat:
+
+>Fix:
+>Audit-Trail:
+From: Neil Toronto <neil.toronto@gmail.com>
+To: olopierpa@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Thu, 27 Dec 2012 08:56:41 -0700
+
+ On 12/27/2012 06:20 AM, olopierpa@gmail.com wrote:
+ > To bring the table up to date, the first lines should be:
+ >
+ > (define tm:leap-second-table
+ >    '((1341100800 . 35) ; 2012 JUL 1
+ >      (1230768000 . 34) ; 2009 JAN 1
+ >      (1136073600 . 33) ; 2006 JAN 1
+ >      (915148800  . 32)
+ >      (867715200  . 31)
+ >      ...
+ >
+ > What about a function that retrieves the table from usno.mil and
+ > stores it somewhere in the filesystem.
+ >
+ > Then the module will load the table from the filesystem, and bomb
+ > if the file is more than 6 months old (leap seconds are announced
+ > 6 months in advance), or automatically attempts to download the
+ > new file, or direct the user to do the update manually.
+ 
+ This seems like something DrDr could do by running a test.
+ 
+ Neil ⊥
+ 
+From: Pierpaolo Bernardi <olopierpa@gmail.com>
+To: Neil Toronto <neil.toronto@gmail.com>, bugs@racket-lang.org,
+        nobody@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Thu, 27 Dec 2012 19:03:57 +0100
+
+ Drdr can ensure that the table is not too old at the moment of the
+ release, but the check must be done also at runtime.
+ 
+ Also I retract my suggestion, as it is too simple. It doesn't work for
+ long running programs to check the table only at startup. More
+ thinking is needed.
+ 
+ Cheers
+ P.
+ 
+ 
+ 2012/12/27, Neil Toronto <neil.toronto@gmail.com>:
+ > On 12/27/2012 06:20 AM, olopierpa@gmail.com wrote:
+ >> To bring the table up to date, the first lines should be:
+ >>
+ >> (define tm:leap-second-table
+ >>    '((1341100800 . 35) ; 2012 JUL 1
+ >>      (1230768000 . 34) ; 2009 JAN 1
+ >>      (1136073600 . 33) ; 2006 JAN 1
+ >>      (915148800  . 32)
+ >>      (867715200  . 31)
+ >>      ...
+ >>
+ >> What about a function that retrieves the table from usno.mil and
+ >> stores it somewhere in the filesystem.
+ >>
+ >> Then the module will load the table from the filesystem, and bomb
+ >> if the file is more than 6 months old (leap seconds are announced
+ >> 6 months in advance), or automatically attempts to download the
+ >> new file, or direct the user to do the update manually.
+ >
+ > This seems like something DrDr could do by running a test.
+ >
+ > Neil ⊥
+ >
+ >
+ 
+ -- 
+ Inviato dal mio dispositivo mobile
+ 
+From: Eli Barzilay <eli@barzilay.org>
+To: Pierpaolo Bernardi <olopierpa@gmail.com>
+Cc: Neil Toronto <neil.toronto@gmail.com>, bug-notification@racket-lang.org,
+        nobody@racket-lang.org, bugs@racket-lang.org
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Fri, 28 Dec 2012 00:46:17 +0200
+
+ --bcaec53f343ba7838e04d1dd50ea
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Requiring a network connection at any runtime point can be problematic in
+ restricted cases like sandboxed code or having no network, being sensitive
+ to future format changes etc. The drdr solution is a good compromise IMO.
+ On Dec 27, 2012 8:04 PM, "Pierpaolo Bernardi" <olopierpa@gmail.com> wrote:
+ 
+ > Drdr can ensure that the table is not too old at the moment of the
+ > release, but the check must be done also at runtime.
+ >
+ > Also I retract my suggestion, as it is too simple. It doesn't work for
+ > long running programs to check the table only at startup. More
+ > thinking is needed.
+ >
+ > Cheers
+ > P.
+ >
+ >
+ > 2012/12/27, Neil Toronto <neil.toronto@gmail.com>:
+ > > On 12/27/2012 06:20 AM, olopierpa@gmail.com wrote:
+ > >> To bring the table up to date, the first lines should be:
+ > >>
+ > >> (define tm:leap-second-table
+ > >>    '((1341100800 . 35) ; 2012 JUL 1
+ > >>      (1230768000 . 34) ; 2009 JAN 1
+ > >>      (1136073600 . 33) ; 2006 JAN 1
+ > >>      (915148800  . 32)
+ > >>      (867715200  . 31)
+ > >>      ...
+ > >>
+ > >> What about a function that retrieves the table from usno.mil and
+ > >> stores it somewhere in the filesystem.
+ > >>
+ > >> Then the module will load the table from the filesystem, and bomb
+ > >> if the file is more than 6 months old (leap seconds are announced
+ > >> 6 months in advance), or automatically attempts to download the
+ > >> new file, or direct the user to do the update manually.
+ > >
+ > > This seems like something DrDr could do by running a test.
+ > >
+ > > Neil =E2=8A=A5
+ > >
+ > >
+ >
+ > --
+ > Inviato dal mio dispositivo mobile
+ >
+ 
+ --bcaec53f343ba7838e04d1dd50ea
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <p>Requiring a network connection at any runtime point can be problematic i=
+ n restricted cases like sandboxed code or having no network, being sensitiv=
+ e to future format changes etc. The drdr solution is a good compromise IMO.=
+ </p>
+ 
+ <div class=3D"gmail_quote">On Dec 27, 2012 8:04 PM, &quot;Pierpaolo Bernard=
+ i&quot; &lt;<a href=3D"mailto:olopierpa@gmail.com">olopierpa@gmail.com</a>&=
+ gt; wrote:<br type=3D"attribution"><blockquote class=3D"gmail_quote" style=
+ =3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ Drdr can ensure that the table is not too old at the moment of the<br>
+ release, but the check must be done also at runtime.<br>
+ <br>
+ Also I retract my suggestion, as it is too simple. It doesn&#39;t work for<=
+ br>
+ long running programs to check the table only at startup. More<br>
+ thinking is needed.<br>
+ <br>
+ Cheers<br>
+ P.<br>
+ <br>
+ <br>
+ 2012/12/27, Neil Toronto &lt;<a href=3D"mailto:neil.toronto@gmail.com">neil=
+ .toronto@gmail.com</a>&gt;:<br>
+ &gt; On 12/27/2012 06:20 AM, <a href=3D"mailto:olopierpa@gmail.com">olopier=
+ pa@gmail.com</a> wrote:<br>
+ &gt;&gt; To bring the table up to date, the first lines should be:<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define tm:leap-second-table<br>
+ &gt;&gt; =C2=A0 =C2=A0&#39;((1341100800 . 35) ; 2012 JUL 1<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0(1230768000 . 34) ; 2009 JAN 1<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0(1136073600 . 33) ; 2006 JAN 1<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0(915148800 =C2=A0. 32)<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0(867715200 =C2=A0. 31)<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0...<br>
+ &gt;&gt;<br>
+ &gt;&gt; What about a function that retrieves the table from <a href=3D"htt=
+ p://usno.mil" target=3D"_blank">usno.mil</a> and<br>
+ &gt;&gt; stores it somewhere in the filesystem.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Then the module will load the table from the filesystem, and bomb<=
+ br>
+ &gt;&gt; if the file is more than 6 months old (leap seconds are announced<=
+ br>
+ &gt;&gt; 6 months in advance), or automatically attempts to download the<br=
+ >
+ &gt;&gt; new file, or direct the user to do the update manually.<br>
+ &gt;<br>
+ &gt; This seems like something DrDr could do by running a test.<br>
+ &gt;<br>
+ &gt; Neil =E2=8A=A5<br>
+ &gt;<br>
+ &gt;<br>
+ <br>
+ --<br>
+ Inviato dal mio dispositivo mobile<br>
+ </blockquote></div>
+ 
+ --bcaec53f343ba7838e04d1dd50ea--
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: Pierpaolo Bernardi <olopierpa@gmail.com>,
+        Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Thu, 27 Dec 2012 16:52:34 -0600
+
+ --e89a8f6438e620c37504d1dd677e
+ Content-Type: text/plain; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ We could also augment that with a mechanism to let people add new
+ leap-seconds, perhaps via a parameter, and have an function that returns a
+ value that would fit the parameter by making a network connection. That way
+ people don't have to upgrade to easily get the latest leap second data.
+ 
+ Robby
+ 
+ 
+ On Thu, Dec 27, 2012 at 4:46 PM, Eli Barzilay <eli@barzilay.org> wrote:
+ 
+ > Requiring a network connection at any runtime point can be problematic in
+ > restricted cases like sandboxed code or having no network, being sensitiv=
+ e
+ > to future format changes etc. The drdr solution is a good compromise IMO.
+ > On Dec 27, 2012 8:04 PM, "Pierpaolo Bernardi" <olopierpa@gmail.com> wrote=
+ :
+ >
+ >> Drdr can ensure that the table is not too old at the moment of the
+ >> release, but the check must be done also at runtime.
+ >>
+ >> Also I retract my suggestion, as it is too simple. It doesn't work for
+ >> long running programs to check the table only at startup. More
+ >> thinking is needed.
+ >>
+ >> Cheers
+ >> P.
+ >>
+ >>
+ >> 2012/12/27, Neil Toronto <neil.toronto@gmail.com>:
+ >> > On 12/27/2012 06:20 AM, olopierpa@gmail.com wrote:
+ >> >> To bring the table up to date, the first lines should be:
+ >> >>
+ >> >> (define tm:leap-second-table
+ >> >>    '((1341100800 . 35) ; 2012 JUL 1
+ >> >>      (1230768000 . 34) ; 2009 JAN 1
+ >> >>      (1136073600 . 33) ; 2006 JAN 1
+ >> >>      (915148800  . 32)
+ >> >>      (867715200  . 31)
+ >> >>      ...
+ >> >>
+ >> >> What about a function that retrieves the table from usno.mil and
+ >> >> stores it somewhere in the filesystem.
+ >> >>
+ >> >> Then the module will load the table from the filesystem, and bomb
+ >> >> if the file is more than 6 months old (leap seconds are announced
+ >> >> 6 months in advance), or automatically attempts to download the
+ >> >> new file, or direct the user to do the update manually.
+ >> >
+ >> > This seems like something DrDr could do by running a test.
+ >> >
+ >> > Neil =E2=8A=A5
+ >> >
+ >> >
+ >>
+ >> --
+ >> Inviato dal mio dispositivo mobile
+ >>
+ >
+ 
+ --e89a8f6438e620c37504d1dd677e
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">We could also augment that with a mechanism to let people =
+ add new leap-seconds, perhaps via a parameter, and have an function that re=
+ turns a value that would fit the parameter by making a network connection. =
+ That way people don&#39;t have to upgrade to easily get the latest leap sec=
+ ond data.<div>
+ <br></div><div>Robby</div></div><div class=3D"gmail_extra"><br><br><div cla=
+ ss=3D"gmail_quote">On Thu, Dec 27, 2012 at 4:46 PM, Eli Barzilay <span dir=
+ =3D"ltr">&lt;<a href=3D"mailto:eli@barzilay.org" target=3D"_blank">eli@barz=
+ ilay.org</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><p>Requiring a network connection at any run=
+ time point can be problematic in restricted cases like sandboxed code or ha=
+ ving no network, being sensitive to future format changes etc. The drdr sol=
+ ution is a good compromise IMO.</p>
+ <div class=3D"HOEnZb"><div class=3D"h5">
+ 
+ <div class=3D"gmail_quote">On Dec 27, 2012 8:04 PM, &quot;Pierpaolo Bernard=
+ i&quot; &lt;<a href=3D"mailto:olopierpa@gmail.com" target=3D"_blank">olopie=
+ rpa@gmail.com</a>&gt; wrote:<br type=3D"attribution"><blockquote class=3D"g=
+ mail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-l=
+ eft:1ex">
+ 
+ Drdr can ensure that the table is not too old at the moment of the<br>
+ release, but the check must be done also at runtime.<br>
+ <br>
+ Also I retract my suggestion, as it is too simple. It doesn&#39;t work for<=
+ br>
+ long running programs to check the table only at startup. More<br>
+ thinking is needed.<br>
+ <br>
+ Cheers<br>
+ P.<br>
+ <br>
+ <br>
+ 2012/12/27, Neil Toronto &lt;<a href=3D"mailto:neil.toronto@gmail.com" targ=
+ et=3D"_blank">neil.toronto@gmail.com</a>&gt;:<br>
+ &gt; On 12/27/2012 06:20 AM, <a href=3D"mailto:olopierpa@gmail.com" target=
+ =3D"_blank">olopierpa@gmail.com</a> wrote:<br>
+ &gt;&gt; To bring the table up to date, the first lines should be:<br>
+ &gt;&gt;<br>
+ &gt;&gt; (define tm:leap-second-table<br>
+ &gt;&gt; =C2=A0 =C2=A0&#39;((1341100800 . 35) ; 2012 JUL 1<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0(1230768000 . 34) ; 2009 JAN 1<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0<a href=3D"tel:%281136073600%20.%2033" value=
+ =3D"+13607360033" target=3D"_blank">(1136073600 . 33</a>) ; 2006 JAN 1<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0(915148800 =C2=A0. 32)<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0(867715200 =C2=A0. 31)<br>
+ &gt;&gt; =C2=A0 =C2=A0 =C2=A0...<br>
+ &gt;&gt;<br>
+ &gt;&gt; What about a function that retrieves the table from <a href=3D"htt=
+ p://usno.mil" target=3D"_blank">usno.mil</a> and<br>
+ &gt;&gt; stores it somewhere in the filesystem.<br>
+ &gt;&gt;<br>
+ &gt;&gt; Then the module will load the table from the filesystem, and bomb<=
+ br>
+ &gt;&gt; if the file is more than 6 months old (leap seconds are announced<=
+ br>
+ &gt;&gt; 6 months in advance), or automatically attempts to download the<br=
+ >
+ &gt;&gt; new file, or direct the user to do the update manually.<br>
+ &gt;<br>
+ &gt; This seems like something DrDr could do by running a test.<br>
+ &gt;<br>
+ &gt; Neil =E2=8A=A5<br>
+ &gt;<br>
+ &gt;<br>
+ <br>
+ --<br>
+ Inviato dal mio dispositivo mobile<br>
+ </blockquote></div>
+ </div></div></blockquote></div><br></div>
+ 
+ --e89a8f6438e620c37504d1dd677e--
+From: Pierpaolo Bernardi <olopierpa@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eli Barzilay <eli@barzilay.org>, Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Fri, 28 Dec 2012 17:57:34 +0100
+
+ On Thu, Dec 27, 2012 at 11:52 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > We could also augment that with a mechanism to let people add new
+ > leap-seconds, perhaps via a parameter, and have an function that returns a
+ > value that would fit the parameter by making a network connection. That way
+ > people don't have to upgrade to easily get the latest leap second data.
+ 
+ This would be good.
+ 
+ At the very least we should get a function to check programmatically
+ if the table is stale or good.
+ 
+ A procedure for updating it easily, would be a welcome addition.
+ 
+ And BTW I had missed the most astounding bug in this srfi: time-tai is
+ not TAI time!
+ It is seconds since 1970-01-01 (real TAI is seconds since 1958-01-01).
+  And this is by design.  Sigh.
+ 
+ Cheers
+ P.
+Responsible changed from "nobody" to "asumu" by asumu@racket-lang.org at Fri, 18 Jan 2013 10:47:34 -0500
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7e679597f1
+State changed from "open" to "closed" by asumu@racket-lang.org at Fri, 18 Jan 2013 10:47:34 -0500
+Reason>>> A commit by asumu@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/7e679597f1
+From: Pierpaolo Bernardi <olopierpa@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eli Barzilay <eli@barzilay.org>, Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Wed, 7 Jan 2015 00:35:07 +0100
+
+ HEADS UP!  A new leap second is coming.  The table in srfi/19 needs updating.
+ 
+ ====
+                                    UTC TIME STEP
+                             on the 1st of July 2015
+ 
+ 
+  A positive leap second will be introduced at the end of June 2015.
+  The sequence of dates of the UTC second markers will be:
+ 
+                           2015 June 30,     23h 59m 59s
+                           2015 June 30,     23h 59m 60s
+                           2015 July  1,      0h  0m  0s
+ 
+  The difference between UTC and the International Atomic Time TAI is:
+ 
+   from 2012 July 1,    0h UTC, to 2015 July 1  0h UTC  : UTC-TAI = - 35s
+   from 2015 July 1,    0h UTC, until further notice    : UTC-TAI = - 36s
+ ====
+ 
+ Cheers
+ P.
+ 
+ 
+ On Fri, Dec 28, 2012 at 5:57 PM, Pierpaolo Bernardi <olopierpa@gmail.com> wrote:
+ > On Thu, Dec 27, 2012 at 11:52 PM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> We could also augment that with a mechanism to let people add new
+ >> leap-seconds, perhaps via a parameter, and have an function that returns a
+ >> value that would fit the parameter by making a network connection. That way
+ >> people don't have to upgrade to easily get the latest leap second data.
+ >
+ > This would be good.
+ >
+ > At the very least we should get a function to check programmatically
+ > if the table is stale or good.
+ >
+ > A procedure for updating it easily, would be a welcome addition.
+ >
+ > And BTW I had missed the most astounding bug in this srfi: time-tai is
+ > not TAI time!
+ > It is seconds since 1970-01-01 (real TAI is seconds since 1958-01-01).
+ >  And this is by design.  Sigh.
+ >
+ > Cheers
+ > P.
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Pierpaolo Bernardi <olopierpa@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Tue, 6 Jan 2015 17:48:44 -0600
+
+ Is this the correct new entry?
+ 
+   (1435726800 . 36) ; 2015-07-01
+ 
+ Robby
+ 
+ On Tue, Jan 6, 2015 at 5:35 PM, Pierpaolo Bernardi <olopierpa@gmail.com> wrote:
+ > HEADS UP!  A new leap second is coming.  The table in srfi/19 needs updating.
+ >
+ > ====
+ >                                    UTC TIME STEP
+ >                             on the 1st of July 2015
+ >
+ >
+ >  A positive leap second will be introduced at the end of June 2015.
+ >  The sequence of dates of the UTC second markers will be:
+ >
+ >                           2015 June 30,     23h 59m 59s
+ >                           2015 June 30,     23h 59m 60s
+ >                           2015 July  1,      0h  0m  0s
+ >
+ >  The difference between UTC and the International Atomic Time TAI is:
+ >
+ >   from 2012 July 1,    0h UTC, to 2015 July 1  0h UTC  : UTC-TAI = - 35s
+ >   from 2015 July 1,    0h UTC, until further notice    : UTC-TAI = - 36s
+ > ====
+ >
+ > Cheers
+ > P.
+ >
+ >
+ > On Fri, Dec 28, 2012 at 5:57 PM, Pierpaolo Bernardi <olopierpa@gmail.com> wrote:
+ >> On Thu, Dec 27, 2012 at 11:52 PM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >>> We could also augment that with a mechanism to let people add new
+ >>> leap-seconds, perhaps via a parameter, and have an function that returns a
+ >>> value that would fit the parameter by making a network connection. That way
+ >>> people don't have to upgrade to easily get the latest leap second data.
+ >>
+ >> This would be good.
+ >>
+ >> At the very least we should get a function to check programmatically
+ >> if the table is stale or good.
+ >>
+ >> A procedure for updating it easily, would be a welcome addition.
+ >>
+ >> And BTW I had missed the most astounding bug in this srfi: time-tai is
+ >> not TAI time!
+ >> It is seconds since 1970-01-01 (real TAI is seconds since 1958-01-01).
+ >>  And this is by design.  Sigh.
+ >>
+ >> Cheers
+ >> P.
+From: Pierpaolo Bernardi <olopierpa@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eli Barzilay <eli@barzilay.org>, Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Wed, 7 Jan 2015 02:50:09 +0100
+
+ On Wed, Jan 7, 2015 at 12:48 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Is this the correct new entry?
+ >
+ >   (1435726800 . 36) ; 2015-07-01
+ 
+ I get 1435708800.  The difference is 5 hours.  Maybe you calculated
+ the number for 00:00 in your local time instead of UTC?
+ 
+ > (define dd (date 0 0 0 1 7 2015 0 0 #f 0))
+ > (date->seconds dd #f)
+ 1435708800
+ 
+ I'll do some reality checking tomorrow... :)
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Pierpaolo Bernardi <olopierpa@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Tue, 6 Jan 2015 19:52:02 -0600
+
+ --001a11c2183e789ce7050c062b45
+ Content-Type: text/plain; charset=UTF-8
+ 
+ Oh right I did! I am glad that I wasn't doing something completely wrong
+ then. :)
+ 
+ I will look forward to the results of your checking.
+ 
+ Thank you!
+ 
+ Robby
+ 
+ On Tuesday, January 6, 2015, Pierpaolo Bernardi <olopierpa@gmail.com> wrote:
+ 
+ > On Wed, Jan 7, 2015 at 12:48 AM, Robby Findler
+ > <robby@eecs.northwestern.edu <javascript:;>> wrote:
+ > > Is this the correct new entry?
+ > >
+ > >   (1435726800 . 36) ; 2015-07-01
+ >
+ > I get 1435708800.  The difference is 5 hours.  Maybe you calculated
+ > the number for 00:00 in your local time instead of UTC?
+ >
+ > > (define dd (date 0 0 0 1 7 2015 0 0 #f 0))
+ > > (date->seconds dd #f)
+ > 1435708800
+ >
+ > I'll do some reality checking tomorrow... :)
+ >
+ 
+ --001a11c2183e789ce7050c062b45
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ Oh right I did! I am glad that I wasn&#39;t doing something completely wron=
+ g then. :)<div><br></div><div>I will look forward to the results of your ch=
+ ecking.=C2=A0</div><div><br></div><div>Thank you!</div><div><br></div><div>=
+ Robby<span></span><br><br>On Tuesday, January 6, 2015, Pierpaolo Bernardi &=
+ lt;<a href=3D"mailto:olopierpa@gmail.com">olopierpa@gmail.com</a>&gt; wrote=
+ :<br><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-le=
+ ft:1px #ccc solid;padding-left:1ex">On Wed, Jan 7, 2015 at 12:48 AM, Robby =
+ Findler<br>
+ &lt;<a href=3D"javascript:;" onclick=3D"_e(event, &#39;cvml&#39;, &#39;robb=
+ y@eecs.northwestern.edu&#39;)">robby@eecs.northwestern.edu</a>&gt; wrote:<b=
+ r>
+ &gt; Is this the correct new entry?<br>
+ &gt;<br>
+ &gt;=C2=A0 =C2=A0(1435726800 . 36) ; 2015-07-01<br>
+ <br>
+ I get 1435708800.=C2=A0 The difference is 5 hours.=C2=A0 Maybe you calculat=
+ ed<br>
+ the number for 00:00 in your local time instead of UTC?<br>
+ <br>
+ &gt; (define dd (date 0 0 0 1 7 2015 0 0 #f 0))<br>
+ &gt; (date-&gt;seconds dd #f)<br>
+ 1435708800<br>
+ <br>
+ I&#39;ll do some reality checking tomorrow... :)<br>
+ </blockquote></div>
+ 
+ --001a11c2183e789ce7050c062b45--
+From: Pierpaolo Bernardi <olopierpa@gmail.com>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Eli Barzilay <eli@barzilay.org>, Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Thu, 8 Jan 2015 23:47:01 +0100
+
+ Sorry for the delay.  I think my previous number (1435708800) is
+ correct, and here's the function I used, for reference:
+ 
+ (require racket/date)
+ 
+ ;; Computes the constant for the leap seconds table of SRFI-19.
+ ;; Year and month are the ones to which the leap second is added.
+ ;; January = 1. Example: for the leap second added to JUNE 2015
+ ;; use (leap-table 2015 6).
+ (define (leap-table year month)
+   (define-values (adj-year next-month)
+     (if (= month 12)
+       (values (add1 year) 1)
+       (values year (add1 month))))
+   (define dd (date 0 0 0 1 next-month adj-year 0 0 #f 0))
+   (date->seconds dd #f))
+ 
+ Cheers
+ P.
+ 
+ 
+ On Wed, Jan 7, 2015 at 2:52 AM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > Oh right I did! I am glad that I wasn't doing something completely wrong
+ > then. :)
+ >
+ > I will look forward to the results of your checking.
+ >
+ > Thank you!
+ >
+ > Robby
+ >
+ >
+ > On Tuesday, January 6, 2015, Pierpaolo Bernardi <olopierpa@gmail.com> wrote:
+ >>
+ >> On Wed, Jan 7, 2015 at 12:48 AM, Robby Findler
+ >> <robby@eecs.northwestern.edu> wrote:
+ >> > Is this the correct new entry?
+ >> >
+ >> >   (1435726800 . 36) ; 2015-07-01
+ >>
+ >> I get 1435708800.  The difference is 5 hours.  Maybe you calculated
+ >> the number for 00:00 in your local time instead of UTC?
+ >>
+ >> > (define dd (date 0 0 0 1 7 2015 0 0 #f 0))
+ >> > (date->seconds dd #f)
+ >> 1435708800
+ >>
+ >> I'll do some reality checking tomorrow... :)
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Pierpaolo Bernardi <olopierpa@gmail.com>
+Cc: Eli Barzilay <eli@barzilay.org>, Neil Toronto <neil.toronto@gmail.com>,
+        bug-notification <bug-notification@racket-lang.org>,
+        nobody <nobody@racket-lang.org>, bugs <bugs@racket-lang.org>
+Subject: Re: [racket-bug] all/13390: Missing leap seconds
+Date: Thu, 8 Jan 2015 19:31:37 -0600
+
+ Thanks! I've updated the srfi with this commit:
+ 
+ https://github.com/racket/srfi/commit/992f0938da0fcf4a762fda2f87c7e51772cd6297
+ 
+ Robby
+ 
+ 
+ On Thu, Jan 8, 2015 at 4:47 PM, Pierpaolo Bernardi <olopierpa@gmail.com> wrote:
+ > Sorry for the delay.  I think my previous number (1435708800) is
+ > correct, and here's the function I used, for reference:
+ >
+ > (require racket/date)
+ >
+ > ;; Computes the constant for the leap seconds table of SRFI-19.
+ > ;; Year and month are the ones to which the leap second is added.
+ > ;; January = 1. Example: for the leap second added to JUNE 2015
+ > ;; use (leap-table 2015 6).
+ > (define (leap-table year month)
+ >   (define-values (adj-year next-month)
+ >     (if (= month 12)
+ >       (values (add1 year) 1)
+ >       (values year (add1 month))))
+ >   (define dd (date 0 0 0 1 next-month adj-year 0 0 #f 0))
+ >   (date->seconds dd #f))
+ >
+ > Cheers
+ > P.
+ >
+ >
+ > On Wed, Jan 7, 2015 at 2:52 AM, Robby Findler
+ > <robby@eecs.northwestern.edu> wrote:
+ >> Oh right I did! I am glad that I wasn't doing something completely wrong
+ >> then. :)
+ >>
+ >> I will look forward to the results of your checking.
+ >>
+ >> Thank you!
+ >>
+ >> Robby
+ >>
+ >>
+ >> On Tuesday, January 6, 2015, Pierpaolo Bernardi <olopierpa@gmail.com> wrote:
+ >>>
+ >>> On Wed, Jan 7, 2015 at 12:48 AM, Robby Findler
+ >>> <robby@eecs.northwestern.edu> wrote:
+ >>> > Is this the correct new entry?
+ >>> >
+ >>> >   (1435726800 . 36) ; 2015-07-01
+ >>>
+ >>> I get 1435708800.  The difference is 5 hours.  Maybe you calculated
+ >>> the number for 00:00 in your local time instead of UTC?
+ >>>
+ >>> > (define dd (date 0 0 0 1 7 2015 0 0 #f 0))
+ >>> > (date->seconds dd #f)
+ >>> 1435708800
+ >>>
+ >>> I'll do some reality checking tomorrow... :)

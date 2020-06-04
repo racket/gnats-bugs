@@ -1,0 +1,136 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jun 12 15:01:04 2008
+Received: from gv-out-0910.google.com (gv-out-0910.google.com [216.239.58.185])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m5CJ0vb6027266
+	for <bugs@bugs.plt-scheme.org>; Thu, 12 Jun 2008 15:00:57 -0400
+Message-Id: <200806121900.m5CJ0qt0027260@champlain.ccs.neu.edu>
+Date: Thu, 12 Jun 2008 15:00:52 -0400
+From: cce@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: Sandbox get-output abuses eval
+
+>Number:         9493
+>Category:       misc
+>Synopsis:       Sandbox get-output abuses eval
+>Class:          sw-bug
+>Responsible:    cce
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jun 12 15:04:01 -0400 2008
+>Last-Modified:  Sat May 09 11:39:57 -0400 2009
+>Originator:     Carl Eastlund
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0.0.1-svn11jun2008
+>Environment:
+macosx "Darwin Kauai.ccs.neu.edu 8.11.0 Darwin Kernel Version 8.11.0: Wed Oct 10 18:26:00 PDT 2007; root:xnu-792.24.17~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 16
+Human Language: english
+(current-memory-use) 77756828
+
+Collections:
+(("/Users/cce/Library/PLT Scheme/4.0.0.1/collects" non-existent-path) ("/Users/cce/plt/trunk/collects" ".svn" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "little-helper" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "sirmail" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tests" "tex2page" "texpict" "trace" "typed-scheme" "version" "waterworld" "web-server" "wxme" "xm!
+ l"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t debug) (default) #()))
+>Description:
+The "get-output" procedure from scheme/sandbox will, if sandbox-output is set to 'string, create a singleton list containing a procedure and pass it to eval.  This has two problems: one, I'm not sure the result of eval is reliably defined on procedures (currently, it treats it as a datum and runs it successfully, but I doubt this is a specified behavior), and two, it runs in the user's language, meaning #%app may not be function application.
+
+However get-output runs the appropriate function, it should specify its own #%app, and probably shouldn't use eval at all.
+>How-To-Repeat:
+Put these files (get-output-bug.ss and quote.ss) in the same directory, then run get-output-bug.ss in DrScheme's Module language.  It will eval '(+ 1 2 3), producing '(+ 1 2 3) (demonstrating that #%app is not application in the quote.ss language), then produce a list containing a procedure as the output instead of a string (demonstrating that get-output is unsuccessful for this language).
+
+;; get-output-bug.ss:
+#lang scheme
+(require scheme/sandbox)
+(define evaluator
+  (parameterize ([sandbox-output 'string])
+    (make-evaluator "quote.ss")))
+(evaluator '(+ 1 2 3))
+(get-output evaluator)
+
+;; quote.ss:
+#lang scheme
+(provide #%module-begin (rename-out [#%datum #%app]))
+>Fix:
+>Audit-Trail:
+From: "Carl Eastlund" <cce@plt-scheme.org>
+To: bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9493: Sandbox get-output abuses eval
+Date: Thu, 12 Jun 2008 16:08:14 -0400
+
+ On Thu, Jun 12, 2008 at 3:04 PM,  <cce@ccs.neu.edu> wrote:
+ > The "get-output" procedure from scheme/sandbox will, if sandbox-output is set to 'string, create a singleton list containing a procedure and pass it to eval.  This has two problems: one, I'm not sure the result of eval is reliably defined on procedures (currently, it treats it as a datum and runs it successfully, but I doubt this is a specified behavior), and two, it runs in the user's language, meaning #%app may not be function application.
+ >
+ > However get-output runs the appropriate function, it should specify its own #%app, and probably shouldn't use eval at all.
+ 
+ Correction: if eval is used, it should specify the appropriate #%datum
+ so that the procedure is evaluated to itself (because, like #%app, the
+ user's language may bind #%datum to something else).
+ 
+ -- 
+ Carl Eastlund
+From: "Carl Eastlund" <cce@plt-scheme.org>
+To: bugs@plt-scheme.org
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>, "Eli Barzilay" <eli@barzilay.org>
+Subject: Re: [plt-bug] all/9493: Sandbox get-output abuses eval
+Date: Thu, 12 Jun 2008 16:55:54 -0400
+
+ CC'ing Matthew and Eli, since you're the two people who show up in
+ 'svn blame' for sandbox.ss.  Here is a diff that seems to fix this
+ bug.  Can one of you verify it?  Thanks.
+ 
+ Index: collects/scheme/sandbox.ss
+ ===================================================================
+ --- collects/scheme/sandbox.ss  (revision 10238)
+ +++ collects/scheme/sandbox.ss  (working copy)
+ @@ -496,7 +496,10 @@
+          (if src
+              (filter (lambda (x) (equal? src (syntax-source x))) uncovered)
+              uncovered))]))
+ -  (define (output-getter p) (if (procedure? p) (user-eval `(,p)) p))
+ +  (define (output-getter p)
+ +    (if (procedure? p)
+ +        (user-eval #`(#%app (quote #,p)))
+ +        p))
+    (define input-putter
+      (case-lambda
+       [() (input-putter input)]
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Carl Eastlund" <cce@plt-scheme.org>
+Cc: bugs@plt-scheme.org, "Eli Barzilay" <eli@barzilay.org>
+Subject: Re: [plt-bug] all/9493: Sandbox get-output abuses eval
+Date: Thu, 12 Jun 2008 17:10:23 -0600
+
+ It looks ok to me.
+ 
+ At Thu, 12 Jun 2008 16:55:54 -0400, "Carl Eastlund" wrote:
+ > CC'ing Matthew and Eli, since you're the two people who show up in
+ > 'svn blame' for sandbox.ss.  Here is a diff that seems to fix this
+ > bug.  Can one of you verify it?  Thanks.
+ > 
+ > Index: collects/scheme/sandbox.ss
+ > ===================================================================
+ > --- collects/scheme/sandbox.ss  (revision 10238)
+ > +++ collects/scheme/sandbox.ss  (working copy)
+ > @@ -496,7 +496,10 @@
+ >          (if src
+ >              (filter (lambda (x) (equal? src (syntax-source x))) uncovered)
+ >              uncovered))]))
+ > -  (define (output-getter p) (if (procedure? p) (user-eval `(,p)) p))
+ > +  (define (output-getter p)
+ > +    (if (procedure? p)
+ > +        (user-eval #`(#%app (quote #,p)))
+ > +        p))
+ >    (define input-putter
+ >      (case-lambda
+ >       [() (input-putter input)]
+
+Responsible changed from "nobody" to "cce" by cce at Fri, 13 Jun 2008 12:18:12 -0400
+Reason>>> I fixed it.
+
+State changed from "open" to "closed" by cce at Fri, 13 Jun 2008 12:18:12 -0400
+Reason>>> Fixed in svn (and sandbox.ss tests ran successfully).
+
+

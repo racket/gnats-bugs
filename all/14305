@@ -1,0 +1,791 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Sun Jan 19 14:22:53 2014
+Received: from mail-oa0-f50.google.com (mail-oa0-f50.google.com [209.85.219.50])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id s0JJMojV000324
+	for <bugs@bugs.plt-scheme.org>; Sun, 19 Jan 2014 14:22:50 -0500
+Message-Id: <201401191922.s0JJMlug000309@winooski.ccs.neu.edu>
+Date: Sun, 19 Jan 2014 14:22:47 -0500
+From: norman@astro.gla.ac.uk
+To: bugs@racket-lang.org
+Subject: date->seconds has unhelpful/asymmetric return value
+
+>Number:         14305
+>Category:       all
+>Synopsis:       date->seconds has unhelpful/asymmetric return value
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Sun Jan 19 14:24:01 -0500 2014
+>Closed-Date:    Fri Jan 24 10:54:05 -0500 2014
+>Last-Modified:  Fri Jan 24 10:54:05 -0500 2014
+>Originator:     Norman Gray
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.6
+>Environment:
+FreeBSD 9.1-RELEASE FreeBSD 9.1-RELEASE amd64
+>Description:
+On FreeBSD, seconds->date and date->seconds are not symmetric, in the sense that composing them is not a no-op:
+
+    Welcome to Racket v5.3.6.
+    > (require racket/date)
+    > (define cs (current-seconds))
+    > cs
+    1390158407
+    > (date->seconds (seconds->date cs))
+    2168577230213185607
+    > ^D
+
+This is not an _error_, because the documentation states only that date->seconds "[f]inds the representation of a date in platform-specific seconds."  However it's certainly inconvenient.
+
+Where I ran into this was while I was writing some transformations on date structures, which are most easily done by swapping the date/time representation back and forth between date structures and seconds.
+
+(I did briefly wonder if these were a count of seconds using the start of the universe as the Epoch (with a capital 'E').  That would admittedly be stylish.  However seconds count above is about four times the age of the universe, so that's probably not the case (well, not unless you're using some extremely non-standard cosmology)).
+
+As noted, this is FreeBSD 9.1, using Racket built from the up-to-date ports tree.
+>How-To-Repeat:
+See above
+>Fix:
+>Audit-Trail:
+From: Norman Gray <norman@astro.gla.ac.uk>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/14305: date->seconds has unhelpful/asymmetric return value
+Date: Mon, 20 Jan 2014 09:07:46 +0000
+
+ Greetings.
+ 
+ 1. There's related unexpected behaviour in find-seconds.  In an attempt to work around this by subtracting off the 'platform-specific seconds' of the (current-seconds) epoch, I tried
+ 
+     >  (find-seconds 0 0 0 1 1 1970)
+     find-seconds: non-existent date (inputs: 0 0 0 1 1 1970)
+ 
+ 2. This workaround isn't warranted by the documentation, by the way.  The phrase 'platform-specific seconds' doesn't completely commit the interface to those seconds being continuous.  Thus representing a date? as, say, (+ second (* minute 100) (* hour 10000) ...) would appear to match the documentation, but prevent much useful arithmetic on the integer that results.
+ 
+ 3. Just to be clear, I'm suggesting a change to the implementation and docs so that the two following properties are guaranteed [given (integer? s) and (date? d) ]
+ 
+ (eq? s (date->seconds (seconds->date s)))
+ (equal? d (seconds->date (date->seconds d)))
+ 
+ (with suitable variants for the alternative calls with local-time? true)
+ 
+ 4. Also, I should clarify (now I come to re-read the problem report) that FreeBSD 9.1-RELEASE includes Racket 5.3, so this is with Racket updated to 5.3.6 post-installation)
+ 
+ All the best,
+ 
+ Norman
+ 
+ 
+ -- 
+ Norman Gray  :  http://nxg.me.uk
+ SUPA School of Physics and Astronomy, University of Glasgow, UK
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Norman Gray <norman@astro.gla.ac.uk>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14305: date->seconds has unhelpful/asymmetric
+ return value
+Date: Mon, 20 Jan 2014 12:04:56 -0600
+
+ --089e015366b4b8e32b04f06abad0
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I think that Racket's hands are a bit tied here because it relies on
+ platform-specific libraries and thus it cannot guarantee anything more than
+ the weakest guarantees of the platform underneath.
+ 
+ That said, you may be able to rely on a retract-like (idempotent) property
+ here for your own programs. That is, do things stabilize if you go around
+ the seconds->date->second rountrip at least once?
+ 
+ As for the guaranteed properties, I don't think that we can guarantee
+ either of those. Racket internally might try this round-tripping in order
+ to do something like the first guarantee, but with = instead of eq?. But
+ again, that'd depend on the underlying libraries giving us that guarantee.
+ 
+ As for the second, that seems unlikely, since date->seconds ignores the
+ year-day and week-day fields.
+ 
+ Robby
+ 
+ 
+ 
+ On Mon, Jan 20, 2014 at 3:07 AM, Norman Gray <norman@astro.gla.ac.uk> wrote:
+ 
+ >
+ > Greetings.
+ >
+ > 1. There's related unexpected behaviour in find-seconds.  In an attempt to
+ > work around this by subtracting off the 'platform-specific seconds' of the
+ > (current-seconds) epoch, I tried
+ >
+ >     >  (find-seconds 0 0 0 1 1 1970)
+ >     find-seconds: non-existent date (inputs: 0 0 0 1 1 1970)
+ >
+ > 2. This workaround isn't warranted by the documentation, by the way.  The
+ > phrase 'platform-specific seconds' doesn't completely commit the interface
+ > to those seconds being continuous.  Thus representing a date? as, say, (+
+ > second (* minute 100) (* hour 10000) ...) would appear to match the
+ > documentation, but prevent much useful arithmetic on the integer that
+ > results.
+ >
+ > 3. Just to be clear, I'm suggesting a change to the implementation and
+ > docs so that the two following properties are guaranteed [given (integer?
+ > s) and (date? d) ]
+ >
+ > (eq? s (date->seconds (seconds->date s)))
+ > (equal? d (seconds->date (date->seconds d)))
+ >
+ > (with suitable variants for the alternative calls with local-time? true)
+ >
+ > 4. Also, I should clarify (now I come to re-read the problem report) that
+ > FreeBSD 9.1-RELEASE includes Racket 5.3, so this is with Racket updated to
+ > 5.3.6 post-installation)
+ >
+ > All the best,
+ >
+ > Norman
+ >
+ >
+ > --
+ > Norman Gray  :  http://nxg.me.uk
+ > SUPA School of Physics and Astronomy, University of Glasgow, UK
+ >
+ >
+ 
+ --089e015366b4b8e32b04f06abad0
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I think that Racket&#39;s hands are a bit tied here becaus=
+ e it relies on platform-specific libraries and thus it cannot guarantee any=
+ thing more than the weakest guarantees of the platform underneath.<div><br>
+ </div><div>That said, you may be able to rely on a retract-like (idempotent=
+ ) property here for your own programs. That is, do things stabilize if you =
+ go around the seconds-&gt;date-&gt;second rountrip at least once?</div>
+ <div><br></div><div>As for the guaranteed properties, I don&#39;t think tha=
+ t we can guarantee either of those. Racket internally might try this round-=
+ tripping in order to do something like the first guarantee, but with =3D in=
+ stead of eq?. But again, that&#39;d depend on the underlying libraries givi=
+ ng us that guarantee.</div>
+ <div><br></div><div>As for the second, that seems unlikely, since date-&gt;=
+ seconds ignores the year-day and week-day fields.</div><div><br></div><div>=
+ Robby</div><div><br></div></div><div class=3D"gmail_extra"><br><br><div cla=
+ ss=3D"gmail_quote">
+ On Mon, Jan 20, 2014 at 3:07 AM, Norman Gray <span dir=3D"ltr">&lt;<a href=
+ =3D"mailto:norman@astro.gla.ac.uk" target=3D"_blank">norman@astro.gla.ac.uk=
+ </a>&gt;</span> wrote:<br><blockquote class=3D"gmail_quote" style=3D"margin=
+ :0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex">
+ <br>
+ Greetings.<br>
+ <br>
+ 1. There&#39;s related unexpected behaviour in find-seconds. =C2=A0In an at=
+ tempt to work around this by subtracting off the &#39;platform-specific sec=
+ onds&#39; of the (current-seconds) epoch, I tried<br>
+ <br>
+ =C2=A0 =C2=A0 &gt; =C2=A0(find-seconds 0 0 0 1 1 1970)<br>
+ =C2=A0 =C2=A0 find-seconds: non-existent date (inputs: 0 0 0 1 1 1970)<br>
+ <br>
+ 2. This workaround isn&#39;t warranted by the documentation, by the way. =
+ =C2=A0The phrase &#39;platform-specific seconds&#39; doesn&#39;t completely=
+  commit the interface to those seconds being continuous. =C2=A0Thus represe=
+ nting a date? as, say, (+ second (* minute 100) (* hour 10000) ...) would a=
+ ppear to match the documentation, but prevent much useful arithmetic on the=
+  integer that results.<br>
+ 
+ <br>
+ 3. Just to be clear, I&#39;m suggesting a change to the implementation and =
+ docs so that the two following properties are guaranteed [given (integer? s=
+ ) and (date? d) ]<br>
+ <br>
+ (eq? s (date-&gt;seconds (seconds-&gt;date s)))<br>
+ (equal? d (seconds-&gt;date (date-&gt;seconds d)))<br>
+ <br>
+ (with suitable variants for the alternative calls with local-time? true)<br=
+ >
+ <br>
+ 4. Also, I should clarify (now I come to re-read the problem report) that F=
+ reeBSD 9.1-RELEASE includes Racket 5.3, so this is with Racket updated to 5=
+ .3.6 post-installation)<br>
+ <br>
+ All the best,<br>
+ <br>
+ Norman<br>
+ <span class=3D"HOEnZb"><font color=3D"#888888"><br>
+ <br>
+ --<br>
+ Norman Gray =C2=A0: =C2=A0<a href=3D"http://nxg.me.uk" target=3D"_blank">ht=
+ tp://nxg.me.uk</a><br>
+ SUPA School of Physics and Astronomy, University of Glasgow, UK<br>
+ <br>
+ </font></span></blockquote></div><br></div>
+ 
+ --089e015366b4b8e32b04f06abad0--
+From: Norman Gray <norman@astro.gla.ac.uk>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14305: date->seconds has unhelpful/asymmetric return value
+Date: Tue, 21 Jan 2014 21:56:21 +0000
+
+ Robby, hello.
+ 
+ On 2014 Jan 20, at 18:04, Robby Findler <robby@eecs.northwestern.edu> wrote:
+ 
+ > I think that Racket's hands are a bit tied here because it relies on
+ > platform-specific libraries and thus it cannot guarantee anything more than
+ > the weakest guarantees of the platform underneath.
+ 
+ Ah right; fair enough.
+ 
+ But....
+ 
+ > That said, you may be able to rely on a retract-like (idempotent) property
+ > here for your own programs. That is, do things stabilize if you go around
+ > the seconds->date->second rountrip at least once?
+ 
+ Things do appear to stabilise, yes.  However there's still something funny going on, and it might be related to the find-seconds curiosity I mentioned only in passing at the beginning of the report.
+ 
+     % racket
+     Welcome to Racket v5.3.6.
+     > (require racket/date)
+     > (define cs (current-seconds))
+     > (define cd (seconds->date cs))
+     > cd
+     (date* 44 59 20 21 1 2014 2 20 #f 0 0 "GMT")
+ 
+ Good.  Now let's do some arithmetic, and advance the time an hour
+ 
+     > (seconds->date (+ (date->seconds cd) 3600))
+     (date* 44 59 21 21 1 2014 6 20 #f 0 0 "GMT")
+ 
+ Good.  Now let's force that to be in UTC by setting the local-time? flags to #f
+ 
+     > (seconds->date (+ (date->seconds cd #f) 3600) #f)
+     find-seconds: non-existent date (inputs: 44 59 20 21 1 2014)
+ 
+ Ooops.  Is this the fault of find-seconds ?
+ 
+     > (find-seconds 44 59 20 21 1 2014)
+     2168577230213365184
+     > (find-seconds 44 59 20 21 1 2014 #f)
+     find-seconds: non-existent date (inputs: 44 59 20 21 1 2014)
+ 
+ It might be.  Any other peculiarities?
+ 
+     > (find-seconds 0 0 0 1 1 1970)
+     find-seconds: non-existent date (inputs: 0 0 0 1 1 1970)
+     > 
+ 
+ That's not right.  And a second later (so not on the '0' boundary) doesn't work either:
+ 
+     > (find-seconds 1 0 0 1 1 1970)
+     find-seconds: non-existent date (inputs: 1 0 0 1 1 1970)
+ 
+ Hmm:
+ 
+     > (seconds->date 0)
+     (date* 0 0 1 1 1 1970 4 0 #f 3600 0 "BST")
+ 
+ Odd: the first of January isn't/wasn't summer time (but this may be a curiosity of the (proleptic?) timezone files).  Forcing it to UTC:
+ 
+     > (seconds->date 0 #f)
+     (date* 0 0 0 1 1 1970 4 0 #f 0 0 "UTC")
+     > 
+ 
+ So that much is OK, but it's odd that find-seconds doesn't work for this set of (ss mm dd d m y).
+ 
+ > As for the guaranteed properties, I don't think that we can guarantee
+ > either of those. Racket internally might try this round-tripping in order
+ > to do something like the first guarantee, but with = instead of eq?. But
+ > again, that'd depend on the underlying libraries giving us that guarantee.
+ > 
+ > As for the second, that seems unlikely, since date->seconds ignores the
+ > year-day and week-day fields.
+ 
+ Ah, of course -- there's redundant information in the date structure, such as timezone offsets.  In that case the desirable guarantee would be that the initial and resulting date? structures represent the same time instant; that could be checked by a further date->seconds conversion.
+ 
+ I take your general point about the reliance on the underlying library.  However I'm not clear that this is the complete explanation here.  On FreeBSD, gettimeofday(2) appears to represent time as seconds and microseconds since 1970-01-01T00:00:00, as conventional, but this is clearly not the seconds count which results from date->seconds.  I'm not discounting your explanation, but this does look fishy, and in combination with the find-seconds oddness above, I'm wondering if it's pointing towards something else being wrong.
+ 
+ Is it even possible to guarantee that the 'platform seconds' are continuous, in the sense that adding a count of seconds to a 'platform seconds' number gives a valid 'platform seconds' value (ie, one that corresponds to a valid datetime)?
+ 
+ I notice that the difference between current-seconds and the round-tripped version is a round-ish number:
+ 
+     > (format "~x" (- (date->seconds (seconds->date cs)) cs))
+     "1e18557fffff5e00"
+ 
+ Is extra information being smuggled into this integer?  I had a look at find-seconds in <http://git.racket-lang.org/plt/blob/HEAD:/racket/collects/racket/date.rkt>, but I'm afraid nothing leapt out at me.
+ 
+ I also notice that the error I get from find-seconds above is different from the one I'd expect to get from the definition in the git repository (which reports nearest above/below in its search).  I can see a couple of possibly-relevant changes in <http://git.racket-lang.org/plt/commitdiff/4bc24a1117f217b4732002917c4a3733634f6cca>.  If so, it's possible that this problem has disappeared with recent changes to this function.  In that case, I may have just suggested a couple of new unit tests....
+ 
+ Best wishes,
+ 
+ Norman
+ 
+ 
+ -- 
+ Norman Gray  :  http://nxg.me.uk
+ SUPA School of Physics and Astronomy, University of Glasgow, UK
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Norman Gray <norman@astro.gla.ac.uk>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14305: date->seconds has unhelpful/asymmetric
+ return value
+Date: Tue, 21 Jan 2014 16:03:11 -0600
+
+ --047d7b2e4d5894450f04f0822cca
+ Content-Type: text/plain; charset=UTF-8
+ 
+ There may well be a problem with the way Racket interfaces with the OS that
+ has that extra offset in it (1e18557fffff5e00), and I'm not really in a
+ position to investigate further (if you are, that would be most welcome!!)
+ 
+ But as for find-seconds, I think the problem is that probably that time
+ just didn't exist. Common reasons that times don't exist is because they
+ are in leap years. One uncommon problem that someone once reported as a bug
+ was that a country had adjusted its clock due to a revolution (or
+ something; I'm a bit foggy on the details).
+ 
+ Robby
+ 
+ 
+ 
+ On Tue, Jan 21, 2014 at 3:56 PM, Norman Gray <norman@astro.gla.ac.uk> wrote:
+ >
+ >
+ > Robby, hello.
+ >
+ > On 2014 Jan 20, at 18:04, Robby Findler <robby@eecs.northwestern.edu>
+ wrote:
+ >
+ > > I think that Racket's hands are a bit tied here because it relies on
+ > > platform-specific libraries and thus it cannot guarantee anything more
+ than
+ > > the weakest guarantees of the platform underneath.
+ >
+ > Ah right; fair enough.
+ >
+ > But....
+ >
+ > > That said, you may be able to rely on a retract-like (idempotent)
+ property
+ > > here for your own programs. That is, do things stabilize if you go
+ around
+ > > the seconds->date->second rountrip at least once?
+ >
+ > Things do appear to stabilise, yes.  However there's still something
+ funny going on, and it might be related to the find-seconds curiosity I
+ mentioned only in passing at the beginning of the report.
+ >
+ >     % racket
+ >     Welcome to Racket v5.3.6.
+ >     > (require racket/date)
+ >     > (define cs (current-seconds))
+ >     > (define cd (seconds->date cs))
+ >     > cd
+ >     (date* 44 59 20 21 1 2014 2 20 #f 0 0 "GMT")
+ >
+ > Good.  Now let's do some arithmetic, and advance the time an hour
+ >
+ >     > (seconds->date (+ (date->seconds cd) 3600))
+ >     (date* 44 59 21 21 1 2014 6 20 #f 0 0 "GMT")
+ >
+ > Good.  Now let's force that to be in UTC by setting the local-time? flags
+ to #f
+ >
+ >     > (seconds->date (+ (date->seconds cd #f) 3600) #f)
+ >     find-seconds: non-existent date (inputs: 44 59 20 21 1 2014)
+ >
+ > Ooops.  Is this the fault of find-seconds ?
+ >
+ >     > (find-seconds 44 59 20 21 1 2014)
+ >     2168577230213365184
+ >     > (find-seconds 44 59 20 21 1 2014 #f)
+ >     find-seconds: non-existent date (inputs: 44 59 20 21 1 2014)
+ >
+ > It might be.  Any other peculiarities?
+ >
+ >     > (find-seconds 0 0 0 1 1 1970)
+ >     find-seconds: non-existent date (inputs: 0 0 0 1 1 1970)
+ >     >
+ >
+ > That's not right.  And a second later (so not on the '0' boundary)
+ doesn't work either:
+ >
+ >     > (find-seconds 1 0 0 1 1 1970)
+ >     find-seconds: non-existent date (inputs: 1 0 0 1 1 1970)
+ >
+ > Hmm:
+ >
+ >     > (seconds->date 0)
+ >     (date* 0 0 1 1 1 1970 4 0 #f 3600 0 "BST")
+ >
+ > Odd: the first of January isn't/wasn't summer time (but this may be a
+ curiosity of the (proleptic?) timezone files).  Forcing it to UTC:
+ >
+ >     > (seconds->date 0 #f)
+ >     (date* 0 0 0 1 1 1970 4 0 #f 0 0 "UTC")
+ >     >
+ >
+ > So that much is OK, but it's odd that find-seconds doesn't work for this
+ set of (ss mm dd d m y).
+ >
+ > > As for the guaranteed properties, I don't think that we can guarantee
+ > > either of those. Racket internally might try this round-tripping in
+ order
+ > > to do something like the first guarantee, but with = instead of eq?. But
+ > > again, that'd depend on the underlying libraries giving us that
+ guarantee.
+ > >
+ > > As for the second, that seems unlikely, since date->seconds ignores the
+ > > year-day and week-day fields.
+ >
+ > Ah, of course -- there's redundant information in the date structure,
+ such as timezone offsets.  In that case the desirable guarantee would be
+ that the initial and resulting date? structures represent the same time
+ instant; that could be checked by a further date->seconds conversion.
+ >
+ > I take your general point about the reliance on the underlying library.
+  However I'm not clear that this is the complete explanation here.  On
+ FreeBSD, gettimeofday(2) appears to represent time as seconds and
+ microseconds since 1970-01-01T00:00:00, as conventional, but this is
+ clearly not the seconds count which results from date->seconds.  I'm not
+ discounting your explanation, but this does look fishy, and in combination
+ with the find-seconds oddness above, I'm wondering if it's pointing towards
+ something else being wrong.
+ >
+ > Is it even possible to guarantee that the 'platform seconds' are
+ continuous, in the sense that adding a count of seconds to a 'platform
+ seconds' number gives a valid 'platform seconds' value (ie, one that
+ corresponds to a valid datetime)?
+ >
+ > I notice that the difference between current-seconds and the
+ round-tripped version is a round-ish number:
+ >
+ >     > (format "~x" (- (date->seconds (seconds->date cs)) cs))
+ >     "1e18557fffff5e00"
+ >
+ > Is extra information being smuggled into this integer?  I had a look at
+ find-seconds in <
+ http://git.racket-lang.org/plt/blob/HEAD:/racket/collects/racket/date.rkt>,
+ but I'm afraid nothing leapt out at me.
+ >
+ > I also notice that the error I get from find-seconds above is different
+ from the one I'd expect to get from the definition in the git repository
+ (which reports nearest above/below in its search).  I can see a couple of
+ possibly-relevant changes in <
+ http://git.racket-lang.org/plt/commitdiff/4bc24a1117f217b4732002917c4a3733634f6cca>.
+  If so, it's possible that this problem has disappeared with recent changes
+ to this function.  In that case, I may have just suggested a couple of new
+ unit tests....
+ >
+ > Best wishes,
+ >
+ > Norman
+ >
+ >
+ > --
+ > Norman Gray  :  http://nxg.me.uk
+ > SUPA School of Physics and Astronomy, University of Glasgow, UK
+ >
+ 
+ --047d7b2e4d5894450f04f0822cca
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">There may well be a problem with the way Racket interfaces=
+  with the OS that has that extra offset in it (1e18557fffff5e00), and I&#39=
+ ;m not really in a position to investigate further (if you are, that would =
+ be most welcome!!)<br>
+ <br>But as for find-seconds, I think the problem is that probably that time=
+  just didn&#39;t exist. Common reasons that times don&#39;t exist is becaus=
+ e they are in leap years. One uncommon problem that someone once reported a=
+ s a bug was that a country had adjusted its clock due to a revolution (or s=
+ omething; I&#39;m a bit foggy on the details).<br>
+ <br>Robby<br><br><br><br>On Tue, Jan 21, 2014 at 3:56 PM, Norman Gray &lt;<=
+ a href=3D"mailto:norman@astro.gla.ac.uk">norman@astro.gla.ac.uk</a>&gt; wro=
+ te:<br>&gt;<br>&gt;<br>&gt; Robby, hello.<br>&gt;<br>&gt; On 2014 Jan 20, a=
+ t 18:04, Robby Findler &lt;<a href=3D"mailto:robby@eecs.northwestern.edu">r=
+ obby@eecs.northwestern.edu</a>&gt; wrote:<br>
+ &gt;<br>&gt; &gt; I think that Racket&#39;s hands are a bit tied here becau=
+ se it relies on<br>&gt; &gt; platform-specific libraries and thus it cannot=
+  guarantee anything more than<br>&gt; &gt; the weakest guarantees of the pl=
+ atform underneath.<br>
+ &gt;<br>&gt; Ah right; fair enough.<br>&gt;<br>&gt; But....<br>&gt;<br>&gt;=
+  &gt; That said, you may be able to rely on a retract-like (idempotent) pro=
+ perty<br>&gt; &gt; here for your own programs. That is, do things stabilize=
+  if you go around<br>
+ &gt; &gt; the seconds-&gt;date-&gt;second rountrip at least once?<br>&gt;<b=
+ r>&gt; Things do appear to stabilise, yes. =C2=A0However there&#39;s still =
+ something funny going on, and it might be related to the find-seconds curio=
+ sity I mentioned only in passing at the beginning of the report.<br>
+ &gt;<br>&gt; =C2=A0 =C2=A0 % racket<br>&gt; =C2=A0 =C2=A0 Welcome to Racket=
+  v5.3.6.<br>&gt; =C2=A0 =C2=A0 &gt; (require racket/date)<br>&gt; =C2=A0 =
+ =C2=A0 &gt; (define cs (current-seconds))<br>&gt; =C2=A0 =C2=A0 &gt; (defin=
+ e cd (seconds-&gt;date cs))<br>&gt; =C2=A0 =C2=A0 &gt; cd<br>
+ &gt; =C2=A0 =C2=A0 (date* 44 59 20 21 1 2014 2 20 #f 0 0 &quot;GMT&quot;)<b=
+ r>&gt;<br>&gt; Good. =C2=A0Now let&#39;s do some arithmetic, and advance th=
+ e time an hour<br>&gt;<br>&gt; =C2=A0 =C2=A0 &gt; (seconds-&gt;date (+ (dat=
+ e-&gt;seconds cd) 3600))<br>
+ &gt; =C2=A0 =C2=A0 (date* 44 59 21 21 1 2014 6 20 #f 0 0 &quot;GMT&quot;)<b=
+ r>&gt;<br>&gt; Good. =C2=A0Now let&#39;s force that to be in UTC by setting=
+  the local-time? flags to #f<br>&gt;<br>&gt; =C2=A0 =C2=A0 &gt; (seconds-&g=
+ t;date (+ (date-&gt;seconds cd #f) 3600) #f)<br>
+ &gt; =C2=A0 =C2=A0 find-seconds: non-existent date (inputs: 44 59 20 21 1 2=
+ 014)<br>&gt;<br>&gt; Ooops. =C2=A0Is this the fault of find-seconds ?<br>&g=
+ t;<br>&gt; =C2=A0 =C2=A0 &gt; (find-seconds 44 59 20 21 1 2014)<br>&gt; =C2=
+ =A0 =C2=A0 2168577230213365184<br>
+ &gt; =C2=A0 =C2=A0 &gt; (find-seconds 44 59 20 21 1 2014 #f)<br>&gt; =C2=A0=
+  =C2=A0 find-seconds: non-existent date (inputs: 44 59 20 21 1 2014)<br>&gt=
+ ;<br>&gt; It might be. =C2=A0Any other peculiarities?<br>&gt;<br>&gt; =C2=
+ =A0 =C2=A0 &gt; (find-seconds 0 0 0 1 1 1970)<br>
+ &gt; =C2=A0 =C2=A0 find-seconds: non-existent date (inputs: 0 0 0 1 1 1970)=
+ <br>&gt; =C2=A0 =C2=A0 &gt;<br>&gt;<br>&gt; That&#39;s not right. =C2=A0And=
+  a second later (so not on the &#39;0&#39; boundary) doesn&#39;t work eithe=
+ r:<br>&gt;<br>&gt; =C2=A0 =C2=A0 &gt; (find-seconds 1 0 0 1 1 1970)<br>
+ &gt; =C2=A0 =C2=A0 find-seconds: non-existent date (inputs: 1 0 0 1 1 1970)=
+ <br>&gt;<br>&gt; Hmm:<br>&gt;<br>&gt; =C2=A0 =C2=A0 &gt; (seconds-&gt;date =
+ 0)<br>&gt; =C2=A0 =C2=A0 (date* 0 0 1 1 1 1970 4 0 #f 3600 0 &quot;BST&quot=
+ ;)<br>&gt;<br>&gt; Odd: the first of January isn&#39;t/wasn&#39;t summer ti=
+ me (but this may be a curiosity of the (proleptic?) timezone files). =C2=A0=
+ Forcing it to UTC:<br>
+ &gt;<br>&gt; =C2=A0 =C2=A0 &gt; (seconds-&gt;date 0 #f)<br>&gt; =C2=A0 =C2=
+ =A0 (date* 0 0 0 1 1 1970 4 0 #f 0 0 &quot;UTC&quot;)<br>&gt; =C2=A0 =C2=A0=
+  &gt;<br>&gt;<br>&gt; So that much is OK, but it&#39;s odd that find-second=
+ s doesn&#39;t work for this set of (ss mm dd d m y).<br>
+ &gt;<br>&gt; &gt; As for the guaranteed properties, I don&#39;t think that =
+ we can guarantee<br>&gt; &gt; either of those. Racket internally might try =
+ this round-tripping in order<br>&gt; &gt; to do something like the first gu=
+ arantee, but with =3D instead of eq?. But<br>
+ &gt; &gt; again, that&#39;d depend on the underlying libraries giving us th=
+ at guarantee.<br>&gt; &gt;<br>&gt; &gt; As for the second, that seems unlik=
+ ely, since date-&gt;seconds ignores the<br>&gt; &gt; year-day and week-day =
+ fields.<br>
+ &gt;<br>&gt; Ah, of course -- there&#39;s redundant information in the date=
+  structure, such as timezone offsets. =C2=A0In that case the desirable guar=
+ antee would be that the initial and resulting date? structures represent th=
+ e same time instant; that could be checked by a further date-&gt;seconds co=
+ nversion.<br>
+ &gt;<br>&gt; I take your general point about the reliance on the underlying=
+  library. =C2=A0However I&#39;m not clear that this is the complete explana=
+ tion here. =C2=A0On FreeBSD, gettimeofday(2) appears to represent time as s=
+ econds and microseconds since 1970-01-01T00:00:00, as conventional, but thi=
+ s is clearly not the seconds count which results from date-&gt;seconds. =C2=
+ =A0I&#39;m not discounting your explanation, but this does look fishy, and =
+ in combination with the find-seconds oddness above, I&#39;m wondering if it=
+ &#39;s pointing towards something else being wrong.<br>
+ &gt;<br>&gt; Is it even possible to guarantee that the &#39;platform second=
+ s&#39; are continuous, in the sense that adding a count of seconds to a &#3=
+ 9;platform seconds&#39; number gives a valid &#39;platform seconds&#39; val=
+ ue (ie, one that corresponds to a valid datetime)?<br>
+ &gt;<br>&gt; I notice that the difference between current-seconds and the r=
+ ound-tripped version is a round-ish number:<br>&gt;<br>&gt; =C2=A0 =C2=A0 &=
+ gt; (format &quot;~x&quot; (- (date-&gt;seconds (seconds-&gt;date cs)) cs))=
+ <br>&gt; =C2=A0 =C2=A0 &quot;1e18557fffff5e00&quot;<br>
+ &gt;<br>&gt; Is extra information being smuggled into this integer? =C2=A0I=
+  had a look at find-seconds in &lt;<a href=3D"http://git.racket-lang.org/pl=
+ t/blob/HEAD:/racket/collects/racket/date.rkt">http://git.racket-lang.org/pl=
+ t/blob/HEAD:/racket/collects/racket/date.rkt</a>&gt;, but I&#39;m afraid no=
+ thing leapt out at me.<br>
+ &gt;<br>&gt; I also notice that the error I get from find-seconds above is =
+ different from the one I&#39;d expect to get from the definition in the git=
+  repository (which reports nearest above/below in its search). =C2=A0I can =
+ see a couple of possibly-relevant changes in &lt;<a href=3D"http://git.rack=
+ et-lang.org/plt/commitdiff/4bc24a1117f217b4732002917c4a3733634f6cca">http:/=
+ /git.racket-lang.org/plt/commitdiff/4bc24a1117f217b4732002917c4a3733634f6cc=
+ a</a>&gt;. =C2=A0If so, it&#39;s possible that this problem has disappeared=
+  with recent changes to this function. =C2=A0In that case, I may have just =
+ suggested a couple of new unit tests....<br>
+ &gt;<br>&gt; Best wishes,<br>&gt;<br>&gt; Norman<br>&gt;<br>&gt;<br>&gt; --=
+ <br>&gt; Norman Gray =C2=A0: =C2=A0<a href=3D"http://nxg.me.uk">http://nxg.=
+ me.uk</a><br>&gt; SUPA School of Physics and Astronomy, University of Glasg=
+ ow, UK<br>
+ &gt;<br></div>
+ 
+ --047d7b2e4d5894450f04f0822cca--
+From: Norman Gray <norman@astro.gla.ac.uk>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14305: date->seconds has unhelpful/asymmetric return value
+Date: Tue, 21 Jan 2014 22:45:42 +0000
+
+ Robby, hello.
+ 
+ On 2014 Jan 21, at 22:03, Robby Findler <robby@eecs.northwestern.edu> wrote:
+ 
+ > There may well be a problem with the way Racket interfaces with the OS that
+ > has that extra offset in it (1e18557fffff5e00), and I'm not really in a
+ > position to investigate further (if you are, that would be most welcome!!)
+ 
+ I'll take a look if I have some urgent procrastination to do!
+ 
+ (The way that find-seconds seems to work -- doing a binary search rather than just calculating the seconds count -- is sufficiently different from how I'd expect it to work that I'm a bit scared of going near it as it reeks of edge-cases-I-hadn't-thought-about; hmm: clever....)
+ 
+ > But as for find-seconds, I think the problem is that probably that time
+ > just didn't exist. Common reasons that times don't exist is because they
+ > are in leap years. One uncommon problem that someone once reported as a bug
+ > was that a country had adjusted its clock due to a revolution (or
+ > something; I'm a bit foggy on the details).
+ 
+ Well, the time in question is 0:00 on 1 January 1970, with no timezone environment variables set; so nothing exotic.
+ 
+ Also the fact that (find-seconds 44 59 20 21 1 2014 #f) has a different result from the call without the trailing #f suggests something unexpected happening.
+ 
+ You're perhaps thinking of <http://bugs.racket-lang.org/query/?cmd=view&pr=13945>
+ 
+ All the best,
+ 
+ Norman
+ 
+ 
+ -- 
+ Norman Gray  :  http://nxg.me.uk
+ SUPA School of Physics and Astronomy, University of Glasgow, UK
+ 
+ 
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Norman Gray <norman@astro.gla.ac.uk>
+Cc: bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/14305: date->seconds has unhelpful/asymmetric
+ return value
+Date: Tue, 21 Jan 2014 16:53:44 -0600
+
+ --089e0116059c633aa004f082e117
+ Content-Type: text/plain; charset=UTF-8
+ 
+ On Tue, Jan 21, 2014 at 4:45 PM, Norman Gray <norman@astro.gla.ac.uk> wrote:
+ 
+ >
+ > Robby, hello.
+ >
+ > On 2014 Jan 21, at 22:03, Robby Findler <robby@eecs.northwestern.edu>
+ > wrote:
+ >
+ > > There may well be a problem with the way Racket interfaces with the OS
+ > that
+ > > has that extra offset in it (1e18557fffff5e00), and I'm not really in a
+ > > position to investigate further (if you are, that would be most
+ > welcome!!)
+ >
+ > I'll take a look if I have some urgent procrastination to do!
+ >
+ >
+ :)
+ 
+ 
+ > (The way that find-seconds seems to work -- doing a binary search rather
+ > than just calculating the seconds count -- is sufficiently different from
+ > how I'd expect it to work that I'm a bit scared of going near it as it
+ > reeks of edge-cases-I-hadn't-thought-about; hmm: clever....)
+ >
+ > > But as for find-seconds, I think the problem is that probably that time
+ > > just didn't exist. Common reasons that times don't exist is because they
+ > > are in leap years. One uncommon problem that someone once reported as a
+ > bug
+ > > was that a country had adjusted its clock due to a revolution (or
+ > > something; I'm a bit foggy on the details).
+ >
+ > Well, the time in question is 0:00 on 1 January 1970, with no timezone
+ > environment variables set; so nothing exotic.
+ >
+ >
+ Do you know what the correct result should be? That is, is there a call to
+ seconds->date that would produce a date record that matches the arguments
+ given to find-seconds?
+ 
+ 
+ > Also the fact that (find-seconds 44 59 20 21 1 2014 #f) has a different
+ > result from the call without the trailing #f suggests something unexpected
+ > happening.
+ >
+ >
+ That would change this to a different time. One that might not exist.
+ 
+ Sorry I don't have any traction to look into this myself.
+ 
+ Robby
+ 
+ --089e0116059c633aa004f082e117
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><br><div class=3D"gmail_extra"><br><br><div class=3D"gmail=
+ _quote">On Tue, Jan 21, 2014 at 4:45 PM, Norman Gray <span dir=3D"ltr">&lt;=
+ <a href=3D"mailto:norman@astro.gla.ac.uk" target=3D"_blank">norman@astro.gl=
+ a.ac.uk</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex"><br>
+ Robby, hello.<br>
+ <div class=3D"im"><br>
+ On 2014 Jan 21, at 22:03, Robby Findler &lt;<a href=3D"mailto:robby@eecs.no=
+ rthwestern.edu">robby@eecs.northwestern.edu</a>&gt; wrote:<br>
+ <br>
+ &gt; There may well be a problem with the way Racket interfaces with the OS=
+  that<br>
+ &gt; has that extra offset in it (1e18557fffff5e00), and I&#39;m not really=
+  in a<br>
+ &gt; position to investigate further (if you are, that would be most welcom=
+ e!!)<br>
+ <br>
+ </div>I&#39;ll take a look if I have some urgent procrastination to do!<br>
+ <br></blockquote><div><br></div><div>:)</div><div>=C2=A0</div><blockquote c=
+ lass=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1px #ccc solid;=
+ padding-left:1ex">
+ (The way that find-seconds seems to work -- doing a binary search rather th=
+ an just calculating the seconds count -- is sufficiently different from how=
+  I&#39;d expect it to work that I&#39;m a bit scared of going near it as it=
+  reeks of edge-cases-I-hadn&#39;t-thought-about; hmm: clever....)<br>
+ 
+ <div class=3D"im"><br>
+ &gt; But as for find-seconds, I think the problem is that probably that tim=
+ e<br>
+ &gt; just didn&#39;t exist. Common reasons that times don&#39;t exist is be=
+ cause they<br>
+ &gt; are in leap years. One uncommon problem that someone once reported as =
+ a bug<br>
+ &gt; was that a country had adjusted its clock due to a revolution (or<br>
+ &gt; something; I&#39;m a bit foggy on the details).<br>
+ <br>
+ </div>Well, the time in question is 0:00 on 1 January 1970, with no timezon=
+ e environment variables set; so nothing exotic.<br>
+ <br></blockquote><div><br></div><div>Do you know what the correct result sh=
+ ould be? That is, is there a call to seconds-&gt;date that would produce a =
+ date record that matches the arguments given to find-seconds?</div><div>
+ =C2=A0</div><blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;bo=
+ rder-left:1px #ccc solid;padding-left:1ex">
+ Also the fact that (find-seconds 44 59 20 21 1 2014 #f) has a different res=
+ ult from the call without the trailing #f suggests something unexpected hap=
+ pening.<br>
+ <br></blockquote><div><br></div><div>That would change this to a different =
+ time. One that might not exist.</div><div><br></div><div>Sorry I don&#39;t =
+ have any traction to look into this myself.</div><div><br></div><div>Robby<=
+ /div>
+ <div><br></div></div></div></div>
+ 
+ --089e0116059c633aa004f082e117--
+Responsible changed from "nobody" to "mflatt" by mflatt@racket-lang.org at Fri, 24 Jan 2014 10:54:05 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/81ef1c876b
+State changed from "open" to "closed" by mflatt@racket-lang.org at Fri, 24 Jan 2014 10:54:05 -0500
+Reason>>> A commit by mflatt@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/81ef1c876b
+  | on BSDs, avoid `seconds->date` conversion that won't fit
+  | 
+  | On FreeBSD and related systems, calling localtime() on an out-of-range
+  | value (e.g., where the year doesn't fit in 32 bits) still returns a
+  | tm pointer, instead or returning NULL for an error. To avoid this
+  | problem, restrict the argument to 51 bits (which seems like a lot
+  | of bits, but is still confortably away from the overflow point).
+  | 
+  | Closes PR 14305
+

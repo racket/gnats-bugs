@@ -1,0 +1,259 @@
+From wschudy@wpi.edu  Thu Mar 27 18:53:20 2003
+Received: from localhost (IDENT:root@localhost.localdomain [127.0.0.1])
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) with ESMTP id SAA11217
+	for <bugs>; Thu, 27 Mar 2003 18:53:20 -0500
+Message-Id: <200303272353.SAA11217@champlain.ccs.neu.edu>
+Date: Thu, 27 Mar 2003 18:53:20 -0500
+From: Warren Schudy <wschudy@wpi.edu>
+To: bugs@plt-scheme.org
+Subject: MzLib Process.ss (system command-str) fails to close pipes
+
+>Number:         6175
+>Category:       mzscheme
+>Synopsis:       MzLib Process.ss (system command-str) fails to close pipes
+>Class:          sw-bug
+>Responsible:    steck
+>Severity:       serious
+>Priority:       low
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Mar 27 18:55:00 -0500 2003
+>Closed-Date:    Tue Apr 01 13:35:20 -0500 2003
+>Last-Modified:  Mon May 05 16:09:58 -0400 2008
+>Originator:     Warren Schudy
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        201
+>Environment:
+unix "Linux ccc8 2.4.18-24.7.xsmp #1 SMP Fri Jan 31 06:10:55 EST 2003 i686 unknown" (i386-linux)
+
+Docs Installed:
+("help" "mzscheme" "mzlib" "mzc" "r5rs" "icons" "drscheme" "teachpack" "misclib" "framework" "mred" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "tex2page" "tools" "tour" "t-y-scheme")
+
+Collections:
+(("/usr/local/plt/collects" ("browser" "compiler" "defaults" "drscheme" "dynext" "errortrace" "framework" "games" "graphics" "help" "hierlist" "htdp" "html" "icons" "lang" "launcher" "make" "mred" "mzlib" "mzscheme" "net" "setup" "stepper" "string-constants" "syntax" "parser-tools" "xml" "slibinit" "afm" "version" "eopl" "web-server" "tex2page" "doc" "cs173")))
+
+Human Language: english
+>Description:
+MzLib's Process.ss includes a function "system" that runs a shell to execute a command. System does not appear to close all the pipes properly, leading to a "too many open files" error when doing many "system" calls in a row. I am using DrScheme 201 for Linux.
+
+I made a copy of process.ss and fixed the problem by adding "(close-input-port out)" immediately after the call to copy-port in the function streamify-out. A dynamic-wind or something would probably be more appropriate for a permanent fix. The modified streamify-out is below.
+
+  (define (streamify-out cout out get-thread?)
+    (if (and cout (not (file-stream-port? cout)))
+	(let ([t (thread (lambda () 
+                           (copy-port out cout)
+                           (close-input-port out)
+                           ))])
+	  (and get-thread? t))
+	out))
+
+>How-To-Repeat:
+Open DrScheme with language "pretty big".
+
+(define (do-times n f) (if (<= n 0) (void) (begin (f) (do-times (- n 1) f))))
+
+(require (lib "process.ss"))
+
+(do-times 1000 (lambda () (system "cd")))
+
+>Fix:
+>Release-Note:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Warren Schudy <wschudy@wpi.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/6175: MzLib Process.ss (system command-str) fails to close pipes
+Date: Sun, 30 Mar 2003 08:55:25 -0700
+
+ This is a multi-part message in MIME format.
+ -----828270084006-----
+ Content-Type: text/plain; charset=us-ascii
+ Content-Transfer-Encoding: 7bit
+ 
+ Thanks for the bug report and the patch!
+ 
+ There's another problem with `system'. In certain cases, you can get
+ "user break" error messages, which have to do with a break on an
+ internal thread. That's been fixed for the next release, too.
+ 
+ I'm not certain, but the current code might run in v201, and I've
+ enclosed it in case it's useful.
+ 
+ Thanks,
+ Matthew
+ 
+ -----828270084006-----
+ Content-Type: text/plain;
+ 	name="process.ss"
+ Content-Transfer-Encoding: quoted-printable
+ Content-Disposition: attachment; 
+ 	filename="process.ss"
+ 
+ =0D
+ (module process mzscheme=0D
+   (provide process=0D
+ 	   process*=0D
+ 	   process/ports=0D
+ 	   process*/ports=0D
+ 	   system=0D
+ 	   system*)=0D
+ =0D
+   (require (lib "thread.ss"))=0D
+ =0D
+   ;; Helpers: ----------------------------------------=0D
+ =0D
+   (define (shell-path/args who argstr)=0D
+     (case (system-type)=0D
+       ((unix macosx) (append '("/bin/sh" "-c") (list argstr)))=0D
+       ((windows) (let ([cmd 		  =0D
+ 			(let ([d (find-system-path 'sys-dir)])=0D
+ 			  (let ([cmd (build-path d "cmd.exe")])=0D
+ 			    (if (file-exists? cmd)=0D
+ 				cmd=0D
+ 				(let ([cmd (build-path d "command.com")])=0D
+ 				  (if (file-exists? cmd)=0D
+ 				      cmd=0D
+ 				      ;; One last try: up a dir=0D
+ 				      (build-path d 'up "command.com"))))))])=0D
+ 		   (list cmd=0D
+ 			 'exact=0D
+ 			 (format "~a /c ~a" cmd argstr))))=0D
+       (else (raise-mismatch-error =0D
+ 	     (format "~a: don't know what shell to use for platform: " who)=0D
+ 	     (system-type)))))=0D
+ =0D
+   (define (if-stream-out p)=0D
+     (if (or (not p) (file-stream-port? p))=0D
+ 	p=0D
+ 	(if (output-port? p)=0D
+ 	    #f=0D
+ 	    (raise-type-error=0D
+ 	     'subprocess=0D
+ 	     "output port"=0D
+ 	     p))))=0D
+ 	=0D
+   (define (if-stream-in p)=0D
+     (if (or (not p) (file-stream-port? p))=0D
+ 	p=0D
+ 	(if (input-port? p)=0D
+ 	    #f=0D
+ 	    (raise-type-error=0D
+ 	     'subprocess=0D
+ 	     "input port"=0D
+ 	     p))))=0D
+ =0D
+   (define (streamify-in cin in get-thread? ready-for-break)=0D
+     (if (and cin (not (file-stream-port? cin)))=0D
+ 	(let ([t (thread (lambda () =0D
+ 			   (dynamic-wind=0D
+ 			       void=0D
+ 			       (lambda ()=0D
+ 				 (with-handlers ([exn:break? void])=0D
+ 				   (ready-for-break #t)=0D
+ 				   (copy-port cin in)=0D
+ 				   (ready-for-break #f)))=0D
+ 			       (lambda () (close-output-port in)))=0D
+ 			   (ready-for-break #t)))])=0D
+ 	  (and get-thread? t))=0D
+ 	in))=0D
+ =0D
+   (define (streamify-out cout out get-thread?)=0D
+     (if (and cout (not (file-stream-port? cout)))=0D
+ 	(let ([t (thread (lambda () (copy-port out cout)))])=0D
+ 	  (and get-thread? t))=0D
+ 	out))=0D
+ =0D
+   ;; Old-style functions: ----------------------------------------=0D
+ =0D
+   (define (process*/ports cout cin cerr exe . args)=0D
+     (let-values ([(subp out in err) (apply subprocess =0D
+ 					   (if-stream-out cout)=0D
+ 					   (if-stream-in cin)=0D
+ 					   (if-stream-out cerr)=0D
+ 					   exe args)])      =0D
+       (list (streamify-out cout out #f)=0D
+ 	    (streamify-in cin in #f void)=0D
+ 	    (subprocess-pid subp)=0D
+ 	    (streamify-out cerr err #f)=0D
+ 	    (letrec ((control=0D
+ 		      (lambda (m)=0D
+ 			(case m=0D
+ 			  ((status) (let ((s (subprocess-status subp)))=0D
+ 				      (cond ((not (integer? s)) s)=0D
+ 					    ((zero? s) 'done-ok)=0D
+ 					    (else 'done-error))))=0D
+ 			  ((wait) (subprocess-wait subp))=0D
+ 			  ((interrupt) (subprocess-kill subp #f))=0D
+ 			  ((kill) (subprocess-kill subp #t))=0D
+ 			  (else=0D
+ 			   (raise-type-error 'control-process "'status, 'wait, 'interrupt, or 'k=
+ ill" m))))))=0D
+ 	      control))))=0D
+ =0D
+   (define (process/ports out in err str)=0D
+     (apply process*/ports out in err (shell-path/args "process/ports" str))=
+ )=0D
+ =0D
+   (define (process* exe . args)=0D
+     (apply process*/ports #f #f #f exe args))=0D
+ =0D
+   (define (process str)=0D
+     (apply process* (shell-path/args "process" str)))=0D
+ =0D
+   ;; Note: these always use current ports=0D
+   (define (system* exe . args)=0D
+     (if (eq? (system-type) 'macos)=0D
+ 	(begin=0D
+ 	  (unless (null? args)=0D
+ 	    (raise-mismatch-error 'system* "command-line arguments not supported f=
+ or MacOS" args))=0D
+ 	  (subprocess #f #f #f exe))=0D
+ 	(let ([cout (current-output-port)]=0D
+ 	      [cin (current-input-port)]=0D
+ 	      [cerr (current-error-port)]=0D
+ 	      [it-ready (make-semaphore)])=0D
+ 	  (let-values ([(subp out in err)=0D
+ 			(apply=0D
+ 			 subprocess=0D
+ 			 (if-stream-out cout)=0D
+ 			 (if-stream-in cin)=0D
+ 			 (if-stream-out cerr)=0D
+ 			 exe args)])=0D
+ 	    (let ([ot (streamify-out cout out #t)]=0D
+ 		  [it (streamify-in cin in #t (lambda (ok?) =0D
+ 						(if ok?=0D
+ 						    (semaphore-post it-ready)=0D
+ 						    (semaphore-wait it-ready))))]=0D
+ 		  [et (streamify-out cerr err #t)])=0D
+ 	      (subprocess-wait subp)=0D
+ 	      (when it=0D
+ 		;; stop piping output to subprocess=0D
+ 		(semaphore-wait it-ready)=0D
+ 		(break-thread it))=0D
+ 	      ;; wait for other pipes to run dry:=0D
+ 	      (when (thread? ot)=0D
+ 		(thread-wait ot))=0D
+ 	      (when (thread? et)=0D
+ 		(thread-wait et))=0D
+ 	      (when err =0D
+ 		(close-input-port err))=0D
+ 	      (when out=0D
+ 		(close-input-port out))=0D
+ 	      (when in=0D
+ 		(close-output-port in)))=0D
+ 	    (zero? (subprocess-status subp))))))=0D
+ =0D
+   (define (system str)=0D
+     (if (eq? (system-type) 'macos)=0D
+ 	(subprocess #f #f #f "by-id" str)=0D
+ 	(apply system* (shell-path/args "system" str)))))=0D
+ -----828270084006-------
+ 
+State-Changed-From-To: open->closed
+State-Changed-By: steck
+State-Changed-When: Tue Apr  1 13:35:20 2003
+State-Changed-Why:
+    fixed by mflatt
+>Unformatted:

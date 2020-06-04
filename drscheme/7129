@@ -1,0 +1,363 @@
+From apache@plt-scheme.org Tue Nov 30 19:08:33 2004
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id iB108UnA008864
+	for <bugs@plt-scheme.org>; Tue, 30 Nov 2004 19:08:30 -0500
+Message-Id: <200412010008.iB108UY3008862@champlain.ccs.neu.edu>
+Date: Tue, 30 Nov 2004 19:08:30 -0500
+From: ian@cs.rice.edu
+To: bugs@plt-scheme.org
+Subject: syntax-snip may not display the correct sub-info for identifiers
+
+>Number:         7129
+>Category:       drscheme
+>Synopsis:       syntax-snip may not display the correct sub-info for identifiers
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Nov 30 19:10:00 -0500 2004
+>Last-Modified:  Wed Jun 21 14:40:01 -0400 2006
+>Originator:     Ian Barland
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        208p1
+>Environment:
+mac-ppc-osx
+>Description:
+I like the feature for inspecting syntax-snips, and being able to
+click on sub-parts of the expression and getting the syntax-info
+for the selected sub-part.
+I think I've managed to confuse it though:
+Follow the steps below in drscheme, 
+and then look closely at the displayed info for `syn1':
+It looks like #'(x x), where the two x's are bound
+to different values.  But clicking on the first one
+doesn't give the correct identifier-binding.
+(However, calling identifier-binding manually does
+return the correct result.)
+
+Later --
+Ian
+
+>How-To-Repeat:
+; First, create a module with its own internal copy of x:
+; 
+(module example mzscheme
+  (provide replace-id1)
+  (define x add1)
+
+  ; A stupid macro:
+  ; (replace-id1 id1 id2) => (x id2) => (add1 id2)
+  ;
+  (define-syntax (replace-id1 stx)
+    (syntax-case stx ()
+      [(replace-id1 id1 id2)
+       #`(x id2)]))
+  )
+
+(require example)
+
+
+; Just confirming that sure the macro works as expected:
+(= 8 (let {[x 7]}
+       (replace-id1 x x)))
+
+; Create a chunk of syntax, and extract its identifiers:
+(define syn1 (expand-once #'(replace-id1 dummy x)))
+(define x1 (first  (syntax-e syn1)))
+(define x2 (second (syntax-e syn1)))
+
+(format "Some syntax for ~v, with INcorrect sub-info:" (syntax-object->datum syn1))
+syn1
+"The identifier-binding of the first x is actually:"
+(identifier-binding x1) ; *** This is different than what shows up in syn1's syntax-snip!
+"The identifier-binding of the second x, jfyi:"
+(identifier-binding x2)
+
+(define syn2 (expand-once #'(replace-id1 dummy y)))
+(format "Some syntax for ~v, which has correct sub-info:" (syntax-object->datum syn2))
+syn2
+
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "robby" by eli at Sat, 22 Jan 2005 05:20:02 -0500
+Reason>>> drscheme
+
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Guillaume Marceau <gmarceau@cs.brown.edu>, mflatt@cs.utah.edu
+Cc: bugs@plt-scheme.org
+Subject: Re: drscheme/7129: syntax-snip may not display the correct sub-info for identifiers
+Date: Wed, 21 Jun 2006 10:33:24 -0500
+
+ [ I changed subject line to get this email into the PR transcript. ]
+ 
+ Yes, that's what's going on. The problem with this one is that I don't
+ know how to do better (without making a new pretty-printer). Right now,
+ DrScheme correlates the places where you click with the syntax objects
+ (where it gets the info) by using the identity of the objects inside
+ the syntax objects. The strategy is broken, as you note, tho!
+ 
+ Maybe there is a way to call the pretty-printer with the syntax object,
+ but have it actually render the sexp inside there? Nothing jumps out at
+ me from the docs, however. 
+ 
+ Maybe if there were a parameter to pretty-print that let me change what
+ pretty-print recurs with? That is, I call pretty-print with the actual
+ syntax object, pretty-print calls my handler with the start position,
+ my handler unwraps the syntax object, passes it to pretty-print, and
+ some kind of mutual recursion continues like that (at some point
+ supplying end positions too)? The pre- and post- hooks almost get me
+ there, but don't quite let me remap things.
+ 
+ Other ideas?
+ 
+ Thanks,
+ Robby
+ 
+ At Wed, 21 Jun 2006 11:12:24 -0400, Guillaume Marceau wrote:
+ > I think I ran against a simpler symptom of bug 7129
+ > 
+ > If you run the code below, the syntax itself has the right positions,
+ > but the snip will display the first five digits as having the same
+ > position as the last five digits (when you click on them). The same
+ > thing happens to identifiers in addition to integers.
+ > 
+ > It looks like the snip code calls a function that detects opportunities
+ > for sharing in the atoms.
+ > 
+ > 
+ > > (define x #'(1 2 3 4 5
+ >        1 2 3 4 5))
+ > > x
+ > .#<syntax:4:14>
+ > > (for-each (lambda (stx) (printf "~a~n" (syntax-position stx))) 
+ >             (syntax->list x))
+ > 155
+ > 157
+ > 159
+ > 161
+ > 163
+ > 172
+ > 174
+ > 176
+ > 178
+ > 180
+ > -- 
+ > Pataphor:
+ > 
+ >    1. An extended metaphor that creates its own context.
+ >    2. That which occurs when a lizard's tail has grown so long 
+ >       it breaks off and grows a new lizard.
+From: Guillaume Marceau <gmarceau@cs.brown.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/7129: syntax-snip may not display the correct sub-info
+ for identifiers
+Date: Wed, 21 Jun 2006 12:05:50 -0400
+
+ On Wed, 21 Jun 2006 10:33:24 -0500
+ Robby Findler <robby@cs.uchicago.edu> wrote:
+ 
+ > Right now,
+ > DrScheme correlates the places where you click with the syntax objects
+ > (where it gets the info) by using the identity of the objects inside
+ > the syntax objects. The strategy is broken, as you note, tho!
+ 
+ Let me see if I understand this correctly.  You start with an input
+ expression, pretty print it and get a string, then draw it on a canvas
+ to get a picture. When I click on the picture, you can tell which
+ character I clicked on, so you find the nearest enclosing expression,
+ read it, and then traverses down the input expression testing with
+ EQUAL? until you find expression I clicked on. And you do it right to
+ left, so the syntax information of the last instance always comes up.
+ 
+ No, I missing something, because the snip displays the right
+ information for both elements of #'((1 2 3) (1 2 3)) , (but (of course)
+ not for the sub elements).
+ 
+ I'm thinking you could do something with tree paths. You could count
+ the number of parenthesis occurring in the string before the location
+ where I clicked.
+ 
+ -- 
+ Pataphor:
+ 
+    1. An extended metaphor that creates its own context.
+    2. That which occurs when a lizard's tail has grown so long 
+       it breaks off and grows a new lizard.
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Guillaume Marceau <gmarceau@cs.brown.edu>
+Cc: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/7129: syntax-snip may not display the correct sub-info
+ for identifiers
+Date: Wed, 21 Jun 2006 11:16:29 -0500
+
+ At Wed, 21 Jun 2006 12:05:50 -0400, Guillaume Marceau wrote:
+ > On Wed, 21 Jun 2006 10:33:24 -0500
+ > Robby Findler <robby@cs.uchicago.edu> wrote:
+ > 
+ > > Right now,
+ > > DrScheme correlates the places where you click with the syntax objects
+ > > (where it gets the info) by using the identity of the objects inside
+ > > the syntax objects. The strategy is broken, as you note, tho!
+ > 
+ > Let me see if I understand this correctly.  You start with an input
+ > expression, pretty print it and get a string, then draw it on a canvas
+ > to get a picture. When I click on the picture, you can tell which
+ > character I clicked on, so you find the nearest enclosing expression,
+ > read it, and then traverses down the input expression testing with
+ > EQUAL? until you find expression I clicked on. And you do it right to
+ > left, so the syntax information of the last instance always comes up.
+ 
+ Almost. It builds a table mapping the actual objects to syntax objects
+ that were outside them first. Then, it calls pretty-print (with the
+ syntax objects all stripped out) and, while pretty-print recurs records
+ the locations in the port right before it prints stuff (which are the
+ same as the locations in the editor, which the editor correlates w/
+ mouse positions for me).
+  
+ > No, I missing something, because the snip displays the right
+ > information for both elements of #'((1 2 3) (1 2 3)) , (but (of course)
+ > not for the sub elements).
+ 
+ No, you're basically right -- the two sublists aren't eq?.
+  
+ > I'm thinking you could do something with tree paths. You could count
+ > the number of parenthesis occurring in the string before the location
+ > where I clicked.
+ 
+ That's an interesting thought. I should be able to correlate the
+ recursive calls to pretty-print with movements in the tree (assuming
+ pretty-print goes left-to-right or something like that, which seems
+ like a safe assumption).
+ 
+ Hm.
+ 
+ Robby
+From: Guillaume Marceau <gmarceau@cs.brown.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/7129: syntax-snip may not display the correct sub-info
+ for identifiers
+Date: Wed, 21 Jun 2006 13:21:53 -0400
+
+ On Wed, 21 Jun 2006 11:16:29 -0500
+ Robby Findler <robby@cs.uchicago.edu> wrote:
+ 
+ > That's an interesting thought. I should be able to correlate the
+ > recursive calls to pretty-print with movements in the tree (assuming
+ > pretty-print goes left-to-right or something like that, which seems
+ > like a safe assumption).
+ 
+ Here is another thought. You could define a structure
+ boxed-atomic-datum with a custom printer that doesn't print the box.
+ 
+ Before sending the s-expression to pretty print, you recurse down it
+ and box all the datums. This does not change the pretty printed output
+ because of the custom printer, but it gives a unique EQ?-ness to each
+ datum.
+ 
+ 
+ -- 
+ Pataphor:
+ 
+    1. An extended metaphor that creates its own context.
+    2. That which occurs when a lizard's tail has grown so long 
+       it breaks off and grows a new lizard.
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Guillaume Marceau <gmarceau@cs.brown.edu>
+Cc: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/7129: syntax-snip may not display the correct sub-info
+ for identifiers
+Date: Wed, 21 Jun 2006 12:25:45 -0500
+
+ At Wed, 21 Jun 2006 13:21:53 -0400, Guillaume Marceau wrote:
+ > On Wed, 21 Jun 2006 11:16:29 -0500
+ > Robby Findler <robby@cs.uchicago.edu> wrote:
+ > 
+ > > That's an interesting thought. I should be able to correlate the
+ > > recursive calls to pretty-print with movements in the tree (assuming
+ > > pretty-print goes left-to-right or something like that, which seems
+ > > like a safe assumption).
+ > 
+ > Here is another thought. You could define a structure
+ > boxed-atomic-datum with a custom printer that doesn't print the box.
+ > 
+ > Before sending the s-expression to pretty print, you recurse down it
+ > and box all the datums. This does not change the pretty printed output
+ > because of the custom printer, but it gives a unique EQ?-ness to each
+ > datum.
+ 
+ I already have that structure in the syntax objects. I can't correlate
+ it with the objects in the boxless/syntaxless tree, tho. That's the
+ whole problem.
+ 
+ (but I am making progress on the paths idea.)
+ 
+ Robby
+ 
+ PS: "recurse"? (who's cursing in the first place? ...)
+ 
+ 
+From: Guillaume Marceau <gmarceau@cs.brown.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/7129: syntax-snip may not display the correct sub-info
+ for identifiers
+Date: Wed, 21 Jun 2006 13:43:55 -0400
+
+ On Wed, 21 Jun 2006 12:25:45 -0500
+ Robby Findler <robby@cs.uchicago.edu> wrote:
+ 
+ > I already have that structure in the syntax objects. I can't correlate
+ > it with the objects in the boxless/syntaxless tree, tho. That's the
+ > whole problem.
+ > 
+ 
+ I mean this:
+ 
+ 
+ > (define-struct/properties boxed-datum (x) 
+    ([prop:custom-write (lambda (p port write?)
+                         (display (boxed-datum-x p) port))]))
+ > (define x (list (make-boxed-datum 3) (make-boxed-datum 3)))
+ > (pretty-print x)
+ (3 3)
+ > (eq? (first x) (second x))
+ #f
+ 
+ 
+ 
+ > 
+ > Robby
+ > 
+ > PS: "recurse"? (who's cursing in the first place? ...)
+  
+ :)
+ 
+ yey dragon naturally speaking.
+ 
+ 
+ -- 
+ Pataphor:
+ 
+    1. An extended metaphor that creates its own context.
+    2. That which occurs when a lizard's tail has grown so long 
+       it breaks off and grows a new lizard.
+
+State changed from "open" to "closed" by robby at Wed, 21 Jun 2006 14:36:59 -0400
+Reason>>> fixed and released to SVN.
+
+From: Robby Findler <robby@cs.uchicago.edu>
+To: Guillaume Marceau <gmarceau@cs.brown.edu>
+Cc: mflatt@cs.utah.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/7129: syntax-snip may not display the correct sub-info
+ for identifiers
+Date: Wed, 21 Jun 2006 13:38:04 -0500
+
+ This is fixed now. Thanks for the idea.
+ 
+ Robby

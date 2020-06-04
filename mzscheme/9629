@@ -1,0 +1,522 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jul 24 12:20:08 2008
+Received: from fk-out-0910.google.com (fk-out-0910.google.com [209.85.128.191])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m6OGJwkI014320
+	for <bugs@bugs.plt-scheme.org>; Thu, 24 Jul 2008 12:19:59 -0400
+Message-Id: <200807241619.m6OGJsfm014313@champlain.ccs.neu.edu>
+Date: Thu, 24 Jul 2008 12:19:54 -0400
+From: will@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: some R6RS tests are incorrect or overly restrictive
+
+>Number:         9629
+>Category:       mzscheme
+>Synopsis:       some R6RS tests are incorrect or overly restrictive
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jul 24 12:24:01 -0400 2008
+>Last-Modified:  Fri Jul 25 09:26:28 -0400 2008
+>Originator:     William D Clinger
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        rev10903
+>Environment:
+>Description:
+The R6RS test suite that Matthew Flatt has made available
+to other implementors of the R6RS contains some tests that
+may be appropriate for PLT Scheme but go beyond what is
+required of an R6RS-conforming implementation.  This is a
+preliminary list of tests that should be revised from their
+current status in:
+
+    URL: http://svn.plt-scheme.org/plt/trunk/collects/tests/r6rs
+    Revision: 10903
+
+In base.sls:
+
+    (test ((compose sqrt *) 12 75)               30)
+
+R6RS 11.7.1 says sqrt "may...return inexact results even
+when given exact arguments."  The specification of sqrt
+in 11.7.4.3 reiterates this statement.  Hence 30.0 is
+also a correct result for this test.
+
+In io/ports.sls:
+
+     (test (let ([v (string->bytevector "app\x03BB;e"
+					(make-transcoder (utf-16-codec)))])
+             ;; Could be LE or BE:
+             (if (= (bytevector-u8-ref v 0) #xFE)
+                 v
+                 (if (equal? v #vu8(#xFF #xFE 97 0 112 0 112 0 #xBB #x3 101 0))
+                     #vu8(#xFE #xFF 0 97 0 112 0 112 #x3 #xBB 0 101)
+                     v)))
+           #vu8(#xFE #xFF 0 97 0 112 0 112 #x3 #xBB 0 101))
+
+UTF-16 encoding forms may include a BOM but don't have to.
+If there is no BOM, then the encoding is big-endian.  Thus
+#vu8(0 97 0 112 0 112 3 187 0 101) is a correct result of
+this test.  It is arguably the *only* correct result of
+this test, but the two results currently accepted by the
+test are arguably correct also, so I think the test should
+accept any of the three.
+
+In lists.sls:
+
+    (test (for-all (lambda (a b) (= a 1)) '(1 2) '(a b c)) #f)
+
+R6RS Library chapter 3 says implementations *should* raise an
+exception for this test; see the implementation responsibilities
+described for for-all.
+
+In syntax-case.sls:
+
+    (test (vector? #'#(1 2 3)) #f)
+
+R6RS Library section 12.2 says "Wrapped syntax objects that
+are not identifiers may or may not be distinct from other
+types of values."  Hence either boolean result of this test
+is correct.
+
+In unicode.sls:
+
+    (test (string-foldcase "\x39E;\x391;\x39F;\x3A3;")
+          "\x3BE;\x3B1;\x3BF;\x3C3;")
+
+The only correct result for this test is
+"\x3be;\x3b1;\x3bf;\x3c2;"
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: will@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 16:37:18 -0600
+
+ Thanks for the report!
+ 
+ One question:
+ 
+ At Thu, 24 Jul 2008 12:24:01 -0400, will@ccs.neu.edu wrote:
+ > In unicode.sls:
+ > 
+ >     (test (string-foldcase "\x39E;\x391;\x39F;\x3A3;")
+ >           "\x3BE;\x3B1;\x3BF;\x3C3;")
+ > 
+ > The only correct result for this test is
+ > "\x3be;\x3b1;\x3bf;\x3c2;"
+ 
+ I think #\x3C2 and #\x3A3 always case-fold to #\x3C2. Isn't the Unicode
+ definition of case-folding on strings just mapping the scale-value
+ case-folding over the string's content? (In contrast, the down-casing
+ of #\x3A3 in a string is either #\x3c2 or #\3c3, depending on its
+ context.)
+ 
+ When I try to dig out a reference, this is what I find, which still
+ seems to confirm my impression:
+ 
+  http://unicode.org/reports/tr21/tr21-5.html
+ 
+ 
+ Thanks,
+ Matthew
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: will@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 17:55:35 -0600
+
+ With a bit more effort, I think that I've tracked down the right
+ reference, which is page 187 in chapter 5 of Unicode 5.0.
+ 
+ More specifically, as far as I can tell, the first paragraph of page
+ 188 seems to say that "\x39E;\x391;\x39F;\x3A3;" case-folds to
+ "\x3BE;\x3B1;\x3BF;\x3C3;".
+ 
+ Then again, I have certainly misread the Unicode spec on occasion...
+ 
+From: William D Clinger <will@ccs.neu.edu>
+To: bugs@plt-scheme.org, mflatt@cs.utah.edu, will@ccs.neu.edu
+Cc: 
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 20:32:21 -0400
+
+ Matthew	Flatt wrote:
+ > More specifically, as far as I can tell, the first paragraph of page
+ > 188 seems to say that "\x39E;\x391;\x39F;\x3A3;" case-folds to
+ > "\x3BE;\x3B1;\x3BF;\x3C3;".
+ 
+ I was just about to send you email saying I was	wrong
+ and the test was right.  I had come to that conclusion
+ from reading the parts of the Unicode Standard that you
+ read and from
+ 
+ http://unicode.org/Public/UNIDATA/CaseFolding.txt
+ 
+ I apologize for the incorrect bug report.  I will have
+ to change Larceny's implementation of case folding.
+ 
+ Will
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: will@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 18:50:10 -0600
+
+ At Thu, 24 Jul 2008 12:24:01 -0400, will@ccs.neu.edu wrote:
+ > UTF-16 encoding forms may include a BOM but don't have to.
+ > If there is no BOM, then the encoding is big-endian.
+ 
+ On closer inspection, this is another one that I spent time on before,
+ and my current impression is that a BOM is required.
+ 
+ We're talking about the "UTF-16 encoding scheme", as opposed to
+ "UTF-16", right? The former is about encoding with bytes, whereas the
+ latter is about encoding with 16-bit values.
+ 
+ The Unicode standard in section 3.10 (page 105) seems to indicate that
+ a BOM is required for the UTF-16 encoding scheme.
+ 
+ As I look at this again, I think my current impression actually came
+ from the Wikipedia page (the "Byte order encoding schemes" section of
+ the "UTF-16" page). I did follow up by consulting the standard, but I
+ was looking to confirm Wikipedia's opinion at the time.
+ 
+ As usual, there are a lot of places I could have gotten this wrong, so
+ let me know how you read things.
+ 
+ Thanks,
+ Matthew
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: will@ccs.neu.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 19:07:05 -0600
+
+ At Thu, 24 Jul 2008 12:24:01 -0400, will@ccs.neu.edu wrote:
+ > In base.sls:
+ > 
+ >     (test ((compose sqrt *) 12 75)               30)
+ > 
+ > R6RS 11.7.1 says sqrt "may...return inexact results even
+ > when given exact arguments."  The specification of sqrt
+ > in 11.7.4.3 reiterates this statement.  Hence 30.0 is
+ > also a correct result for this test.
+ 
+ Fixed... if `test/approx' is valid.
+ 
+ But is `test/approx' actually a valid way to test (potentially) inexact
+ results? Is there a better approach?
+ 
+ > In lists.sls:
+ > 
+ >     (test (for-all (lambda (a b) (= a 1)) '(1 2) '(a b c)) #f)
+ > 
+ > R6RS Library chapter 3 says implementations *should* raise an
+ > exception for this test; see the implementation responsibilities
+ > described for for-all.
+ 
+ You mean "should not", right? It's out, anyway.
+ 
+ > In syntax-case.sls:
+ > 
+ >     (test (vector? #'#(1 2 3)) #f)
+ > 
+ > R6RS Library section 12.2 says "Wrapped syntax objects that
+ > are not identifiers may or may not be distinct from other
+ > types of values."  Hence either boolean result of this test
+ > is correct.
+ 
+ Right. (This test was a very new one, and I had forgotten why that kind
+ of test isn't valid.)
+ 
+ These changes are committed in SVN.
+ 
+ Thanks!
+ 
+From: William D Clinger <will@ccs.neu.edu>
+To: bugs@plt-scheme.org, mflatt@cs.utah.edu, will@ccs.neu.edu
+Cc: 
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 21:47:54 -0400
+
+ > The Unicode standard in section 3.10 (page 105) seems to indicate that
+ > a BOM is required for the UTF-16 encoding scheme.
+ 
+ No.  Look at rule D98 on page 106.  The first bullet
+ item explicitly says
+ 
+     In the UTF-16 encoding scheme, the UTF-16 code
+     unit sequence <004D 0430 4E8C D800 DF02> is
+     serialized as
+ 
+         <FE FF 00 4D 04 30 4E 8C D8 00 DF 02>
+     or  <FF FE 4D 00 30 04 8C 4E 00 D8 02 DF>
+     or  <00 4D 04 30 4E 8C D8 00 DF 02>.
+ 
+ See also the third bullet item.  Table 3-8 shows
+ three other examples of UTF-16 encodings; in each
+ example, all three possibilities are shown.
+ 
+ > But is `test/approx' actually a valid way to test (potentially) inexact
+ > results?
+ 
+ No, because it will fail almost half the time when
+ the expected answer is very nearly a multiple of
+ 0.0005.
+ 
+ > Is there a better approach?
+ 
+ Yes.  Untested, but should give the idea:
+ 
+   (define-syntax test/approx
+     (syntax-rules ()
+       [(_ expr expected)
+        (let ((actual expr)
+              (correct expected))
+          (if (good-enough? actual correct)
+              (test correct correct)
+              (test actual correct)))]))
+ 
+   ; relative error should be with 0.1%, but greater
+   ; relative error is allowed when the expected value
+   ; is near zero.
+ 
+   (define (good-enough? x y)
+     (cond ((> (magnitude y) 1e-6)
+            (< (/ (magnitude (- x y))
+                  (magnitude y))
+               1e-3))
+           (else
+            (< (magnitude (- x y)) 1e-6))))
+ 
+ > > In lists.sls:
+ > >
+ > >     (test (for-all (lambda (a b) (= a 1)) '(1 2) '(a b c)) #f)
+ > >
+ > > R6RS Library chapter 3 says implementations *should* raise an
+ > > exception for this test; see the implementation responsibilities
+ > > described for for-all.
+ >
+ > You mean "should not", right? It's out, anyway.
+ 
+ No, I meant "should".  R6RS Library chapter 3 says
+ 
+     The implementation must check that the lists are
+     pairs to the extent necessary to determine the
+     return value.  If this requires traversing the
+     lists entirely, the implementation should check
+     that the lists all have the same length....
+ 
+ In the test case, the first list must be traversed
+ entirely.  Although it is true that you don't have
+ to traverse the second list entirely, the relevant
+ sentence of the R6RS becomes vacuous if interpreted
+ as it is actually written.  Surely the intended
+ meaning is "If this requires traversing one of the
+ lists entirely...".  Consider also that the R6RS
+ is silent concerning whether an implementation
+ chooses to test for termination of the first list
+ before testing for termination of the second, or
+ vice versa.
+ 
+ Will
+From: William D Clinger <will@ccs.neu.edu>
+To: bugs@plt-scheme.org, mflatt@cs.utah.edu, will@ccs.neu.edu
+Cc: 
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 22:09:34 -0400
+
+ And to follow up on that last point, in case it
+ isn't obvious:  The R6R6 spec for for-all requires
+ it to perform a tail call at the end of the list,
+ so for-all really does have to know it has come
+ to the end of the first list before it performs
+ the tail call.
+ 
+ If it checks for the end of the second list before
+ it checks for the end of the first, then by the
+ time it discovers that it must perform a tail call
+ it will already know that the two lists are not of	
+ the same length.  In the spirit of the R6RS, having
+ discovered a violation, it should raise an exception
+ instead of performing the tail call.
+ 
+ Even if	that weren't the case, the "should not check
+ that the lists are chains of pairs beyond the traversal"
+ is merely a strong recommendation.  R6RS-conforming
+ implementations	are allowed to ignore recommendations
+ such as	that one, and to enforce the "lists should
+ all have the same length" part of the spec.  It	would
+ have been clearer for the spec to have said that an
+ exception may be raised	if the lists aren't all	of
+ the same length, but that would have become tedious.
+ 
+ Will
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: William D Clinger <will@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, will@ccs.neu.edu
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 20:15:24 -0600
+
+ At Thu, 24 Jul 2008 21:47:54 -0400, William D Clinger wrote:
+ > > The Unicode standard in section 3.10 (page 105) seems to indicate that
+ > > a BOM is required for the UTF-16 encoding scheme.
+ > 
+ > No.  Look at rule D98 on page 106.  The first bullet
+ > item explicitly says
+ > 
+ >     In the UTF-16 encoding scheme, the UTF-16 code
+ >     unit sequence <004D 0430 4E8C D800 DF02> is
+ >     serialized as
+ > 
+ >         <FE FF 00 4D 04 30 4E 8C D8 00 DF 02>
+ >     or  <FF FE 4D 00 30 04 8C 4E 00 D8 02 DF>
+ >     or  <00 4D 04 30 4E 8C D8 00 DF 02>.
+ > 
+ > See also the third bullet item.  Table 3-8 shows
+ > three other examples of UTF-16 encodings; in each
+ > example, all three possibilities are shown.
+ 
+ Well, yes, that all seems pretty clear. Thanks for guiding me through
+ the obvious.
+ 
+ >   ; relative error should be with 0.1%, but greater
+ >   ; relative error is allowed when the expected value
+ >   ; is near zero.
+ > 
+ >   (define (good-enough? x y)
+ >     (cond ((> (magnitude y) 1e-6)
+ >            (< (/ (magnitude (- x y))
+ >                  (magnitude y))
+ >               1e-3))
+ >           (else
+ >            (< (magnitude (- x y)) 1e-6))))
+ 
+ I'll use this.
+ 
+ > > > In lists.sls:
+ > > >
+ > > >     (test (for-all (lambda (a b) (= a 1)) '(1 2) '(a b c)) #f)
+ > > >
+ > > > R6RS Library chapter 3 says implementations *should* raise an
+ > > > exception for this test; see the implementation responsibilities
+ > > > described for for-all.
+ > >
+ > > You mean "should not", right? It's out, anyway.
+ > 
+ > No, I meant "should".  R6RS Library chapter 3 says
+ > 
+ >     The implementation must check that the lists are
+ >     pairs to the extent necessary to determine the
+ >     return value.  If this requires traversing the
+ >     lists entirely, the implementation should check
+ >     that the lists all have the same length....
+ > 
+ > In the test case, the first list must be traversed
+ > entirely.  Although it is true that you don't have
+ > to traverse the second list entirely, the relevant
+ > sentence of the R6RS becomes vacuous if interpreted
+ > as it is actually written.  Surely the intended
+ > meaning is "If this requires traversing one of the
+ > lists entirely...".  Consider also that the R6RS
+ > is silent concerning whether an implementation
+ > chooses to test for termination of the first list
+ > before testing for termination of the second, or
+ > vice versa.
+ 
+ Well, the preceding description of `for-all' seems to say that it
+ checks the items in order and the result is determined by the first
+ false result. Also, the third sentence of the ``Implementation
+ responsibilities'' helps clarify the intent by saying that an
+ implementation should not check the whole list.
+ 
+ But intent versus what it actually says... I concede that I can't
+ interpret any of it reliably.
+ 
+ Matthew
+ 
+From: William D Clinger <will@ccs.neu.edu>
+To: mflatt@cs.utah.edu
+Cc: bugs@plt-scheme.org, will@ccs.neu.edu
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 22:21:24 -0400
+
+ To follow up on Unicode case folding, there are 156
+ scalar values (in Unicode 5.0, not counting Turkish)
+ that fold to a sequence of one or more scalar values	
+ that are different from what you'd get by applying
+ char-downcase. 
+ 
+ So it isn't so bad as I had feared.
+ 
+ Will
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: William D Clinger <will@ccs.neu.edu>
+Cc: bugs@plt-scheme.org, will@ccs.neu.edu
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 20:26:04 -0600
+
+ At Thu, 24 Jul 2008 21:47:54 -0400, William D Clinger wrote:
+ >   ; relative error should be with 0.1%, but greater
+ >   ; relative error is allowed when the expected value
+ >   ; is near zero.
+ > 
+ >   (define (good-enough? x y)
+ >     (cond ((> (magnitude y) 1e-6)
+ >            (< (/ (magnitude (- x y))
+ >                  (magnitude y))
+ >               1e-3))
+ >           (else
+ >            (< (magnitude (- x y)) 1e-6))))
+ 
+ Any thoughts on dealing with infinities?
+ 
+ Currently, `test/approx' is used to check operations like
+ `bytevector-ieee-single-native-ref' on infinities. That could be a
+ problem on many levels, but I'm not sure.
+ 
+ Matthew
+ 
+From: William D Clinger <will@ccs.neu.edu>
+To: mflatt@cs.utah.edu
+Cc: bugs@plt-scheme.org, will@ccs.neu.edu
+Subject: Re: [plt-bug] all/9629: some R6RS tests are incorrect or overly restrictive
+Date: Thu, 24 Jul 2008 23:53:13 -0400
+
+ > Any thoughts on dealing with infinities?
+ 
+ Here's an attempt:
+ 
+     (define (good-enough? x y)
+       (cond ((or (not (real? x))
+       	      	 (not (real? y)))
+       	     (and (good-enough (real-part x) (real-part	y))
+       	      	  (good-enough (imag-part x) (imag-part	y))))
+             ((infinite? x)
+              (=	x (* 2.0 y)))
+             ((infinite? y)
+              (= (* 2.0 x) y))
+             ((nan? y)
+              (nan? x))
+             ((> (magnitude y) 1e-6)
+              (< (/ (magnitude (- x y))
+                    (magnitude y))
+                 1e-3))
+             (else
+              (< (magnitude (- x y)) 1e-6))))
+ 
+ Will
+
+State changed from "open" to "closed" by mflatt at Fri, 25 Jul 2008 09:26:28 -0400
+Reason>>> I think I've incorporated all the repairs for this round
+of problems.
+

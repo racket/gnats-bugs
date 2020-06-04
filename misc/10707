@@ -1,0 +1,70 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jan 21 00:38:57 2010
+Received: from mail-yx0-f192.google.com (mail-yx0-f192.google.com [209.85.210.192])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o0L5ctej006296
+	for <bugs@bugs.plt-scheme.org>; Thu, 21 Jan 2010 00:38:55 -0500
+Message-Id: <201001210538.o0L5csSk006287@champlain.ccs.neu.edu>
+Date: Thu, 21 Jan 2010 00:38:54 -0500
+From: jsailor+plt@cs.brown.edu
+To: bugs@plt-scheme.org
+Subject: scriblib/gui-eval re-uses evaluator
+
+>Number:         10707
+>Category:       misc
+>Synopsis:       scriblib/gui-eval re-uses evaluator
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Thu Jan 21 00:40:01 -0500 2010
+>Last-Modified:  Fri Sep 03 21:25:30 -0400 2010
+>Originator:     Jonathan Sailor
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.2.3
+>Environment:
+macosx "Darwin selima.local 9.8.0 Darwin Kernel Version 9.8.0: Wed Jul 15 16:55:01 PDT 2009; root:xnu-1228.15.4~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 299586848
+
+Collections:
+(("/Users/jon/Library/PLT Scheme/4.2.3/collects" non-existent-path) ("/Applications/PLT Scheme v4.2.3/collects" "2htdp" "afm" "algol60" "at-exp" "browser" "combinator-parser" "compiler" "config" "defaults" "deinprogramm" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+>Description:
+scriblib/gui-eval creates a single evaluator at that module's top-level, and uses it for every time a user uses one of the gui-interaction/gui-interaction-eval/... forms. This is undocumentedely different from the way scribble/eval behaves: scribble/eval makes a new evaluator every time.
+
+I'm not actually sure it's necessary to pass a special evaluator to the corresponding forms imported from scribble/eval at all; the ``(parameterize ([scribble-eval-handler gui-eval-handler])'' might take care of everything already. If the other stuff that happens to gui-eval does play a role, changing
+
+(parameterize ([scribble-eval-handler gui-eval-handler])
+  (orig #:eval gui-eval x (... ...)))
+
+to
+
+(parameterize ([scribble-eval-handler gui-eval-handler])
+  (let ([my-eval (make-base-eval)])
+    (when mred?
+      (gui-eval '(require scheme/gui/base slideshow)))
+    (orig #:eval gui-eval x (... ...))))
+
+should preserve it but prevent re-use of the eval. (As an aside, though, is changing the namespace of the eval to include slideshow really a good thing? Just because some expression might generate pics doesn't mean it wants to use the slideshow library.)
+
+Particularly awkward is that scriblib/gui-eval also uses gui-eval to evaluate things itself, so if some user code did a
+
+  (gui-interaction '(mess-up-my-bindings))
+
+then scriblib/gui-eval would start to fail internally. Yikes.
+>How-To-Repeat:
+@(require scribble/eval scriblib/gui-eval)
+
+@(gui-interaction-eval (define x 4))
+@(gui-interaction-eval-show x)       @; you get 4
+
+@(interaction-eval (define x 4))
+@(interaction-eval-show x)    @; you get unbound identifier
+>Fix:
+>Audit-Trail:
+Responsible changed from "nobody" to "mflatt" by eli at Fri, 03 Sep 2010 21:25:30 -0400
+Reason>>> scribble eval
+

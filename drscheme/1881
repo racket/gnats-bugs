@@ -1,0 +1,203 @@
+From jstewart@rice.edu  Wed Feb 28 18:58:29 2001
+Received: from localhost (yellow-hat.owlnet.rice.edu [128.42.55.54])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id SAA22785
+	for <plt-gnats>; Wed, 28 Feb 2001 18:58:29 -0600 (CST)
+Message-Id: <200103010058.SAA22785@cs.rice.edu>
+Date: Wed, 28 Feb 2001 18:58:29 -0600 (CST)
+From: jstewart@rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: check syntax chokes on local
+
+>Number:         1881
+>Category:       drscheme
+>Synopsis:       check syntax chokes on local
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    robby
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Mar  1 01:00:02 GMT 2001
+>Closed-Date:    Sun Jan 06 13:48:38 EST 2002
+>Last-Modified:  Sun Jan 06 13:48:38 EST 2002
+>Originator:     Jim Stewart
+>Release:        103
+>Organization:
+titan
+>Environment:
+unix (sparc-solaris) (get-display-depth) = 24
+Tools: ("syncheck" "project-manager" "analysis")
+Docs Installed:
+("help" "mzscheme" "r5rs" "icons" "drscheme" "teachpack" "misclib" "mred" "beginning" "intermediate" "advanced" "mrspidey")
+Collections:
+(("/net/course-a/scheme/plt/103/collects" ("browser" "afm" "compiler" "drscheme" "graphics" "stepper" "hierlist" "icons" "make" "mzlib" "mred" "games" "mzscheme" "net" "help" "zodiac" "userspce" "dynext" "launcher" "drscheme-jr" "errortrace" "framework" "slibinit" "xml" "htdp" "setup" "defaults" "guserspce" "stepper-graphical" "doc" "mrspidey")))
+>Description:
+When runnig Check Syntax on local defines, I get the error
+"definition: invalid position for internal definition".
+
+The language level is Graphical Full Scheme (MrEd).  This bug also
+appears in 103.5d105.
+>How-To-Repeat:
+; paste into definitions window
+(require "macro.ss")
+
+(local
+    [(define x 3)]  
+  x)
+
+;; hit the check syntax button
+>Fix:
+
+>Release-Note:
+This fails in intermediate!
+>Audit-Trail:
+
+Responsible-Changed-From-To: steck->robby
+Responsible-Changed-By: robby
+Responsible-Changed-When: Sat Mar 17 15:32:40 2001
+Responsible-Changed-Why:
+
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: plt-design@ccs.neu.edu
+Cc: bugs@plt-scheme.org
+Subject: Re: drscheme/1881
+Date: Fri, 30 Nov 2001 20:18:26 -0800
+
+ The main problem of this PR is fixed, but when checking it, I noticed a
+ bug in the implementation of local in intermediate. This expression:
+ 
+ (syntax-case (expand #'(module m (lib "htdp-intermediate.ss" "lang")
+                          (local [(define x 3)]
+                            x)))
+   (let-values)
+   [(module name lang (xxx (let-values () (letrec-values (((x1) z)) z2))))
+    (syntax-original? (syntax x1))])
+ 
+ returns #f, which seems to me to be wrong. That seems to be the reason
+ that check syntax won't color the binding position or draw an arrow for
+ local-bound identifiers.
+ 
+ If this really is a problem with the teaching languages, please claim
+ this PR away from me.
+ 
+ Thanks,
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-design@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/1881
+Date: Fri, 30 Nov 2001 22:41:46 -0700 (MST)
+
+ Quoting Robert Bruce Findler:
+ > The main problem of this PR is fixed, but when checking it, I noticed a
+ > bug in the implementation of local in intermediate. This expression:
+ > 
+ > (syntax-case (expand #'(module m (lib "htdp-intermediate.ss" "lang")
+ >                          (local [(define x 3)]
+ >                            x)))
+ >   (let-values)
+ >   [(module name lang (xxx (let-values () (letrec-values (((x1) z)) z2))))
+ >    (syntax-original? (syntax x1))])
+ > 
+ > returns #f, which seems to me to be wrong. That seems to be the reason
+ > that check syntax won't color the binding position or draw an arrow for
+ > local-bound identifiers.
+ 
+ In the way that `local' is compiled, the original binding and bound
+ variables disappear. Each bound variable in the source turns into an
+ expression that checks whether the variable's value is undefined. Each
+ binding in the source turns into a macro binding that redirects to a
+ generated binding, supplying the undefined-check wrapper in the
+ process. In particular, the `x1' identifier above is a generated,
+ uninterned identifier `x'. `z2' is `(check-undefined x)'.
+ 
+ So, to get syntax hiliting of `local' variables, we need a way for
+ macros to communicate to Check Syntax. I don't think there was ever a
+ proposal for doing that, so here's one:
+ 
+ Check Syntax could check each expression for a `binding-in-source'
+ and/or `bound-in-source' property. Each property value would be a
+ syntax object (or, more generally, a cons-tree of syntax objects). For
+ the `binding-in-source' property, Check Syntax should treat each
+ property value as a binding variable, and so on.
+ 
+ How does that sound? If it makes sense, I can easily update `local'
+ (and `class' and `unit') to attach the properties.
+ 
+ Matthew
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-design@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/1881
+Date: Sat, 01 Dec 2001 06:17:01 -0800
+
+ I would have suggested post-poning that until 201, but given that
+ `local' doesn't work, I think that we must do this for 200.
+ 
+ How about the bindings in `with-syntax' and `syntax'? Can you do it
+ there?
+ 
+ Robby
+
+From: Matthias Felleisen <matthias@ccs.neu.edu>
+To: mflatt@cs.utah.edu
+Cc: robby@cs.rice.edu, plt-design@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: drscheme/1881
+Date: Sat,  1 Dec 2001 10:36:32 -0500 (EST)
+
+ Sounds like a systematic way of going about this in general. -- Matthias
+ 
+   > Date: Fri, 30 Nov 2001 22:41:46 -0700 (MST)
+   > From: Matthew Flatt <mflatt@cs.utah.edu>
+   > CC: plt-design@ccs.neu.edu, bugs@plt-scheme.org
+   > 
+   > Quoting Robert Bruce Findler:
+   > > The main problem of this PR is fixed, but when checking it, I noticed a
+   > > bug in the implementation of local in intermediate. This expression:
+   > > 
+   > > (syntax-case (expand #'(module m (lib "htdp-intermediate.ss" "lang")
+   > >                          (local [(define x 3)]
+   > >                            x)))
+   > >   (let-values)
+   > >   [(module name lang (xxx (let-values () (letrec-values (((x1) z)) z2))))
+   > >    (syntax-original? (syntax x1))])
+   > > 
+   > > returns #f, which seems to me to be wrong. That seems to be the reason
+   > > that check syntax won't color the binding position or draw an arrow for
+   > > local-bound identifiers.
+   > 
+   > In the way that `local' is compiled, the original binding and bound
+   > variables disappear. Each bound variable in the source turns into an
+   > expression that checks whether the variable's value is undefined. Each
+   > binding in the source turns into a macro binding that redirects to a
+   > generated binding, supplying the undefined-check wrapper in the
+   > process. In particular, the `x1' identifier above is a generated,
+   > uninterned identifier `x'. `z2' is `(check-undefined x)'.
+   > 
+   > So, to get syntax hiliting of `local' variables, we need a way for
+   > macros to communicate to Check Syntax. I don't think there was ever a
+   > proposal for doing that, so here's one:
+   > 
+   > Check Syntax could check each expression for a `binding-in-source'
+   > and/or `bound-in-source' property. Each property value would be a
+   > syntax object (or, more generally, a cons-tree of syntax objects). For
+   > the `binding-in-source' property, Check Syntax should treat each
+   > property value as a binding variable, and so on.
+   > 
+   > How does that sound? If it makes sense, I can easily update `local'
+   > (and `class' and `unit') to attach the properties.
+   > 
+   > Matthew
+   > 
+State-Changed-From-To: open->closed
+State-Changed-By: robby
+State-Changed-When: Sun Jan  6 13:48:38 2002
+State-Changed-Why:
+    thanks for the report. (finally) closed.
+>Unformatted:
+

@@ -1,0 +1,141 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Feb 26 16:06:21 2007
+Received: from ug-out-1314.google.com (ug-out-1314.google.com [66.249.92.169])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id l1QL6Kqo019147
+	for <bugs@bugs.plt-scheme.org>; Mon, 26 Feb 2007 16:06:20 -0500
+Message-Id: <200702262106.l1QL6IVd019142@champlain.ccs.neu.edu>
+Date: Mon, 26 Feb 2007 16:06:18 -0500
+From: cobbe@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: contracts disable source location reporting
+
+>Number:         8546
+>Category:       mzscheme
+>Synopsis:       contracts disable source location reporting
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Feb 26 16:10:01 -0500 2007
+>Closed-Date:    Tue Feb 27 18:50:35 -0500 2007
+>Last-Modified:  Tue Feb 27 18:50:35 -0500 2007
+>Originator:     Richard Cobbe
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        369.7-svn1feb2007
+>Environment:
+macosx "Darwin vetinari.ccs.neu.edu 8.8.0 Darwin Kernel Version 8.8.0: Fri Sep  8 17:18:57 PDT 2006; root:xnu-792.12.6.obj~1/RELEASE_PPC Power Macintosh powerpc" (ppc-macosx/3m) (get-display-depth) = 32
+Docs Installed:
+(("/Users/cobbe/Applications/plt/doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced"))
+Human Language: english
+(current-memory-use) 100482112
+
+Collections:
+(("/Users/cobbe/Library/PLT Scheme/369.7/collects" non-existent-path) ("/Users/cobbe/Applications/plt/collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "wxme" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Textual (MzScheme, includes R5RS)") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+With Ryan's help, I've found a case where contracts defeat source location reporting on dynamic errors.  See below.
+>How-To-Repeat:
+Enter following code in definitions window, Textual language.
+
+(module a mzscheme
+  (require (lib "contract.ss"))
+  
+  (define f /)
+  
+  (define-syntax m
+    (lambda (stx)
+      (syntax-case stx ()
+        [(m e) #'(values e)])))
+    
+  (provide/contract [f (integer? integer? . -> . integer?)])
+  (provide m))
+
+(module b mzscheme
+  (require a)
+  (m (f 3 0)))
+
+Hit execute.
+
+(require b)
+
+The (values e) in the body of m will be highlighted, rather than the application of in the body of b.
+
+If, however, you edit module b to be the following:
+
+(module b mzscheme
+  (require a)
+  (m ((values f) 3 0)))
+
+and re-execute and re-require, the highlighting is in the expected place. 
+
+Commenting out the (provide/contract ...) form and simply providing f with no contract also puts the highlighting in the wrong place.
+
+The ladybug icon's results are also wrong.
+
+A key point of the example is that the error occurs during the application of but is *not* caught by the contract.
+>Fix:
+changed the macro expansion to use the origianl program source location instead of the src loc inside the contract library
+>Release-Note:
+this was not a contract violation (but bad error-reporting behavior).
+>Audit-Trail:
+From: "Robby Findler" <robby.findler@gmail.com>
+To: cobbe@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        goldberg@plt-scheme.org, dskippy@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8546: contracts disable source location reporting
+Date: Tue, 27 Feb 2007 16:58:18 -0600
+
+ Is this the same complaint as the source location in the following program?
+ 
+ (module a mzscheme
+   (require (lib "contract.ss")
+            (lib "etc.ss"))
+   (require-for-syntax (lib "etc.ss"))
+ 
+   (define-syntax (f stx)
+     (syntax-case stx ()
+       [(_ a ...)
+        (with-syntax ([x (begin-lifted #'/)])
+          #'(x a ...))]))
+   (provide f))
+ 
+ (module b mzscheme
+   (require a)
+   (values (f 3 0)))
+ 
+ (require b)
+ 
+ Thanks,
+ Robby
+From: "Robby Findler" <robby.findler@gmail.com>
+To: cobbe@ccs.neu.edu, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, eli@plt-scheme.org, matthias@plt-scheme.org,
+        sk@plt-scheme.org, mflatt@plt-scheme.org, robby@plt-scheme.org,
+        clements@plt-scheme.org, jay@plt-scheme.org, meunier@plt-scheme.org,
+        sowens@plt-scheme.org, kathyg@plt-scheme.org, awick@plt-scheme.org,
+        goldberg@plt-scheme.org, dskippy@plt-scheme.org, jacobm@plt-scheme.org,
+        cce@plt-scheme.org, dalev@plt-scheme.org, samth@plt-scheme.org,
+        ryanc@plt-scheme.org
+Subject: Re: [plt-bug] all/8546: contracts disable source location reporting
+Date: Tue, 27 Feb 2007 17:49:00 -0600
+
+ Matthew pointed out to me how to fix the example in the email I just
+ sent and I've propagated that fix to the contract library.
+ 
+ Robby
+
+Responsible changed from "nobody" to "robby" by robby at Tue, 27 Feb 2007 18:50:35 -0500
+Reason>>> rbf
+
+State changed from "open" to "closed" by robby at Tue, 27 Feb 2007 18:50:35 -0500
+Reason>>> fixed and released to SVN
+

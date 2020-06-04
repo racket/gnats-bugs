@@ -1,0 +1,221 @@
+From robby@cs.rice.edu  Thu Jun  7 09:16:38 2001
+Return-Path: <robby@cs.rice.edu>
+Received: from sun.cs.rice.edu (sun.cs.rice.edu [128.42.1.42])
+	by cs.rice.edu (Postfix) with ESMTP id ADF8917B6
+	for <plt-gnats@cs.rice.edu>; Thu,  7 Jun 2001 09:16:38 -0500 (CDT)
+Message-Id: <200106071416.JAA26594@sun.cs.rice.edu>
+Date: Thu, 7 Jun 2001 09:16:33 -0500 (CDT)
+From: <robby@cs.rice.edu>
+Reply-To: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: eval + macro definition -> mzscheme eats all memory
+X-Send-Pr-Version: 3.101
+
+>Number:         1964
+>Category:       mzscheme
+>Synopsis:       eval + macro definition -> mzscheme eats all memory
+>Confidential:   no
+>Severity:       serious
+>Priority:       high
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Thu Jun  7 14:30:01 GMT 2001
+>Last-Modified:  Sun Jun 10 17:43:31 CDT 2001
+>Originator:     Robert Findler
+>Organization:
+titan
+>Release:        unknown
+>Environment:
+	
+>Description:
+
+I made this high priority because this bug can crash my entire machine
+(under macos). In pricniple this is not mz's fault, but I don't want to
+lose any data.
+
+>How-To-Repeat:
+
+[sun] ~> mzscheme -q
+Welcome to MzScheme version 199.13, Copyright (c) 1995-2001 PLT
+> (eval `(module m mzscheme (provide m) (define-syntax m ,(lambda (x) x))))
+> (require m)
+> m
+;; uses up all available memory
+
+
+[sun] ~> mzscheme -q
+Welcome to MzScheme version 199.13, Copyright (c) 1995-2001 PLT
+> (eval `(module m mzscheme (provide m) (define-syntax m ,(lambda (x) x))))
+> (require m)
+> (m 1)
+;; uses up all available memory
+
+>Fix:
+	
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1964: eval + macro definition -> mzscheme eats all memory
+Date: Thu, 7 Jun 2001 20:45:02 -0600 (MDT)
+
+ Quoting :
+ > I made this high priority because this bug can crash my entire machine
+ > (under macos). In pricniple this is not mz's fault, but I don't want to
+ > lose any data.
+ > 
+ > >How-To-Repeat:
+ > 
+ > [sun] ~> mzscheme -q
+ > Welcome to MzScheme version 199.13, Copyright (c) 1995-2001 PLT
+ > > (eval `(module m mzscheme (provide m) (define-syntax m ,(lambda (x) x))))
+ > > (require m)
+ > > m
+ > ;; uses up all available memory
+ 
+ For the next release, I made the expanson loop use memory slightly more
+ slowly. In Linux, the difference is only a factor of 2 or so, but the
+ difference may be more in MacOS (since it has a relatively short C
+ stack, and the change has to do with replacing a C function call with a
+ bunch few gotos).
+ 
+ In any case, an infinite expansion loop will still use infinite memory,
+ because expansion tracks the history of syntax forms through the
+ 'origin property. In other words, the syntax object itself keeps
+ growing. (For useful macros, this growth seems to be neglible.)
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1964: eval + macro definition -> mzscheme eats all memory
+Date: Thu, 7 Jun 2001 21:54:17 -0500
+
+ At 8:45 PM -0600 6/7/01, Matthew Flatt wrote:
+ >Quoting :
+ >>  I made this high priority because this bug can crash my entire machine
+ >>  (under macos). In pricniple this is not mz's fault, but I don't want to
+ >>  lose any data.
+ >>
+ >>  >How-To-Repeat:
+ >>
+ >>  [sun] ~> mzscheme -q
+ >>  Welcome to MzScheme version 199.13, Copyright (c) 1995-2001 PLT
+ >>  > (eval `(module m mzscheme (provide m) (define-syntax m ,(lambda (x) x))))
+ >>  > (require m)
+ >>  > m
+ >>  ;; uses up all available memory
+ >
+ >For the next release, I made the expanson loop use memory slightly more
+ >slowly. In Linux, the difference is only a factor of 2 or so, but the
+ >difference may be more in MacOS (since it has a relatively short C
+ >stack, and the change has to do with replacing a C function call with a
+ >bunch few gotos).
+ >
+ >In any case, an infinite expansion loop will still use infinite memory,
+ >because expansion tracks the history of syntax forms through the
+ >'origin property. In other words, the syntax object itself keeps
+ >growing. (For useful macros, this growth seems to be neglible.)
+ 
+ Why is:
+ 
+    > m
+ 
+ an infinite expansion? It should be an error, right?
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1964: eval + macro definition -> mzscheme eats all memory
+Date: Fri, 8 Jun 2001 01:34:09 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > Why is:
+ > 
+ >    > m
+ > 
+ > an infinite expansion? It should be an error, right?
+ 
+ No, the transformer is invoked whenever its identifier is used in an
+ expression position (not just an application position).
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1964: eval + macro definition -> mzscheme eats all memory
+Date: Fri, 8 Jun 2001 08:08:07 -0500
+
+ >Quoting Robert Bruce Findler:
+ >>  Why is:
+ >>
+ >>     > m
+ >>
+ >>  an infinite expansion? It should be an error, right?
+ >
+ >No, the transformer is invoked whenever its identifier is used in an
+ >expression position (not just an application position).
+ 
+ Okay, still have two questions (probably you anticipated them):
+ 
+ 1) why is the identity function an infinite loop?
+ 
+ 2) does your statement mean that a variation on this:
+ 
+    Welcome to MzScheme version 199.13, Copyright (c) 1995-2001 PLT
+    > (define-syntax m 1)
+    > m
+    m: illegal use of syntax in STDIN:21: m
+ 
+ should work?
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1964: eval + macro definition -> mzscheme eats all memory
+Date: Sun, 10 Jun 2001 12:45:24 -0600 (MDT)
+
+ Quoting Robert Bruce Findler:
+ > Okay, still have two questions (probably you anticipated them):
+ > 
+ > 1) why is the identity function an infinite loop?
+ 
+ Using an indentity function as a transformer leads to an infinite
+ expansion loop because the result of a transformer is always expanded.
+ Thus, if some part of the syntax object caused the identity transformer
+ to be invoked, then that part will cause the same transformer to be
+ invoked for the next step in expansion, etc.
+ 
+ > 2) does your statement mean that a variation on this:
+ > 
+ >    Welcome to MzScheme version 199.13, Copyright (c) 1995-2001 PLT
+ >    > (define-syntax m 1)
+ >    > m
+ >    m: illegal use of syntax in STDIN:21: m
+ > 
+ > should work?
+ 
+ I'm not sure exactly what you mean, but the details are hidden in the
+ opening section of the "Syntax" chapter, and in the "Transformer
+ Application" section of the MzScheme manual. (I've been indexing the
+ new module and syntax sections, so maybe this information will be
+ easier to find in the next release.)
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Sun Jun 10 17:43:24 2001
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Sun Jun 10 17:43:29 2001
+State-Changed-Why:
+
+
+ 
+>Unformatted:

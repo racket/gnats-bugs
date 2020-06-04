@@ -1,0 +1,1694 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Dec 25 17:06:54 2008
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.226])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id mBPM6jEx032157
+	for <bugs@bugs.plt-scheme.org>; Thu, 25 Dec 2008 17:06:46 -0500
+Message-Id: <200812252206.mBPM6h5V032151@champlain.ccs.neu.edu>
+Date: Thu, 25 Dec 2008 17:06:43 -0500
+From: pnkfelix@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+
+>Number:         9987
+>Category:       htdp
+>Synopsis:       beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Dec 25 17:08:01 -0500 2008
+>Closed-Date:    Mon Mar 16 14:31:24 -0400 2009
+>Last-Modified:  Mon Mar 16 14:31:24 -0400 2009
+>Originator:     Felix Klock
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.3
+>Environment:
+macosx "Darwin Chimaera.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386 i386" (i386-macosx/3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 243906380
+
+Collections:
+(("/Users/pnkfelix/Library/PLT Scheme/4.1.3/collects" "installed-teachpacks") ("/Applications/PLT Scheme v4.1.3/collects" "afm" "algol60" "browser" "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-scheme" "version" "web-server" "wxme" "xml"))
+Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced Student") (#(#t constructor repeating-decimal #t #t none) #f ((lib "foo.ss" "installed-teachpacks"))))
+>Description:
+Merry Christmas!  I'm celebrating by trying 
+to make DrScheme perform miracles; hooray!
+
+-- THE BUG --
+
+Teachpacks exporting transparent structures that 
+override prop:equal+hash are likely to be unhappy with
+such structures interaction with the check-expect form
+in the Student languages.  
+
+The beginner-equal? procedure (that check-expect uses)
+does not seem to behave consistently with how equal? 
+handles such structures.  In particular, the beginner-equal?
+procedure seems to ignore the prop:equal+hash property
+and just do pure structural traversal of instances of 
+transparent structures.
+
+If you make such structures opaque and leave in the 
+prop:equal+hash setting, then beginner-equal? seems 
+to work like equal?; that is, it *will* respect the 
+prop:equal+hash property in such a case.
+
+I *suspect* that the problem is something where the equal?
+procedure first looks at a structure type's prop:equal+hash
+property before considering the transparency of the type,
+while beginner-equal? inverts that prioritization.  However, 
+I have *not* been able to confirm this hypothesis via quick
+manual inspection of lang/private/teachprims.ss
+
+-- REPRODUCING THE PROBLEM --
+
+The "Steps to Reproduce" section of this report lays out 
+the dimensions of this curious behavior.  It has three 
+core files: 
+  1.) foo.ss is a teachpack that defines two similar 
+      structures (they differ only in transparency).
+  2.) foo-student-client.ss is a Student source file that
+      needs the foo.ss teachpack to run, and
+  3.) foo-plt-client.ss is a PLT Scheme source file that
+      duplicates the same tests as foo-student-client.ss.
+
+The crucial thing is that the behavior of foo-plt-client.ss
+differs from that of foo-student-client.ss, even though they
+import the same module (foo.ss) and have the same set of 
+tests of the imported functions.
+
+The fourth and final file, foo-plt-client2.ss, brings
+home the point that the semantics of equal? and
+beginner-equal? differ in how they handle the
+transparent structure, which is what I believe causes
+the inconsistency documented in the first three files.
+
+----
+
+Note that this bug report is about fixing the 
+inconsistency between the first three files.
+The fourth file is just my attempt to assist with 
+the diagnosis; a christmas gift of sorts!
+>How-To-Repeat:
+1. Set up the following files:
+
+== foo.ss ==
+
+#lang scheme
+
+(provide make-foobad make-foogud)
+
+(define-struct foobad (val) #:transparent 
+  #:property prop:equal+hash 
+  (let () 
+    ;; Foo -> Foo
+    ;; Produces "canonical version" of f.
+    (define (canon f)
+      (let ((val (foobad-val f)))
+        (make-foobad (if (char? val) (string val) val))))
+    (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+      (equal? (foobad-val (canon f1)) (foobad-val (canon f2))))
+    (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+      (hash (foobad-val (canon f))))
+    (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+      (hash (foobad-val (canon f))))
+    (list foo-equal? foo-hash1 foo-hash2)))
+
+(define-struct foogud (val)
+  #:property prop:equal+hash 
+  (let () 
+    ;; Foo -> Foo
+    ;; Produces "canonical version" of f.
+    (define (canon f)
+      (let ((val (foogud-val f)))
+        (make-foogud (if (char? val) (string val) val))))
+    (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+      (equal? (foogud-val (canon f1)) (foogud-val (canon f2))))
+    (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+      (hash (foogud-val (canon f))))
+    (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+      (hash (foogud-val (canon f))))
+    (list foo-equal? foo-hash1 foo-hash2)))
+
+;; A FooBad is one of:
+;; - (make-foobad Char)
+;; - (make-foobad String)
+ 
+;; A FooGud is one of:
+;; - (make-foogud Char)
+;; - (make-foogud String)
+
+;; interpretation (shared between FooBad and FooGud): 
+;; (make-foo__d a-string) is an object identified by its name alone.
+;; (make-foo__d a-char) is synonymous with (make-foo__d (string a-char)).
+
+;; end of foo.ss
+
+== foo-student-client.ss ==
+
+(check-expect (equal? (make-foogud "a") (make-foogud #\b))
+              #f)
+(check-expect (equal? (make-foobad "a") (make-foobad #\b))
+              #f)
+(check-expect (equal? (make-foogud "a") (make-foogud "a"))
+              #t)
+(check-expect (equal? (make-foobad "a") (make-foobad "a"))
+              #t)
+(check-expect (equal? (make-foogud "a") (make-foogud #\a))
+              #t)
+(check-expect (equal? (make-foobad "a") (make-foobad #\a))
+              #t)
+;; end of foo-student-client.ss
+
+== foo-plt-client.ss ==
+
+#lang scheme
+(require test-engine/scheme-tests
+         "foo.ss")
+(check-expect (equal? (make-foogud "a") (make-foogud #\b))
+              #f)
+(check-expect (equal? (make-foobad "a") (make-foobad #\b))
+              #f)
+(check-expect (equal? (make-foogud "a") (make-foogud "a"))
+              #t)
+(check-expect (equal? (make-foobad "a") (make-foobad "a"))
+              #t)
+(check-expect (equal? (make-foogud "a") (make-foogud #\a))
+              #t)
+(check-expect (equal? (make-foobad "a") (make-foobad #\a))
+              #t)
+(test)
+;; end of foo-plt-client.ss
+
+== foo-plt-client2.ss ==
+
+#lang scheme
+(require test-engine/scheme-tests
+         "foo.ss"
+         (only-in lang/private/teachprims
+                  beginner-equal?))
+(check-expect (equal? (make-foogud "a") (make-foogud #\a))
+              #t)
+(check-expect (equal? (make-foobad "a") (make-foobad #\a))
+              #t)
+(check-expect (beginner-equal? (make-foogud "a") (make-foogud #\a))
+              #t)
+(check-expect (beginner-equal? (make-foobad "a") (make-foobad #\a))
+              #t)
+(test)
+;; end of foo-plt-client2.ss
+
+2. Set foo-student-client.ss language level to a Student 
+Language.  (I'm using Beginning Student, but this occurs in
+Advanced as well.)
+
+3. Add foo.ss as a Teachpack for foo-student-client.ss,
+making sure to overwrite any previously installed foo.ss
+teachpack.
+
+4. Set foo-plt-client.ss and foo-plt-client2.ss language
+levels to Module.
+
+5. diff foo-{student,plt}-client.ss; note the tests 
+are identical
+
+6a. run foo-plt-client.ss:
+Welcome to DrScheme, version 4.1.3 [3m].
+Language: Module; memory limit: 512 megabytes.
+All 6 tests passed!
+> 
+
+6b. run foo-student-client.ss:
+Ran 6 tests.
+1 of the 6 tests failed.
+
+	Actual value false differs from true, the expected value.
+ In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-student-client.ss at line 11 column 0 
+
+
+6c. Note that the last test had different behavior.
+
+7a. Run foo-plt-client2.ss:
+Ran 4 checks.
+1 of the 4 checks failed.
+
+	Actual value #f differs from #t, the expected value.
+ In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-plt-client2.ss at line 12 column 0
+
+7b. Note that the failing test (test #4) is the same as 
+test #2, except that #2 invokes equal? while #4 invokes
+beginner-equal?
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.uchicago.edu
+Cc: pnkfelix@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Mon, 29 Dec 2008 15:37:16 -0600
+
+ Robby:
+ 
+ The `equal?' in Beginner isn't the `equal?' or `scheme/base' for two
+ reasons:
+ 
+  * The Beginner `equal?' uses `image=?' when it finds images.
+ 
+  * The Beginner `equal?' is really `equal~?', which compares numbers by
+    checking whether one is within a given amount of the other.
+ 
+ I can change images to work with `equal?' by having `image-snip%'
+ implement `equal<%>' and by changing `cache-image-snip%' to be a
+ subclass of `image-snip%'.
+ 
+  [It's interesting to have an example so soon where we want instances
+   of two types to be equal when neither type is a subtype of the other.
+   But, in this case, it's also easy to rearrange.]
+ 
+ For `equal~?', I'm adding `equal?/recur', which is like `equal?' for
+ one layer, but it uses a given function for recursive equality
+ checking. For a structure type that implements `prop:equal+hash', this
+ can expose information that was inaccessible before; I've convinced
+ myself that it doesn't matter, since a `prop:equal+hash' function only
+ needs to use the `equal?' function that it's given when it needs to
+ work with cycles containing the structure, and in that case, the
+ relevant information wouldn't be hidden, anyway.
+ 
+ Of course, `equal~?' could continue to call `image=?', and `equal?'
+ could still be written in terms of `equal~?' (or a slight
+ generalization), which means that we wouldn't have to change the way
+ that `image=?' works. Still, I'm inclined to change `image-snip%' to
+ implement `equal<%>' and to change the superclass of
+ `cache-image-snip%', unless you have objections.
+ 
+ At Thu, 25 Dec 2008 17:08:01 -0500, pnkfelix@ccs.neu.edu wrote:
+ > A new problem report is waiting at
+ >   http://bugs.plt-scheme.org/query/?cmd=view&pr=9987
+ > 
+ > Reported by Felix Klock for release: 4.1.3
+ > 
+ > *** Description:
+ > Merry Christmas!  I'm celebrating by trying 
+ > to make DrScheme perform miracles; hooray!
+ > 
+ > -- THE BUG --
+ > 
+ > Teachpacks exporting transparent structures that 
+ > override prop:equal+hash are likely to be unhappy with
+ > such structures interaction with the check-expect form
+ > in the Student languages.  
+ > 
+ > The beginner-equal? procedure (that check-expect uses)
+ > does not seem to behave consistently with how equal? 
+ > handles such structures.  In particular, the beginner-equal?
+ > procedure seems to ignore the prop:equal+hash property
+ > and just do pure structural traversal of instances of 
+ > transparent structures.
+ > 
+ > If you make such structures opaque and leave in the 
+ > prop:equal+hash setting, then beginner-equal? seems 
+ > to work like equal?; that is, it *will* respect the 
+ > prop:equal+hash property in such a case.
+ > 
+ > I *suspect* that the problem is something where the equal?
+ > procedure first looks at a structure type's prop:equal+hash
+ > property before considering the transparency of the type,
+ > while beginner-equal? inverts that prioritization.  However, 
+ > I have *not* been able to confirm this hypothesis via quick
+ > manual inspection of lang/private/teachprims.ss
+ > 
+ > -- REPRODUCING THE PROBLEM --
+ > 
+ > The "Steps to Reproduce" section of this report lays out 
+ > the dimensions of this curious behavior.  It has three 
+ > core files: 
+ >   1.) foo.ss is a teachpack that defines two similar 
+ >       structures (they differ only in transparency).
+ >   2.) foo-student-client.ss is a Student source file that
+ >       needs the foo.ss teachpack to run, and
+ >   3.) foo-plt-client.ss is a PLT Scheme source file that
+ >       duplicates the same tests as foo-student-client.ss.
+ > 
+ > The crucial thing is that the behavior of foo-plt-client.ss
+ > differs from that of foo-student-client.ss, even though they
+ > import the same module (foo.ss) and have the same set of 
+ > tests of the imported functions.
+ > 
+ > The fourth and final file, foo-plt-client2.ss, brings
+ > home the point that the semantics of equal? and
+ > beginner-equal? differ in how they handle the
+ > transparent structure, which is what I believe causes
+ > the inconsistency documented in the first three files.
+ > 
+ > ----
+ > 
+ > Note that this bug report is about fixing the 
+ > inconsistency between the first three files.
+ > The fourth file is just my attempt to assist with 
+ > the diagnosis; a christmas gift of sorts!
+ > 
+ > *** How to repeat:
+ > 1. Set up the following files:
+ > 
+ > == foo.ss ==
+ > 
+ > #lang scheme
+ > 
+ > (provide make-foobad make-foogud)
+ > 
+ > (define-struct foobad (val) #:transparent 
+ >   #:property prop:equal+hash 
+ >   (let () 
+ >     ;; Foo -> Foo
+ >     ;; Produces "canonical version" of f.
+ >     (define (canon f)
+ >       (let ((val (foobad-val f)))
+ >         (make-foobad (if (char? val) (string val) val))))
+ >     (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+ >       (equal? (foobad-val (canon f1)) (foobad-val (canon f2))))
+ >     (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >       (hash (foobad-val (canon f))))
+ >     (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >       (hash (foobad-val (canon f))))
+ >     (list foo-equal? foo-hash1 foo-hash2)))
+ > 
+ > (define-struct foogud (val)
+ >   #:property prop:equal+hash 
+ >   (let () 
+ >     ;; Foo -> Foo
+ >     ;; Produces "canonical version" of f.
+ >     (define (canon f)
+ >       (let ((val (foogud-val f)))
+ >         (make-foogud (if (char? val) (string val) val))))
+ >     (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+ >       (equal? (foogud-val (canon f1)) (foogud-val (canon f2))))
+ >     (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >       (hash (foogud-val (canon f))))
+ >     (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >       (hash (foogud-val (canon f))))
+ >     (list foo-equal? foo-hash1 foo-hash2)))
+ > 
+ > ;; A FooBad is one of:
+ > ;; - (make-foobad Char)
+ > ;; - (make-foobad String)
+ >  
+ > ;; A FooGud is one of:
+ > ;; - (make-foogud Char)
+ > ;; - (make-foogud String)
+ > 
+ > ;; interpretation (shared between FooBad and FooGud): 
+ > ;; (make-foo__d a-string) is an object identified by its name alone.
+ > ;; (make-foo__d a-char) is synonymous with (make-foo__d (string a-char)).
+ > 
+ > ;; end of foo.ss
+ > 
+ > == foo-student-client.ss ==
+ > 
+ > (check-expect (equal? (make-foogud "a") (make-foogud #\b))
+ >               #f)
+ > (check-expect (equal? (make-foobad "a") (make-foobad #\b))
+ >               #f)
+ > (check-expect (equal? (make-foogud "a") (make-foogud "a"))
+ >               #t)
+ > (check-expect (equal? (make-foobad "a") (make-foobad "a"))
+ >               #t)
+ > (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ >               #t)
+ > (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ >               #t)
+ > ;; end of foo-student-client.ss
+ > 
+ > == foo-plt-client.ss ==
+ > 
+ > #lang scheme
+ > (require test-engine/scheme-tests
+ >          "foo.ss")
+ > (check-expect (equal? (make-foogud "a") (make-foogud #\b))
+ >               #f)
+ > (check-expect (equal? (make-foobad "a") (make-foobad #\b))
+ >               #f)
+ > (check-expect (equal? (make-foogud "a") (make-foogud "a"))
+ >               #t)
+ > (check-expect (equal? (make-foobad "a") (make-foobad "a"))
+ >               #t)
+ > (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ >               #t)
+ > (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ >               #t)
+ > (test)
+ > ;; end of foo-plt-client.ss
+ > 
+ > == foo-plt-client2.ss ==
+ > 
+ > #lang scheme
+ > (require test-engine/scheme-tests
+ >          "foo.ss"
+ >          (only-in lang/private/teachprims
+ >                   beginner-equal?))
+ > (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ >               #t)
+ > (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ >               #t)
+ > (check-expect (beginner-equal? (make-foogud "a") (make-foogud #\a))
+ >               #t)
+ > (check-expect (beginner-equal? (make-foobad "a") (make-foobad #\a))
+ >               #t)
+ > (test)
+ > ;; end of foo-plt-client2.ss
+ > 
+ > 2. Set foo-student-client.ss language level to a Student 
+ > Language.  (I'm using Beginning Student, but this occurs in
+ > Advanced as well.)
+ > 
+ > 3. Add foo.ss as a Teachpack for foo-student-client.ss,
+ > making sure to overwrite any previously installed foo.ss
+ > teachpack.
+ > 
+ > 4. Set foo-plt-client.ss and foo-plt-client2.ss language
+ > levels to Module.
+ > 
+ > 5. diff foo-{student,plt}-client.ss; note the tests 
+ > are identical
+ > 
+ > 6a. run foo-plt-client.ss:
+ > Welcome to DrScheme, version 4.1.3 [3m].
+ > Language: Module; memory limit: 512 megabytes.
+ > All 6 tests passed!
+ > > 
+ > 
+ > 6b. run foo-student-client.ss:
+ > Ran 6 tests.
+ > 1 of the 6 tests failed.
+ > 
+ > 	Actual value false differs from true, the expected value.
+ >  In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-student-client.ss at line 11 
+ > column 0 
+ > 
+ > 
+ > 6c. Note that the last test had different behavior.
+ > 
+ > 7a. Run foo-plt-client2.ss:
+ > Ran 4 checks.
+ > 1 of the 4 checks failed.
+ > 
+ > 	Actual value #f differs from #t, the expected value.
+ >  In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-plt-client2.ss at line 12 
+ > column 0
+ > 
+ > 7b. Note that the failing test (test #4) is the same as 
+ > test #2, except that #2 invokes equal? while #4 invokes
+ > beginner-equal?
+ > 
+ > *** Environment:
+ > macosx "Darwin Chimaera.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24 
+ > 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386 i386" (i386-
+ > macosx/3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 243906380
+ > 
+ > Collections:
+ > (("/Users/pnkfelix/Library/PLT Scheme/4.1.3/collects" "installed-teachpacks") 
+ > ("/Applications/PLT Scheme v4.1.3/collects" "afm" "algol60" "browser" 
+ > "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext" 
+ > "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games" 
+ > "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons" 
+ > "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib" 
+ > "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet" 
+ > "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp" 
+ > "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi" 
+ > "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" 
+ > "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-
+ > scheme" "version" "web-server" "wxme" "xml"))
+ > Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced 
+ > Student") (#(#t constructor repeating-decimal #t #t none) #f ((lib "foo.ss" 
+ > "installed-teachpacks"))))
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: pnkfelix@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Mon, 29 Dec 2008 15:47:14 -0600
+
+ I'm not quite sure I'm getting the full ramifications of the extra,
+ now not-secret information. Am I right that, for structures with
+ prop:equal+hash, that they are essentially without inspectors? That
+ is, if I can get a hold of a pair of (non-eq?) structures, then I can
+ use equal?/recur and thru that find out the values of the fields?
+ 
+ Also, how does all this interact with Kent's optimized version of equal?
+ 
+ http://portal.acm.org/citation.cfm?id=1411230
+ 
+ Robby
+ 
+ On Mon, Dec 29, 2008 at 3:37 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > Robby:
+ >
+ > The `equal?' in Beginner isn't the `equal?' or `scheme/base' for two
+ > reasons:
+ >
+ >  * The Beginner `equal?' uses `image=?' when it finds images.
+ >
+ >  * The Beginner `equal?' is really `equal~?', which compares numbers by
+ >   checking whether one is within a given amount of the other.
+ >
+ > I can change images to work with `equal?' by having `image-snip%'
+ > implement `equal<%>' and by changing `cache-image-snip%' to be a
+ > subclass of `image-snip%'.
+ >
+ >  [It's interesting to have an example so soon where we want instances
+ >  of two types to be equal when neither type is a subtype of the other.
+ >  But, in this case, it's also easy to rearrange.]
+ >
+ > For `equal~?', I'm adding `equal?/recur', which is like `equal?' for
+ > one layer, but it uses a given function for recursive equality
+ > checking. For a structure type that implements `prop:equal+hash', this
+ > can expose information that was inaccessible before; I've convinced
+ > myself that it doesn't matter, since a `prop:equal+hash' function only
+ > needs to use the `equal?' function that it's given when it needs to
+ > work with cycles containing the structure, and in that case, the
+ > relevant information wouldn't be hidden, anyway.
+ >
+ > Of course, `equal~?' could continue to call `image=?', and `equal?'
+ > could still be written in terms of `equal~?' (or a slight
+ > generalization), which means that we wouldn't have to change the way
+ > that `image=?' works. Still, I'm inclined to change `image-snip%' to
+ > implement `equal<%>' and to change the superclass of
+ > `cache-image-snip%', unless you have objections.
+ >
+ > At Thu, 25 Dec 2008 17:08:01 -0500, pnkfelix@ccs.neu.edu wrote:
+ >> A new problem report is waiting at
+ >>   http://bugs.plt-scheme.org/query/?cmd=view&pr=9987
+ >>
+ >> Reported by Felix Klock for release: 4.1.3
+ >>
+ >> *** Description:
+ >> Merry Christmas!  I'm celebrating by trying
+ >> to make DrScheme perform miracles; hooray!
+ >>
+ >> -- THE BUG --
+ >>
+ >> Teachpacks exporting transparent structures that
+ >> override prop:equal+hash are likely to be unhappy with
+ >> such structures interaction with the check-expect form
+ >> in the Student languages.
+ >>
+ >> The beginner-equal? procedure (that check-expect uses)
+ >> does not seem to behave consistently with how equal?
+ >> handles such structures.  In particular, the beginner-equal?
+ >> procedure seems to ignore the prop:equal+hash property
+ >> and just do pure structural traversal of instances of
+ >> transparent structures.
+ >>
+ >> If you make such structures opaque and leave in the
+ >> prop:equal+hash setting, then beginner-equal? seems
+ >> to work like equal?; that is, it *will* respect the
+ >> prop:equal+hash property in such a case.
+ >>
+ >> I *suspect* that the problem is something where the equal?
+ >> procedure first looks at a structure type's prop:equal+hash
+ >> property before considering the transparency of the type,
+ >> while beginner-equal? inverts that prioritization.  However,
+ >> I have *not* been able to confirm this hypothesis via quick
+ >> manual inspection of lang/private/teachprims.ss
+ >>
+ >> -- REPRODUCING THE PROBLEM --
+ >>
+ >> The "Steps to Reproduce" section of this report lays out
+ >> the dimensions of this curious behavior.  It has three
+ >> core files:
+ >>   1.) foo.ss is a teachpack that defines two similar
+ >>       structures (they differ only in transparency).
+ >>   2.) foo-student-client.ss is a Student source file that
+ >>       needs the foo.ss teachpack to run, and
+ >>   3.) foo-plt-client.ss is a PLT Scheme source file that
+ >>       duplicates the same tests as foo-student-client.ss.
+ >>
+ >> The crucial thing is that the behavior of foo-plt-client.ss
+ >> differs from that of foo-student-client.ss, even though they
+ >> import the same module (foo.ss) and have the same set of
+ >> tests of the imported functions.
+ >>
+ >> The fourth and final file, foo-plt-client2.ss, brings
+ >> home the point that the semantics of equal? and
+ >> beginner-equal? differ in how they handle the
+ >> transparent structure, which is what I believe causes
+ >> the inconsistency documented in the first three files.
+ >>
+ >> ----
+ >>
+ >> Note that this bug report is about fixing the
+ >> inconsistency between the first three files.
+ >> The fourth file is just my attempt to assist with
+ >> the diagnosis; a christmas gift of sorts!
+ >>
+ >> *** How to repeat:
+ >> 1. Set up the following files:
+ >>
+ >> == foo.ss ==
+ >>
+ >> #lang scheme
+ >>
+ >> (provide make-foobad make-foogud)
+ >>
+ >> (define-struct foobad (val) #:transparent
+ >>   #:property prop:equal+hash
+ >>   (let ()
+ >>     ;; Foo -> Foo
+ >>     ;; Produces "canonical version" of f.
+ >>     (define (canon f)
+ >>       (let ((val (foobad-val f)))
+ >>         (make-foobad (if (char? val) (string val) val))))
+ >>     (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+ >>       (equal? (foobad-val (canon f1)) (foobad-val (canon f2))))
+ >>     (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >>       (hash (foobad-val (canon f))))
+ >>     (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >>       (hash (foobad-val (canon f))))
+ >>     (list foo-equal? foo-hash1 foo-hash2)))
+ >>
+ >> (define-struct foogud (val)
+ >>   #:property prop:equal+hash
+ >>   (let ()
+ >>     ;; Foo -> Foo
+ >>     ;; Produces "canonical version" of f.
+ >>     (define (canon f)
+ >>       (let ((val (foogud-val f)))
+ >>         (make-foogud (if (char? val) (string val) val))))
+ >>     (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+ >>       (equal? (foogud-val (canon f1)) (foogud-val (canon f2))))
+ >>     (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >>       (hash (foogud-val (canon f))))
+ >>     (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ >>       (hash (foogud-val (canon f))))
+ >>     (list foo-equal? foo-hash1 foo-hash2)))
+ >>
+ >> ;; A FooBad is one of:
+ >> ;; - (make-foobad Char)
+ >> ;; - (make-foobad String)
+ >>
+ >> ;; A FooGud is one of:
+ >> ;; - (make-foogud Char)
+ >> ;; - (make-foogud String)
+ >>
+ >> ;; interpretation (shared between FooBad and FooGud):
+ >> ;; (make-foo__d a-string) is an object identified by its name alone.
+ >> ;; (make-foo__d a-char) is synonymous with (make-foo__d (string a-char)).
+ >>
+ >> ;; end of foo.ss
+ >>
+ >> == foo-student-client.ss ==
+ >>
+ >> (check-expect (equal? (make-foogud "a") (make-foogud #\b))
+ >>               #f)
+ >> (check-expect (equal? (make-foobad "a") (make-foobad #\b))
+ >>               #f)
+ >> (check-expect (equal? (make-foogud "a") (make-foogud "a"))
+ >>               #t)
+ >> (check-expect (equal? (make-foobad "a") (make-foobad "a"))
+ >>               #t)
+ >> (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ >>               #t)
+ >> (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ >>               #t)
+ >> ;; end of foo-student-client.ss
+ >>
+ >> == foo-plt-client.ss ==
+ >>
+ >> #lang scheme
+ >> (require test-engine/scheme-tests
+ >>          "foo.ss")
+ >> (check-expect (equal? (make-foogud "a") (make-foogud #\b))
+ >>               #f)
+ >> (check-expect (equal? (make-foobad "a") (make-foobad #\b))
+ >>               #f)
+ >> (check-expect (equal? (make-foogud "a") (make-foogud "a"))
+ >>               #t)
+ >> (check-expect (equal? (make-foobad "a") (make-foobad "a"))
+ >>               #t)
+ >> (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ >>               #t)
+ >> (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ >>               #t)
+ >> (test)
+ >> ;; end of foo-plt-client.ss
+ >>
+ >> == foo-plt-client2.ss ==
+ >>
+ >> #lang scheme
+ >> (require test-engine/scheme-tests
+ >>          "foo.ss"
+ >>          (only-in lang/private/teachprims
+ >>                   beginner-equal?))
+ >> (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ >>               #t)
+ >> (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ >>               #t)
+ >> (check-expect (beginner-equal? (make-foogud "a") (make-foogud #\a))
+ >>               #t)
+ >> (check-expect (beginner-equal? (make-foobad "a") (make-foobad #\a))
+ >>               #t)
+ >> (test)
+ >> ;; end of foo-plt-client2.ss
+ >>
+ >> 2. Set foo-student-client.ss language level to a Student
+ >> Language.  (I'm using Beginning Student, but this occurs in
+ >> Advanced as well.)
+ >>
+ >> 3. Add foo.ss as a Teachpack for foo-student-client.ss,
+ >> making sure to overwrite any previously installed foo.ss
+ >> teachpack.
+ >>
+ >> 4. Set foo-plt-client.ss and foo-plt-client2.ss language
+ >> levels to Module.
+ >>
+ >> 5. diff foo-{student,plt}-client.ss; note the tests
+ >> are identical
+ >>
+ >> 6a. run foo-plt-client.ss:
+ >> Welcome to DrScheme, version 4.1.3 [3m].
+ >> Language: Module; memory limit: 512 megabytes.
+ >> All 6 tests passed!
+ >> >
+ >>
+ >> 6b. run foo-student-client.ss:
+ >> Ran 6 tests.
+ >> 1 of the 6 tests failed.
+ >>
+ >>       Actual value false differs from true, the expected value.
+ >>  In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-student-client.ss at line 11
+ >> column 0
+ >>
+ >>
+ >> 6c. Note that the last test had different behavior.
+ >>
+ >> 7a. Run foo-plt-client2.ss:
+ >> Ran 4 checks.
+ >> 1 of the 4 checks failed.
+ >>
+ >>       Actual value #f differs from #t, the expected value.
+ >>  In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-plt-client2.ss at line 12
+ >> column 0
+ >>
+ >> 7b. Note that the failing test (test #4) is the same as
+ >> test #2, except that #2 invokes equal? while #4 invokes
+ >> beginner-equal?
+ >>
+ >> *** Environment:
+ >> macosx "Darwin Chimaera.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24
+ >> 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386 i386" (i386-
+ >> macosx/3m) (get-display-depth) = 32
+ >> Human Language: english
+ >> (current-memory-use) 243906380
+ >>
+ >> Collections:
+ >> (("/Users/pnkfelix/Library/PLT Scheme/4.1.3/collects" "installed-teachpacks")
+ >> ("/Applications/PLT Scheme v4.1.3/collects" "afm" "algol60" "browser"
+ >> "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext"
+ >> "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games"
+ >> "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons"
+ >> "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrlib"
+ >> "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet"
+ >> "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-exp"
+ >> "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi"
+ >> "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack"
+ >> "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" "typed-
+ >> scheme" "version" "web-server" "wxme" "xml"))
+ >> Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced
+ >> Student") (#(#t constructor repeating-decimal #t #t none) #f ((lib "foo.ss"
+ >> "installed-teachpacks"))))
+ >
+ >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: pnkfelix@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Mon, 29 Dec 2008 15:54:59 -0600
+
+ At Mon, 29 Dec 2008 15:47:14 -0600, "Robby Findler" wrote:
+ > I'm not quite sure I'm getting the full ramifications of the extra,
+ > now not-secret information. Am I right that, for structures with
+ > prop:equal+hash, that they are essentially without inspectors? That
+ > is, if I can get a hold of a pair of (non-eq?) structures, then I can
+ > use equal?/recur and thru that find out the values of the fields?
+ 
+ No. The `prop:equal+hash' procedure exposes information where it calls
+ the "recursive equal?" function that it's given. The function attached
+ to `prop:equal+hash' doesn't have to call it at all. It might use
+ `equal?' or other comparison operators if there's no need to support
+ cycles back to itself.
+ 
+ > Also, how does all this interact with Kent's optimized version of equal?
+ > 
+ > http://portal.acm.org/citation.cfm?id=1411230
+ 
+ Since `equal?/recur' itself just looks at one layer, it doesn't handle
+ cycles at all. You could use `equal?/recur' to implement one layer of
+ checking and wrap Kent's algorithm around that.
+ 
+ 
+ > On Mon, Dec 29, 2008 at 3:37 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > > Robby:
+ > >
+ > > The `equal?' in Beginner isn't the `equal?' or `scheme/base' for two
+ > > reasons:
+ > >
+ > >  * The Beginner `equal?' uses `image=?' when it finds images.
+ > >
+ > >  * The Beginner `equal?' is really `equal~?', which compares numbers by
+ > >   checking whether one is within a given amount of the other.
+ > >
+ > > I can change images to work with `equal?' by having `image-snip%'
+ > > implement `equal<%>' and by changing `cache-image-snip%' to be a
+ > > subclass of `image-snip%'.
+ > >
+ > >  [It's interesting to have an example so soon where we want instances
+ > >  of two types to be equal when neither type is a subtype of the other.
+ > >  But, in this case, it's also easy to rearrange.]
+ > >
+ > > For `equal~?', I'm adding `equal?/recur', which is like `equal?' for
+ > > one layer, but it uses a given function for recursive equality
+ > > checking. For a structure type that implements `prop:equal+hash', this
+ > > can expose information that was inaccessible before; I've convinced
+ > > myself that it doesn't matter, since a `prop:equal+hash' function only
+ > > needs to use the `equal?' function that it's given when it needs to
+ > > work with cycles containing the structure, and in that case, the
+ > > relevant information wouldn't be hidden, anyway.
+ > >
+ > > Of course, `equal~?' could continue to call `image=?', and `equal?'
+ > > could still be written in terms of `equal~?' (or a slight
+ > > generalization), which means that we wouldn't have to change the way
+ > > that `image=?' works. Still, I'm inclined to change `image-snip%' to
+ > > implement `equal<%>' and to change the superclass of
+ > > `cache-image-snip%', unless you have objections.
+ > >
+ > > At Thu, 25 Dec 2008 17:08:01 -0500, pnkfelix@ccs.neu.edu wrote:
+ > >> A new problem report is waiting at
+ > >>   http://bugs.plt-scheme.org/query/?cmd=view&pr=9987
+ > >>
+ > >> Reported by Felix Klock for release: 4.1.3
+ > >>
+ > >> *** Description:
+ > >> Merry Christmas!  I'm celebrating by trying
+ > >> to make DrScheme perform miracles; hooray!
+ > >>
+ > >> -- THE BUG --
+ > >>
+ > >> Teachpacks exporting transparent structures that
+ > >> override prop:equal+hash are likely to be unhappy with
+ > >> such structures interaction with the check-expect form
+ > >> in the Student languages.
+ > >>
+ > >> The beginner-equal? procedure (that check-expect uses)
+ > >> does not seem to behave consistently with how equal?
+ > >> handles such structures.  In particular, the beginner-equal?
+ > >> procedure seems to ignore the prop:equal+hash property
+ > >> and just do pure structural traversal of instances of
+ > >> transparent structures.
+ > >>
+ > >> If you make such structures opaque and leave in the
+ > >> prop:equal+hash setting, then beginner-equal? seems
+ > >> to work like equal?; that is, it *will* respect the
+ > >> prop:equal+hash property in such a case.
+ > >>
+ > >> I *suspect* that the problem is something where the equal?
+ > >> procedure first looks at a structure type's prop:equal+hash
+ > >> property before considering the transparency of the type,
+ > >> while beginner-equal? inverts that prioritization.  However,
+ > >> I have *not* been able to confirm this hypothesis via quick
+ > >> manual inspection of lang/private/teachprims.ss
+ > >>
+ > >> -- REPRODUCING THE PROBLEM --
+ > >>
+ > >> The "Steps to Reproduce" section of this report lays out
+ > >> the dimensions of this curious behavior.  It has three
+ > >> core files:
+ > >>   1.) foo.ss is a teachpack that defines two similar
+ > >>       structures (they differ only in transparency).
+ > >>   2.) foo-student-client.ss is a Student source file that
+ > >>       needs the foo.ss teachpack to run, and
+ > >>   3.) foo-plt-client.ss is a PLT Scheme source file that
+ > >>       duplicates the same tests as foo-student-client.ss.
+ > >>
+ > >> The crucial thing is that the behavior of foo-plt-client.ss
+ > >> differs from that of foo-student-client.ss, even though they
+ > >> import the same module (foo.ss) and have the same set of
+ > >> tests of the imported functions.
+ > >>
+ > >> The fourth and final file, foo-plt-client2.ss, brings
+ > >> home the point that the semantics of equal? and
+ > >> beginner-equal? differ in how they handle the
+ > >> transparent structure, which is what I believe causes
+ > >> the inconsistency documented in the first three files.
+ > >>
+ > >> ----
+ > >>
+ > >> Note that this bug report is about fixing the
+ > >> inconsistency between the first three files.
+ > >> The fourth file is just my attempt to assist with
+ > >> the diagnosis; a christmas gift of sorts!
+ > >>
+ > >> *** How to repeat:
+ > >> 1. Set up the following files:
+ > >>
+ > >> == foo.ss ==
+ > >>
+ > >> #lang scheme
+ > >>
+ > >> (provide make-foobad make-foogud)
+ > >>
+ > >> (define-struct foobad (val) #:transparent
+ > >>   #:property prop:equal+hash
+ > >>   (let ()
+ > >>     ;; Foo -> Foo
+ > >>     ;; Produces "canonical version" of f.
+ > >>     (define (canon f)
+ > >>       (let ((val (foobad-val f)))
+ > >>         (make-foobad (if (char? val) (string val) val))))
+ > >>     (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+ > >>       (equal? (foobad-val (canon f1)) (foobad-val (canon f2))))
+ > >>     (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ > >>       (hash (foobad-val (canon f))))
+ > >>     (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ > >>       (hash (foobad-val (canon f))))
+ > >>     (list foo-equal? foo-hash1 foo-hash2)))
+ > >>
+ > >> (define-struct foogud (val)
+ > >>   #:property prop:equal+hash
+ > >>   (let ()
+ > >>     ;; Foo -> Foo
+ > >>     ;; Produces "canonical version" of f.
+ > >>     (define (canon f)
+ > >>       (let ((val (foogud-val f)))
+ > >>         (make-foogud (if (char? val) (string val) val))))
+ > >>     (define (foo-equal? f1 f2 equal?) ;; Foo Foo (Any Any -> Bool) -> Bool
+ > >>       (equal? (foogud-val (canon f1)) (foogud-val (canon f2))))
+ > >>     (define (foo-hash1 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ > >>       (hash (foogud-val (canon f))))
+ > >>     (define (foo-hash2 f hash) ;; Foo (Any -> Fixnum) -> Fixnum
+ > >>       (hash (foogud-val (canon f))))
+ > >>     (list foo-equal? foo-hash1 foo-hash2)))
+ > >>
+ > >> ;; A FooBad is one of:
+ > >> ;; - (make-foobad Char)
+ > >> ;; - (make-foobad String)
+ > >>
+ > >> ;; A FooGud is one of:
+ > >> ;; - (make-foogud Char)
+ > >> ;; - (make-foogud String)
+ > >>
+ > >> ;; interpretation (shared between FooBad and FooGud):
+ > >> ;; (make-foo__d a-string) is an object identified by its name alone.
+ > >> ;; (make-foo__d a-char) is synonymous with (make-foo__d (string a-char)).
+ > >>
+ > >> ;; end of foo.ss
+ > >>
+ > >> == foo-student-client.ss ==
+ > >>
+ > >> (check-expect (equal? (make-foogud "a") (make-foogud #\b))
+ > >>               #f)
+ > >> (check-expect (equal? (make-foobad "a") (make-foobad #\b))
+ > >>               #f)
+ > >> (check-expect (equal? (make-foogud "a") (make-foogud "a"))
+ > >>               #t)
+ > >> (check-expect (equal? (make-foobad "a") (make-foobad "a"))
+ > >>               #t)
+ > >> (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ > >>               #t)
+ > >> (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ > >>               #t)
+ > >> ;; end of foo-student-client.ss
+ > >>
+ > >> == foo-plt-client.ss ==
+ > >>
+ > >> #lang scheme
+ > >> (require test-engine/scheme-tests
+ > >>          "foo.ss")
+ > >> (check-expect (equal? (make-foogud "a") (make-foogud #\b))
+ > >>               #f)
+ > >> (check-expect (equal? (make-foobad "a") (make-foobad #\b))
+ > >>               #f)
+ > >> (check-expect (equal? (make-foogud "a") (make-foogud "a"))
+ > >>               #t)
+ > >> (check-expect (equal? (make-foobad "a") (make-foobad "a"))
+ > >>               #t)
+ > >> (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ > >>               #t)
+ > >> (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ > >>               #t)
+ > >> (test)
+ > >> ;; end of foo-plt-client.ss
+ > >>
+ > >> == foo-plt-client2.ss ==
+ > >>
+ > >> #lang scheme
+ > >> (require test-engine/scheme-tests
+ > >>          "foo.ss"
+ > >>          (only-in lang/private/teachprims
+ > >>                   beginner-equal?))
+ > >> (check-expect (equal? (make-foogud "a") (make-foogud #\a))
+ > >>               #t)
+ > >> (check-expect (equal? (make-foobad "a") (make-foobad #\a))
+ > >>               #t)
+ > >> (check-expect (beginner-equal? (make-foogud "a") (make-foogud #\a))
+ > >>               #t)
+ > >> (check-expect (beginner-equal? (make-foobad "a") (make-foobad #\a))
+ > >>               #t)
+ > >> (test)
+ > >> ;; end of foo-plt-client2.ss
+ > >>
+ > >> 2. Set foo-student-client.ss language level to a Student
+ > >> Language.  (I'm using Beginning Student, but this occurs in
+ > >> Advanced as well.)
+ > >>
+ > >> 3. Add foo.ss as a Teachpack for foo-student-client.ss,
+ > >> making sure to overwrite any previously installed foo.ss
+ > >> teachpack.
+ > >>
+ > >> 4. Set foo-plt-client.ss and foo-plt-client2.ss language
+ > >> levels to Module.
+ > >>
+ > >> 5. diff foo-{student,plt}-client.ss; note the tests
+ > >> are identical
+ > >>
+ > >> 6a. run foo-plt-client.ss:
+ > >> Welcome to DrScheme, version 4.1.3 [3m].
+ > >> Language: Module; memory limit: 512 megabytes.
+ > >> All 6 tests passed!
+ > >> >
+ > >>
+ > >> 6b. run foo-student-client.ss:
+ > >> Ran 6 tests.
+ > >> 1 of the 6 tests failed.
+ > >>
+ > >>       Actual value false differs from true, the expected value.
+ > >>  In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-student-client.ss at line 11
+ > >> column 0
+ > >>
+ > >>
+ > >> 6c. Note that the last test had different behavior.
+ > >>
+ > >> 7a. Run foo-plt-client2.ss:
+ > >> Ran 4 checks.
+ > >> 1 of the 4 checks failed.
+ > >>
+ > >>       Actual value #f differs from #t, the expected value.
+ > >>  In /Users/pnkfelix/Dev/scheme/code/bug-eg/foo-plt-client2.ss at line 12
+ > >> column 0
+ > >>
+ > >> 7b. Note that the failing test (test #4) is the same as
+ > >> test #2, except that #2 invokes equal? while #4 invokes
+ > >> beginner-equal?
+ > >>
+ > >> *** Environment:
+ > >> macosx "Darwin Chimaera.local 9.6.0 Darwin Kernel Version 9.6.0: Mon Nov 24
+ > >> 17:37:00 PST 2008; root:xnu-1228.9.59~1/RELEASE_I386 i386 i386" (i386-
+ > >> macosx/3m) (get-display-depth) = 32
+ > >> Human Language: english
+ > >> (current-memory-use) 243906380
+ > >>
+ > >> Collections:
+ > >> (("/Users/pnkfelix/Library/PLT Scheme/4.1.3/collects" "installed-
+ > teachpacks")
+ > >> ("/Applications/PLT Scheme v4.1.3/collects" "afm" "algol60" "browser"
+ > >> "combinator-parser" "compiler" "config" "defaults" "drscheme" "dynext"
+ > >> "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "games"
+ > >> "graphics" "gui-debugger" "help" "hierlist" "htdch" "htdp" "html" "icons"
+ > >> "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" 
+ > "mrlib"
+ > >> "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "planet"
+ > >> "plot" "preprocessor" "profj" "r5rs" "r6rs" "readline" "redex" "rnrs" "s-
+ > exp"
+ > >> "scheme" "scribble" "scribblings" "setup" "sgl" "slatex" "slideshow" "srfi"
+ > >> "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack"
+ > >> "test-box-recovery" "test-engine" "tex2page" "texpict" "trace" "typed" 
+ > "typed-
+ > >> scheme" "version" "web-server" "wxme" "xml"))
+ > >> Computer Language: (("Teaching Languages" "How to Design Programs" "Advanced
+ > >> Student") (#(#t constructor repeating-decimal #t #t none) #f ((lib "foo.ss"
+ > >> "installed-teachpacks"))))
+ > >
+ > >
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: "Robby Findler" <robby@cs.uchicago.edu>
+Cc: pnkfelix@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Mon, 29 Dec 2008 16:02:37 -0600
+
+ At Mon, 29 Dec 2008 15:59:55 -0600, "Robby Findler" wrote:
+ > On Mon, Dec 29, 2008 at 3:54 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > > At Mon, 29 Dec 2008 15:47:14 -0600, "Robby Findler" wrote:
+ > >> I'm not quite sure I'm getting the full ramifications of the extra,
+ > >> now not-secret information. Am I right that, for structures with
+ > >> prop:equal+hash, that they are essentially without inspectors? That
+ > >> is, if I can get a hold of a pair of (non-eq?) structures, then I can
+ > >> use equal?/recur and thru that find out the values of the fields?
+ > >
+ > > No. The `prop:equal+hash' procedure exposes information where it calls
+ > > the "recursive equal?" function that it's given. The function attached
+ > > to `prop:equal+hash' doesn't have to call it at all. It might use
+ > > `equal?' or other comparison operators if there's no need to support
+ > > cycles back to itself.
+ > 
+ > So, if the prop:equal+hash procedure given in a struct definition
+ > calls the 'recursive equal?' procedure, it is exposing substructures
+ > of itself, then?
+ > 
+ > The exposed information before just used to go into a known place
+ > (equal?) but now goes into an arbitrary place (some user supplied
+ > function via equal?/recur), right?
+ > 
+ > That seems minor, but perhaps worth an explanation some where that
+ > works it all out.
+ 
+ Yes.
+ 
+ > >> Also, how does all this interact with Kent's optimized version of equal?
+ > >>
+ > >> http://portal.acm.org/citation.cfm?id=1411230
+ > >
+ > > Since `equal?/recur' itself just looks at one layer, it doesn't handle
+ > > cycles at all. You could use `equal?/recur' to implement one layer of
+ > > checking and wrap Kent's algorithm around that.
+ > 
+ > In other words, we're no worse off wrt implementing Kent's algorithm
+ > than we were before?
+ 
+ Actually, we're better off, because you can now implement it outside
+ `scheme/base'.
+ 
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: pnkfelix@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Mon, 29 Dec 2008 15:59:55 -0600
+
+ On Mon, Dec 29, 2008 at 3:54 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > At Mon, 29 Dec 2008 15:47:14 -0600, "Robby Findler" wrote:
+ >> I'm not quite sure I'm getting the full ramifications of the extra,
+ >> now not-secret information. Am I right that, for structures with
+ >> prop:equal+hash, that they are essentially without inspectors? That
+ >> is, if I can get a hold of a pair of (non-eq?) structures, then I can
+ >> use equal?/recur and thru that find out the values of the fields?
+ >
+ > No. The `prop:equal+hash' procedure exposes information where it calls
+ > the "recursive equal?" function that it's given. The function attached
+ > to `prop:equal+hash' doesn't have to call it at all. It might use
+ > `equal?' or other comparison operators if there's no need to support
+ > cycles back to itself.
+ 
+ So, if the prop:equal+hash procedure given in a struct definition
+ calls the 'recursive equal?' procedure, it is exposing substructures
+ of itself, then?
+ 
+ The exposed information before just used to go into a known place
+ (equal?) but now goes into an arbitrary place (some user supplied
+ function via equal?/recur), right?
+ 
+ That seems minor, but perhaps worth an explanation some where that
+ works it all out.
+ 
+ >> Also, how does all this interact with Kent's optimized version of equal?
+ >>
+ >> http://portal.acm.org/citation.cfm?id=1411230
+ >
+ > Since `equal?/recur' itself just looks at one layer, it doesn't handle
+ > cycles at all. You could use `equal?/recur' to implement one layer of
+ > checking and wrap Kent's algorithm around that.
+ 
+ In other words, we're no worse off wrt implementing Kent's algorithm
+ than we were before?
+ 
+ Robby
+From: "Robby Findler" <robby@cs.uchicago.edu>
+To: "Matthew Flatt" <mflatt@cs.utah.edu>
+Cc: pnkfelix@ccs.neu.edu, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Mon, 29 Dec 2008 16:34:25 -0600
+
+ On Mon, Dec 29, 2008 at 4:02 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > At Mon, 29 Dec 2008 15:59:55 -0600, "Robby Findler" wrote:
+ >> On Mon, Dec 29, 2008 at 3:54 PM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ >> > At Mon, 29 Dec 2008 15:47:14 -0600, "Robby Findler" wrote:
+ >> >> I'm not quite sure I'm getting the full ramifications of the extra,
+ >> >> now not-secret information. Am I right that, for structures with
+ >> >> prop:equal+hash, that they are essentially without inspectors? That
+ >> >> is, if I can get a hold of a pair of (non-eq?) structures, then I can
+ >> >> use equal?/recur and thru that find out the values of the fields?
+ >> >
+ >> > No. The `prop:equal+hash' procedure exposes information where it calls
+ >> > the "recursive equal?" function that it's given. The function attached
+ >> > to `prop:equal+hash' doesn't have to call it at all. It might use
+ >> > `equal?' or other comparison operators if there's no need to support
+ >> > cycles back to itself.
+ >>
+ >> So, if the prop:equal+hash procedure given in a struct definition
+ >> calls the 'recursive equal?' procedure, it is exposing substructures
+ >> of itself, then?
+ >>
+ >> The exposed information before just used to go into a known place
+ >> (equal?) but now goes into an arbitrary place (some user supplied
+ >> function via equal?/recur), right?
+ >>
+ >> That seems minor, but perhaps worth an explanation some where that
+ >> works it all out.
+ >
+ > Yes.
+ >
+ >> >> Also, how does all this interact with Kent's optimized version of equal?
+ >> >>
+ >> >> http://portal.acm.org/citation.cfm?id=1411230
+ >> >
+ >> > Since `equal?/recur' itself just looks at one layer, it doesn't handle
+ >> > cycles at all. You could use `equal?/recur' to implement one layer of
+ >> > checking and wrap Kent's algorithm around that.
+ >>
+ >> In other words, we're no worse off wrt implementing Kent's algorithm
+ >> than we were before?
+ >
+ > Actually, we're better off, because you can now implement it outside
+ > `scheme/base'.
+ 
+ Oh, cool.
+ 
+ Robby
+From: Felix S Klock II <pnkfelix@ccs.neu.edu>
+To: Robby Findler <robby@cs.uchicago.edu>
+Cc: "Matthew Flatt" <mflatt@cs.utah.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Tue, 30 Dec 2008 02:10:01 -0500
+
+ On Dec 29, 2008, at 4:59 PM, Robby Findler wrote:
+ 
+ > On Mon, Dec 29, 2008 at 3:54 PM, Matthew Flatt <mflatt@cs.utah.edu>  
+ > wrote:
+ >> At Mon, 29 Dec 2008 15:47:14 -0600, "Robby Findler" wrote:
+ >>> I'm not quite sure I'm getting the full ramifications of the extra,
+ >>> now not-secret information. Am I right that, for structures with
+ >>> prop:equal+hash, that they are essentially without inspectors? That
+ >>> is, if I can get a hold of a pair of (non-eq?) structures, then I  
+ >>> can
+ >>> use equal?/recur and thru that find out the values of the fields?
+ >>
+ >> No. The `prop:equal+hash' procedure exposes information where it  
+ >> calls
+ >> the "recursive equal?" function that it's given. The function  
+ >> attached
+ >> to `prop:equal+hash' doesn't have to call it at all. It might use
+ >> `equal?' or other comparison operators if there's no need to support
+ >> cycles back to itself.
+ >
+ > So, if the prop:equal+hash procedure given in a struct definition
+ > calls the 'recursive equal?' procedure, it is exposing substructures
+ > of itself, then?
+ >
+ > The exposed information before just used to go into a known place
+ > (equal?) but now goes into an arbitrary place (some user supplied
+ > function via equal?/recur), right?
+ >
+ > That seems minor, but perhaps worth an explanation some where that
+ > works it all out.
+ 
+ This does not seem minor to me.
+ 
+ I have a new dimension to worry about: mutable internal substructure  
+ being potentially *mutated* by client code because I passed my  
+ internal representation to the given "recursive equal?" function.
+ 
+ Before, I treated the given "recursive equal" function as part of the  
+ trusted computing base of PLT Scheme.  I assumed that it would not  
+ mutate my representation out from underneath me, or leak it to others  
+ who might do the same.
+ 
+ I know I *can* guard against this
+ - E.g. by ensuring that I only pass immutable objects to the given  
+ "recursive equal" function, or passing copies of my representation.
+ - But that was not necessary before.
+ - The introduction of equal?/recur introduces potential modification  
+ of the internals of an abstraction that was not possible before AFAICT.
+ 
+ Matthew wrote in his original email to Robby:
+ > For `equal~?', I'm adding `equal?/recur', which is like `equal?' for
+ > one layer, but it uses a given function for recursive equality
+ > checking. For a structure type that implements `prop:equal+hash', this
+ > can expose information that was inaccessible before; I've convinced
+ > myself that it doesn't matter, since a `prop:equal+hash' function only
+ > needs to use the `equal?' function that it's given when it needs to
+ > work with cycles containing the structure, and in that case, the
+ > relevant information wouldn't be hidden, anyway.
+ 
+ 
+ When you say here, "the relevant information wouldn't be hidden,  
+ anyway", are you including the case I describe above?
+ - It seems to me that if my structure has a vector field, I can  
+ protect myself from adversarial equal?/recur functions by making a  
+ shallow copy of the vector.
+ - The "information" I care about (the identities of internal objects  
+ holding mutable state) *can* be hidden, but I must put new constraints  
+ on the function attached to prop:equal+hash to do so.
+ - That contradicts Matthew's last sentence above, unless my reasoning  
+ went awry somewhere.
+ 
+ -Felix
+ 
+ p.s. I do see the text in Matthew's svn diff that says
+           The third argument is an @scheme[equal?]  predicate to use for
+           recursive equality checks; use the given predicate instead of
+           @scheme[equal?] to ensure that data cycles are handled
+ -        properly.
+ +        properly and to work with @scheme[equal?/recur] (but beware
+ +        that an arbitrary function can be provided to
+ +        @scheme[equal?/recur]).
+ 
+ I just think that this warning is not stern enough; the benefits and  
+ drawbacks of invoking the callback need to be laid out clearly.   
+ (Which is probably what Robby was suggesting in the first place when  
+ he said "perhaps worth an explanation some where that works it all  
+ out."...)
+ 
+ p.p.s  Perhaps the set of people doing the crazy things I'm doing with  
+ prop:equal+hash is small enough that this won't cause any real  
+ problems.  So sorry if I sound like I'm shrieking in the above message.
+ 
+ p.p.p.s Yes I know its ironic that what sparked this bug report in the  
+ first place was my use of prop:equal+hash on transparent struct-types;  
+ I certainly wouldn't be shrieking about internal-rep-exposure for that  
+ case.
+ 
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Felix S Klock II <pnkfelix@ccs.neu.edu>
+Cc: Robby Findler <robby@cs.uchicago.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Tue, 30 Dec 2008 06:33:32 -0600
+
+ At Tue, 30 Dec 2008 02:10:01 -0500, Felix S Klock II wrote:
+ > Before, I treated the given "recursive equal" function as part of the  
+ > trusted computing base of PLT Scheme.  I assumed that it would not  
+ > mutate my representation out from underneath me, or leak it to others  
+ > who might do the same.
+ 
+ That was right, and that has indeed changed --- for the moment, at
+ least.
+ 
+ > Matthew wrote in his original email to Robby:
+ > > For `equal~?', I'm adding `equal?/recur', which is like `equal?' for
+ > > one layer, but it uses a given function for recursive equality
+ > > checking. For a structure type that implements `prop:equal+hash', this
+ > > can expose information that was inaccessible before; I've convinced
+ > > myself that it doesn't matter, since a `prop:equal+hash' function only
+ > > needs to use the `equal?' function that it's given when it needs to
+ > > work with cycles containing the structure, and in that case, the
+ > > relevant information wouldn't be hidden, anyway.
+ > 
+ > 
+ > When you say here, "the relevant information wouldn't be hidden,  
+ > anyway", are you including the case I describe above?
+ > - It seems to me that if my structure has a vector field, I can  
+ > protect myself from adversarial equal?/recur functions by making a  
+ > shallow copy of the vector.
+ > - The "information" I care about (the identities of internal objects  
+ > holding mutable state) *can* be hidden, but I must put new constraints  
+ > on the function attached to prop:equal+hash to do so.
+ > - That contradicts Matthew's last sentence above, unless my reasoning  
+ > went awry somewhere.
+ 
+ Can you make the example a little more concrete?
+ 
+ In particular, I'm not clear on why, in the example you have in mind,
+ you'd want to call the recursive-equal function --- as opposed to, say,
+ just calling `equal?'.
+ 
+ Along the same lines, why copy a vector instead of just iterating over
+ the vector (checking the elements with the recursive-equal procedure)?
+ 
+ More generally, if you know the structure that you're dealing with, it
+ seems like you wouldn't need the generic recursive-equal function; but
+ if you need the generic recursive-equal function, it seems that someone
+ else must have supplied the middle parts of the data structure, and so
+ information (or mutation capability) is already exposed to someone.
+ That's what I meant by "the relevant information wouldn't be hidden,
+ anyway".
+ 
+ Thanks,
+ Matthew
+ 
+From: Felix S Klock II <pnkfelix@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Robby Findler <robby@cs.uchicago.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Tue, 30 Dec 2008 12:14:00 -0500
+
+ On Dec 30, 2008, at 7:33 AM, Matthew Flatt wrote:
+ 
+ > At Tue, 30 Dec 2008 02:10:01 -0500, Felix S Klock II wrote:
+ >> Before, I treated the given "recursive equal" function as part of the
+ >> trusted computing base of PLT Scheme.  I assumed that it would not
+ >> mutate my representation out from underneath me, or leak it to others
+ >> who might do the same.
+ >
+ > That was right, and that has indeed changed --- for the moment, at
+ > least.
+ >
+ >> Matthew wrote in his original email to Robby:
+ >>> For `equal~?', I'm adding `equal?/recur', which is like `equal?' for
+ >>> one layer, but it uses a given function for recursive equality
+ >>> checking. For a structure type that implements `prop:equal+hash',  
+ >>> this
+ >>> can expose information that was inaccessible before; I've convinced
+ >>> myself that it doesn't matter, since a `prop:equal+hash' function  
+ >>> only
+ >>> needs to use the `equal?' function that it's given when it needs to
+ >>> work with cycles containing the structure, and in that case, the
+ >>> relevant information wouldn't be hidden, anyway.
+ >>
+ >>
+ >> When you say here, "the relevant information wouldn't be hidden,
+ >> anyway", are you including the case I describe above?
+ >> - It seems to me that if my structure has a vector field, I can
+ >> protect myself from adversarial equal?/recur functions by making a
+ >> shallow copy of the vector.
+ >> - The "information" I care about (the identities of internal objects
+ >> holding mutable state) *can* be hidden, but I must put new  
+ >> constraints
+ >> on the function attached to prop:equal+hash to do so.
+ >> - That contradicts Matthew's last sentence above, unless my reasoning
+ >> went awry somewhere.
+ >
+ > Can you make the example a little more concrete?
+ 
+ Ha; I had one concrete example in a draft of the email, but removed it  
+ thinking that it would make the message too long for any one to read.   
+ But doing it again this morning has led to a cleaner version anyway.
+ 
+ But before I get into the example, I repeat:
+ > I know I *can* guard against this
+ > - E.g. by ensuring that I only pass immutable objects to the given  
+ > "recursive equal" function, or passing copies of my representation.
+ [[ or by implementing a binary equivalence traversal rather than a  
+ unary canonicalization traversal in the example below; that'd be more  
+ efficient in computer time but absurdly less efficient in programmer  
+ effort, IMO ]]
+ >
+ > - But that was not necessary before.
+ > - The introduction of equal?/recur introduces potential modification  
+ > of the internals of an abstraction that was not possible before  
+ > AFAICT.
+ 
+ 
+ So, that aside, here's an example of what I'm talking about.
+ 
+ #lang scheme
+ 
+ (require test-engine/scheme-tests)
+ (provide build-dense-seq build-sparse-seq)
+ ;; A [Seq X] represents a finite sequence of X's, written [x1,  
+ x2, ..., xn]
+ 
+ ;; Use this variant for final version
+ ;; (the final check-expect on cyclic inputs *needs* these define- 
+ struct's)
+ (define-struct seq ()
+    #:property prop:equal+hash
+    (list (lambda (x y eql?) (eql? (canon-seq x) (canon-seq y)))
+          (lambda (x hsh) (hsh (canon-seq x)))
+          (lambda (x hsh) (hsh (canon-seq x)))))
+ (define-struct (denseq  seq) (vec))
+ (define-struct (sparseq seq) (len alst dflt) #:mutable)
+ #|
+ ;; Use this variant for internal rep checking (the check-expect's for
+ ;; build-{dense,sparse}-seq work with either set of define-struct's)
+ (define-struct seq () #:transparent)
+ (define-struct (denseq  seq) (vec) #:transparent)
+ (define-struct (sparseq seq) (len alst dflt) #:mutable #:transparent)
+ |#
+ 
+ ;; Implementation:
+ ;; A [Seq X] is one of:
+ ;; - (make-dense-seq  [Vectorof X])
+ ;; - (make-sparse-seq Nat [Listof (list Nat X)] X)
+ 
+ ;; interpretation:
+ ;; - (make-dense-seq (vector a_1 ... a_n)) represents [a_1, ..., a_n]
+ ;; - (make-sparse-seq n (list ... (k_i b_i) ...) c) represents
+ ;;   [d_1, d_2, ..., d_n] where d_k_j is b_j, or c if k_j undefined.
+ 
+ ;; canon-seq : [Seq X] -> Sexp
+ ;; Maps s to a canonical s-exp rep (internal prop:equal+hash  
+ functionality)
+ (check-expect (canon-seq (make-denseq (vector 1 'b "c")))
+                (vector 1 'b "c"))
+ (check-expect (canon-seq (make-denseq (vector 1  1 "c" 1 1)))
+                (vector 1  1 "c" 1 1))
+ (check-expect (canon-seq (make-sparseq 5 '((2 "c")) 1))
+                (vector 1  1 "c" 1 1))
+ (define (canon-seq s)
+    (cond
+      ((denseq? s)
+       ;; rep exposed by equal?/recur; this is where I'd make a shallow  
+ copy now
+       (denseq-vec s))
+      ((sparseq? s)
+       (build-vector (sparseq-len s)
+                     (lambda (idx)
+                       (cond ((assv idx (sparseq-alst s)) => cadr)
+                             (else (sparseq-dflt s))))))))
+ 
+ ;; build-dense-seq : Nat (Nat -> X) -> [Seq X]
+ ;; Analogous to build-list and build-vector
+ (check-expect (build-dense-seq 5 (lambda (i) (quotient i 3)))
+                (make-denseq (vector 0 0 0 1 1)))
+ (define (build-dense-seq n f)
+    (make-denseq (build-vector n f)))
+ 
+ ;; build-sparse-seq : Nat (Nat -> X) X -> [Seq X]
+ ;; Analogous to build-dense-seq; d is default (assumed to appear  
+ frequently)
+ (check-expect (build-sparse-seq 5 (lambda (i) (quotient i 3)) 0)
+                (make-sparseq 5 '((3 1) (4 1)) 0))
+ (check-expect (build-sparse-seq 5 (lambda (i) (quotient i 3)) 1)
+                (make-sparseq 5 '((0 0) (1 0) (2 0)) 1))
+ (define (build-sparse-seq n f d)
+    (let* ((idx->elem (lambda (i)
+                        (let ((x-i (f i)))
+                          (cond ((equal? x-i d) '())
+                                (else (list (list i x-i)))))))
+           (table
+            (apply append (build-list n idx->elem))))
+      (make-sparseq n table d)))
+ 
+ ;; seq-set! : [Seq X] Nat X -> void
+ ;; Modifies s = [a_1, ..., a_n] so that its i'th element is now x
+ ;; (proof of concept to make cycles; though not an absurd extension to  
+ i'face)
+ (define (seq-set! s i x)
+    (cond
+      ((denseq? s) (vector-set! (denseq-vec s) i x))
+      ((sparseq? s) (set-sparseq-alst! s (cons (list i x) (sparseq-alst  
+ s))))))
+ 
+ (define cycle-1
+    (let ((cycle-1a (build-dense-seq  3 sub1))
+          (cycle-1b (build-sparse-seq 3 add1 1)))
+      (seq-set! cycle-1a 1 cycle-1b)
+      (seq-set! cycle-1b 1 cycle-1a)
+      cycle-1a))
+ 
+ (define cycle-2
+    (let ((cycle-2a (build-sparse-seq 3 sub1 1))
+          (cycle-2b (build-dense-seq  3 add1)))
+      (seq-set! cycle-2a 1 cycle-2b)
+      (seq-set! cycle-2b 1 cycle-2a)
+      cycle-2a))
+ 
+ (check-expect (equal? cycle-1 cycle-2) #t)
+ 
+ (test)
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Felix S Klock II <pnkfelix@ccs.neu.edu>
+Cc: Robby Findler <robby@cs.uchicago.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Tue, 6 Jan 2009 05:28:08 -0700
+
+ At Tue, 30 Dec 2008 12:14:00 -0500, Felix S Klock II wrote:
+ > 
+ > On Dec 30, 2008, at 7:33 AM, Matthew Flatt wrote:
+ > 
+ > > Can you make the example a little more concrete?
+ > 
+ > Ha; I had one concrete example in a draft of the email, but removed it  
+ > thinking that it would make the message too long for any one to read.   
+ > But doing it again this morning has led to a cleaner version anyway.
+ 
+ Thanks for the example!
+ 
+ > But before I get into the example, I repeat:
+ > > I know I *can* guard against this
+ > > - E.g. by ensuring that I only pass immutable objects to the given  
+ > > "recursive equal" function, or passing copies of my representation.
+ > [[ or by implementing a binary equivalence traversal rather than a  
+ > unary canonicalization traversal in the example below; that'd be more  
+ > efficient in computer time but absurdly less efficient in programmer  
+ > effort, IMO ]]
+ 
+ While it's more work for the programmer, and although there are new
+ dangers for exposing information and mutable state, it doesn't seem to
+ be "absurdly" less efficient (at least in your example).
+ 
+ In exchange for a bit more work from the programmer, equality-checking
+ extensions become useful in more settings. It's the same old trade-off
+ in ease-of-use and generality. After thinking about your example and
+ looking for more, I'm still convinced that nudging a little away from
+ ease-of-use and toward generality is the right balance overall.
+ 
+ Of course, I'd welcome a design that increases generality (so we can
+ implement `equal~?') without making the programmer work harder!
+ 
+From: Felix S Klock II <pnkfelix@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: Robby Findler <robby@cs.uchicago.edu>, bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/9987: beginner-equal? differs from equal? wrt transparency and prop:equal+hash
+Date: Tue, 6 Jan 2009 09:24:17 -0500
+
+ Matthew (cc'ing Robby and bug reporter)-
+ 
+ On Jan 6, 2009, at 7:28 AM, Matthew Flatt wrote:
+ 
+ > After thinking about your example and
+ > looking for more, I'm still convinced that nudging a little away from
+ > ease-of-use and toward generality is the right balance overall.
+ 
+ 
+ I understand the trade-off you are weighing between easy-of-use and  
+ generality.
+ 
+ My 30Dec08 email referenced a caveat in the docs for prop:equal+hash:  
+ "beware that an arbitrary function can be provided to equal?/recur".   
+ I would be satisfied if that caveat were extended to warn about the  
+ potential for rep exposure and unintentional aliasing+mutation of the  
+ structure's internals.
+ 
+ In your discussion with Robby, use of the term "information leakage"  
+ made me initially think that this was solely some sort of high level  
+ security issue (in the sense of exposing a password or similar), which  
+ I suspect it is.  But that does not properly characterize the scope of  
+ the problem; thus my response.  The term "information leakage" does  
+ not occur in the docs for prop:equal+hash anyway; if it were added, I  
+ would think that a good but *insufficient* change.
+ 
+ Feel free to adapt my example to the docs if you like; I suspect you'd  
+ prefer something shorter.
+ 
+ -Felix
+ 
+ 
+
+
+Responsible changed from "matthias" to "mflatt" by matthias at Mon, 16 Mar 2009 14:23:59 -0400
+Reason>>> matthew maintains this level of teaching language
+
+
+State changed from "open" to "closed" by mflatt at Mon, 16 Mar 2009 14:31:24 -0400
+Reason>>> fixed long ago
+

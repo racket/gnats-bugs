@@ -1,0 +1,560 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Feb  4 16:20:58 2013
+Received: from mail-oa0-f48.google.com (mail-oa0-f48.google.com [209.85.219.48])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id r14LKsx9017794
+	for <bugs@bugs.plt-scheme.org>; Mon, 4 Feb 2013 16:20:55 -0500
+Message-Id: <201302042120.r14LKq1e017789@champlain.ccs.neu.edu>
+Date: Mon, 4 Feb 2013 16:20:52 -0500
+From: dyoo@hashcollision.org
+To: bugs@racket-lang.org
+Subject: deflate and inflate do not work
+
+>Number:         13489
+>Category:       all
+>Synopsis:       deflate and inflate do not work
+>Class:          sw-bug
+>Responsible:    dyoo
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Feb 04 16:24:01 -0500 2013
+>Closed-Date:    Tue Feb 05 19:03:03 -0500 2013
+>Last-Modified:  Thu Apr 16 19:44:01 -0400 2015
+>Originator:     Danny Yoo
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.2
+>Environment:
+MacIntel / Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.56 Safari/537.17
+>Description:
+I've encountered a file in which inflate and deflate do not apply correctly.  The following program below demonstrates.
+
+I see the following error in 5.3.2:
+
+. inflate: unexpected end of file
+
+>How-To-Repeat:
+#lang racket
+
+(require file/gzip file/gunzip)
+
+(define sample-file
+  (bytes-append #"(\"5.3.2\" (\"ab7f6f4533252566bc62383ca395f8272851592b\""
+                #" . \"9364523f1c28f962fb967025aa140670c9b5b9a5\") "
+                #"#\"/Users/dyoo/work/minipascal/minipascal/lang/../semantics.rkt\""
+                #" (collects #\"syntax\" #\"parse\" #\"private\" #\"runtime-report.rkt\")"
+                #" #\"/Users/dyoo/work/minipascal/minipascal/lang/reader.rkt\")\n"))
+
+(define compressed (open-output-bytes))
+
+(deflate (open-input-bytes sample-file) compressed)
+
+(define inflated (open-output-bytes))
+(inflate (open-input-bytes (get-output-bytes compressed)) inflated)
+>Fix:
+>Audit-Trail:
+From: Danny Yoo <dyoo@hashcollision.org>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Mon, 4 Feb 2013 20:08:28 -0700
+
+ I am more convinced now that the buffering logic is to blame in file/gunzip.
+ 
+ The following program demonstrates that if we add an extra zero into
+ the buffer, we don't run into the error:
+ 
+ ;;;;;;
+ #lang racket
+ (require file/gzip file/gunzip rackunit)
+ 
+ (define sample-file
+   (bytes-append #"(\"5.3.2\" (\"ab7f6f4533252566bc62383ca395f8272851592b\""
+                 #" . \"9364523f1c28f962fb967025aa140670c9b5b9a5\") "
+ 
+ #"#\"/Users/dyoo/work/minipascal/minipascal/lang/../semantics.rkt\""
+                 #" (collects #\"syntax\" #\"parse\" #\"private\"
+ #\"runtime-report.rkt\")"
+                 #"
+ #\"/Users/dyoo/work/minipascal/minipascal/lang/reader.rkt\")\n"))
+ 
+ (define compressed (open-output-bytes))
+ 
+ (deflate (open-input-bytes sample-file) compressed)
+ 
+ (define inflated (open-output-bytes))
+ (define ip (open-input-bytes (bytes-append (get-output-bytes compressed)
+                                            (bytes 0))))
+ (inflate ip inflated)
+ 
+ (check-equal? (get-output-bytes inflated) sample-file)
+ (check-equal? (read-byte ip) 0)
+ ;;;;;;;;;;;;;
+ 
+ Note that inflate doesn't consume that trailing zero!
+ 
+ Given that, I'm much more convinced that the buffer-managment logic in
+ READBITS is probably at fault.
+ 
+ https://github.com/plt/racket/blob/master/collects/file/gunzip.rkt#L279
+ 
+ Does anyone else agree?
+From: Danny Yoo <dyoo@hashcollision.org>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: Matthew Flatt <mflatt@cs.utah.edu>
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Mon, 4 Feb 2013 22:09:55 -0700
+
+ > Given that, I'm much more convinced that the buffer-managment logic in
+ > READBITS is probably at fault.
+ >
+ > https://github.com/plt/racket/blob/master/collects/file/gunzip.rkt#L279
+ >
+ > Does anyone else agree?
+ 
+ Hi Matthew,
+ 
+ I've stared at the C version of the code, and I'm forced to consider
+ the crazy possibility that the inflate code is potentially treating
+ EOF as a potentially good "byte".  The content of the comment below is
+ what makes me very nervous:
+ 
+ 
+    If we assume that EOB will be the longest code, then we will never
+    ask for bits with NEEDBITS that are beyond the end of the stream.
+    So, NEEDBITS should not read any more bytes than are needed to
+    meet the request.  Then no bytes need to be "returned" to the buffer
+    at the end of the last block.
+ 
+    However, this assumption is not true for fixed blocks--the EOB code
+    is 7 bits, but the other literal/length codes can be 8 or 9 bits.
+    (The EOB code is shorter than other codes because fixed blocks are
+    generally short.  So, while a block always has an EOB, many other
+    literal/length codes have a significantly lower probability of
+    showing up at all.)  However, by making the first table have a
+    lookup of seven bits, the EOB code will be found in that first
+    lookup, and so will not require that too many bits be pulled from
+    the stream.
+ 
+ 
+ Reading through how the original C code uses READ_BYTE, I see no
+ special treatment of the EOF value.  It just coerses everything into
+ regular, unsigned chars.  Can it be possible that this requires the
+ following change?
+ 
+ 
+ diff --git a/collects/file/gunzip.rkt b/collects/file/gunzip.rkt
+ index 396afe9..19cf9ce 100644
+ --- a/collects/file/gunzip.rkt
+ +++ b/collects/file/gunzip.rkt
+ @@ -278,7 +278,8 @@
+              (set! buf-pos MAX-LOOKAHEAD))
+            (let ([got (peek-bytes-avail! buffer buf-pos #f input-port buf-pos BU
+              (if (eof-object? got)
+ -                (error 'inflate "unexpected end of file")
+ +                (begin (bytes-set! buffer buf-pos 255)
+ +                       (set! buf-max (add1 buf-pos)))
+                  (set! buf-max (+ buf-pos got))))
+            (READBITS n))
+          (let ([v (bytes-ref buffer buf-pos)])
+From: Danny Yoo <dyoo@hashcollision.org>
+To: bugs@racket-lang.org, bug-notification@racket-lang.org
+Cc: 
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Tue, 5 Feb 2013 00:08:43 -0700
+
+ I coded up a fix and test case, but this definitely needs another pair of eyes.
+ 
+     https://github.com/dyoo/racket/tree/inflate-fix
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Danny Yoo <dyoo@hashcollision.org>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Tue, 5 Feb 2013 11:40:23 +0100
+
+ That's plausible. It would not be the first time that the C code does
+ something that's wrong in principle but works anyway (and doesn't work
+ translated in the obvious way to Racket).
+ 
+ At Mon, 4 Feb 2013 22:09:55 -0700, Danny Yoo wrote:
+ > > Given that, I'm much more convinced that the buffer-managment logic in
+ > > READBITS is probably at fault.
+ > >
+ > > https://github.com/plt/racket/blob/master/collects/file/gunzip.rkt#L279
+ > >
+ > > Does anyone else agree?
+ > 
+ > Hi Matthew,
+ > 
+ > I've stared at the C version of the code, and I'm forced to consider
+ > the crazy possibility that the inflate code is potentially treating
+ > EOF as a potentially good "byte".  The content of the comment below is
+ > what makes me very nervous:
+ > 
+ > 
+ >    If we assume that EOB will be the longest code, then we will never
+ >    ask for bits with NEEDBITS that are beyond the end of the stream.
+ >    So, NEEDBITS should not read any more bytes than are needed to
+ >    meet the request.  Then no bytes need to be "returned" to the buffer
+ >    at the end of the last block.
+ > 
+ >    However, this assumption is not true for fixed blocks--the EOB code
+ >    is 7 bits, but the other literal/length codes can be 8 or 9 bits.
+ >    (The EOB code is shorter than other codes because fixed blocks are
+ >    generally short.  So, while a block always has an EOB, many other
+ >    literal/length codes have a significantly lower probability of
+ >    showing up at all.)  However, by making the first table have a
+ >    lookup of seven bits, the EOB code will be found in that first
+ >    lookup, and so will not require that too many bits be pulled from
+ >    the stream.
+ > 
+ > 
+ > Reading through how the original C code uses READ_BYTE, I see no
+ > special treatment of the EOF value.  It just coerses everything into
+ > regular, unsigned chars.  Can it be possible that this requires the
+ > following change?
+ > 
+ > 
+ > diff --git a/collects/file/gunzip.rkt b/collects/file/gunzip.rkt
+ > index 396afe9..19cf9ce 100644
+ > --- a/collects/file/gunzip.rkt
+ > +++ b/collects/file/gunzip.rkt
+ > @@ -278,7 +278,8 @@
+ >              (set! buf-pos MAX-LOOKAHEAD))
+ >            (let ([got (peek-bytes-avail! buffer buf-pos #f input-port buf-pos BU
+ >              (if (eof-object? got)
+ > -                (error 'inflate "unexpected end of file")
+ > +                (begin (bytes-set! buffer buf-pos 255)
+ > +                       (set! buf-max (add1 buf-pos)))
+ >                  (set! buf-max (+ buf-pos got))))
+ >            (READBITS n))
+ >          (let ([v (bytes-ref buffer buf-pos)])
+From: Danny Yoo <dyoo@hashcollision.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Tue, 5 Feb 2013 15:13:30 -0700
+
+ On Tue, Feb 5, 2013 at 3:40 AM, Matthew Flatt <mflatt@cs.utah.edu> wrote:
+ > That's plausible. It would not be the first time that the C code does
+ > something that's wrong in principle but works anyway (and doesn't work
+ > translated in the obvious way to Racket).
+ 
+ 
+ I believe much more strongly now that this is the case.  Here is my
+ conjecture: in the C code, deflate is allowed to peek at least one
+ character beyond the extent of a deflated byte sequence.
+ 
+ 
+ To support this conjecture, I first used file/gzip to construct a file
+ with the proper magic header and CRC footers.
+ 
+     http://hashcollision.org/tmp/test-gzip.gz
+ 
+ It's basically the output from:
+ 
+     (define op (open-output-file "test-gzip.gz"))
+     (gzip-through-ports (open-input-bytes sample-file) op #f 0)
+     (close-output-file op)
+ 
+ I then downloaded a copy of gzip 1.2.4, and modified it to print out
+ what bytes it observes from a zip file as the deflation process
+ proceeds, up to determining the end-of-block marker.
+ 
+     https://gist.github.com/dyoo/4718185
+ 
+ Once annotated, I ran gunzip on my sample file.
+ 
+     https://gist.github.com/dyoo/4717964
+ 
+ and observed that the last nine bytes read by gzip, right before
+ determining end-of-block, are the following:
+ 
+    243 28 104 12 252 74 191 158 255
+ 
+ 
+ I then went back to Racket and looked at the raw deflated bytes that
+ Racket's deflate algorithm produces, at least the very last few bytes:
+ 
+     https://gist.github.com/dyoo/4718091
+ 
+ and the last _eight_ bytes of the deflate are:
+ 
+      243 28 104 12 252 74 191 158
+ 
+ That is, during deflate in C, the C code is definitely peeking beyond
+ the extent of the deflated content before determining the end of the
+ deflated block.
+ 
+ 
+ 
+ Normally, we do not see this problem in Racket because it's unusual to
+ process the raw output of deflate alone.  Rather, we use it the
+ context of file/gunzip, where the content has additional CRC and
+ timestamp bytes that trail the end of the deflated bytes.
+ 
+ However, in the case of file/zip, we artifically limit what deflate is
+ allowed to see via make-limited-input-port:
+ 
+     https://github.com/plt/racket/blob/master/collects/file/unzip.rkt#L181
+ 
+ And suddenly, we expose the edge condition right here.
+ 
+ 
+ So something like the patch I'm proposing is necessary: inflate needs
+ to be able to seek beyond the bare bytes of the deflated content to
+ handle the weirdness of the EOB at the edge.  Does that make sense?
+From: Danny Yoo <dyoo@hashcollision.org>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Tue, 5 Feb 2013 15:16:14 -0700
+
+ I keep saying "deflate" instead of "inflate" in certain parts of my
+ email.  Apologies!
+ 
+ 
+ 
+ > I believe much more strongly now that this is the case.  Here is my
+ > conjecture: in the C code, deflate is allowed to peek at least one
+ 
+ s/deflate/inflate
+ 
+ 
+ 
+ > I then downloaded a copy of gzip 1.2.4, and modified it to print out
+ > what bytes it observes from a zip file as the deflation process
+ > proceeds, up to determining the end-of-block marker.
+ 
+ s/deflation/inflation
+ 
+ 
+ 
+ 
+ > That is, during deflate in C, the C code is definitely peeking beyond
+ 
+ s/deflate/inflate
+From: Robby Findler <robby@eecs.northwestern.edu>
+To: Danny Yoo <dyoo@hashcollision.org>
+Cc: Matthew Flatt <mflatt@cs.utah.edu>, bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Tue, 5 Feb 2013 17:35:02 -0600
+
+ --e89a8fb1ef52985a1704d502a89a
+ Content-Type: text/plain; charset=UTF-8
+ 
+ I didn't look at the code, but this makes a lot of sense to me.
+ 
+ And given that you have a test case and presumably you can now make a bunch
+ more or at least look at the existing test suite to check for deficiencies,
+ I think you should push your changes.
+ 
+ Robby
+ 
+ 
+ On Tue, Feb 5, 2013 at 4:16 PM, Danny Yoo <dyoo@hashcollision.org> wrote:
+ 
+ > I keep saying "deflate" instead of "inflate" in certain parts of my
+ > email.  Apologies!
+ >
+ >
+ >
+ > > I believe much more strongly now that this is the case.  Here is my
+ > > conjecture: in the C code, deflate is allowed to peek at least one
+ >
+ > s/deflate/inflate
+ >
+ >
+ >
+ > > I then downloaded a copy of gzip 1.2.4, and modified it to print out
+ > > what bytes it observes from a zip file as the deflation process
+ > > proceeds, up to determining the end-of-block marker.
+ >
+ > s/deflation/inflation
+ >
+ >
+ >
+ >
+ > > That is, during deflate in C, the C code is definitely peeking beyond
+ >
+ > s/deflate/inflate
+ >
+ 
+ --e89a8fb1ef52985a1704d502a89a
+ Content-Type: text/html; charset=UTF-8
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr">I didn&#39;t look at the code, but this makes a lot of sen=
+ se to me.<div><br></div><div>And given that you have a test case and presum=
+ ably you can now make a bunch more or at least look at the existing test su=
+ ite to check for=C2=A0deficiencies, I think you should push your changes.</=
+ div>
+ <div><br></div><div>Robby</div></div><div class=3D"gmail_extra"><br><br><di=
+ v class=3D"gmail_quote">On Tue, Feb 5, 2013 at 4:16 PM, Danny Yoo <span dir=
+ =3D"ltr">&lt;<a href=3D"mailto:dyoo@hashcollision.org" target=3D"_blank">dy=
+ oo@hashcollision.org</a>&gt;</span> wrote:<br>
+ <blockquote class=3D"gmail_quote" style=3D"margin:0 0 0 .8ex;border-left:1p=
+ x #ccc solid;padding-left:1ex">I keep saying &quot;deflate&quot; instead of=
+  &quot;inflate&quot; in certain parts of my<br>
+ email. =C2=A0Apologies!<br>
+ <div class=3D"im"><br>
+ <br>
+ <br>
+ &gt; I believe much more strongly now that this is the case. =C2=A0Here is =
+ my<br>
+ &gt; conjecture: in the C code, deflate is allowed to peek at least one<br>
+ <br>
+ </div>s/deflate/inflate<br>
+ <div class=3D"im"><br>
+ <br>
+ <br>
+ &gt; I then downloaded a copy of gzip 1.2.4, and modified it to print out<b=
+ r>
+ &gt; what bytes it observes from a zip file as the deflation process<br>
+ &gt; proceeds, up to determining the end-of-block marker.<br>
+ <br>
+ </div>s/deflation/inflation<br>
+ <div class=3D"im"><br>
+ <br>
+ <br>
+ <br>
+ &gt; That is, during deflate in C, the C code is definitely peeking beyond<=
+ br>
+ <br>
+ </div>s/deflate/inflate<br>
+ </blockquote></div><br></div>
+ 
+ --e89a8fb1ef52985a1704d502a89a--
+Responsible changed from "nobody" to "dyoo" by dyoo@racket-lang.org at Tue, 05 Feb 2013 19:03:03 -0500
+Reason>>> A commit by dyoo@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c6775cc060
+State changed from "open" to "closed" by dyoo@racket-lang.org at Tue, 05 Feb 2013 19:03:03 -0500
+Reason>>> A commit by dyoo@racket-lang.org has resolved this report
+  http://git.racket-lang.org/plt/commit/c6775cc060
+  | Fix to inflate: treat EOF as a character, as in the C code.
+  | 
+  | closes PR 13489.
+  | 
+  | In the C code, inflate is allowed to peek at least one character
+  | beyond the extent of a deflated byte sequence.  The thread related to
+  | the bug report of PR 13489 documents that deflate can peek beyond EOF.
+
+
+----------
+A commit by dyoo@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/c6775cc060
+  | Fix to inflate: treat EOF as a character, as in the C code.
+  | 
+  | closes PR 13489.
+  | 
+  | In the C code, inflate is allowed to peek at least one character
+  | beyond the extent of a deflated byte sequence.  The thread related to
+  | the bug report of PR 13489 documents that deflate can peek beyond EOF.
+
+
+----------
+A commit by dyoo@racket-lang.org was marked as relevant
+  http://git.racket-lang.org/plt/commit/31b66484b3
+  | Add test case to show bug with inflate.
+  | 
+  | related to PR 13489.
+
+From: Sam Tobin-Hochstadt <samth@cs.indiana.edu>
+To: Robby Findler <robby@eecs.northwestern.edu>
+Cc: Danny Yoo <dyoo@hashcollision.org>, Matthew Flatt <mflatt@cs.utah.edu>,
+        bugs <bugs@racket-lang.org>,
+        bug-notification <bug-notification@racket-lang.org>
+Subject: Re: [racket-bug] all/13489: deflate and inflate do not work
+Date: Fri, 17 Apr 2015 00:39:58 +0100
+
+ It turns out that the change here broke something else. In particular,
+ the `broken.zip` file here:
+ https://github.com/samth/io-reduce/blob/master/broken.zip now sends
+ `inflate` into an infinite loop, as follows:
+ 
+ ```
+ #lang racket
+ 
+ (require file/gunzip)
+ (define file-in (open-input-file "broken.zip"))
+ (file-position file-in #x26)
+ 
+ (inflate file-in (open-output-nowhere))
+ ```
+ 
+ Robby and I instrumented the C code using Danny's patch, and it does
+ not terminate with 255 as the final byte before the error.
+ 
+ The following change fixes things and passes all tests, but it's not
+ clear that it's the right thing. In particular, it's definitely not
+ doing the same thing that the C code does.
+ 
+ ```
+ diff --git a/racket/collects/file/gunzip.rkt b/racket/collects/file/gunzip.rkt
+ index 5affb02..576e75f 100644
+ --- a/racket/collects/file/gunzip.rkt
+ +++ b/racket/collects/file/gunzip.rkt
+ @@ -269,6 +269,7 @@
+    (define (NEEDBITS n)
+      (when (< bk n)
+        (READBITS n)))
+ +  (define past-the-end? #f)
+    (define (READBITS n)
+      (if (= buf-pos buf-max)
+          (begin
+ @@ -285,6 +286,10 @@
+              (if (eof-object? got)
+                  ;; Treat an EOF as a -1 "byte":
+                  (begin
+ +                  (if past-the-end?
+ +                      (error 'inflate "unexpected end of file")
+ +                      ;; can't read past the end more than once
+ +                      (set! past-the-end? #t))
+                    (bytes-set! buffer buf-pos 255)
+                    (set! buf-max (add1 buf-pos)))
+                  ;; Got normal bytes:
+ ```
+ 
+ Sam
+ 
+ On Tue, Feb 5, 2013 at 11:35 PM, Robby Findler
+ <robby@eecs.northwestern.edu> wrote:
+ > I didn't look at the code, but this makes a lot of sense to me.
+ >
+ > And given that you have a test case and presumably you can now make a bunch
+ > more or at least look at the existing test suite to check for deficiencies,
+ > I think you should push your changes.
+ >
+ > Robby
+ >
+ >
+ > On Tue, Feb 5, 2013 at 4:16 PM, Danny Yoo <dyoo@hashcollision.org> wrote:
+ >>
+ >> I keep saying "deflate" instead of "inflate" in certain parts of my
+ >> email.  Apologies!
+ >>
+ >>
+ >>
+ >> > I believe much more strongly now that this is the case.  Here is my
+ >> > conjecture: in the C code, deflate is allowed to peek at least one
+ >>
+ >> s/deflate/inflate
+ >>
+ >>
+ >>
+ >> > I then downloaded a copy of gzip 1.2.4, and modified it to print out
+ >> > what bytes it observes from a zip file as the deflation process
+ >> > proceeds, up to determining the end-of-block marker.
+ >>
+ >> s/deflation/inflation
+ >>
+ >>
+ >>
+ >>
+ >> > That is, during deflate in C, the C code is definitely peeking beyond
+ >>
+ >> s/deflate/inflate
+ >
+ >

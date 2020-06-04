@@ -1,0 +1,233 @@
+From nobody@champlain.ccs.neu.edu  Thu Jul 11 00:47:53 2002
+Received: (from nobody@localhost)
+	by champlain.ccs.neu.edu (8.9.3/8.8.7) id AAA12578
+	for bugs@plt-scheme.org; Thu, 11 Jul 2002 00:47:53 -0400
+Message-Id: <200207110447.AAA12578@champlain.ccs.neu.edu>
+Date: Thu, 11 Jul 2002 00:47:53 -0400
+From: eli@barzilay.org
+Reply-To:
+To: bugs@plt-scheme.org
+Subject: Redirection problem on a Sun
+
+>Number:         5594
+>Category:       mzscheme
+>Synopsis:       Redirection problem on a Sun
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jul 11 00:50:00 -0400 2002
+>Closed-Date:    Thu Jan 27 22:13:32 -0500 2005
+>Last-Modified:  Thu Jan 27 22:13:32 -0500 2005
+>Originator:     Eli Barzilay
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        200
+>Environment:
+solaris-8
+>Description:
+Somehow redirection have a strange effect on standard-error redirection to
+an NFS directory.  When the following piece of code:
+
+  (let loop ((n 10))
+    (when (> n 0)
+      (fprintf (current-error-port) " ~a ~a ~a ~a \n" 1 2 3 4)
+      (loop (sub1 n))))
+
+is run normally from a script, it behaves normally (takes ~0.25s), and the
+same holds for using standard output.  However, running it with standard
+error redirected to a file takes considerabely longer: about 20 times the
+normal speed for standard error, and about 8 times when standard output is
+used (and redirected) instead.
+
+The problem doesn't seem to occur on Linux with NFS, or on a local file
+system.
+
+>How-To-Repeat:
+Run this from a script, on a sun, in an NFS directory.
+
+  (let loop ((n 10))
+    (when (> n 0)
+      (fprintf (current-error-port) " ~a ~a ~a ~a \n" 1 2 3 4)
+      (loop (sub1 n))))
+
+>Fix:
+>Release-Note:
+>Audit-Trail:
+From: "Paul Steckler" <steck@ccs.neu.edu>
+To: <eli@barzilay.org>, <bugs@plt-scheme.org>
+Cc:  
+Subject: RE: all/5594: Redirection problem on a Sun
+Date: Fri, 18 Oct 2002 12:04:20 -0400
+
+ > Somehow redirection have a strange effect on standard-error
+ > redirection to
+ > an NFS directory.  When the following piece of code:
+ > 
+ >   (let loop ((n 10))
+ >     (when (> n 0)
+ >       (fprintf (current-error-port) " ~a ~a ~a ~a \n" 1 2 3 4)
+ >       (loop (sub1 n))))
+ > 
+ > is run normally from a script, it behaves normally (takes ~0.25s), and
+ > the
+ > same holds for using standard output.  However, running it with
+ > standard
+ > error redirected to a file takes considerabely longer: about 20 times
+ > the
+ > normal speed for standard error, and about 8 times when standard
+ > output is
+ > used (and redirected) instead.
+ > 
+ > The problem doesn't seem to occur on Linux with NFS, or on a local
+ > file
+ > system.
+ 
+ Does this problem occur with, say, shell scripts?
+ 
+ In other words, do you think there's a Scheme issue here?
+ 
+ -- Paul
+ 
+ 
+
+From: Eli Barzilay <eli@barzilay.org>
+To: "Paul Steckler" <steck@ccs.neu.edu>
+Cc: <bugs@plt-scheme.org>
+Subject: RE: all/5594: Redirection problem on a Sun
+Date: Fri, 18 Oct 2002 12:45:53 -0400
+
+ On Oct 18, Paul Steckler wrote:
+ > > Somehow redirection have a strange effect on standard-error
+ > > redirection to an NFS directory.  When the following piece of
+ > > code:
+ > > 
+ > >   (let loop ((n 10))
+ > >     (when (> n 0)
+ > >       (fprintf (current-error-port) " ~a ~a ~a ~a \n" 1 2 3 4)
+ > >       (loop (sub1 n))))
+ > > 
+ > > is run normally from a script, it behaves normally (takes ~0.25s),
+ > > and the same holds for using standard output.  However, running it
+ > > with standard error redirected to a file takes considerabely
+ > > longer: about 20 times the normal speed for standard error, and
+ > > about 8 times when standard output is used (and redirected)
+ > > instead.
+ > > 
+ > > The problem doesn't seem to occur on Linux with NFS, or on a local
+ > > file system.
+ > 
+ > Does this problem occur with, say, shell scripts?
+ > 
+ > In other words, do you think there's a Scheme issue here?
+ 
+ Definitely -- I'm pretty sure it's some buffering issue because it's
+ so much worse for standard error (using v.202):
+ 
+ and for the above loop, I get the following:
+ 
+   mzscheme -r x         -->  Total=0:00.22
+   mzscheme -r x >& foo  -->  Total=0:03.67
+ 
+ with current-output-error I get:
+ 
+   mzscheme -r x         -->  Total=0:00.18
+   mzscheme -r x >& foo  -->  Total=0:00.65
+ 
+ For 10 lines of output, if a shell script would have been the same it
+ would be quite noticable...
+ 
+ I actually noticed the problem when my webserver's log was all screwed
+ up -- log lines were all messed as if time slices were extremely
+ small, much smaller then it should have been given the not too high
+ traffic...  Then I managed to figure that it serving a page was still
+ quick but just the simple log message was making it ridiculously
+ small.  It just takes a while every time it prints something, which is
+ why this behavior is so strong with the above code (it delays after
+ every space and every number).  To make things a bit better, I did
+ something like this:
+ 
+   (file-stream-buffer-mode (current-error-port) 'line)
+ 
+ it worked faster, but not as fast as it should.  This is the reason
+ stderr is so much slower in the above example...  To verify that,
+ running that same code with stderr but adding the buffer mode change,
+ I get exactly the same running time as for a redirected stdout 0.65.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Fri Dec  6 22:20:39 2002
+Responsible-Changed-Why:
+    mz
+State changed from "open" to "analyzed" by mflatt at Thu, 27 Jan 2005 19:47:04 -0500
+Reason>>> Is the conclusion that things should have slowed down,
+because disabling a level of buffering forces NFS commits?
+
+I suspect that the difference isn't so big in Linux because
+Linux's NFS support tends to be broken around the edges,
+especially when it comes to things like making sure that
+a write is committed.
+
+Meanwhile, for the next version of MzScheme, I think
+we should change the default buffering of stdout from
+'line to 'block when redirected to a file (i.e.,
+when stdout is not a terminal).
+
+Matthew
+
+From: Eli Barzilay <eli@barzilay.org>
+To: mflatt@cs.utah.edu
+Cc: bugs@plt-scheme.org
+Subject: Re: mzscheme/5594 Redirection problem on a Sun
+Date: Thu, 27 Jan 2005 21:20:05 -0500
+
+ On Jan 27, mflatt@cs.utah.edu wrote:
+ > 
+ > Is the conclusion that things should have slowed down, because
+ > disabling a level of buffering forces NFS commits?
+ 
+ Looking back, I think that the problem is in the extreme approach of
+ Solaris, combined with fishy system setup on the Columbia machines.
+ Their setup used a *ridiculous* amount of symlink redirections, and
+ the whole thing was probably chased on every NFS commit.
+ 
+ 
+ > I suspect that the difference isn't so big in Linux because Linux's
+ > NFS support tends to be broken around the edges, especially when it
+ > comes to things like making sure that a write is committed.
+ 
+ Actually, I think that Linux is usually more sane since people tend to
+ not be afraid of writeback buffers even at the cost of an occasional
+ problem when a file is accessed from multiple machines.  OTOH you have
+ Sun with a general approach that make sysadmins prefer the safer setup
+ even if it's way slower.  The Columbia machines suffered from that
+ symlinking problem that made that case be much worse.
+ 
+ I think it's fine to just close this bug.  I tried it again on both
+ the NEU and the Columbia machines and things seem fine.
+ 
+ 
+ > Meanwhile, for the next version of MzScheme, I think we should
+ > change the default buffering of stdout from 'line to 'block when
+ > redirected to a file (i.e., when stdout is not a terminal).
+ 
+ I'm not sure -- technically it seems like a better decision (and many
+ programs do exactly this), and I do prefer it.  But in practice I
+ expect many people to be surprised in subtle ways that will make them
+ scream that everything is broken.  (The problem being that it will
+ lead to problems that are not obvious, therefore it might lead to bugs
+ that will be difficult to trace back to the buffering change.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+State changed from "analyzed" to "closed" by mflatt at Thu, 27 Jan 2005 22:13:32 -0500
+Reason>>> as Eli says
+
+>Unformatted:

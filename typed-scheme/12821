@@ -1,0 +1,125 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Mon Jun  4 16:50:37 2012
+Received: from mail-vb0-f44.google.com (mail-vb0-f44.google.com [209.85.212.44])
+	by champlain.ccs.neu.edu (8.14.4/8.14.4) with ESMTP id q54KoYNK017801
+	for <bugs@bugs.plt-scheme.org>; Mon, 4 Jun 2012 16:50:34 -0400
+Message-Id: <201206042050.q54KoUwj017795@champlain.ccs.neu.edu>
+Date: Mon, 4 Jun 2012 16:50:30 -0400
+From: danburton.email@gmail.com
+To: bugs@racket-lang.org
+Subject: Typed Racket should provide contracts
+
+>Number:         12821
+>Category:       typed-scheme
+>Synopsis:       Typed Racket should provide contracts
+>Class:          change-request
+>Responsible:    samth
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Mon Jun 04 16:52:01 -0400 2012
+>Last-Modified:  Tue Jul 24 19:59:15 -0400 2012
+>Originator:     Dan Burton
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.2
+>Environment:
+>Description:
+Summary: Typed Racket needs "type-as-contract-out"
+
+The allure of Typed Racket is that you should be able to take Racket code and upgrade it to Typed Racket. However, if the original Racket code makes good use of contracts, then Typed Racket in some situations cannot serve as a selective drop-in replacement. Consider the following
+
+
+#lang racket/load
+
+(module untyped-server racket
+  (define x/c (or/c symbol? string?))
+  (define (f x)
+    (if (symbol? x)
+        (symbol->string x)
+        x))
+  (provide/contract
+   [x/c contract?]
+   [f (-> x/c string?)]))
+
+(module untyped-client racket
+  (require 'untyped-server)
+  (define (g x)
+    (f (f x)))
+  (define (bang!)
+    (f 5))
+  (provide/contract
+   [bang! (-> any)]
+   [g (-> x/c string?)]))
+
+(module untyped-client2 racket
+  (require 'untyped-client)
+  (g 'f)
+  (bang!))
+
+(require 'untyped-client2)
+
+
+Suppose we would like to upgrade the "untyped-server" module to "typed-server", and leave the untyped client unchanged (except the changing the require line).
+
+(module typed-server typed/racket
+  (define-type X (U Symbol String))
+  (: f (X -> String))
+  (define (f x)
+    (if (symbol? x)
+        (symbol->string x)
+        x))
+  (provide 
+   #;(type-as-contract-out [X x/c]) ;; <-- we need something like this
+   f))
+
+
+The problem is that "type-as-contract-out" does not exist, and when working in Typed Racket, there is no good way to expose x/c to the client. However, if we make invasive changes to the client as well, it is apparent that Typed Racket does in fact create the equivalent of x/c.
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Sam Tobin-Hochstadt <samth@ccs.neu.edu>
+To: danburton.email@gmail.com, bugs@racket-lang.org
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/12821: Typed Racket should provide contracts
+Date: Mon, 4 Jun 2012 16:58:11 -0400
+
+ On Mon, Jun 4, 2012 at 4:52 PM,  <danburton.email@gmail.com> wrote:
+ >
+ > Suppose we would like to upgrade the "untyped-server" module to "typed-server", and leave the untyped client unchanged (except the changing the require line).
+ >
+ > (module typed-server typed/racket
+ >  (define-type X (U Symbol String))
+ >  (: f (X -> String))
+ >  (define (f x)
+ >    (if (symbol? x)
+ >        (symbol->string x)
+ >        x))
+ >  (provide
+ >   #;(type-as-contract-out [X x/c]) ;; <-- we need something like this
+ >   f))
+ >
+ 
+ You should be able to do this:
+ 
+ #lang typed/racket
+ (define-type X (U Symbol String))
+ (: f : X -> String)
+ (define ...)
+ (define-predicate x/c X)
+ (provide x/c f)
+ 
+ and then since predicates are automatically contracts, you can just
+ use the new `x/c` anywhere you used the old one.
+ 
+ Of course, this doesn't work for higher-order contracts, but it ought
+ to help in many cases.
+ 
+ 
+ 
+ -- 
+ sam th
+ samth@ccs.neu.edu
+ 
+

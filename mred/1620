@@ -1,0 +1,219 @@
+From clements@cs.rice.edu  Fri Aug 18 16:09:20 2000
+Received: from localhost (barbican.cs.rice.edu [128.42.2.142])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id QAA14041
+	for <plt-gnats>; Fri, 18 Aug 2000 16:09:20 -0500 (CDT)
+Message-Id: <200008182109.QAA14041@cs.rice.edu>
+Date: Fri, 18 Aug 2000 16:09:20 -0500 (CDT)
+From: clements@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: snip-resizing misbehaves when snip is added to text after window is shown. 
+
+>Number:         1620
+>Category:       mred
+>Synopsis:       snip-resizing misbehaves when snip is added to text after window is shown.
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          doc-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Aug 18 17:15:04 -0400 2000
+>Last-Modified:  Sun Mar 28 02:46:42 -0500 2004
+>Originator:     John Clements
+>Release:        103d2
+>Organization:
+titan
+>Environment:
+macos (ppc-mac) (get-display-depth) = 32
+Tools: ("analysis" "CVS" "debug" "project-manager" "stepper-tests" "syncheck" "unit-bundle")
+Docs Installed:
+("drscheme" "framework" "help" "icons" "insidemz" "match" "misclib" "mred" "mzc" "mzscheme" "r5rs" "teachpack" "tools")
+Collections:
+(("Barbican:plt:collects" ("afm" "browser" "cogen" "compiler" "CVS" "defaults" "doc" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "guserspce" "help" "hierarchy" "hierlist" "htdp" "icons" "launcher" "make" "mred" "mrspidey" "mzlib" "mzscheme" "net" "quasiquote" "setup" "slatex" "srpersist" "stepper" "stepper-graphical" "tests" "texpict" "time-tracking" "userspce" "xml" "zodiac")) ("Barbican:robby:collects:" ("CVS" "magic")) ("Barbican:clements:collects:" ("clements-lib" "CVS")))
+>Description:
+This comes up in the implementation of the separator-snip% used by
+the stepper; this snip handles a call to get-extent by examining
+the size of the enclosing view, and setting its width accordingly.
+However, MrEd fails to recognize the changed size in the sense that
+it places a spurious scrollbar at the bottom of the screen, despite
+the fact that everything to the right is whitespace, and every 
+line in the editor is small enough to fit in the frame.  
+
+This problem can be fixed by manually calling the snip's admin's
+resize method when the frame size changes, FWIW.  
+
+
+>How-To-Repeat:
+1. Execute code. Make window smaller. Note that although separator
+changes width, scroll bar appears which scrolls into whitespace
+equal to original width - new width.
+
+2. Swap last two expressions (insert sexp and show sexp).  Now, 
+behavior is correct.
+
+(define separator-snipclass
+  (make-object
+   (class snip-class% args
+     (override
+       [read (lambda (s) 
+               (let ([size-box (box 0)])
+                 (send s get size-box)
+                 (make-object separator-snip%)))])
+     (sequence (apply super-init args)))))
+
+(send separator-snipclass set-version 1)
+(send separator-snipclass set-classname "drscheme:separator-snip%")
+
+(send (get-the-snip-class-list) add separator-snipclass)
+
+  ;; the two numbers 1 and 2 which appear here are to line up this snip
+  ;; with the embedded snips around it in the drscheme rep.
+  ;; I have no idea where the extra pixels are going.
+(define separator-snip%
+  (class snip% ()
+    (inherit get-style set-snipclass set-flags get-flags get-admin)
+    (private [width 100]
+             [height 1]
+             [white-around 2])
+    (override
+      [write (lambda (s) 
+               (send s put (char->integer #\r)))]
+      [copy (lambda () 
+              (let ([s (make-object separator-snip%)])
+                (send s set-style (get-style))
+                s))]
+      [get-extent
+       (lambda (dc x y w-box h-box descent-box space-box lspace-box rspace-box)
+         (for-each (lambda (box) (unless (not box) (set-box! box 0)))
+                   (list descent-box space-box lspace-box rspace-box))
+         (reset-width)
+         (unless (not w-box)
+           (set-box! w-box width))
+         (unless (not h-box)
+           (set-box! h-box (+ (* 2 white-around) height))))]
+      [draw
+       (let* ([body-pen (send the-pen-list find-or-create-pen
+                              "BLUE" 0 'solid)]
+              [body-brush (send the-brush-list find-or-create-brush
+                                "BLUE" 'solid)])
+         (lambda (dc x y left top right bottom dx dy draw-caret)
+           (let ([orig-pen (send dc get-pen)]
+                 [orig-brush (send dc get-brush)])
+             (send dc set-pen body-pen)
+             (send dc set-brush body-brush)
+             
+             (send dc draw-rectangle (+ x 1)
+                   (+ white-around y) width height)
+             
+             (send dc set-pen orig-pen)
+             (send dc set-brush orig-brush))))])
+    (public
+      [reset-width
+       (lambda ()
+         (let* ([admin (get-admin)]
+                [reporting-media (send admin get-editor)]
+                [reporting-admin (send reporting-media get-admin)]
+                [widthb (box 0)])
+           (send reporting-admin get-view #f #f widthb #f)
+           (let ([old-width width])
+             (set! width (- (unbox widthb) 2)))))])
+    (sequence
+      (super-init)
+      (set-snipclass separator-snipclass))))
+
+(define f (make-object frame% "title" #f 300 300))
+(define t (make-object text%))
+(define c (make-object editor-canvas% f t))
+(define s (make-object separator-snip%))
+(send f show #t)
+(send t insert s)
+>Fix:
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: clements@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1620: snip-resizing misbehaves when snip is added to text after window is shown. 
+Date: Fri, 18 Aug 2000 19:35:14 -0700 (PDT)
+
+ Quoting clements@cs.rice.edu:
+ > This problem can be fixed by manually calling the snip's admin's
+ > resize method when the frame size changes, FWIW.  
+ 
+ That's exactly what has to happen; there's no other way for the editor
+ to know that the snip's size has changed.
+ 
+ The documentation about snip sizes is clearly lacking, and even
+ inaccurate in places. I'll work on it.
+ 
+ Meanwhile: When a snip provides a size result for `get-extent', the
+ editor assumes that a snip maintains that size unless the snip says
+ otherwise by calling the adminstrator's `resized' method.
+ 
+ Matthew
+ 
+
+From: John Clements <clements@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1620: snip-resizing misbehaves when snip is added to text
+ after window is shown.
+Date: Sun, 20 Aug 2000 12:14:12 -0500
+
+ At 19:35 -0700 2000-08-18, Matthew Flatt wrote:
+ >Meanwhile: When a snip provides a size result for `get-extent', the
+ >editor assumes that a snip maintains that size unless the snip says
+ >otherwise by calling the adminstrator's `resized' method.
+ 
+ Even when many calls are made to the get-extent method in the 
+ interim?  I put a printf on the get-extent method, and saw that it 
+ was being called many times; I assumed that this was the 
+ administrator, checking on the snip's size.  I guess I shouldn't have 
+ assumed that.
+ 
+ john
+ 
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: John Clements <clements@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1620: snip-resizing misbehaves when snip is added to text
+ after window is shown.
+Date: Sun, 20 Aug 2000 11:10:30 -0700 (PDT)
+
+ Quoting John Clements:
+ > At 19:35 -0700 2000-08-18, Matthew Flatt wrote:
+ > >Meanwhile: When a snip provides a size result for `get-extent', the
+ > >editor assumes that a snip maintains that size unless the snip says
+ > >otherwise by calling the adminstrator's `resized' method.
+ > 
+ > Even when many calls are made to the get-extent method in the 
+ > interim?  
+ 
+ Yes.
+ 
+ > I put a printf on the get-extent method, and saw that it 
+ > was being called many times; I assumed that this was the 
+ > administrator, checking on the snip's size.
+ 
+ The editor doesn't cache each inidivdual snip's size, but it caches
+ derived information.
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Aug 28 11:37:31 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Tue Sep 12 15:03:53 2000
+State-Changed-Why:
+Documentation fixed.
+
+ 
+>Unformatted:

@@ -1,0 +1,265 @@
+From apache@plt-scheme.org Sun Nov 12 09:06:48 2006
+Received: from py-out-1112.google.com (py-out-1112.google.com [64.233.166.181])
+	by champlain.ccs.neu.edu (8.13.8/8.13.7) with ESMTP id kACE6fZR021871
+	for <bugs@bugs.plt-scheme.org>; Sun, 12 Nov 2006 09:06:41 -0500
+Message-Id: <200611121359.kACDxfxH021823@champlain.ccs.neu.edu>
+Date: Sun, 12 Nov 2006 08:59:41 -0500
+From: jensaxel@soegaard.net
+To: bugs@plt-scheme.org
+Subject: The "Expander" language and require-for-template
+
+>Number:         8382
+>Category:       drscheme
+>Synopsis:       The "Expander" language and require-for-template
+>Class:          sw-bug
+>Responsible:    robby
+>Severity:       serious
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Sun Nov 12 09:10:01 -0500 2006
+>Last-Modified:  Wed Dec 27 15:01:21 -0500 2006
+>Originator:     Jens Axel Søgaard
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        359.100-svn9nov2006
+>Environment:
+windows "Windows NT 5.1 (Build 2600) Service Pack 2" (win32\i386) (get-display-depth) = 32
+Docs Installed:
+(("C:\\Programmer\\PLT-FULL\\doc" "r5rs" "mzscheme" "mred" "help" "tour" "drscheme" "srfi" "mzlib" "misclib" "mrlib" "framework" "foreign" "mzc" "tools" "insidemz" "web-server" "swindle" "plot" "release-notes" "t-y-scheme" "tex2page" "beginning" "beginning-abbr" "intermediate" "intermediate-lambda" "advanced" "teachpack" "teachpack-htdc" "profj-beginner" "profj-intermediate" "profj-advanced") (* "C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\planet\\300\\359.100\\cache\\neil\\htmlprag.plt\\1\\3\\doc" "C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\planet\\300\\359.100\\cache\\neil\\htmlprag.plt\\1\\3\\doc"))
+Human Language: english
+(current-memory-use) 172974080
+
+Collections:
+(("C:\\Documents and Settings\\js\\Application Data\\PLT Scheme\\359.100\\collects" non-existent-path) ("C:\\Programmer\\PLT-FULL\\collects" "afm" "algol60" "browser" "compiler" "config" "defaults" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "framework" "frtime" "games" "graphics" "guibuilder" "handin-client" "handin-server" "help" "hierlist" "honu-module" "htdch" "htdp" "html" "icons" "info-domain" "lang" "launcher" "lazy" "macro-debugger" "make" "mred" "mrflow" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "mztake" "net" "openssl" "parser-tools" "planet" "plot" "preprocessor" "profj" "profjBoxes" "profjWizard" "r5rs" "r6rs" "readline" "repos-time-stamp" "scribble" "setup" "sgl" "sirmail" "skipper" "slatex" "slibinit" "slideshow" "srfi" "srpersist" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-suite" "tests" "tex2page" "texpict" "trace" "version" "waterworld" "web-server" "xelda" "xml"))
+Teachpack filenames: ()
+Computer Language: (("Professional Languages" "PLT" "Expander") #6(#t write mixed-fraction-e #f #t debug))
+>Description:
+The following program runs in the Pretty Big Language.
+The Expander langauge chokes on registered? in the
+template
+
+      #'(lambda (stx)
+          (syntax-case stx keywords
+            [pattern 
+             (registered? #'__ 'type)
+             (syntax/loc stx template)]
+            [_       #f]))))
+
+even though it is preceded by
+
+  (require-for-template mzscheme names) .
+>How-To-Repeat:
+;;; Run the following program in the "Expander" language
+
+
+;;;
+;;; NAMES -> TYPES
+;;;
+
+(module names mzscheme
+  (provide display-registered-names
+           register 
+           registered?
+           unregister)
+
+  (require (lib "boundmap.ss" "syntax")) 
+  
+  (define registered-names
+    (make-module-identifier-mapping))
+  
+  (define (display-registered-names)
+    (display (cons 'registered-names: 
+                   (module-identifier-mapping-map
+                    registered-names
+                    (lambda (name type) (list name type)))))
+    (newline))
+  
+  (define (lookup name)
+    (module-identifier-mapping-get registered-names
+                                   name (lambda() '())))
+  
+  ; registered? : identifier symbol -> boolean
+  (define (registered? name type)
+    (and (identifier? name)
+         (let ([types (lookup name)])
+           (and (pair? types)
+                (equal? (car types) type)))))
+  
+  (define (register name type)
+    (module-identifier-mapping-put! registered-names
+                                   name (cons type (lookup name))))
+  
+  (define (unregister name)
+    (let ([types (lookup name)])
+      (unless (null? types)
+        (module-identifier-mapping-put! registered-names
+                                        name (cdr types)))))
+  )
+  
+
+;;; TRANSFORMERS
+
+(module transformers mzscheme
+  (provide register-transformer registered-transformers
+           transform-syntax)
+  
+  (define registered-transformers '())
+  
+  (define (register-transformer name transformer)
+    (set! registered-transformers 
+          (cons transformer registered-transformers)))
+    
+  (define (transform-syntax stx transformers)
+    (if (null? transformers)
+        #f
+        (let ([stx2 ((car transformers) stx)])
+          (if stx2 stx2
+              (transform-syntax stx (cdr transformers)))))))
+
+;;;
+;;; TRANSFORMER BUILDER
+;;;
+
+(module transformer-builder mzscheme
+  (provide make-syntax-for-short-transformer)
+           
+  (require-for-template mzscheme names)
+
+  ; ((make-short-transformer #'() #'(a b c) #'(a))  #'(1 2 3))  ==> #'(1)
+  (define (make-syntax-for-short-transformer type keywords pattern template)
+    (with-syntax ([type     (syntax-object->datum type)]
+                  [keywords keywords]
+                  [pattern  (syntax-object->datum pattern)]
+                  [template (syntax-object->datum template)])
+      #'(lambda (stx)
+          (syntax-case stx keywords
+            [pattern 
+             (registered? #'__ 'type)
+             (syntax/loc stx template)]
+            [_       #f])))))
+
+;;; 
+;;; SHORT
+;;;
+
+(module short mzscheme
+  (provide declare 
+           define-short
+           with-short
+           app/short
+           (rename app/short #%app))
+  
+  (require names)
+
+  (require-for-syntax transformers
+                      transformer-builder)
+  
+  (define-syntax (define-short stx)
+    (syntax-case stx ()
+      [(_ name keywords)
+       #'(begin)]
+      [(_ name keywords [pattern template] . more)
+       (begin
+         (register-transformer 
+          #'name (eval 
+                  (make-syntax-for-short-transformer 
+                   #'name #'keywords #'pattern #'template)))
+         #'(define-short name keywords . more))]))
+  
+  (define-syntax (declare stx)
+    (syntax-case stx ()
+      [(_) 
+       #'(begin (void))]
+      [(_ (name type) more ...)
+       (and (identifier? #'name) 
+            (identifier? #'type))
+       (syntax-property
+        #'(begin
+            (register #'name (syntax-object->datum #'type))
+            (declare more ...))
+        'disappeared-use #'name)]))
+  
+  (define-syntax (undeclare stx)
+    (syntax-case stx ()
+      [(_) 
+       #'(begin)]
+      [(_ name ...)
+       (andmap identifier? (syntax->list #'(name ...)))
+       #'(begin
+           (for-each unregister 
+                     (syntax->list #'(name ...))))]))
+  
+  (define-syntax (with-short stx)
+    (syntax-case stx ()
+      [(_ type (name ...) body ...)
+       #'(begin
+           (declare (name type) ...)
+           (begin0 (begin body ...)
+                   (undeclare name ...)))]))
+
+  (define-syntax (app/short stx)
+    (syntax-case stx ()
+      [(_ arg0 arg1 ...)
+       (cond
+         [(transform-syntax (syntax/loc stx (arg0 arg1 ...)) registered-transformers)
+          => (lambda (result) result)]
+         [else
+          (begin
+            ;(display "No transformer...\n")
+            (syntax/loc stx (#%app arg0 arg1 ...)))])]
+      [(_ . more) 
+       (syntax/loc stx (#%app . more))])))
+
+
+(require short)
+
+(define ht (make-hash-table 'equal))
+(define xs (vector 'a 'b 'c))
+
+(define-short vector (map for-each)
+  [(__ i)             (vector-ref __ i)]
+  [(__ i val)         (vector-set! __ i val)]
+  [(map __ proc)      (map proc (vector->list __))]
+  [(for-each __ proc) (for-each proc (vector->list __))])
+
+(define-short list (map for-each)
+  [(__ i)             (list-ref __ i)]
+  ;[(__ i val)         (vector-set! __ i val)]
+  [(map __ proc)      (map proc __)]
+  [(for-each __ proc) (for-each proc __)])
+
+(define-short hash-table (map for-each)
+  [(__ key)           (hash-table-get __ key)]
+  [(__ key val)       (hash-table-put! __ key val)]
+  [(map _ proc)       (hash-table-map __ proc)]
+  [(for-each __ proc) (hash-table-for-each __ proc)])
+
+
+(with-short vector (xs)
+  (list (xs 2)
+        (xs 2 3)
+        (xs 2)
+        (map xs list)))
+
+
+(declare (ht hash-table))
+(declare (xs vector))
+
+(app/short xs 2)
+(app/short xs 2 3)
+(app/short xs 2)
+(app/short map xs display)
+
+(app/short ht 2 4)
+(app/short ht 2)
+
+(xs 2)
+(xs 2 3)
+(xs 2)
+(map xs display)
+
+(ht 2 4)
+(ht 2)
+>Fix:

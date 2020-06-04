@@ -1,0 +1,108 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Feb 24 21:06:30 2015
+Received: from mail-ob0-f173.google.com (mail-ob0-f173.google.com [209.85.214.173])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id t1P26OP4017564
+	for <bugs@bugs.plt-scheme.org>; Tue, 24 Feb 2015 21:06:24 -0500
+Message-Id: <201502250206.t1P26K3j017524@winooski.ccs.neu.edu>
+Date: Tue, 24 Feb 2015 21:06:20 -0500
+From: wekhslxm@sharklasers.com
+To: bugs@racket-lang.org
+Subject: Apply and keyword-apply are horrible
+
+>Number:         14991
+>Category:       all
+>Synopsis:       Apply and keyword-apply are horrible
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Tue Feb 24 21:08:01 -0500 2015
+>Closed-Date:    Tue Feb 24 23:33:46 -0500 2015
+>Last-Modified:  Tue Feb 24 23:33:46 -0500 2015
+>Originator:     Mack
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4
+>Environment:
+Win32 / Mozilla/5.0 (Windows NT 6.1; rv:24.0) Gecko/20100101 Firefox/24.0
+>Description:
+First of all, The "apply" function can't pass keyword arguments on to functions.
+
+Second of all, the "keyword-apply" function that can do it has the most brain dead interface ever conceived. Using it requires writing a bunch of preparation code first.
+
+I had to implement the function provided here to get a usable version of "apply". Please add some version of it to Racket.
+>How-To-Repeat:
+#lang scribble/lp
+
+@chunk[<*>
+(provide non-broken-apply)
+<non-broken-apply>
+]
+
+Racket's @scheme[apply] function is horribly broken. It cannot be used to pass keyword arguments
+in a programmatic fashion. Racket provides @scheme[keyword-apply] to get around this
+problem, but it's broken, too! @scheme[keyword-apply] requires the programmer to separate the keywords
+themselves from their values and pass them in two separate lists.
+
+Even worse, the keywords (and therefore the separate list of corresponding values) must be sorted using
+the @scheme[keyword<?] function, or else @scheme[keyword-apply] chokes! 
+
+What is really desired is an @scheme[apply] that works like the one in Common Lisp. Such a function could
+accept the arguments in exactly the way they'd be passed to the function, without gratuitous preprocessing
+being required.
+
+To get a function like this, it is necessary to implement it in terms of @scheme[keyword-apply]. The new
+function is called @scheme[apply*]. The first thing it must do is go through the list of arguments and
+build two lists: One is a list of regular arguments, and the other is a list of @scheme[(#:keyword . value)]
+pairs:
+
+@chunk[<massage-arguments>
+(let massage-arguments ((args args*) (kw-pairs '()) (regular-args '()))
+  (cond ((null? args)
+	 (values kw-pairs (reverse regular-args)))
+	((keyword? (car args))
+	 (when (null? (cdr args))
+	       (error (format "Keyword argument without a value: ~a" (car args))))
+	 (massage-arguments (cddr args)
+			    (cons (cons (car args) (cadr args)) kw-pairs)
+			    regular-args))
+	(else
+	 (massage-arguments
+	  (cdr args)
+	  kw-pairs
+	  (cons (car args) regular-args)))))
+]
+
+Then, we have to sort the @scheme[kw-pairs] and then separate them into two
+separate lists.
+
+@chunk[<sort-and-separate>
+       (let ((sorted (sort kw-pairs (λ (a b)
+				       (keyword<? (car a) (car b))))))
+	 (values (map car sorted)
+		 (map cdr sorted)))
+]
+
+Other than that, @scheme[non-broken-apply] just passes the three resulting lists on to @scheme[keyword-apply]:
+
+@chunk[<non-broken-apply>
+(define (non-broken-apply func args*)
+  (let-values (((kw-pairs regular-args) <massage-arguments>))
+    (let-values (((kw-list kw-val-list) <sort-and-separate>))
+      (keyword-apply func kw-list kw-val-list regular-args))))
+]			     
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by robby at Tue, 24 Feb 2015 23:33:46 -0500
+Reason>>> 
+
+Thanks for your interest in Racket, but a bug report is not appropriate 
+for this request.
+
+If you wish to add new functions, please find an appropriate library and 
+make a pull request. If you wish to discuss changes to the core 
+language, please post on the mailing list. There are a lot of 
+ramifications of such changes.
+

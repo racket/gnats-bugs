@@ -1,0 +1,148 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Fri Aug  1 12:10:35 2008
+Received: from fk-out-0910.google.com (fk-out-0910.google.com [209.85.128.184])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id m71GAR6q029395
+	for <bugs@bugs.plt-scheme.org>; Fri, 1 Aug 2008 12:10:28 -0400
+Message-Id: <200808011610.m71GAM9o029389@champlain.ccs.neu.edu>
+Date: Fri, 1 Aug 2008 12:10:22 -0400
+From: derick.eddington@gmail.com
+To: bugs@plt-scheme.org
+Subject: R6RS syntax-case broken
+
+>Number:         9647
+>Category:       mzscheme
+>Synopsis:       R6RS syntax-case broken
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Fri Aug 01 12:12:01 -0400 2008
+>Last-Modified:  Fri Aug 01 13:47:12 -0400 2008
+>Originator:     Derick Eddington
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.0.2.6-svn1aug2008
+>Environment:
+unix "Linux eep 2.6.24-19-generic #1 SMP Fri Jul 11 23:41:49 UTC 2008 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 107744880
+
+Collections:
+(("/home/d/.plt-scheme/4.0.2.6/collects" "tests" "xitomatl") ("/home/d/plt/collects" "afm" "ffi" "net" "sgl" "xml" "eopl" "file" "help" "htdp" "html" "lang" "lazy" "make" "r5rs" "r6rs" "mred" "plot" "rnrs" "srfi" "wxme" "framework" "teachpack" "mzscheme" "games" "icons" "htdch" "s-exp" "mrlib" "mzcom" "mzlib" "graphics" "profj" "redex" "setup" "trace" "test-engine" "combinator-parser" "preprocessor" "test-box-recovery" "tex2page" "texpict" "scribblings" "stepper" "scribble" "typed-scheme" "web-server" "config" "compiler" "swindle" "dynext" "hierlist" "macro-debugger" "frtime" "defaults" "gui-debugger" "drscheme" "syntax-color" "planet" "mysterx" "errortrace" "scheme" "slatex" "syntax" "version" "algol60" "parser-tools" "openssl" "embedded-gui" "slideshow" "repos-time-stamp" "info-domain" "readline" "launcher" "string-constants" "browser"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n"))
+>Description:
+This `weird-letrec' was contrived for hunting down a different bug in a real macro, but I ran into the bugs below.  I couldn't figure out how to narrow them down more.
+>How-To-Repeat:
+----------------------
+#1:
+----------------------
+#!r6rs
+(import (rnrs))
+
+(define-syntax weird-letrec
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ ([v e] ...) . b)
+       (with-syntax ([(t ...) (generate-temporaries #'(v ...))])
+         #'(let ()
+             (define t) ...
+             #;(define dummy
+               (apply
+                 (lambda (v ...) 
+                   (set! t v) 
+                   ...
+                   #f)
+                 (list e ...)))
+             #|(define v
+               (let ([v t]) (set! t #f) v)) 
+             ...|#
+             . b))])))
+
+(write
+ (weird-letrec ([x 1])
+   x))
+(newline)
+
+ERROR=>
+
+plt-4.0.2.6/collects/rnrs/syntax-case-6.ss:256:0: car: expects argument of type <pair>; given x
+
+----------------------
+#2:
+----------------------
+#!r6rs
+(import (rnrs))
+
+(define-syntax weird-letrec
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ ([v e] ...) #|. b|#)
+       (with-syntax ([(t ...) (generate-temporaries #'(v ...))])
+         #'(let ()
+             (define t) ...
+             (define dummy
+               (apply
+                 (lambda (v ...) 
+                   (set! t v) 
+                   ...
+                   #f)
+                 (list e ...)))
+             (define v
+               (let ([v t]) (set! t #f) v)) 
+             ...
+             #|. b|#
+             'blah))])))
+
+(write
+ (weird-letrec ([x 1])
+   #;x))
+(newline)
+
+ERROR=>
+
+plt-4.0.2.6/collects/rnrs/syntax-case-6.ss:256:0: car: expects argument of type <pair>; given ()
+
+----------------------
+#3:
+----------------------
+#!r6rs
+(import (rnrs))
+
+(define-syntax weird-letrec
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ ([v e] ...) #|. b|#)
+       (with-syntax ([(t ...) (generate-temporaries #'(v ...))])
+         #'(let ()
+             (define t) ...
+             #;(define dummy
+               (apply
+                 (lambda (v ...) 
+                   (set! t v) 
+                   ...
+                   #f)
+                 (list e ...)))
+             (define v
+               (let ([v t]) (set! t #f) v)) 
+             ...
+             #|. b|#
+             'blah))])))
+
+(write
+ (weird-letrec ([x 1])
+   #;x))
+(newline)
+
+ERROR=>
+
+plt-4.0.2.6/collects/rnrs/syntax-case-6.ss:256:0: list-tail: index 1 too large for list: ()
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt at Fri, 01 Aug 2008 13:47:12 -0400
+Reason>>> fixed in SVN (yet another bug in the bridge between
+PLT-style syntax-case and R6RS-style syntax-case)
+
+Thanks very much for the small test cases.
+

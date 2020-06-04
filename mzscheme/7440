@@ -1,0 +1,200 @@
+From apache@plt-scheme.org Mon Jun 13 13:57:31 2005
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id j5DHvT9N013698
+	for <bugs@plt-scheme.org>; Mon, 13 Jun 2005 13:57:29 -0400
+Message-Id: <200506131757.j5DHvTWS013696@champlain.ccs.neu.edu>
+Date: Mon, 13 Jun 2005 13:57:29 -0400
+From: mtschant@cs.brown.edu
+To: bugs@plt-scheme.org
+Subject: Include does not set current-load-relative-directory
+
+>Number:         7440
+>Category:       mzscheme
+>Synopsis:       Include does not set current-load-relative-directory
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Mon Jun 13 14:00:04 -0400 2005
+>Last-Modified:  Thu Jul 21 17:57:26 -0400 2005
+>Originator:     Michael Carl Tschantz
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        208.1
+>Environment:
+linux-other
+>Description:
+The macro include does not set the current-load-relative-directory.  Thus, load-relative and load-relative-extension do not work with include: if load-relative or load-relative-extension is used within an included file, they will the directory of the file using include rather than the directory of file being included for producing a absolute path from the relative path.
+>How-To-Repeat:
+Three files: Includer, dir/Included, and dir/import.so.
+
+File Includer.scm:
+ (include "dir/Included.scm")
+
+File dir/import.so:
+ any content
+
+File dir/Included.scm:
+ ; note that these will be the same, but shouldn't
+ (printf "a1: ~a~n    ~a~n" (current-directory) (current-load-relative-directory)) 
+ ; this will fail since it will not look for "dir/import.so", but rather "import.so".
+ (load-relative-extension "import.so") 
+
+Note that to further see the problem, you can create another file in the same directory as Includer.scm:
+
+File Loader.scm:
+ (load-relative "dir/Included.scm")
+
+Run will work for this file, but not Includer.scm.  However, Check Syntax will fail if Loader.scm uses any functions defined by Included.scm since Check Syntax does not load files.
+
+>Fix:
+>Audit-Trail:
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: mtschant@cs.brown.edu, bugs@plt-scheme.org
+Cc: 
+Subject: Re: all/7440: Include does not set current-load-relative-directory
+Date: Mon, 13 Jun 2005 20:39:07 -0600
+
+ At Mon, 13 Jun 2005 14:00:05 -0400, mtschant@cs.brown.edu wrote:
+ > The macro include does not set the current-load-relative-directory.
+ > Thus, load-relative and load-relative-extension do not work with
+ > include: if load- relative or load-relative-extension is used within
+ > an included file, they will the directory of the file using include
+ > rather than the directory of file being included for producing a
+ > absolute path from the relative path.
+ 
+ The purpose of `include' is to work at compile time, whereas `load'
+ works at run time. 
+ 
+ So, even if the macro set `current-load-relative-directory' while
+ reading the included file, the include happens at compile time, and
+ therefore would not affect the run time `load'.
+ 
+ Matthew
+ 
+From: Michael Tschantz <mtschant@cs.brown.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: bugs@plt-scheme.org
+Subject: Re: all/7440: Include does not set current-load-relative-directory
+Date: Tue, 14 Jun 2005 09:49:47 -0400 (EDT)
+
+ I should have said "Include does not generate code that sets the
+ current-load-relative-directory" instead of "Include does not set
+ current-load-relative-directory".  My reasoning:
+ 
+ It seems to me that the macro `include' inserts the contents of the
+ included file into the including file.  Thus, given my example from the
+ bug report (the relevant parts with comments removed are included below
+ for reference), the file Includer.scm is modified at compile time to
+ become:
+ 
+ (printf "a1: ~a~n    ~a~n" (current-directory)
+ (current-load-relative-directory))
+ (load-relative-extension "import.so")
+ 
+ That is, since Includer.scm has no content other than the `include'
+ expression, the file just becomes the included file (dir/Included.scm) at
+ compile time.  Next, this modified file is executed at run time and the
+ error described before is reported.
+ 
+ Now suppose that the file Includer.scm is modified at compile time to be
+ as follows instead:
+ 
+ (define old-current-load-relative-directory
+         (current-load-relative-directory))
+ (current-load-relative-directory
+         (build-path old-current-load-relative-directory "dir"))
+ (printf "a1: ~a~n    ~a~n" (current-directory)
+ (current-load-relative-directory))
+ (load-relative-extension "import.so")
+ (current-load-relative-directory old-current-load-relative-directory)
+ 
+ That is, it prefaces the included code with a set
+ current-load-relative-directory expression that will allow the
+ load-relative-extension expression to work as intended at run time.  Since
+ the current-load-relative-directory is set back to it original value after
+ the included code, any load-relative-extension expressions that may be in
+ the Includer.scm file (none in this example) will also work correctly.
+ Since old-current-load-relative-directory was introduced by a hygienic
+ macro, there should be no name clashes.
+ 
+ Something along these lines are what I would like.  Does that make sense?
+ 
+ Michael
+ 
+ ---- subset of example from bug report with comments removed ----
+ 
+ Three files: Includer, dir/Included, and dir/import.so.
+ 
+ File Includer.scm:
+ (include "dir/Included.scm")
+ 
+ File dir/import.so:
+ any content
+ 
+ File dir/Included.scm:
+ (printf "a1: ~a~n    ~a~n" (current-directory)
+ (current-load-relative-directory))
+ (load-relative-extension "import.so")
+ 
+ 
+ 
+ On Mon, 13 Jun 2005, Matthew Flatt wrote:
+ 
+ > At Mon, 13 Jun 2005 14:00:05 -0400, mtschant@cs.brown.edu wrote:
+ > > The macro include does not set the current-load-relative-directory.
+ > > Thus, load-relative and load-relative-extension do not work with
+ > > include: if load- relative or load-relative-extension is used within
+ > > an included file, they will the directory of the file using include
+ > > rather than the directory of file being included for producing a
+ > > absolute path from the relative path.
+ >
+ > The purpose of `include' is to work at compile time, whereas `load'
+ > works at run time.
+ >
+ > So, even if the macro set `current-load-relative-directory' while
+ > reading the included file, the include happens at compile time, and
+ > therefore would not affect the run time `load'.
+ >
+ > Matthew
+ >
+From: Eli Barzilay <eli@barzilay.org>
+To: Michael Tschantz <mtschant@cs.brown.edu>, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, Matthew Flatt <mflatt@cs.utah.edu>
+Subject: Re: all/7440: Include does not set current-load-relative-directory
+Date: Tue, 14 Jun 2005 11:09:40 -0400
+
+ On Jun 14, Michael Tschantz wrote:
+ >  I should have said "Include does not generate code that sets the
+ >  current-load-relative-directory" instead of "Include does not set
+ >  current-load-relative-directory".  My reasoning:
+ >  
+ > [...]
+ >  
+ >  (define old-current-load-relative-directory
+ >          (current-load-relative-directory))
+ >  (current-load-relative-directory
+ >          (build-path old-current-load-relative-directory "dir"))
+ >  (printf "a1: ~a~n    ~a~n" (current-directory)
+ >  (current-load-relative-directory))
+ >  (load-relative-extension "import.so")
+ >  (current-load-relative-directory old-current-load-relative-directory)
+ 
+ Like Matthew said -- the basic problem is that `include' is intended
+ as something that goes well with the module system, and mixing that
+ with `load*' is not a good idea.  In any case, I can see the sense in
+ your explanation, but I don't think that include should be modified to
+ do more than it does.  Did you look at `this-expression-source-directory'?
+ It looks like this is exactly what you need, and it works with
+ modules, includes, loads etc.
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                   http://www.barzilay.org/                 Maze is Life!
+
+State changed from "open" to "closed" by mflatt at Thu, 21 Jul 2005 17:57:26 -0400
+Reason>>> include can't really interact with load
+

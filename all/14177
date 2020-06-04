@@ -1,0 +1,288 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Tue Nov 19 02:07:55 2013
+Received: from mail-oa0-f43.google.com (mail-oa0-f43.google.com [209.85.219.43])
+	by winooski.ccs.neu.edu (8.14.7/8.14.7) with ESMTP id rAJ77s76028417
+	for <bugs@bugs.plt-scheme.org>; Tue, 19 Nov 2013 02:07:54 -0500
+Message-Id: <201311190707.rAJ77qBq028410@winooski.ccs.neu.edu>
+Date: Tue, 19 Nov 2013 02:07:52 -0500
+From: alex.benjamin.engelberg@gmail.com
+To: bugs@racket-lang.org
+Subject: math/number-theory bezout function doesn't produce right answer
+
+>Number:         14177
+>Category:       all
+>Synopsis:       math/number-theory bezout function doesn't produce right answer
+>Class:          sw-bug
+>Responsible:    nobody
+>Severity:       non-critical
+>Priority:       medium
+>State:          open
+>Confidential:   no
+>Arrival-Date:   Tue Nov 19 02:08:01 -0500 2013
+>Last-Modified:  Sun Dec 08 16:16:01 -0500 2013
+>Originator:     Alex Engelberg
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        5.3.4
+>Environment:
+windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+Human Language: english
+(current-memory-use) 288237608
+Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+raco pkg (show):
+Installation-wide:
+ [none]
+User-specific, all-version:
+ [none]
+User-specific, version-specific (5.3.4):
+ [none]
+
+
+
+Collections:
+("C:\\Users\\Alex\\AppData\\Roaming\\Racket\\5.3.4\\collects"
+ (non-existent-path))
+("C:\\Program Files\\Racket\\collects"
+ ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "math" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "pkg" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+
+Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+>Description:
+math/number-theory bezout function doesn't follow the mathematical guarantees specified in the documentation. Specifically, (bezout -1 -1) produces '(0 1), whereas the gcd of -1 and -1 should be 1 instead of -1. Thus, a correct answer could look something like '(0 -1).
+
+After some investigation, I think the problem might be with the behavior of quotient and remainder on negative numbers.
+>How-To-Repeat:
+(require math/number-theory)
+(bezout -1 -1)
+=> (0 1)
+>Fix:
+>Audit-Trail:
+From: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>
+To: alex.benjamin.engelberg@gmail.com, bugs <bugs@racket-lang.org>
+Cc: nobody@racket-lang.org, bug-notification@racket-lang.org
+Subject: Re: [racket-bug] all/14177: math/number-theory bezout function
+ doesn't produce right answer
+Date: Tue, 19 Nov 2013 18:27:28 +0100
+
+ Hi Alex,
+ 
+ Thanks for the bug report. I can confirm that you indeed have found a bug.
+ As is the function bezout only works on positive numbers. Let see if
+ we can figure out how to change it to work on negative numbers too.
+ 
+ CASE 1: Both a and b are negative numbers.
+ 
+ We have that -a and -b are positive.  We can then use bezout (which
+ currently works correctly on positive numbers) to find u and v such that:
+              gcd(-a,-b) = u*(-a) + v*(-b)
+ This gives:
+              gcd(a,b) = -gcd(-a,-b) = u*(-a) + v*(-b) = (-u)a + (-v)b
+ 
+ Example:
+    If a=-4 and b=-6 then we calculate (bezout 4 6) and get the result (-1 1).
+    Thus gcd(4,6)=-1*4+1*6.
+    Then 2 = gcd(-4,-6) = (-(-1))(-4) + (-1)(-6) = 1(-4)+(-1)(-6)
+ 
+ CASE 2: One of a and b is negative.
+ Let us say that a is negative. Then we can use the rule:
+     gcd(a,b) = gcd(a+b,b) = gcd(a+2b,b)=gcd(a+3b,b)=...
+ until we get to the first k, where a+k*b is positive.
+ 
+     gcd(a,b) = gcd(a+kb,b)
+ 
+ We can then use the result from bezout on a+kb and b to find u and v
+ such that
+     gcd(a,b) = gcd(a+kb,b) = u*(a+kb) +v*b = u*a +(uk+v)b
+ 
+ Example:
+    a=-8 and b=6
+    We keep adding 6 to -8 until we get a positive number:
+      -8 + 1*6 = -2
+      -8 + 2*6 =  4
+ 
+    Now gcd(-8,6) = gcd(-8+2*6,6) = gcd(4,6).
+    We can now use bezout on 4 and 6 which are both positive.
+ 
+     > (bezout 4 6)
+     '(-1 1)
+ 
+    gcd(-8,6)  = gcd(4,6) = -1*4           + 1*6
+                                      = -1(-8+2*6) + 1*6
+                                      = -1*(-8) +(2+1)*6
+                                      = -1*(-8) +       3*6
+ 
+ Konklusion:    gcd(-8,6) = -1*(-8) +       3*6
+ 
+ Thanks again for the bug report.
+ 
+ 
+ 2013/11/19  <alex.benjamin.engelberg@gmail.com>:
+ > A new problem report is waiting at
+ >   http://bugs.racket-lang.org/query/?cmd=view&pr=14177
+ >
+ > Reported by Alex Engelberg for release: 5.3.4
+ >
+ > *** Description:
+ > math/number-theory bezout function doesn't follow the mathematical guarantees specified in the documentation. Specifically, (bezout -1 -1) produces '(0 1), whereas the gcd of -1 and -1 should be 1 instead of -1. Thus, a correct answer could look something like '(0 -1).
+ >
+ > After some investigation, I think the problem might be with the behavior of quotient and remainder on negative numbers.
+ >
+ > *** How to repeat:
+ > (require math/number-theory)
+ > (bezout -1 -1)
+ > => (0 1)
+ >
+ > *** Environment:
+ > windows "Windows NT 6.1 (Build 7601) Service Pack 1" (win32\x86_64\3m) (get-display-depth) = 32
+ > Human Language: english
+ > (current-memory-use) 288237608
+ > Links: (links) = (); (links #:user? #f) = (); (links #:root? #t) = (); (links #:user? #f #:root? #t) = ()
+ > raco pkg (show):
+ > Installation-wide:
+ >  [none]
+ > User-specific, all-version:
+ >  [none]
+ > User-specific, version-specific (5.3.4):
+ >  [none]
+ >
+ >
+ >
+ > Collections:
+ > ("C:\\Users\\Alex\\AppData\\Roaming\\Racket\\5.3.4\\collects"
+ >  (non-existent-path))
+ > ("C:\\Program Files\\Racket\\collects"
+ >  ("2htdp" "algol60" "at-exp" "browser" "compatibility" "compiler" "config" "data" "datalog" "db" "defaults" "deinprogramm" "drracket" "drscheme" "dynext" "embedded-gui" "eopl" "errortrace" "ffi" "file" "framework" "frtime" "future-visualizer" "games" "graphics" "gui-debugger" "help" "hierlist" "htdp" "html" "icons" "images" "info-domain" "json" "lang" "launcher" "lazy" "macro-debugger" "make" "math" "mred" "mrlib" "mysterx" "mzcom" "mzlib" "mzscheme" "net" "openssl" "parser-tools" "picturing-programs" "pkg" "plai" "planet" "plot" "preprocessor" "profile" "r5rs" "r6rs" "racket" "racklog" "rackunit" "raco" "reader" "readline" "redex" "rnrs" "s-exp" "scheme" "schemeunit" "scribble" "scribblings" "scriblib" "setup" "sgl" "slatex" "slideshow" "srfi" "stepper" "string-constants" "swindle" "syntax" "syntax-color" "teachpack" "test-engine" "texpict" "trace" "typed" "typed-racket" "typed-scheme" "unstable" "version" "web-server" "wxme" "xml" "xrepl"))
+ >
+ > Computer Language: (("Determine language from source") (#(#t print mixed-fraction-e #f #t debug) (default) #() "#lang racket\n" #t #t ((main) (test))))
+ >
+ 
+ 
+ 
+ -- 
+ --
+ Jens Axel Søgaard
+ 
+From: Mark Engelberg <mark.engelberg@gmail.com>
+To: nobody@racket-lang.org, bugs@racket-lang.org,
+        bug-notification@racket-lang.org,
+        Alex Engelberg <alex.benjamin.engelberg@gmail.com>
+Cc: 
+Subject: Re: [racket-bug] all/14177: math/number-theory bezout function
+ doesn't produce right answer
+Date: Tue, 19 Nov 2013 17:50:51 -0800
+
+ --047d7b10cebfc5265404eb920275
+ Content-Type: text/plain; charset=ISO-8859-1
+ 
+ I sketched out a possible solution.  I don't know that it is the most
+ efficient or elegant, but I wanted to lay it out for you in case it is
+ useful.
+ 
+ The idea is that instead of quotient/remainder you want to use a function
+ that always returns a remainder between 0 and |divisor|-1, regardless of
+ whether the inputs are positive or negative.
+ 
+ Switching over to this alternative to quotient/remainder works great except
+ for the base case which just returns (values 0 1).  This occurs when the
+ two inputs to the bezout function have the same absolute value.  So this
+ case needs to be handled specially.
+ 
+ 
+ #lang racket
+ (define (quotient/mod a b)
+   (define mod (modulo a (abs b)))
+   (define q (quotient (- a mod) b))
+   (values q mod))
+ 
+ (define (bezout-helper a b (last-x 1)(last-y 0)(x 0)(y 1))
+   (define-values (q r)(quotient/mod a b))
+   (cond
+     [(= r 0)(values x y)]
+     [else (bezout-helper b r x y (- last-x (* q x)) (- last-y (* q y)))]))
+ 
+ (define (bezout a b)
+   ; Returns incorrect answer if a is 0, should throw error if a is 0
+   (if (= (abs a) (abs b)) (values 0 (if (negative? b) -1 1))
+       (bezout-helper a b)))
+ 
+ --047d7b10cebfc5265404eb920275
+ Content-Type: text/html; charset=ISO-8859-1
+ Content-Transfer-Encoding: quoted-printable
+ 
+ <div dir=3D"ltr"><div><div>I sketched out a possible solution.=A0 I don&#39=
+ ;t know that it is the most efficient or elegant, but I wanted to lay it ou=
+ t for you in case it is useful.<br><br></div>The idea is that instead of qu=
+ otient/remainder you want to use a function that always returns a remainder=
+  between 0 and |divisor|-1, regardless of whether the inputs are positive o=
+ r negative.<br>
+ <br></div>Switching over to this alternative to quotient/remainder works gr=
+ eat except for the base case which just returns (values 0 1).=A0 This occur=
+ s when the two inputs to the bezout function have the same absolute value.=
+ =A0 So this case needs to be handled specially.<br>
+ <br><div><div><br>#lang racket<br>(define (quotient/mod a b)<br>=A0 (define=
+  mod (modulo a (abs b)))<br>=A0 (define q (quotient (- a mod) b))<br>=A0 (v=
+ alues q mod))<br><br>(define (bezout-helper a b (last-x 1)(last-y 0)(x 0)(y=
+  1))<br>
+ =A0 (define-values (q r)(quotient/mod a b))<br>=A0 (cond<br>=A0=A0=A0 [(=3D=
+  r 0)(values x y)]<br>=A0=A0=A0 [else (bezout-helper b r x y (- last-x (* q=
+  x)) (- last-y (* q y)))]))<br><br>(define (bezout a b)<br>=A0 ; Returns in=
+ correct answer if a is 0, should throw error if a is 0<br>
+ =A0 (if (=3D (abs a) (abs b)) (values 0 (if (negative? b) -1 1))<br>=A0=A0=
+ =A0=A0=A0 (bezout-helper a b)))<br></div></div></div>
+ 
+ --047d7b10cebfc5265404eb920275--
+From: =?UTF-8?Q?Jens_Axel_S=C3=B8gaard?= <jensaxel@soegaard.net>
+To: Mark Engelberg <mark.engelberg@gmail.com>
+Cc: nobody@racket-lang.org, bugs <bugs@racket-lang.org>,
+        bug-notification@racket-lang.org,
+        Alex Engelberg <alex.benjamin.engelberg@gmail.com>
+Subject: Re: [racket-bug] all/14177: math/number-theory bezout function
+ doesn't produce right answer
+Date: Sun, 8 Dec 2013 22:15:46 +0100
+
+ Hi Mark,
+ 
+ That approach will work too. I have submit a pull request with a patch
+ on Github.
+ Thanks for the bug report.
+ 
+ /Jens Axel
+ 
+ 
+ 2013/11/20 Mark Engelberg <mark.engelberg@gmail.com>:
+ > I sketched out a possible solution.  I don't know that it is the most
+ > efficient or elegant, but I wanted to lay it out for you in case it is
+ > useful.
+ >
+ > The idea is that instead of quotient/remainder you want to use a function
+ > that always returns a remainder between 0 and |divisor|-1, regardless of
+ > whether the inputs are positive or negative.
+ >
+ > Switching over to this alternative to quotient/remainder works great except
+ > for the base case which just returns (values 0 1).  This occurs when the two
+ > inputs to the bezout function have the same absolute value.  So this case
+ > needs to be handled specially.
+ >
+ >
+ > #lang racket
+ > (define (quotient/mod a b)
+ >   (define mod (modulo a (abs b)))
+ >   (define q (quotient (- a mod) b))
+ >   (values q mod))
+ >
+ > (define (bezout-helper a b (last-x 1)(last-y 0)(x 0)(y 1))
+ >   (define-values (q r)(quotient/mod a b))
+ >   (cond
+ >     [(= r 0)(values x y)]
+ >     [else (bezout-helper b r x y (- last-x (* q x)) (- last-y (* q y)))]))
+ >
+ > (define (bezout a b)
+ >   ; Returns incorrect answer if a is 0, should throw error if a is 0
+ >   (if (= (abs a) (abs b)) (values 0 (if (negative? b) -1 1))
+ >       (bezout-helper a b)))
+ 
+ 
+ 
+ -- 
+ --
+ Jens Axel Søgaard
+ 

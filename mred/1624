@@ -1,0 +1,179 @@
+From robby@cs.rice.edu  Fri Aug 25 09:43:44 2000
+Received: from localhost (cupertino.cs.rice.edu [128.42.2.124])
+	by cs.rice.edu (8.9.0/8.9.0) with ESMTP id JAA08928
+	for <plt-gnats>; Fri, 25 Aug 2000 09:43:44 -0500 (CDT)
+Message-Id: <200008251443.JAA08928@cs.rice.edu>
+Date: Fri, 25 Aug 2000 09:43:44 -0500 (CDT)
+From: robby@cs.rice.edu
+To: plt-gnats@cs.rice.edu
+Subject: queuing a callback (in another eventspace) and blocking during the draw method of a snip in a locked text freezes mred
+
+>Number:         1624
+>Category:       mred
+>Synopsis:       queuing a callback (in another eventspace) and blocking during the draw method of a snip in a locked text freezes mred
+>Confidential:   no
+>Severity:       serious
+>Priority:       medium
+>Responsible:    mflatt
+>State:          closed
+>Class:          sw-bug
+>Submitter-Id:   unknown
+>Arrival-Date:   Fri Aug 25 10:45:19 -0400 2000
+>Last-Modified:  Sun Mar 28 02:46:43 -0500 2004
+>Originator:     Robert Bruce Findler
+>Release:        103
+>Organization:
+titan
+>Environment:
+macos (ppc-mac) (get-display-depth) = 16
+Tools: ("analysis" "CVS" "debug" "project-manager" "syncheck" "typeset" "unit-bundle")
+Docs Installed:
+("advanced" "beginning" "drscheme" "framework" "help" "icons" "intermediate" "misclib" "mred" "mrspidey" "mzc" "mzscheme" "r5rs" "teach" "teachpack" "tools")
+Collections:
+(("Cupertino:Robby:cvs:robby:collects" ("account" "backgammon" "checkers" "CVS" "doonesbury" "friendly" "icfp-pc-99" "magic" "mahjongg" "paper-utils" "pente" "pop-pop" "set-fonts" "solutions" "test-image-map" "xmahjongg")) ("Cupertino:Robby:cvs:robby:proj:talks" ("CVS" "drscheme-architecture" "icfp98" "Jcontracts.ppt" "lc" "lunch1" "unit-patterns" "unit-proposal" "util")) ("Cupertino:Robby:cvs:robby:proj:papers" ("c+u.save" "CVS" "dr" "dr-column" "dr-journal" "drafthead.sty" "geometric-control" "graphical-units" "java-blame" "java-blame-theory" "sba-procedures" "senior-thesis" "signature-constraints" "type-safety" "typed-unit-calculus" "unit" "unit-semantics")) ("Cupertino:Robby:cvs:plt exp:collects" ("afm" "browser" "cogen" "compiler" "countdwn" "CVS" "defaults" "doc" "drjava" "drscheme" "drscheme-jr" "dynext" "errortrace" "framework" "games" "graphics" "guibuilder" "guserspce" "help" "hierarchy" "hierlist" "htdp" "html" "icons" "launcher" "make" "mrdemo" "mred" "mrspidey" "mysterx" "mzlib" "mzos" "mzscheme" "net" "quasiquote" "readline" "setup" "slatex" "slibinit" "srpersist" "stepper" "stepper-graphical" "tests" "texpict" "typeset" "userspce" "xml" "zodiac")) ("Cupertino:cvs:robby:mflatt:collects" "non-existant path"))
+>Description:
+I would have narrowed this down further, but each time I try
+this I have to force mred to exit. Then, my machine started
+crashing (during startup, no less) so I'm not going to mess
+with this anymore.
+>How-To-Repeat:
+- evaluate the code below
+- click around on the frame that comes up.
+  eventually, the bitmap will stop drawing
+  sometimes I just click, sometimes I have to hide and unhhide
+  the window
+- mred is frozen, even the repl window.
+
+(define students-snipclass
+  (make-object (class snip-class% ()
+                 (override
+                   [read
+                    (lambda (p)
+                      (make-object students-snip%))])
+                 (sequence (super-init)))))
+(send students-snipclass set-classname "shriram:students-snipclass")
+(send students-snipclass set-version 1)
+(send (get-the-snip-class-list) add students-snipclass)
+
+(define (set-box/f! b v) (when (box? b) (set-box! b v)))
+(define bm (make-object bitmap% (build-path (collection-path "icons") "plt-logo.gif")))
+
+(define students-custodian (make-custodian))
+(define students-eventspace
+  (parameterize ([current-custodian students-custodian])
+    (make-eventspace)))
+
+(define students-snip%
+  (class snip% ()
+    (inherit set-snipclass)
+    (override
+      [get-extent
+       (lambda (dc x y wb hb descent space lspace rspace)
+         (set-box/f! wb (send bm get-width))
+         (set-box/f! hb (send bm get-height))
+         (set-box/f! descent 0)
+         (set-box/f! space 0)
+         (set-box/f! lspace 0)
+         (set-box/f! rspace 0))]
+      [draw
+       (lambda (dc x y left top right bottom dx dy draw-caret?)
+         (let ([sema (make-semaphore 0)])
+           (parameterize ([current-eventspace students-eventspace])
+             (queue-callback
+              (lambda ()
+                (with-handlers ([(lambda (x) #t)
+                                 (lambda (x)
+                                   (set! proc void)
+                                   (semaphore-post sema))])
+                  (send dc draw-bitmap bm x y)
+                  (semaphore-post sema))))
+             (semaphore-wait sema))))])
+    (sequence
+      (super-init)
+      (set-snipclass students-snipclass))))
+
+(define f (make-object frame% "frame" #f 400 200))
+(define t (make-object text%))
+(make-object editor-canvas% f t)
+(send f show #t)
+(send t insert (make-object students-snip%))
+(send t lock #t)
+
+>Fix:
+>Release-Note:
+
+>Audit-Trail:
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: robby@cs.rice.edu
+Cc: plt-gnats@cs.rice.edu
+Subject: Re: all/1624: queuing a callback (in another eventspace) and blocking during the draw method of a snip in a locked text freezes mred
+Date: Fri, 25 Aug 2000 07:48:09 -0700
+
+ Quoting robby@cs.rice.edu:
+ > I would have narrowed this down further, but each time I try
+ > this I have to force mred to exit. Then, my machine started
+ > crashing (during startup, no less) so I'm not going to mess
+ > with this anymore.
+ 
+ Is this problem mac-specific? I'm not able to reproduce the problem in
+ Linux, so far.
+ 
+ 
+
+From: Robert Bruce Findler <robby@cs.rice.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: plt-gnats@cs.rice.edu, clements@cs.rice.edu
+Subject: Re: all/1624: queuing a callback (in another eventspace) and
+ blocking during the draw method of a snip in a locked text freezes mred
+Date: Fri, 25 Aug 2000 09:55:47 -0500
+
+ >
+ >Is this problem mac-specific? I'm not able to reproduce the problem in
+ >Linux, so far.
+ 
+ It appears to be. It was never hard for me to reproduce on the mac. 
+ It just takes some clicking around. Under solaris with MacX, it 
+ doesn't seem to happen.
+ 
+ Robby
+
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Robert Bruce Findler <robby@cs.rice.edu>
+Cc: plt-gnats@cs.rice.edu, clements@cs.rice.edu
+Subject: Re: all/1624: queuing a callback (in another eventspace) and
+ blocking during the draw method of a snip in a locked text freezes mred
+Date: Fri, 25 Aug 2000 08:05:06 -0700
+
+ Quoting Robert Bruce Findler:
+ > >
+ > >Is this problem mac-specific? I'm not able to reproduce the problem in
+ > >Linux, so far.
+ > 
+ > It appears to be. It was never hard for me to reproduce on the mac. 
+ > It just takes some clicking around. Under solaris with MacX, it 
+ > doesn't seem to happen.
+ 
+ Actually, I found a way to make it stuck: select the bitmap, which
+ implies a copy.
+ 
+ My first guess is that both problems are related to the synchronization
+ that makes certain Scheme-implemented parts of MrEd single-threaded. In
+ any case, I'll work on the copy problem, which may shed light on the
+ Mac problem.
+ 
+ Matthew
+
+Responsible-Changed-From-To: steck->mflatt
+Responsible-Changed-By: mflatt
+Responsible-Changed-When: Mon Aug 28 11:37:14 2000
+Responsible-Changed-Why:
+
+State-Changed-From-To: open-closed
+State-Changed-By: mflatt
+State-Changed-When: Tue Sep 26 14:16:57 2000
+State-Changed-Why:
+Fixed in 103.1
+
+ 
+>Unformatted:

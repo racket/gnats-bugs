@@ -1,0 +1,217 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Thu Jan 22 20:28:27 2009
+Received: from rv-out-0506.google.com (rv-out-0506.google.com [209.85.198.225])
+	by champlain.ccs.neu.edu (8.14.2/8.14.2) with ESMTP id n0N1SJYT031500
+	for <bugs@bugs.plt-scheme.org>; Thu, 22 Jan 2009 20:28:20 -0500
+Message-Id: <200901230128.n0N1SEga031494@champlain.ccs.neu.edu>
+Date: Thu, 22 Jan 2009 20:28:14 -0500
+From: samth@ccs.neu.edu
+To: bugs@plt-scheme.org
+Subject: strange unit/contract/macro bug
+
+>Number:         10035
+>Category:       mzscheme
+>Synopsis:       strange unit/contract/macro bug
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Jan 22 20:32:01 -0500 2009
+>Closed-Date:    Mon Mar 16 08:55:03 -0400 2009
+>Last-Modified:  Mon Mar 16 08:55:03 -0400 2009
+>Originator:     Sam TH
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.4.1-svn22jan2009
+>Environment:
+unix "Linux punge 2.6.22-14-386 #1 Tue Feb 12 07:12:19 UTC 2008 i686 GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+Human Language: english
+(current-memory-use) 164337940
+
+Collections:
+(("/home/samth/scheme" "infix4.diff" "info-domain" "match" "perf" "foo" "ifc" "beamer") ("/home/samth/work/csu660/collects" ".svn" "CSU660" "handin-server" "info-domain") ("/home/samth/.plt-scheme/4.1.4.1/collects" non-existent-path) ("/home/samth/sw/plt4/collects" ".svn" "tex2page" "string-constants" "wxme" "planet" "mzcom" "drscheme" "s-exp" "r6rs" "framework" "srpersist" "sirmail" "slideshow" "scribblings" "test-box-recovery" "syntax-color" "srfi" "algol60" "dynext" "make" "plot" "file" "lang" "web-server" "openssl" "macro-debugger" "scribble" "frtime" "mred" "combinator-parser" "guibuilder" "htdp" "setup" "graphics" "profjWizard" "afm" "scheme" "config" "gui-debugger" "defaults" "icons" "handin-client" "lazy" "texpict" "browser" "teachpack" "rnrs" "parser-tools" "waterworld" "r5rs" "games" "redex" "eopl" "tests" "html" "handin-server" "swindle" "repos-time-stamp" "typed" "compiler" "embedded-gui" "profj" "stepper" "readline" "hierlist" "sgl" "version" "preprocessor" "net!
+ " "syntax" "help" "htdch" "trace" "slatex" "xml" "launcher" "ffi" "mrlib" "errortrace" "mzscheme" "mysterx" "mzlib" "info-domain" "typed-scheme" "test-engine" "2htdp" "stxclass" "honu"))
+Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t none) (default) #() "#lang scheme\n" #t))
+>Description:
+This program:
+
+#lang scheme/unit
+
+(require (for-syntax syntax/boundmap))
+
+(import)
+(export)
+
+(define-syntax x make-bound-identifier-mapping)
+
+gives this error:
+
+ ../../sw/plt4/collects/scheme/private/contract.ss:398:5: syntax-local-lift-expression: no lift target
+>How-To-Repeat:
+>Fix:
+>Audit-Trail:
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: samth@ccs.neu.edu, bugs@plt-scheme.org
+Cc: mflatt@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10035: strange unit/contract/macro bug
+Date: Fri, 23 Jan 2009 15:30:39 -0500
+
+ Here's what Stevie and I have discovered after some more poking at the  
+ problem:
+ 
+ The culprit seems to be the use of 'local-transformer-expand', which  
+ does not capture lifts. (Is there ever a reason to use the non-lift- 
+ capturing 'local-transformer-expand'? It seems unavoidably unsafe.)
+ 
+ When we tried removing the calls to 'local-transformer-expand' in the  
+ unit code and in the implementation of 'begin-with-definitions', the  
+ error went away. This takes us back to the point where 'bind-syntaxes'  
+ does the expansion itself (and thus the expansion occurs twice).
+ 
+ By itself, 'local-transformer-expand/capture-lifts' doesn't fix the  
+ problem, since that returns lifts as definitions. And IIRC, the lifted  
+ definitions may have unexpanded subexpressions. It seems like a more  
+ useful primitive or standard library procedure would be 'local- 
+ transformer-expand/capture-lifts-to-let', following the behavior of  
+ 'scheme_expand_expr_lift_to_let'.
+ 
+ Ryan
+ 
+ 
+ On Jan 22, 2009, at 8:32 PM, samth@ccs.neu.edu wrote:
+ 
+ > A new problem report is waiting at
+ >  http://bugs.plt-scheme.org/query/?cmd=view&pr=10035
+ >
+ > Reported by Sam TH for release: 4.1.4.1-svn22jan2009
+ >
+ > *** Description:
+ > This program:
+ >
+ > #lang scheme/unit
+ >
+ > (require (for-syntax syntax/boundmap))
+ >
+ > (import)
+ > (export)
+ >
+ > (define-syntax x make-bound-identifier-mapping)
+ >
+ > gives this error:
+ >
+ > ../../sw/plt4/collects/scheme/private/contract.ss:398:5: syntax- 
+ > local-lift-expression: no lift target
+ >
+ > *** How to repeat:
+ >
+ >
+ > *** Environment:
+ > unix "Linux punge 2.6.22-14-386 #1 Tue Feb 12 07:12:19 UTC 2008 i686  
+ > GNU/Linux" (i386-linux/3m) (get-display-depth) = 24
+ > Human Language: english
+ > (current-memory-use) 164337940
+ >
+ > Collections:
+ > (("/home/samth/scheme" "infix4.diff" "info-domain" "match" "perf"  
+ > "foo" "ifc" "beamer") ("/home/samth/work/csu660/collects" ".svn"  
+ > "CSU660" "handin-server" "info-domain") ("/home/samth/.plt-scheme/ 
+ > 4.1.4.1/collects" non-existent-path) ("/home/samth/sw/plt4/collects"  
+ > ".svn" "tex2page" "string-constants" "wxme" "planet" "mzcom"  
+ > "drscheme" "s-exp" "r6rs" "framework" "srpersist" "sirmail"  
+ > "slideshow" "scribblings" "test-box-recovery" "syntax-color" "srfi"  
+ > "algol60" "dynext" "make" "plot" "file" "lang" "web-server"  
+ > "openssl" "macro-debugger" "scribble" "frtime" "mred" "combinator- 
+ > parser" "guibuilder" "htdp" "setup" "graphics" "profjWizard" "afm"  
+ > "scheme" "config" "gui-debugger" "defaults" "icons" "handin-client"  
+ > "lazy" "texpict" "browser" "teachpack" "rnrs" "parser-tools"  
+ > "waterworld" "r5rs" "games" "redex" "eopl" "tests" "html" "handin- 
+ > server" "swindle" "repos-time-stamp" "typed" "compiler" "embedded- 
+ > gui" "profj" "stepper" "readline" "hierlist" "sgl" "version"  
+ > "preprocessor" "net!
+ > " "syntax" "help" "htdch" "trace" "slatex" "xml" "launcher" "ffi"  
+ > "mrlib" "errortrace" "mzscheme" "mysterx" "mzlib" "info-domain"  
+ > "typed-scheme" "test-engine" "2htdp" "stxclass" "honu"))
+ > Computer Language: (("Module") (#(#t write mixed-fraction-e #f #t  
+ > none) (default) #() "#lang scheme\n" #t))
+ >
+ 
+From: Matthew Flatt <mflatt@cs.utah.edu>
+To: Ryan Culpepper <ryanc@ccs.neu.edu>
+Cc: samth@ccs.neu.edu, bugs@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10035: strange unit/contract/macro bug
+Date: Fri, 23 Jan 2009 14:20:23 -0700
+
+ At Fri, 23 Jan 2009 15:30:39 -0500, Ryan Culpepper wrote:
+ > Here's what Stevie and I have discovered after some more poking at the  
+ > problem:
+ > 
+ > The culprit seems to be the use of 'local-transformer-expand', which  
+ > does not capture lifts. (Is there ever a reason to use the non-lift- 
+ > capturing 'local-transformer-expand'? It seems unavoidably unsafe.)
+ > 
+ > When we tried removing the calls to 'local-transformer-expand' in the  
+ > unit code and in the implementation of 'begin-with-definitions', the  
+ > error went away. This takes us back to the point where 'bind-syntaxes'  
+ > does the expansion itself (and thus the expansion occurs twice).
+ > 
+ > By itself, 'local-transformer-expand/capture-lifts' doesn't fix the  
+ > problem, since that returns lifts as definitions. And IIRC, the lifted  
+ > definitions may have unexpanded subexpressions. It seems like a more  
+ > useful primitive or standard library procedure would be 'local- 
+ > transformer-expand/capture-lifts-to-let', following the behavior of  
+ > 'scheme_expand_expr_lift_to_let'.
+ 
+ Would it be a sensible repair to change `local-transformer-expand' so
+ that it always captures lifts to a `let'?
+ 
+From: Ryan Culpepper <ryanc@ccs.neu.edu>
+To: Matthew Flatt <mflatt@cs.utah.edu>
+Cc: samth@ccs.neu.edu, bugs@plt-scheme.org, sstrickl@plt-scheme.org
+Subject: Re: [plt-bug] all/10035: strange unit/contract/macro bug
+Date: Fri, 23 Jan 2009 16:29:54 -0500
+
+ On Jan 23, 2009, at 4:20 PM, Matthew Flatt wrote:
+ 
+ > At Fri, 23 Jan 2009 15:30:39 -0500, Ryan Culpepper wrote:
+ >> Here's what Stevie and I have discovered after some more poking at  
+ >> the
+ >> problem:
+ >>
+ >> The culprit seems to be the use of 'local-transformer-expand', which
+ >> does not capture lifts. (Is there ever a reason to use the non-lift-
+ >> capturing 'local-transformer-expand'? It seems unavoidably unsafe.)
+ >>
+ >> When we tried removing the calls to 'local-transformer-expand' in the
+ >> unit code and in the implementation of 'begin-with-definitions', the
+ >> error went away. This takes us back to the point where 'bind- 
+ >> syntaxes'
+ >> does the expansion itself (and thus the expansion occurs twice).
+ >>
+ >> By itself, 'local-transformer-expand/capture-lifts' doesn't fix the
+ >> problem, since that returns lifts as definitions. And IIRC, the  
+ >> lifted
+ >> definitions may have unexpanded subexpressions. It seems like a more
+ >> useful primitive or standard library procedure would be 'local-
+ >> transformer-expand/capture-lifts-to-let', following the behavior of
+ >> 'scheme_expand_expr_lift_to_let'.
+ >
+ > Would it be a sensible repair to change `local-transformer-expand' so
+ > that it always captures lifts to a `let'?
+ 
+ It seems like a good idea to me. There's no way that there can be an  
+ active lift target already in place when calling the current 'local- 
+ transformer-expand', is there? If not, capturing lifts as 'let' seems  
+ like the right thing to do.
+ 
+ Ryan
+ 
+
+Responsible changed from "nobody" to "mflatt" by eli at Sun, 15 Mar 2009 22:55:24 -0400
+Reason>>> syntax change in mzscheme
+
+
+State changed from "open" to "closed" by mflatt at Mon, 16 Mar 2009 08:55:03 -0400
+Reason>>> fixed a while ago
+

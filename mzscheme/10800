@@ -1,0 +1,198 @@
+From bugs+caf_=bugs=bugs.plt-scheme.org@plt-scheme.org Wed Mar  3 01:01:06 2010
+Received: from mail-gy0-f172.google.com (mail-gy0-f172.google.com [209.85.160.172])
+	by champlain.ccs.neu.edu (8.14.3/8.14.3) with ESMTP id o23614IJ017369
+	for <bugs@bugs.plt-scheme.org>; Wed, 3 Mar 2010 01:01:04 -0500
+Message-Id: <201003030601.o23612nc017362@champlain.ccs.neu.edu>
+Date: Wed, 3 Mar 2010 01:01:02 -0500
+From: plt-scheme@akkartik.com
+To: bugs@plt-scheme.org
+Subject: Segfault due to regexp lib
+
+>Number:         10800
+>Category:       mzscheme
+>Synopsis:       Segfault due to regexp lib
+>Class:          sw-bug
+>Responsible:    mflatt
+>Severity:       serious
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Wed Mar 03 01:04:01 -0500 2010
+>Closed-Date:    Thu May 12 16:25:39 -0400 2011
+>Last-Modified:  Thu May 12 16:25:39 -0400 2011
+>Originator:     Kartik Agaram
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        4.1.3, 4.2.4
+>Environment:
+linux-ubuntu
+>Description:
+The following program will non-reproducibly cause a segfault some of the time:
+
+(require (lib "mzlib/pregexp"))
+
+(define log (lambda(x)
+              (with-output-to-file "log"
+                (lambda()
+                  (print x)
+                  (newline)
+                  (flush-output))
+                #:exists 'append)))
+
+
+; Repeatedly run regexp-replace over a list of words.
+(let ((words (call-with-input-file "ztmp.words2"
+                                   (lambda(f) (read f)))))
+  (letrec ((fn (lambda()
+                  (print "iter") (newline)
+                  (map (lambda(x) (log x) (regexp-replace (pregexp "b.*") x ""))
+                       ; You can replace b with any letter. The input doesn't
+                       ; even have any b's.
+                       words)
+                  (fn))))
+    (fn)))
+
+The data file is at http://gist.github.com/320212. I suspect any large list of strings will do.
+>How-To-Repeat:
+1. Download the gist to ztmp.words2
+2. copy the program to say x.scm
+
+$ mzscheme
+> (load "x.scm")
+
+Wait 10 minutes to 1 hour. It should segfault at some point.
+
+More efficient in time: wait 15 minutes, interrupt and retry if necessary.
+>Fix:
+>Audit-Trail:
+From: Eli Barzilay <eli@barzilay.org>
+To: plt-scheme@akkartik.com, bugs@plt-scheme.org
+Cc: nobody@plt-scheme.org, bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10800: Segfault due to regexp lib
+Date: Fri, 5 Mar 2010 08:59:27 -0500
+
+ On Mar  3, plt-scheme@akkartik.com wrote:
+ > 1. Download the gist to ztmp.words2
+ > 2. copy the program to say x.scm
+ > 
+ > $ mzscheme
+ > > (load "x.scm")
+ > 
+ > Wait 10 minutes to 1 hour. It should segfault at some point.
+ > 
+ > More efficient in time: wait 15 minutes, interrupt and retry if
+ > necessary.
+ 
+ I did this for three machines (Ubuntu, F12, and F7 on a 64 bit
+ machine) for about an hour and got no crashes.  (Using 4.2.4.)
+ 
+ -- 
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay:
+                     http://barzilay.org/                   Maze is Life!
+From: Kartik Agaram <plt-scheme@akkartik.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10800: Segfault due to regexp lib
+Date: Fri, 5 Mar 2010 11:01:10 -0800
+
+ >> Wait 10 minutes to 1 hour. It should segfault at some point.
+ >
+ > I did this for three machines (Ubuntu, F12, and F7 on a 64 bit
+ > machine) for about an hour and got no crashes. =A0(Using 4.2.4.)
+ 
+ That's interesting, thanks for trying it out.
+ 
+ I get the crash on ubuntu jaunty with mzscheme 4.1.3 or 4.2.4. FWIW
+ I'm on an amazon EC2 VPS. Also, it's 32-bit.
+ 
+ I haven't been able to generate a segfault either with 4.2.2 on snow
+ leopard. Snow Leopard runs on a 32-bit userland with 64-bit kernel, I
+ believe.
+ 
+ BTW, there's some discussion about this here:
+ http://arclanguage.org/item?id=3D11355
+ 
+ Kartik
+From: Kartik Agaram <plt-scheme@akkartik.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10800: Segfault due to regexp lib
+Date: Fri, 5 Mar 2010 13:05:07 -0800
+
+ I've tried it on several different images on EC2. All the 32-bit
+ ubuntu slices seem to have this problem. I haven't been able to try it
+ on 64-bit ubuntu because there's no binary for 64-bit ubuntu. I don't
+ have access to a physical ubuntu machine. Those may be interesting
+ experiments to try..
+ 
+ I'm just going to switch to fedora on my server. That's the canonical
+ amazon image anyway..
+ 
+ Thanks,
+ Kartik
+From: Kartik Agaram <plt-scheme@akkartik.com>
+To: Eli Barzilay <eli@barzilay.org>
+Cc: bugs@plt-scheme.org, nobody@plt-scheme.org,
+        bug-notification@plt-scheme.org
+Subject: Re: [plt-bug] all/10800: Segfault due to regexp lib
+Date: Fri, 5 Mar 2010 13:08:04 -0800
+
+ > I'm just going to switch to fedora on my server. That's the canonical
+ > amazon image anyway..
+ 
+ Other distros don't seem to have the problem so I assume it's an
+ interaction with a specific 32-bit version of some library that's
+ distributed with ubuntu jaunty.
+From: Eli Barzilay <eli@barzilay.org>
+To: Kartik Agaram <plt-scheme@akkartik.com>
+Cc: bugs@plt-scheme.org
+Subject: Re: [plt-bug] all/10800: Segfault due to regexp lib
+Date: Sat, 6 Mar 2010 05:04:14 -0500
+
+ On Mar  5, Kartik Agaram wrote:
+ > >> Wait 10 minutes to 1 hour. It should segfault at some point.
+ > >
+ > > I did this for three machines (Ubuntu, F12, and F7 on a 64 bit
+ > > machine) for about an hour and got no crashes. =C2=A0(Using 4.2.4.)=
+ 
+ >=20
+ > That's interesting, thanks for trying it out.
+ >=20
+ > I get the crash on ubuntu jaunty with mzscheme 4.1.3 or 4.2.4. FWIW
+ > I'm on an amazon EC2 VPS. Also, it's 32-bit.
+ 
+ Just in case you're not on the main list, there was a bug that was
+ recently fixed with matches over unicode classes.  Perhaps it's
+ related in some way -- so it's worth trying the recent nightly build.
+ 
+ 
+ > BTW, there's some discussion about this here:
+ > http://arclanguage.org/item=3Fid=3D11355
+ 
+ (Yeah, I've seen that.)
+ 
+ 
+ On Mar  5, Kartik Agaram wrote:
+ > > I'm just going to switch to fedora on my server. That's the
+ > > canonical amazon image anyway..
+ >=20
+ > Other distros don't seem to have the problem so I assume it's an
+ > interaction with a specific 32-bit version of some library that's
+ > distributed with ubuntu jaunty.
+ 
+ Maybe, though that doesn't sound too great.  You could also build from
+ source, use the unstripped binary, and then if there's a crash you'd
+ get a core dump that can be used to see where the problem is.
+ 
+ --=20
+           ((lambda (x) (x x)) (lambda (x) (x x)))          Eli Barzilay=
+ :
+                     http://barzilay.org/                   Maze is Life=
+ !
+
+State changed from "open" to "closed" by ryanc at Thu, 12 May 2011 16:25:39 -0400
+Reason>>> can't reproduce
+

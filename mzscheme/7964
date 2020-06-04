@@ -1,0 +1,66 @@
+From apache@plt-scheme.org Thu Mar 16 15:45:33 2006
+Received: from champlain.ccs.neu.edu (champlain.ccs.neu.edu [127.0.0.1])
+	by champlain.ccs.neu.edu (8.12.10/8.12.10) with ESMTP id k2GKjVZ4006328
+	for <bugs@plt-scheme.org>; Thu, 16 Mar 2006 15:45:31 -0500
+Message-Id: <200603162045.k2GKjVxd006326@champlain.ccs.neu.edu>
+Date: Thu, 16 Mar 2006 15:45:31 -0500
+From: la@iki.fi
+To: bugs@plt-scheme.org
+Subject: Eval does not use argument namespace for syntax enrichment
+
+>Number:         7964
+>Category:       mzscheme
+>Synopsis:       Eval does not use argument namespace for syntax enrichment
+>Class:          change-request
+>Responsible:    mflatt
+>Severity:       non-critical
+>Priority:       medium
+>State:          closed
+>Confidential:   no
+>Arrival-Date:   Thu Mar 16 15:50:00 -0500 2006
+>Last-Modified:  Thu Apr 27 17:11:37 -0400 2006
+>Originator:     Lauri Alanko
+>Organization:
+plt
+>Submitter-Id:   unknown
+>Release:        301.8
+>Environment:
+linux-other
+>Description:
+Not a bug, but just stupendously unintuitive behavior: when calling eval with an explicit namespace argument: (eval stx ns), then that namespace is used for evaluation, but the syntax is still enriched using (current-namespace). This took me quite a while to figure out. I think it would be much more intuitive if (eval stx ns) were exactly equivalent to (parameterize ((current-namespace ns)) (eval stx)).
+
+Here's a patch:
+
+Index: eval.c
+===================================================================
+--- eval.c      (revision 2442)
++++ eval.c      (working copy)
+@@ -5603,7 +5603,13 @@
+   if (SCHEME_STXP(form)
+       && !SAME_TYPE(SCHEME_TYPE(SCHEME_STX_VAL(form)), scheme_compilation_top_type)) {
+     Scheme_Env *genv;
+-    genv = scheme_get_env(NULL);
++    if (argc > 1) {
++      if (SCHEME_TYPE(argv[1]) != scheme_namespace_type)
++        scheme_wrong_type("eval", "namespace", 1, argc, argv);
++      genv = (Scheme_Env *) argv[1];
++    } else {
++      genv = scheme_get_env(NULL);
++    }
+     form = add_renames_unless_module(form, genv);
+   }
+>How-To-Repeat:
+> (module foo mzscheme (define x 42) (provide x))
+> (module bar mzscheme (require foo))
+> (require bar)
+> (define x 7)
+> (define ns (module->namespace 'bar))
+> (eval 'x ns)
+42
+> (eval (datum->syntax-object #f 'x) ns)
+reference to an identifier before its definition: x in module: bar
+>Fix:
+>Audit-Trail:
+State changed from "open" to "closed" by mflatt at Thu, 27 Apr 2006 17:11:37 -0400
+Reason>>> patch applied, finally
+
